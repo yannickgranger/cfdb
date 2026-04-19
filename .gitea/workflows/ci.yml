@@ -93,8 +93,11 @@ jobs:
           # the next run that tries to lint against them (RFC-030 §7.4). The
           # build is sccache-warm → typical install ~5–15s.
           git config --global url."https://oauth2:${GITHUB_TOKEN}@agency.lab:3000/".insteadOf "https://agency.lab:3000/"
+          # The `graph-specs` binary lives in the `application` package of
+          # the graph-specs-rust workspace — pass the package name and the
+          # bin name explicitly so cargo install can resolve both.
           cargo install --git https://agency.lab:3000/yg/graph-specs-rust \
-            --branch develop --root /cache/cargo graph-specs
+            --branch develop --root /cache/cargo --bin graph-specs application
           graph-specs --version
 
       - name: Graph-specs check (RFC-030 §3.1 anti-drift gate)
