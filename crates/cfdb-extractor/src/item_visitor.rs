@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 
 use cfdb_core::fact::{Edge, Node, PropValue};
-use cfdb_core::qname::{item_node_id, item_qname, method_qname, module_qpath};
+use cfdb_core::qname::{item_node_id, item_qname, method_qname, module_qpath, qname_from_node_id};
 use cfdb_core::schema::{EdgeLabel, Label};
 use cfdb_core::Visibility;
 use syn::visit::Visit;
@@ -224,7 +224,7 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
             &node.vis,
             &node.attrs,
         );
-        let caller_qname = id.trim_start_matches("item:").to_string();
+        let caller_qname = qname_from_node_id(&id).to_string();
         walk_call_sites_with_test_flag(
             self.emitter,
             &caller_qname,
@@ -304,7 +304,7 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
             &node.vis,
             &node.attrs,
         );
-        let parent_qname = id.trim_start_matches("item:").to_string();
+        let parent_qname = qname_from_node_id(&id).to_string();
         if let syn::Fields::Named(named) = &node.fields {
             for f in &named.named {
                 if let Some(ident) = &f.ident {

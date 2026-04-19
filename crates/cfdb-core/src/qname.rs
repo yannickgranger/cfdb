@@ -75,6 +75,21 @@ pub fn item_node_id(qname: &str) -> String {
     format!("item:{qname}")
 }
 
+/// Inverse of [`item_node_id`] — strip the `item:` prefix off a node
+/// id to recover the bare qname. Callers sometimes round-trip an Item
+/// node id back to its qname to pass through a helper that expects
+/// bare qnames (e.g. emitter functions that receive a qname and
+/// internally re-wrap via `item_node_id`). Routing both directions
+/// through this module prevents the prefix literal from re-scattering
+/// into hand-written `trim_start_matches("item:")` calls.
+///
+/// If the input does not carry the `item:` prefix, it is returned
+/// unchanged — symmetric with `str::trim_start_matches` behaviour.
+#[must_use]
+pub fn qname_from_node_id(node_id: &str) -> &str {
+    node_id.strip_prefix("item:").unwrap_or(node_id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -165,6 +180,37 @@ mod tests {
         // Degenerate but valid — the wrapper is a pure string operation,
         // not a parser. Empty qname is illegal-but-representable.
         assert_eq!(item_node_id(""), "item:");
+    }
+
+    #[test]
+    fn qname_from_node_id_strips_item_prefix() {
+        assert_eq!(
+            qname_from_node_id("item:cfdb_core::schema::Label"),
+            "cfdb_core::schema::Label"
+        );
+    }
+
+    #[test]
+    fn qname_from_node_id_returns_input_unchanged_when_no_prefix() {
+        assert_eq!(qname_from_node_id("no_prefix_here"), "no_prefix_here");
+    }
+
+    #[test]
+    fn qname_from_node_id_round_trip_via_item_node_id() {
+        let q = "cfdb_extractor::item_visitor::ItemVisitor::emit_item";
+        assert_eq!(qname_from_node_id(&item_node_id(q)), q);
+    }
+
+    #[test]
+    fn method_qname_with_qualified_impl_target_preserves_path() {
+        // `impl std::fmt::Display for Foo` — the rendered self_ty is
+        // the trait target `Foo`, but nothing in the formula prevents
+        // a caller from passing a qualified path. The contract is
+        // verbatim interposition between module_qpath and method_name.
+        assert_eq!(
+            method_qname(&stack(&["cfdb_cli"]), "std::fmt::Display", "fmt"),
+            "cfdb_cli::std::fmt::Display::fmt"
+        );
     }
 
     #[test]
