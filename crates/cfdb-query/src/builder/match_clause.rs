@@ -2,7 +2,9 @@
 
 use std::collections::BTreeMap;
 
-use cfdb_core::{Direction, EdgeLabel, EdgePattern, Label, NodePattern, PathPattern, Pattern, PropValue};
+use cfdb_core::{
+    Direction, EdgeLabel, EdgePattern, Label, NodePattern, PathPattern, Pattern, PropValue,
+};
 
 use super::QueryBuilder;
 
