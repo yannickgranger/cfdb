@@ -1,0 +1,18 @@
+# .cfdb/cross-fixture.toml — cross-dogfood fixture pin per RFC-033 §3.1.
+#
+# Pins the companion repository (graph-specs-rust) at a known-good SHA.
+# Bumped by the weekly cross-bump job (RFC-033 §3.3, Monday 06:00 UTC) or
+# manually in an RFC-033-gated PR with a one-line rationale. The pinned SHA
+# is expected to be clean on both tools — the zero-false-positive invariant
+# (§3.4) forbids allowlists.
+#
+# Parse discipline: `ci/read-cross-fixture-sha.sh` is the single source of
+# truth for extracting `sha`. Both PR-time cross-dogfood (§3.2) and the
+# weekly bump / closed-loop jobs (§3.3, §3.6) call the same helper.
+
+[companion]
+repo      = "yg/graph-specs-rust"
+branch    = "develop"
+sha       = "913f06ffa783f826e1044c3419c3ff18cef83c81"
+bumped_at = "2026-04-19T00:00:00Z"
+bumped_by = "initial"
