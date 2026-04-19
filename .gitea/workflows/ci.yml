@@ -96,8 +96,12 @@ jobs:
           # The `graph-specs` binary lives in the `application` package of
           # the graph-specs-rust workspace — pass the package name and the
           # bin name explicitly so cargo install can resolve both.
+          # `--force` is load-bearing: we track develop, so the cached binary
+          # from the previous CI run must be overwritten with the current
+          # develop HEAD. Without --force, cargo install would refuse on
+          # second+ runs and we'd silently gate against a stale dialect.
           cargo install --git https://agency.lab:3000/yg/graph-specs-rust \
-            --branch develop --root /cache/cargo --bin graph-specs application
+            --branch develop --root /cache/cargo --bin graph-specs --force application
           graph-specs --version
 
       - name: Graph-specs check (RFC-030 §3.1 anti-drift gate)
