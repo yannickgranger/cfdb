@@ -26,6 +26,7 @@ pub fn extract(
     workspace: PathBuf,
     db: PathBuf,
     keyspace: Option<String>,
+    hir: bool,
 ) -> Result<(), crate::CfdbCliError> {
     let ks_name = keyspace.unwrap_or_else(|| {
         workspace
@@ -44,9 +45,39 @@ pub fn extract(
     store.ingest_nodes(&ks, nodes)?;
     store.ingest_edges(&ks, edges)?;
 
+    if hir {
+        extract_hir(&mut store, &ks, &workspace)?;
+    }
+
     let path = compose::save_store(&store, &ks, &db)?;
     eprintln!("extract: saved keyspace `{ks_name}` to {}", path.display());
     Ok(())
+}
+
+/// Run the HIR pipeline when the `hir` feature is compiled in. The
+/// feature-gated `crate::hir::extract_and_ingest_hir` module is the
+/// single integration seam — if not compiled, `--hir` emits a clear
+/// error instead of silently no-oping.
+#[cfg(feature = "hir")]
+fn extract_hir(
+    store: &mut cfdb_petgraph::PetgraphStore,
+    ks: &Keyspace,
+    workspace: &Path,
+) -> Result<(), crate::CfdbCliError> {
+    crate::hir::extract_and_ingest_hir(store, ks, workspace)
+        .map_err(|e| crate::CfdbCliError::from(format!("hir extract failed: {e}")))?;
+    Ok(())
+}
+
+#[cfg(not(feature = "hir"))]
+fn extract_hir(
+    _store: &mut cfdb_petgraph::PetgraphStore,
+    _ks: &Keyspace,
+    _workspace: &Path,
+) -> Result<(), crate::CfdbCliError> {
+    Err(crate::CfdbCliError::from(
+        "`--hir` requires the `hir` Cargo feature — rebuild with `cargo build -p cfdb-cli --features hir`".to_string(),
+    ))
 }
 
 pub fn query(

@@ -73,6 +73,13 @@ pub trait CallSiteEmitter {
 /// Every field is a cardinality (non-negative). Counts reflect the
 /// input batch — NOT the cumulative store state. Callers that need
 /// cumulative totals must aggregate across successive calls.
+///
+/// The struct is intentionally NOT marked `#[non_exhaustive]` for
+/// slice 4 (MVP): the adapter crate still lives in the same
+/// workspace and uses struct-literal construction. When the struct
+/// becomes part of a published-API surface, the marker should be
+/// added (rust-systems Q7 from #92 review — tracked as non-blocking
+/// follow-up).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct EmitStats {
     /// Count of nodes with `label == Label::CALL_SITE` in the input.
@@ -81,6 +88,12 @@ pub struct EmitStats {
     pub calls_edges_emitted: usize,
     /// Count of edges with `label == EdgeLabel::INVOKES_AT` in the input.
     pub invokes_at_edges_emitted: usize,
+    /// Count of nodes with `label == Label::ENTRY_POINT` in the input.
+    /// SchemaVersion v0.2.0+ (Issue #86) — the :EntryPoint catalog.
+    pub entry_points_emitted: usize,
+    /// Count of edges with `label == EdgeLabel::EXPOSES` in the input.
+    /// SchemaVersion v0.2.0+ (Issue #86).
+    pub exposes_edges_emitted: usize,
 }
 
 #[cfg(test)]
@@ -93,6 +106,8 @@ mod tests {
         assert_eq!(s.call_sites_emitted, 0);
         assert_eq!(s.calls_edges_emitted, 0);
         assert_eq!(s.invokes_at_edges_emitted, 0);
+        assert_eq!(s.entry_points_emitted, 0);
+        assert_eq!(s.exposes_edges_emitted, 0);
     }
 
     #[test]
@@ -101,11 +116,15 @@ mod tests {
             call_sites_emitted: 3,
             calls_edges_emitted: 2,
             invokes_at_edges_emitted: 3,
+            entry_points_emitted: 4,
+            exposes_edges_emitted: 4,
         };
         let b = EmitStats {
             call_sites_emitted: 3,
             calls_edges_emitted: 2,
             invokes_at_edges_emitted: 3,
+            entry_points_emitted: 4,
+            exposes_edges_emitted: 4,
         };
         assert_eq!(a, b);
     }

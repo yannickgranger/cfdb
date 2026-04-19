@@ -207,11 +207,29 @@ impl SchemaVersion {
         patch: 4,
     };
 
+    /// v0.2.0 — Issue #86 completes the v0.2 feature set per RFC-032
+    /// / RFC-029 §A1.2. First emissions of `:EntryPoint` nodes and
+    /// `EXPOSES` edges (MVP detects clap `#[derive(Parser/Subcommand)]`
+    /// on structs/enums and `#[tool]` on fns — MCP + CLI coverage per
+    /// v0.2-1 acceptance gate). Also introduces the `cfdb-cli
+    /// --features hir` composition seam: default CLI builds remain
+    /// ra-ap-* free; the HIR pipeline is opt-in (RFC-032 §3 lines
+    /// 221–227). Minor bump (not patch) marks the v0.2 capability
+    /// boundary — V0_1_4 readers refuse V0_2_0 graphs per G4, which
+    /// is the intended signal since V0_2_0 graphs may contain
+    /// `:EntryPoint` / `EXPOSES` facts that V0_1_4 readers don't know
+    /// how to handle.
+    pub const V0_2_0: Self = Self {
+        major: 0,
+        minor: 2,
+        patch: 0,
+    };
+
     /// The schema version this build of cfdb-core writes and reads.
     /// Producers tag every keyspace persist with `CURRENT`. Consumers use
     /// `CURRENT.can_read(&file.schema_version)` to reject forward-
     /// incompatible graphs per G4.
-    pub const CURRENT: Self = Self::V0_1_4;
+    pub const CURRENT: Self = Self::V0_2_0;
 
     pub fn new(major: u16, minor: u16, patch: u16) -> Self {
         Self {

@@ -22,6 +22,19 @@ clap.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 
+# Optional HIR pipeline (Issue #86 / slice 4). Gated behind the
+# `hir` feature so default builds do NOT pay the 90-150s `ra-ap-*`
+# cold compile cost (RFC-032 §3 lines 221–227). `cargo build -p
+# cfdb-cli` default-features MUST have zero ra-ap-* in its dep
+# tree. `cargo build -p cfdb-cli --features hir` opts in.
+cfdb-hir-extractor = { path = "../cfdb-hir-extractor", optional = true }
+cfdb-hir-petgraph-adapter = { path = "../cfdb-hir-petgraph-adapter", optional = true }
+
+[features]
+default = []
+# Enables `cfdb extract --hir` — pulls HIR pipeline crates.
+hir = ["dep:cfdb-hir-extractor", "dep:cfdb-hir-petgraph-adapter"]
+
 [dev-dependencies]
 tempfile.workspace = true
 assert_cmd = "2"

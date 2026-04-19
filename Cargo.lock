@@ -261,6 +261,8 @@ dependencies = [
  "assert_cmd",
  "cfdb-core",
  "cfdb-extractor",
+ "cfdb-hir-extractor",
+ "cfdb-hir-petgraph-adapter",
  "cfdb-petgraph",
  "cfdb-query",
  "clap",

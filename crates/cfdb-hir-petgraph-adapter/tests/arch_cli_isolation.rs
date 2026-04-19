@@ -50,6 +50,14 @@ fn workspace_root() -> PathBuf {
 /// tolerant: for each line inside the `[dependencies]` section that
 /// looks like `name = ...` or `name.workspace = true`, record the
 /// name before the first `=` or `.`.
+///
+/// **Optional deps are excluded.** A dep declared `optional = true`
+/// is gated behind a Cargo feature and is NOT pulled into the default
+/// build — so it does not contaminate `cfdb-cli`'s cold compile. The
+/// architectural invariant this test enforces ("no ra-ap-* cold cost
+/// on default cfdb-cli builds") is satisfied by feature-gating,
+/// which is exactly the slice 4 (#86) wiring pattern. Only
+/// non-optional direct deps count toward the contamination graph.
 fn direct_dependencies(crate_manifest: &Path) -> HashSet<String> {
     let contents = fs::read_to_string(crate_manifest)
         .unwrap_or_else(|e| panic!("read {} failed: {e}", crate_manifest.display()));
@@ -71,6 +79,11 @@ fn direct_dependencies(crate_manifest: &Path) -> HashSet<String> {
             continue;
         }
         if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        // Skip optional deps — they are feature-gated and do NOT land
+        // in the default build's dep closure.
+        if trimmed.contains("optional = true") {
             continue;
         }
         // Parse the package name: everything before the first `=` or
