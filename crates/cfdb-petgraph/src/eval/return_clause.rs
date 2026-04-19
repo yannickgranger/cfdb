@@ -94,10 +94,7 @@ impl<'a> Evaluator<'a> {
     }
 }
 
-fn bindings_to_row(
-    bindings: &Bindings,
-    projections: &[cfdb_core::query::Projection],
-) -> Row {
+fn bindings_to_row(bindings: &Bindings, projections: &[cfdb_core::query::Projection]) -> Row {
     let mut row: Row = BTreeMap::new();
     for proj in projections {
         let alias = projection_alias(proj);
