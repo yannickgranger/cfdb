@@ -51,7 +51,11 @@ if [ ! -x "$CFDB_BIN" ]; then
     exit 2
 fi
 
-COMPANION_SHA="$("$SCRIPT_DIR/read-cross-fixture-sha.sh")"
+# The pinned SHA is the default; the weekly bump cron (Issue #67,
+# ci/cross-bump.sh) overrides via COMPANION_SHA env to test against
+# companion develop HEAD. Same script, two universes: PR-time uses the
+# pin for reproducibility; the cron uses HEAD to detect pin staleness.
+COMPANION_SHA="${COMPANION_SHA:-$("$SCRIPT_DIR/read-cross-fixture-sha.sh")}"
 
 # Clone + checkout the pinned companion SHA. Use --filter=blob:none to
 # avoid pulling the whole history; we only need the tree at this SHA.
