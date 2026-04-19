@@ -6,18 +6,16 @@
 
 use std::collections::BTreeMap;
 
-use crate::fact::PropValue;
-use crate::schema::Label;
-
-use super::ast::{
-    Aggregation, Expr, NodePattern, OrderBy, Pattern, Predicate, Projection, ProjectionValue,
-    Query, ReturnClause, WithClause,
+use cfdb_core::fact::PropValue;
+use cfdb_core::query::{
+    Aggregation, Expr, ItemKind, NodePattern, OrderBy, Pattern, Predicate, Projection,
+    ProjectionValue, Query, ReturnClause, WithClause,
 };
-use super::item_kind::ItemKind;
+use cfdb_core::schema::Label;
 
 /// Compose the `list_items_matching` query (RATIFIED.md §A.14 — the 16th
 /// cfdb verb). Returns a [`Query`] AST value; the caller is responsible for
-/// executing it against a [`crate::store::StoreBackend`].
+/// executing it against a [`cfdb_core::store::StoreBackend`].
 ///
 /// Semantics:
 /// - `name_pattern` — openCypher-compatible regex applied to `:Item.name`.

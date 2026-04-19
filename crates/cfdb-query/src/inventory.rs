@@ -161,7 +161,7 @@ pub struct ScopeInventory {
     pub reachability_map: Option<std::collections::BTreeMap<String, ReachabilityEntry>>,
     pub loc_per_crate: std::collections::BTreeMap<String, u64>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub warnings: Vec<crate::result::Warning>,
+    pub warnings: Vec<cfdb_core::result::Warning>,
 }
 
 impl ScopeInventory {

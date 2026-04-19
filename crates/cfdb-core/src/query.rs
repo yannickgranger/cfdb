@@ -13,27 +13,22 @@
 //! Submodules:
 //! - [`ast`] — core AST node types (`Query`, `Pattern`, `Predicate`, `Expr`,
 //!   projections, aggregations, ordering).
-//! - [`inventory`] — debt-class taxonomy and `ScopeInventory` envelope
-//!   (RFC-cfdb v0.2 addendum §A2/§A3.3).
 //! - [`item_kind`] — council-ratified `ItemKind` vocabulary (RATIFIED §A.14).
-//! - [`list_items`] — the `list_items_matching` query composer
-//!   (RATIFIED §A.14).
 //!
-//! All public items previously exposed directly from `query` remain available
-//! from `crate::query::*` via re-exports below, preserving the v0.1 import
-//! surface.
+//! Moved to `cfdb-query` per RFC-031 §3 (CRP — verb-level composers and
+//! debt taxonomy do not belong in the most-stable crate):
+//! - `inventory` (`DebtClass`, `ScopeInventory`, `Finding`, `CanonicalCandidate`,
+//!   `ReachabilityEntry`, `UnknownDebtClass`) — now `cfdb_query::inventory::*`.
+//! - `list_items` (`list_items_matching` composer) — now `cfdb_query::list_items`.
+//!
+//! `ItemKind` is deliberately retained here per RFC-031 §3 note — the
+//! schema-vs-verb question is deferred to v0.2 schema design.
 
 pub mod ast;
-pub mod inventory;
 pub mod item_kind;
-pub mod list_items;
 
 pub use ast::{
     Aggregation, CompareOp, Direction, EdgePattern, Expr, NodePattern, OrderBy, Param, PathPattern,
     Pattern, Predicate, Projection, ProjectionValue, Query, ReturnClause, WithClause,
 };
-pub use inventory::{
-    CanonicalCandidate, DebtClass, Finding, ReachabilityEntry, ScopeInventory, UnknownDebtClass,
-};
 pub use item_kind::{ItemKind, UnknownItemKind};
-pub use list_items::list_items_matching;

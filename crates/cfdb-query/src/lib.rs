@@ -13,9 +13,15 @@
 //! pass callers can run before dispatching.
 
 pub mod builder;
+pub mod inventory;
+pub mod list_items;
 pub mod parser;
 pub mod shape_lint;
 
 pub use builder::QueryBuilder;
+pub use inventory::{
+    CanonicalCandidate, DebtClass, Finding, ReachabilityEntry, ScopeInventory, UnknownDebtClass,
+};
+pub use list_items::list_items_matching;
 pub use parser::{parse, ParseError};
 pub use shape_lint::{lint_shape, ShapeLint};
