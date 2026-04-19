@@ -1,6 +1,6 @@
 ---
 title: RFC-030 — Anti-drift gate: adopt graph-specs + cfdb self-dogfood
-status: Draft
+status: Draft (revision 1 — 2026-04-19)
 date: 2026-04-19
 authors: cfdb-architects council (clean-arch lens)
 parent: docs/RFC-cfdb.md (RFC-029 v0.1), docs/RFC-cfdb-v0.2-addendum-draft.md (RFC-029 addendum)
@@ -46,7 +46,7 @@ blocks new drift from entering via a CI gate that compares machine-readable
 markdown specs against the actual code structure.
 
 The two tools pair: graph-specs declares what each crate *should* contain
-(concept ownership, public surface, dependencies); cfdb audits what
+(concept ownership, public surface, port signatures); cfdb audits what
 the crate *does* contain. Together they close the loop:
 
 ```
@@ -102,14 +102,14 @@ This RFC does **not** propose:
    are unchanged by this RFC. RFC-030 adds no new verb and no new
    node/edge type.
 
-3. **Specs for the consuming workspace (qbot-core or others).** This
-   RFC scopes specs to the cfdb workspace only. Other workspaces that
-   adopt cfdb may write their own specs; that is their authors' concern.
+3. **Specs for consuming workspaces (qbot-core or others).** This RFC
+   scopes specs to the cfdb workspace only. Other workspaces that adopt
+   cfdb may write their own specs; that is their authors' concern.
 
-4. **Exhaustive graph-specs dialect coverage.** This RFC adopts the
-   concept-level subset of the graph-specs dialect. Signature-level
-   and relationship-level checks are deferred until the graph-specs
-   `develop` branch ships them as stable.
+4. **Immediate adoption of all graph-specs levels.** This RFC adopts
+   concept-level checks initially, with signature-level as a planned
+   follow-on (see §5). Relationship and bounded-context levels are
+   deferred to when graph-specs ships them.
 
 5. **Automatic remediation.** The CI gate blocks; it does not fix.
    cfdb's invariant "never modifies Rust files" (RFC-029 §4) applies
@@ -121,8 +121,8 @@ This RFC does **not** propose:
    editing the spec or fixing the code in the same PR.
 
 7. **Retroactive spec compliance for issues #22–#29.** Those are
-   absorbed by RFC-031. This RFC defines the gate; RFC-031 and RFC-032
-   schedule the work to pass it.
+   absorbed by RFC-031. This RFC defines the gate; RFC-031 schedules the
+   work to pass it.
 
 ---
 
@@ -138,26 +138,26 @@ none is optional.
 **CLI invocation:**
 
 ```bash
-graph-specs check \
-  --specs specs/concepts/ \
-  --code crates/ \
-  --format github-actions
+graph-specs check --specs specs/concepts/ --code crates/
 ```
 
 **Semantics:**
 
 - `specs/concepts/` contains one markdown file per workspace crate
-  (see §6 for layout).
-- `graph-specs check` compares declared concept ownership, dependency
-  direction, and public surface against the actual crate structure.
-- `--format github-actions` emits annotations readable by the GitHub
-  Actions workflow renderer.
+  (see §6 for layout). graph-specs walks every `.md` file under that
+  directory.
+- `--code crates/` points graph-specs at the workspace crate sources.
+  It walks every `*.rs` file under each crate's `src/` directory and
+  extracts top-level `pub struct`, `pub enum`, `pub trait`, `pub type`
+  declarations.
+- graph-specs builds two graphs — one from specs, one from code — and
+  reports every named concept that appears in one but not the other.
 - **Exit code non-zero = merge blocked.** No baseline. No allowlist.
   No "informational only" mode for new violations.
 
 **Gate position in CI:** runs after `cargo test --workspace` and
 `cargo clippy --workspace -- -D warnings`. A compilation failure must
-not mask a spec violation; both must be visible.
+not mask a spec violation; both must be visible in CI output.
 
 **Responsibility for authoring specs:** architects (the council that
 ratifies RFCs) write the initial specs as part of Task #4. Implementers
@@ -172,13 +172,24 @@ implementation.
 **CLI invocation:**
 
 ```bash
-cfdb extract --workspace . --output .cfdb/snapshots/
-cfdb violations --rules examples/queries/ --keyspace .cfdb/snapshots/
+cfdb extract --workspace . --db .cfdb/db --keyspace cfdb-self
+cfdb violations --db .cfdb/db --keyspace cfdb-self \
+  --rule examples/queries/hsb-by-name.cypher
 ```
 
-The first command extracts cfdb's own workspace into a fresh snapshot.
-The second command runs every `.cypher` rule file in `examples/queries/`
-against that snapshot and reports violations.
+The first command extracts cfdb's own workspace into a fresh keyspace.
+The second command runs a violation rule against that keyspace and
+reports matches. One `cfdb violations` invocation per rule file; the CI
+step loops over the rules in `examples/queries/`.
+
+**Note on `--rule` flag:** `--rule` takes a single `.cypher` file, not
+a glob. The CI script iterates:
+
+```bash
+for rule in examples/queries/*.cypher; do
+  cfdb violations --db .cfdb/db --keyspace cfdb-self --rule "$rule"
+done
+```
 
 **Semantics:**
 
@@ -186,26 +197,20 @@ against that snapshot and reports violations.
   **blocks merge** (per council/RATIFIED.md §A.8 BLOCK routing).
 - Any violation classified as `duplicated_feature`, `unfinished_refactor`,
   or `random_scattering` **warns** but does not block.
-- New violations introduced by the PR (not present in the base-branch
-  snapshot) are always blocking regardless of class, because they
-  represent regression from current state. Pre-existing violations
-  in untouched scope are advisory.
+- The extract is always a fresh run against HEAD. Pre-existing violations
+  in untouched scope are advisory; violations in the scope touched by
+  the PR are blocking.
 
-**Diff gate:**
+**Diff gate (future):** a `cfdb diff --db .cfdb/db --a <base-ks>
+--b <head-ks>` command is present in the CLI but is a Phase A stub
+(no violation-delta output yet). A dedicated issue will track adding
+`--new-violations-block` semantics that exit non-zero only when the
+diff introduces net-new violations. Until that lands, the per-PR gate
+re-runs all rules on HEAD and the reviewer inspects the diff.
 
-```bash
-cfdb diff .cfdb/snapshots/<base-sha>.jsonl.gz \
-           .cfdb/snapshots/<head-sha>.jsonl.gz \
-  --new-violations-block
-```
-
-The `--new-violations-block` flag exits non-zero only when the diff
-introduces net-new violations. Pre-existing violations in untouched
-scope are not re-reported (per council/RATIFIED.md §A.8 last row).
-
-**Snapshot storage:** `.cfdb/snapshots/<sha>.jsonl.gz` is committed to
-the repository as a determinism fixture (tier-2 per council/RATIFIED.md
-§A.10). The `.cfdb/` directory is gitignored except for `snapshots/`.
+**Snapshot storage:** `.cfdb/snapshots/<sha>.jsonl.gz` committed as a
+determinism fixture (tier-2 per council/RATIFIED.md §A.10). The
+`.cfdb/` directory is gitignored except for `snapshots/`.
 
 ### §3.3 Adoption 3 — RFC-to-spec-to-issue-to-impl workflow
 
@@ -243,19 +248,22 @@ Two documentation directories exist in the cfdb workspace:
 | `docs/` | Rationale — WHY decisions were made, historical context, council verdicts, alternatives considered | Freeform markdown | No |
 | `specs/` | Contract — WHAT each crate is responsible for, in the graph-specs dialect | Structured graph-specs markdown | Yes — consumed by `graph-specs check` |
 
-**The boundary is non-overlapping by design:**
+**The boundary is non-overlapping by design** (this mirrors graph-specs'
+own `specs/` vs. `docs/` separation per `specs/dialect.md` — the tool
+practices what it prescribes):
 
 - `docs/` files are for humans and council agents reading them as
   narrative. They contain motivations, rejected alternatives, risk
   registers, and cross-references to external issues. They are never
-  parsed by `graph-specs check`.
-- `specs/` files are for the CI gate. They contain concept declarations,
-  dependency assertions, and public surface claims — and nothing else.
-  They do not contain rationale prose.
+  walked by `graph-specs check`.
+- `specs/` files are for the CI gate. They contain concept declarations
+  and optional port signatures — and nothing else structural that the
+  gate depends on. Prose is encouraged (graph-specs ignores it) but
+  must not substitute for structural declarations.
 
 A spec file must not explain why a boundary exists; that belongs in the
 corresponding RFC. An RFC file must not contain machine-parseable spec
-syntax; that belongs in `specs/`.
+headings that are intended to drive the gate; that belongs in `specs/`.
 
 **This separation prevents a common failure mode:** if rationale and
 contract are co-located, one decays when the other is updated. RFCs
@@ -268,57 +276,74 @@ acknowledgment when a conceptual boundary changes.
 
 ## §5 Dialect subset
 
-cfdb adopts the **concept-level subset** of the graph-specs dialect.
+cfdb adopts the graph-specs markdown dialect. The dialect specification
+lives at `specs/dialect.md` in the `graph-specs-rust` repository; this
+section records which levels cfdb enables now and which it plans to
+enable later.
 
-### §5.1 What the concept-level subset covers
+### §5.1 How the dialect works
 
-```
-concept <ConceptName>
-  owned_by: <crate-name>
-  must_not_depend_on: [<crate-name>, ...]
-  visibility: public | crate-private
-  examples: [<qname>, ...]
-```
+graph-specs builds a concept graph by parsing two sources independently:
 
-This subset answers three questions per concept:
+**From markdown specs (`specs/concepts/*.md`):**
+- Level-2 (`##`) and level-3 (`###`) headings become concept nodes. The
+  heading text is the concept name; inline backticks are stripped;
+  generic parameters are removed (`## Graph<T>` becomes `Graph`).
+- Fenced ` ```rust ` code blocks inside a concept's section carry the
+  signature for signature-level comparison (v0.2 of the dialect, already
+  implemented in graph-specs).
+- Bullets with the prefixes `- implements: X`, `- depends on: X`,
+  `- returns: X` declare relationship edges (v0.3 of the dialect,
+  currently parsed but not yet diffed).
+- All other prose, tables, blockquotes, images, and non-`rust` code
+  blocks are ignored by the reader.
 
-1. **Ownership** — which crate is the canonical home of this concept?
-   Drift is detected when the concept appears in a crate that does not
-   own it.
-2. **Dependency direction** — which crates must not be imported by the
-   owning crate? This enforces the dependency rule (inner layers do not
-   import outer layers).
-3. **Visibility** — is this concept part of the public API or an
-   internal implementation detail?
+**From Rust code (`crates/**/*.rs`):**
+- Top-level `pub struct`, `pub enum`, `pub trait`, `pub type`
+  declarations in each `*.rs` file become concept nodes.
+- Items inside `#[cfg(test)]`, items nested inside `pub mod`, `impl`
+  blocks, `fn`, `const`, `static`, `use`, and `macro_rules!` are not
+  concept nodes.
 
-### §5.2 What is deferred
+**Equivalence check:** the diff engine reports:
+- Concepts in specs but not in code (stale spec — a type was removed
+  without updating the spec).
+- Concepts in code but not in specs (undeclared type — a type was added
+  without a spec entry).
 
-The following graph-specs features are deferred until the graph-specs
-`develop` branch ships them as stable:
+The canonical worked example of a spec file in this dialect is
+`specs/concepts/core.md` in the graph-specs-rust repository.
 
-- **Signature-level checks** — asserting that a public function's
-  parameter and return types conform to declared contracts. Deferred
-  because signature checking requires type resolution beyond what the
-  current graph-specs dialect supports without HIR.
-- **Relationship-level checks** — asserting that a specific
-  `CALLS` or `IMPLEMENTS` edge must or must not exist. Deferred until
-  cfdb-hir-extractor (RFC-029 §A1.2) ships and graph-specs can consume
-  the call graph.
-- **Cross-crate concept co-ownership** — for the Shared Kernel pattern
-  where two crates legitimately share a concept. Deferred; the v0.1
-  dialect treats shared ownership as a violation, which is correct for
-  cfdb's current crate structure.
+### §5.2 Levels adopted
+
+**Now (this RFC):** concept-level only. Every top-level public type
+must appear as a `##` or `###` heading in the crate's spec file, and
+every heading must correspond to a type in the code. No concept may
+exist only in one of the two graphs.
+
+**Planned follow-on (separate RFC, no issue yet):** signature-level.
+Port traits such as `StoreBackend` and `Reader` already carry fenced
+`rust` blocks in the initial spec files committed by Task #4. Once cfdb
+adopts signature-level checking, those blocks will be diffed against the
+actual trait signatures. The spec files are already structured for this;
+enabling the level requires only a CI flag change and a new RFC entry.
+
+**Deferred:** relationship-level (`- implements:`, `- depends on:`,
+`- returns:` bullets) and bounded-context checks are not yet diffed by
+graph-specs. cfdb will adopt them when graph-specs ships them as a
+stable gate level.
 
 ### §5.3 Upgrade path
 
-When graph-specs `develop` ships signature-level or relationship-level
-checks, cfdb adopts them in a dedicated RFC that:
+When graph-specs ships a new gate level as stable, cfdb adopts it via a
+dedicated RFC that:
 
-1. Documents which new checks are adopted.
-2. Adds or updates spec files to use the new syntax.
-3. Verifies CI passes before merging.
+1. Documents which new level is adopted.
+2. Updates spec files to use the new syntax where applicable.
+3. Verifies CI passes on the main branch before the RFC merges.
 
-No silent dialect upgrades. Every new check type requires an RFC entry.
+No silent dialect upgrades. Every new level activation requires an RFC
+entry.
 
 ---
 
@@ -332,7 +357,7 @@ One spec file per workspace crate, at:
 specs/concepts/<crate-name>.md
 ```
 
-Six initial spec files (authored in Task #4):
+Six initial spec files (committed in Task #4):
 
 ```
 specs/concepts/cfdb-core.md
@@ -343,60 +368,84 @@ specs/concepts/cfdb-recall.md
 specs/concepts/cfdb-cli.md
 ```
 
-`cfdb-cli` is a binary crate with no public Rust API surface but has
-a well-defined CLI contract (the 16 verbs); its spec covers concept
-ownership and the entry-point contract, not public symbols.
+`cfdb-cli` is a binary crate with no public Rust API surface. Its spec
+covers the types that the CLI module system exports (e.g. `EnrichVerb`)
+and will grow to cover the composition root type prescribed by RFC-031.
 
-### §6.2 Spec file structure (template)
+When a new crate is added to the workspace (e.g. `cfdb-hir-extractor`
+per RFC-029 §A1.2), the RFC introducing it must include a corresponding
+spec file as a required deliverable. The gate fails on any crate whose
+public types are not covered by a spec.
+
+### §6.2 Spec file structure
+
+A spec file is plain graph-specs-dialect markdown. The template below
+follows the same structure as `specs/concepts/core.md` in the
+graph-specs-rust repository:
 
 ```markdown
 ---
 crate: <crate-name>
-rfc: RFC-030 (+ any crate-specific RFC)
+rfc: RFC-030
 status: draft | approved
 ---
 
 # Spec: <crate-name>
 
-## Owned concepts
+One sentence describing the crate's bounded responsibility.
 
-<!-- Concepts that this crate owns. Any other crate containing
-     these concepts triggers a violation. -->
+## ConceptName
 
-concept <ConceptName>
-  owned_by: <crate-name>
-  visibility: public
-  examples: [<qname1>, <qname2>]
+One sentence describing what this type is. Prose is ignored by the
+reader but is load-bearing for humans and agent sessions reading the
+spec before starting work.
 
-## Dependency assertions
+## PortName
 
-<!-- Crates that this crate must NOT import. Violations indicate
-     a dependency rule inversion. -->
+Description of a port trait — what it abstracts and who implements it.
 
-must_not_depend_on: [<crate-a>, <crate-b>]
+```rust
+pub trait PortName {
+    fn method(&self, arg: ArgType) -> Result<ReturnType, ErrorType>;
+}
+```
 
-## Public surface contract
+(The fenced rust block is optional at concept level and reserved for
+signature-level checking. Include it for port traits so the spec is
+ready when signature-level is adopted.)
 
-<!-- Minimum set of public items that must exist.
-     Removal of any item in this list is a breaking change. -->
+### SubConcept
 
-required_public: [<qname1>, <qname2>]
+A sub-heading (`###`) groups concepts that belong together. The reader
+treats `##` and `###` identically as concept nodes; the hierarchy is
+for human readability only.
 ```
 
 ### §6.3 Authoring rules
 
-1. **One RFC citation per spec file.** The frontmatter `rfc:` field
-   names the RFC that ratified the concept boundary. Multiple RFCs
-   may be cited (comma-separated) if the spec spans multiple decisions.
-2. **No rationale prose in spec files.** Rationale belongs in `docs/`.
-   A spec file should be parseable by a tool that does not read English.
-3. **Spec files are committed before the CI gate is enabled.** The CI
-   gate is enabled (in `ci/` workflow YAML) only after all six initial
-   spec files exist and `graph-specs check` passes on main.
-4. **A spec update without a code change is allowed.** Clarifying
-   concept ownership without moving code is a legitimate evolution.
-5. **A code change without a spec update is blocked** if the change
-   introduces a concept into a crate that does not own it per the spec.
+1. **One heading per public type.** Every top-level `pub struct`, `pub
+   enum`, `pub trait`, `pub type` in a crate must appear as a `##` or
+   `###` heading in its spec file. No omissions; no extras.
+2. **Generics stripped in the heading.** `pub struct Graph<N, E>` →
+   `## Graph`. The reader normalises this automatically, but authors
+   should write stripped names to match what the diff will report.
+3. **Fenced rust blocks for port traits.** Include the trait signature
+   in a fenced ` ```rust ` block inside the trait's section. This is
+   optional today (concept level) and will be diffed when signature
+   level is adopted.
+4. **Prose is for humans.** Write a short description under each
+   heading. The reader ignores it; agent sessions read it before
+   coding. A spec file with no prose is valid but is a missed
+   opportunity to document the design rationale concisely.
+5. **No rationale prose substitutes for structure.** A paragraph
+   explaining why a type exists does not satisfy the heading
+   requirement. The heading must exist even if it has no prose.
+6. **Spec and code change together.** A PR that adds or removes a
+   public type must update the spec in the same commit. A PR that renames
+   a type must rename the heading and the type atomically.
+7. **RFC citation in frontmatter.** The `rfc:` frontmatter field names
+   the RFC that ratified the concept boundary. Frontmatter is ignored by
+   graph-specs but is load-bearing for traceability; do not omit it.
 
 ---
 
@@ -404,18 +453,22 @@ required_public: [<qname1>, <qname2>]
 
 ### §7.1 What improves
 
-- **Self-consistent documentation.** cfdb's architecture is now
-  documented at two levels: narrative (RFC docs) and contract (specs).
-  A new contributor can read the spec to understand crate boundaries
-  and the RFC to understand why they exist.
-- **Regression prevention.** The CI gate makes concept drift visible
-  at PR time, not at code-review time. A reviewer no longer needs to
-  hold the entire crate dependency graph in their head.
+- **Self-consistent documentation.** cfdb's architecture is documented
+  at two levels: narrative (RFC docs) and contract (specs). A new
+  contributor or agent session reads the spec to understand crate
+  boundaries in seconds and the RFC to understand why they exist.
+- **Regression prevention.** The CI gate makes concept drift visible at
+  PR time, not at code-review time. A reviewer no longer needs to hold
+  the entire crate dependency graph in their head.
 - **Dogfood credibility.** A tool that cannot pass its own gates is not
   credible. cfdb passing both the graph-specs gate and its own self-audit
   is the minimum viable proof that the toolchain works.
 - **Bootstrapped spec library.** Task #4 produces six spec files that
   serve as reference implementations for workspaces adopting cfdb.
+- **Agent session acceleration.** Per the graph-specs README: "Session N
+  cleans up a split-brain and specs the context. Session N+1 reads the
+  spec, understands what exists, and wires into it instead of creating a
+  parallel implementation." The spec is durable architectural memory.
 
 ### §7.2 What it costs
 
@@ -425,17 +478,18 @@ required_public: [<qname1>, <qname2>]
   5–10s. Total CI budget increase: under 45s. Acceptable.
 - **Spec authoring burden.** Task #4 requires architects to write six
   spec files. This is a one-time cost amortized over the life of the
-  project. Spec updates on subsequent PRs are small (one or two concept
-  declarations added per PR).
-- **Learning curve.** Contributors unfamiliar with the graph-specs
-  dialect must read `specs/concepts/core.md` in the graph-specs-rust
-  repository before authoring specs. The dialect is small and the
-  reference file is the learning material.
-- **False positives.** The concept-level subset is coarse. It will
-  flag any struct or function that appears in the wrong crate, even if
-  the placement is intentionally temporary during a refactor. Mitigation:
-  a PR that moves a concept across crates updates both spec and code
-  atomically; the gate passes because the spec reflects intent.
+  project. Spec updates on subsequent PRs are small (one heading added
+  per new public type).
+- **Learning curve.** Contributors unfamiliar with the dialect must read
+  `specs/dialect.md` and `specs/concepts/core.md` from the
+  graph-specs-rust repository before authoring spec entries. Both are
+  short; the dialect is intentionally minimal.
+- **False positives on moves.** The concept-level check cannot
+  distinguish a type being moved from a type being deleted plus a new
+  type added. A PR that moves a type across crates will produce two
+  violations (missing from old spec, undeclared in new spec) unless the
+  spec and code change atomically. Mitigation: the §6.3 authoring rules
+  mandate atomic commits.
 
 ### §7.3 Who authors specs
 
@@ -445,16 +499,13 @@ specs. For subsequent crates (e.g., `cfdb-hir-extractor` introduced by
 RFC-029 §A1.2), the RFC that introduces the crate must include a
 corresponding spec as a required deliverable.
 
-### §7.4 What breaks if graph-specs or cfdb changes dialect
+### §7.4 What breaks if graph-specs changes its dialect
 
-- If graph-specs changes its dialect in a breaking way, the `specs/`
-  files may require updates. The graph-specs `develop` branch is the
-  authoritative dialect reference; cfdb pins to a specific release tag,
-  not `develop`, for CI stability.
-- If cfdb changes its violation output format, the `cfdb violations`
-  invocation in §3.2 may require flag updates. The cfdb CLI is
-  self-dogfooded, so any breaking CLI change discovered via self-audit
-  is a bug to fix before the breaking change merges.
+graph-specs `develop` is the authoritative dialect reference. cfdb CI
+pins to a specific released binary, not `develop`, so dialect upgrades
+are opt-in. When a new graph-specs release ships a breaking dialect
+change, cfdb adopts it via the §5.3 upgrade path: a dedicated RFC,
+updated spec files, CI passing before merge.
 
 ---
 
@@ -464,15 +515,16 @@ This RFC is satisfied when **all five** of the following are true:
 
 | # | Gate | Measurable |
 |---|---|---|
-| G1 | `specs/concepts/` contains one approved spec file per workspace crate (six files: cfdb-core, cfdb-query, cfdb-petgraph, cfdb-extractor, cfdb-recall, cfdb-cli) | `ls specs/concepts/*.md | wc -l` = 6 |
+| G1 | `specs/concepts/` contains one approved spec file per workspace crate (six files: cfdb-core, cfdb-query, cfdb-petgraph, cfdb-extractor, cfdb-recall, cfdb-cli) | `ls specs/concepts/*.md \| wc -l` = 6 |
 | G2 | `graph-specs check --specs specs/concepts/ --code crates/` exits 0 on the main branch | CI run link in the PR merging Task #4 output |
-| G3 | `cfdb extract --workspace . && cfdb violations --rules examples/queries/` exits 0 (no blocking violations) on the main branch | CI run link in the PR merging cfdb self-audit gate |
+| G3 | `cfdb extract --workspace . --db .cfdb/db --keyspace cfdb-self` followed by `cfdb violations --db .cfdb/db --keyspace cfdb-self --rule <rule>` for each rule in `examples/queries/` exits 0 (no blocking violations) on the main branch | CI run link in the PR merging cfdb self-audit gate |
 | G4 | The CI workflow file (`ci/`) invokes both gates (§3.1 and §3.2) and fails the build on non-zero exit | Verified by a PR that introduces a deliberate spec violation, confirms CI blocks, then reverts |
-| G5 | No `expected_violations.json` or equivalent allowlist exists in the repository | `find . -name "expected_violations*" -o -name "*.allowlist" | wc -l` = 0 |
+| G5 | No allowlist or ratchet file exists in the repository | `grep -r "expected_violations" . \| wc -l` = 0 and `find . \( -name "*.allowlist" -o -name "*-baseline.json" \) \| wc -l` = 0 |
 
-Gates G1 and G2 are satisfied by Task #4.
-Gates G3 and G4 are satisfied by the issues tracking §3.2 implementation.
-Gate G5 is an invariant that must hold continuously, not a one-time check.
+Gates G1 and G2 are satisfied by Task #4 (specs committed on this
+branch). Gate G3 is blocked until the cfdb violations CI step is wired
+(tracked by a follow-up issue). Gate G4 is blocked until G2 and G3 pass.
+Gate G5 is a continuous invariant, not a one-time check.
 
 ---
 
@@ -498,14 +550,19 @@ Gate G5 is an invariant that must hold continuously, not a one-time check.
 - Issues #22–#29 — orphan audit issues absorbed by RFC-031. These
   represent known architectural debt discovered in the cfdb workspace
   audit; the anti-drift gate (this RFC) is the mechanism that prevents
-  new debt of the same kind from accumulating.
+  new debt of the same kind from accumulating after the cleanup lands.
 
 ### External
 
 - `graph-specs-rust` repository (`yg/graph-specs-rust`, `develop`
-  branch) — the vaccine tool. `specs/dialect.md` documents the
-  machine-parseable spec format. `specs/concepts/core.md` is the
-  reference implementation of a concept-level spec file.
+  branch) — the vaccine tool.
+  - `README.md` — purpose, the four equivalence levels, use cases
+    including the "cfdb pattern" pairing.
+  - `specs/dialect.md` — the machine-parseable spec format. Authoritative
+    reference for what the markdown reader parses and ignores.
+  - `specs/concepts/core.md` — the canonical worked example of a
+    concept-level spec file. The initial cfdb specs in `specs/concepts/`
+    follow the same structure.
 - CLAUDE.md §6 rule 8 — "no metric ratchets" rule. Applies to the
   spec compliance gate: no allowlist, no ceiling, no waiver mechanism.
 - CLAUDE.md §4 — the RFC-to-spec-to-issue-to-impl workflow codified
