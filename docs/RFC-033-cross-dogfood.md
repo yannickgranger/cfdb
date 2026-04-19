@@ -1,8 +1,8 @@
 ---
 title: RFC-033 — Cross-dogfood discipline with graph-specs-rust
-status: Draft
+status: Ratified
 date: 2026-04-19
-authors: cfdb-architects team (drafted by team-lead)
+authors: cross-dogfood-review team (team-lead drafted; clean-arch, ddd, solid, rust-systems ratified)
 companion: yg/graph-specs-rust RFC-002 (same topic, mirror)
 ---
 
@@ -227,35 +227,35 @@ Dedicated subsections per architect perspective. Verdicts captured inline after 
 
 ### §5.1 — Clean architecture (`clean-arch`)
 
-Open question: does `.cross-fixture.toml` belong at the repo root (visible, one-line bumpable) or under `.cfdb/` (hidden, near other infrastructure config)?
+Open question resolved: `.cfdb/cross-fixture.toml` (§3.1). Rationale: RFC-030 §4 registry boundary reserves repo root for `docs/` + `specs/`; infrastructure pin files live in `.cfdb/` alongside `.cfdb/queries/` and `.cfdb/db/`.
 
-Open question: does the cross-dogfood CI step live in `.gitea/workflows/ci.yml` alongside the self-dogfood step, or does it deserve its own workflow file (`ci-cross.yml`) for topology clarity?
+Open question resolved: cross-dogfood step lives in `.gitea/workflows/ci.yml` but delegates all shell to `ci/cross-dogfood.sh` + `ci/read-cross-fixture-sha.sh`. The composition concern is the shell extraction, not which YAML file the step lives in.
 
-**Verdict (pending):**
+**Verdict (round 2, 2026-04-19): RATIFY.** All two blockers (CA-1, CA-3) and four non-blockers (CA-2, CA-4, vocabulary, forward-compat) resolved with file:line citations against revision 1 (commit `2fa9e22`). Dependency rule clean: CI runs tool against companion repo, no reverse import, no inner-layer coupling. Port purity preserved — cross-dogfood invokes the CLI binary (published surface), not `application/`'s lib internals. Zero-false-positive invariant with no-allowlist escape hatch consistent with RATIFIED.md §A.9. Composition root explicit (`ci/cross-dogfood.sh`). Keyspace naming SHA-namespaced and determinism-safe.
 
 ### §5.2 — DDD (`ddd-specialist`)
 
-Open question: is "sibling" the right vocabulary, or should the two tools be modelled as a single bounded context with two deployment artefacts? The current RFC treats them as separate bounded contexts with a shared kernel (the cfdb output format that graph-specs consumes).
+Open question resolved: two bounded contexts with a shared kernel (cfdb's NDJSON/Cypher output format). Vocabulary disambiguated — "companion repo" for the cross-tool relationship, "sibling" reserved for RFC-001-style DDD sibling-context vocabulary inside a single repo.
 
-Open question: is there a homonym risk between cfdb's `:Finding` and graph-specs' `Violation`? Both describe "something is wrong"; the difference is classifier-output vs. real-time-check-output. The RFC does not unify them — is that the right call?
+Open question resolved: `:Finding` (cfdb, persistent classifier node with git-history signals) and `Violation` (graph-specs, ephemeral per-run diff output) are semantically distinct on temporal and subject axes. The RFC correctly does not unify them; unification would force cfdb to know about spec files and graph-specs to know about git history.
 
-**Verdict (pending):**
+**Verdict (round 1, 2026-04-19): RATIFY** with three recorded non-blocking concerns (H1 context-vocabulary qualification, C2 emerging third-context ownership, C3 dependency-direction precision). All three addressed in revision 1 (§3.1 vocabulary notes, §6 item 4, §6 item 3; Issue C2 names the runbook as canonical orchestration-vocabulary home).
 
 ### §5.3 — SOLID (`solid-architect`)
 
-Open question: the `.cross-fixture.toml` format is minimal (one-line `sed`/`grep` parseable) but could grow if more fields are needed. Should it be parsed via `toml` crate from day one, with the rationale that the one-time dependency cost is paid once? Or stays `sed`-able forever?
+Open question resolved: stable grep pattern `^\s*sha\s*=` (robust against future TOML comment additions or field reordering). No TOML crate dependency at the CI step. Parse centralised in `ci/read-cross-fixture-sha.sh` (SOLID RC1 — CCP fix; single parse source used by PR-time, bump, and closed-loop jobs).
 
-Open question: the bump-protocol job (§3.3) has three responsibilities: clone, test, open-PR-or-issue. SRP violation worth splitting, or is the cohesion "weekly cross-fixture maintenance" tight enough to keep as one?
+Open question resolved: bump-protocol job cohesion is acceptable as one job — the three sub-responsibilities (clone, test, open-PR-or-issue) all change for the same reason ("weekly companion-SHA maintenance"). CCP satisfied.
 
-**Verdict (pending):**
+**Verdict (round 1, 2026-04-19): RATIFY conditional.** All three required changes (RC1 shared parser, RC2 zero-false-positive invariant named as explicit author obligation, RC3 stable grep) resolved in revision 1. Component-metrics impact: Zone of Pain scores for cfdb-core and graph-specs-rust's domain crate are unchanged (RFC-033 adds no Rust crate dependencies); ISP/CRP/SDP directions all satisfied; ADP no cycle at Rust-crate level (SHA pin cycle is human-mediated deployment protocol, not a compile-time dependency edge).
 
 ### §5.4 — Rust systems (`rust-systems`)
 
-Open question: cross-dogfood CI clone + build of the sibling is potentially expensive (~2 minutes per run on cold cache). Should the pinned SHA's pre-built artefacts be cached (e.g. in Redis sccache), or is the ~2 minute cost acceptable?
+Open question resolved: cross-dogfood overhead is ~20–30s on cfdb side (clone + syn extract). Binary caching (`/cache/cargo/bin/<tool>-<sha>`) is NOT needed; sccache warmth is sufficient. On graph-specs side, sccache must be added to graph-specs CI as part of Issue B2 (previously absent — overdue independent of this RFC).
 
-Open question: `cargo install --git` of cfdb on graph-specs' CI uses `--branch develop`. Should the cross-dogfood step use a DIFFERENT SHA (from `.cross-fixture.toml`) vs. the CI-install SHA, or are they coupled?
+Open question resolved: the two SHA universes (Mechanism A `cargo install --branch develop` for CI self-gates vs Mechanism B pinned-SHA in `.cfdb/cross-fixture.toml` for cross-dogfood test target) are intentionally decoupled. They answer different questions: A is "does my tool work against its own tree?"; B is "does my current tool handle the companion's code?". The `ci/cross-dogfood.sh` script carries a multi-line comment (§3.2) explaining this so future maintainers do not "fix" the divergence by unifying the SHAs.
 
-**Verdict (pending):**
+**Verdict (round 2, 2026-04-19): RATIFY.** Both blockers (B1 sccache gap, B2 failure-mode differentiation) and three mandatory prose additions (C1 SHA-universe clarifier, C2 dual-keyspace note, C3 distinct cron schedules) resolved in revision 1. RFC-032's four sequencing traps are orthogonal to this RFC. `cfdb-recall::runner` feature is irrelevant. No circular SHA contamination. Workspace Cargo.toml impact: zero new Rust dependencies.
 
 ## §6 — Non-goals
 
