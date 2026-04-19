@@ -1,6 +1,6 @@
 # Spec: cfdb-core
 
-The schema vocabulary, fact types, query AST, result types, and the `StoreBackend` port — the innermost layer that every other cfdb crate depends on and that depends on nothing in the workspace.
+The schema vocabulary, fact types, query AST, result types, the `StoreBackend` port, and the sibling `EnrichBackend` port — the innermost layer that every other cfdb crate depends on and that depends on nothing in the workspace.
 
 ## Aggregation
 
@@ -41,6 +41,10 @@ Metadata for an edge label — source filter, target filter, attributes, documen
 ## EdgePattern
 
 The edge component of a `PathPattern` — label filter, direction, variable-length bounds.
+
+## EnrichBackend
+
+The enrichment port — sibling of `StoreBackend`. Split out of the fat trait per RFC-031 §2 (ISP). v0.1 ships four default stubs returning `EnrichReport::not_implemented`; concrete enrichment passes override methods as RFC-032 §4 / Group D issues land (#43–#48). `PetgraphStore` impls the trait with an empty body — inherited stubs only.
 
 ## EnrichReport
 
@@ -156,7 +160,7 @@ Structured output of `cfdb scope` — findings grouped by `DebtClass`, canonical
 
 ## StoreBackend
 
-The graph-store port. Implementations ingest facts, execute queries, and optionally enrich. v0.1 has one implementor (`cfdb-petgraph::PetgraphStore`). RFC-031 §2 splits the four `enrich_*` methods into a separate `EnrichBackend` trait.
+The graph-store port. Implementations ingest facts, execute queries, emit canonical dumps, and manage keyspace lifecycle (7 methods). Enrichment now lives on the sibling `EnrichBackend` trait (RFC-031 §2). v0.1 has one implementor — `cfdb-petgraph::PetgraphStore` — which implements both traits.
 
 ## StoreError
 

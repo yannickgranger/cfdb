@@ -11,9 +11,10 @@
 //! - [`query`]: Query AST, Pattern, Predicate, Aggregation, Param — the
 //!   interchange format between parser and evaluator.
 //! - [`result`]: QueryResult, Row, Warning — the shape returned to callers.
-//! - [`enrich`]: EnrichReport — return shape for the four `enrich_*` verbs
-//!   (Phase A stubs in v0.1, full implementations in v0.2 / Phase D).
-//! - [`store`]: StoreBackend trait — the single evaluation entry point.
+//! - [`enrich`]: EnrichBackend trait and EnrichReport — the four `enrich_*`
+//!   verbs live here, split from StoreBackend per RFC-031 §2 (Phase A stubs
+//!   in v0.1, full implementations in v0.2 / Phase D).
+//! - [`store`]: StoreBackend trait — storage, query evaluation, and lifecycle.
 //!
 //! Determinism invariants G1–G5 (RFC §6) are enforced at the trait level where
 //! possible and documented where they must be respected by implementors.
@@ -25,7 +26,7 @@ pub mod result;
 pub mod schema;
 pub mod store;
 
-pub use enrich::EnrichReport;
+pub use enrich::{EnrichBackend, EnrichReport};
 pub use fact::{Edge, Node, PropValue, Props};
 pub use query::{
     list_items_matching, Aggregation, CanonicalCandidate, CompareOp, DebtClass, Direction,
