@@ -71,4 +71,11 @@ ra_ap_syntax = "=0.0.328"
 ra_ap_vfs = "=0.0.328"
 ra_ap_project_model = "=0.0.328"
 ra_ap_proc_macro_api = "=0.0.328"
+# Workspace loader (used by build_hir_database in #85c — produces a
+# RootDatabase from a Cargo workspace root).
+ra_ap_load-cargo = "=0.0.328"
+# Edition enum — referenced by hir::Name::display + canonical qname
+# derivation. Published separately at =0.0.N cadence alongside the
+# bundle.
+ra_ap_edition = "=0.0.328"
 ra-ap-rustc_type_ir = "=0.161.0"

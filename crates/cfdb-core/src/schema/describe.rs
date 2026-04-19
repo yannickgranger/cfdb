@@ -245,7 +245,12 @@ fn edge_descriptors() -> Vec<EdgeLabelDescriptor> {
         EdgeLabelDescriptor {
             label: EdgeLabel::new(EdgeLabel::CALLS),
             description: "Static call edge between two fn Items (best-effort cross-crate).".into(),
-            attributes: vec![],
+            attributes: vec![attr(
+                "resolved",
+                "bool",
+                "`true` when the dispatch was resolved via HIR type inference (`cfdb-hir-extractor`, v0.2+); `false` for textual / unresolved baseline. SchemaVersion v0.1.4+ only. The HIR-based extractor is the first producer of :CALLS edges — v0.1.3 and earlier graphs have no CALLS edges at all.",
+                Extractor,
+            )],
             from: vec![Label::new(Label::ITEM)],
             to: vec![Label::new(Label::ITEM)],
         },
