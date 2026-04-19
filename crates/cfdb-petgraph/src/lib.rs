@@ -19,6 +19,7 @@ pub mod persist;
 
 use std::collections::BTreeMap;
 
+use cfdb_core::enrich::EnrichBackend;
 use cfdb_core::fact::{Edge, Node, PropValue};
 use cfdb_core::query::Query;
 use cfdb_core::result::QueryResult;
@@ -131,6 +132,12 @@ impl StoreBackend for PetgraphStore {
         Ok(canonical_dump(state))
     }
 }
+
+// RFC-031 §2 — enrichment is a sibling trait. PetgraphStore inherits the four
+// Phase A stubs (`EnrichReport::not_implemented`); concrete enrichment passes
+// are implemented by overriding individual methods as RFC-032 §4 / Group D
+// issues land (#43–#48).
+impl EnrichBackend for PetgraphStore {}
 
 /// Produce the canonical sorted-JSONL dump of a keyspace per RFC §12.1.
 ///

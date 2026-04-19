@@ -1,25 +1,27 @@
-//! Enrichment verbs and report — Phase A stub for #3628.
+//! Enrichment port and report — split from [`crate::store::StoreBackend`] per
+//! RFC-031 §2.
 //!
-//! The four `enrich_*` verbs in [`crate::store::StoreBackend`] return an
-//! [`EnrichReport`] that summarises what an enrichment pass touched: how many
-//! facts were read, how many edges/attributes were materialised, and any
-//! warnings emitted along the way. In v0.1 (Phase A) every implementor returns
-//! `EnrichReport::not_implemented(<verb>)`. The full enrichment passes ship in
-//! v0.2 / Phase D per EPIC #3622.
+//! The four `enrich_*` verbs live on [`EnrichBackend`], a sibling of
+//! `StoreBackend`. Both are implemented by the same concrete backend
+//! ([`cfdb_petgraph::PetgraphStore`] in v0.1), but consumers that only query
+//! the graph depend on `StoreBackend` alone and do not pick up the enrichment
+//! surface.
 //!
-//! Keeping the verbs and report shape in cfdb-core now means consumers can
-//! write code against the final API while the heavy lifting (git-history pass,
-//! bounded-context heuristic, deprecation crawl, RFC-doc index, reachability
-//! flood) is implemented incrementally in cfdb-petgraph and the enrichment
-//! crates.
+//! In v0.1 (Phase A) every implementor inherits the default stubs returning
+//! [`EnrichReport::not_implemented`]. Real implementations ship in v0.2 /
+//! Phase D per RFC-032 §4 (Group D, issues #43–#48). Backends override each
+//! method as the enrichment passes land.
 
 use serde::{Deserialize, Serialize};
 
+use crate::schema::Keyspace;
+use crate::store::StoreError;
+
 /// Summary of an enrichment pass over a keyspace.
 ///
-/// Returned by every `enrich_*` verb on [`crate::store::StoreBackend`]. The
-/// shape is stable across v0.1 → v0.2: Phase A implementations return a
-/// "not implemented" report; Phase D implementations populate the counters.
+/// Returned by every `enrich_*` verb on [`EnrichBackend`]. The shape is stable
+/// across v0.1 → v0.2: Phase A implementations return a "not implemented"
+/// report; Phase D implementations populate the counters.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EnrichReport {
     /// Verb name, e.g. `"enrich_docs"`.
@@ -59,6 +61,49 @@ impl EnrichReport {
     /// True if the pass actually executed and produced data.
     pub fn is_complete(&self) -> bool {
         self.ran
+    }
+}
+
+/// The enrichment port — sibling of [`crate::store::StoreBackend`].
+///
+/// Split from `StoreBackend` per RFC-031 §2 (ISP). v0.1 ships four default
+/// stubs that return [`EnrichReport::not_implemented`]; concrete backends
+/// override each method as Phase D enrichment passes land (RFC-032 §4 /
+/// Group D, issues #43–#48).
+///
+/// The `Send + Sync` bounds match `StoreBackend` so the same concrete backend
+/// can be handed to both traits without re-wrapping.
+pub trait EnrichBackend: Send + Sync {
+    /// Enrich a keyspace with documentation facts (rustdoc, README, RFC text).
+    ///
+    /// **Phase A stub:** the default implementation returns
+    /// [`EnrichReport::not_implemented`]. Real implementations ship in v0.2 /
+    /// Phase D per RFC-032 §4.
+    fn enrich_docs(&mut self, _keyspace: &Keyspace) -> Result<EnrichReport, StoreError> {
+        Ok(EnrichReport::not_implemented("enrich_docs"))
+    }
+
+    /// Enrich a keyspace with quality-signal facts (complexity, unwrap counts,
+    /// clone-in-loop counts, etc.).
+    ///
+    /// **Phase A stub:** see [`Self::enrich_docs`].
+    fn enrich_metrics(&mut self, _keyspace: &Keyspace) -> Result<EnrichReport, StoreError> {
+        Ok(EnrichReport::not_implemented("enrich_metrics"))
+    }
+
+    /// Enrich a keyspace with git-history facts (last-touched, churn, author).
+    ///
+    /// **Phase A stub:** see [`Self::enrich_docs`].
+    fn enrich_history(&mut self, _keyspace: &Keyspace) -> Result<EnrichReport, StoreError> {
+        Ok(EnrichReport::not_implemented("enrich_history"))
+    }
+
+    /// Enrich a keyspace with bounded-context / concept facts (which crate
+    /// owns which type, which concepts are canonical bypasses).
+    ///
+    /// **Phase A stub:** see [`Self::enrich_docs`].
+    fn enrich_concepts(&mut self, _keyspace: &Keyspace) -> Result<EnrichReport, StoreError> {
+        Ok(EnrichReport::not_implemented("enrich_concepts"))
     }
 }
 

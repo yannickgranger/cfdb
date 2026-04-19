@@ -1,13 +1,19 @@
-//! StoreBackend trait — the single evaluation entry point.
+//! StoreBackend trait — storage, query evaluation, and lifecycle surface.
 //!
 //! Every storage layer (cfdb-petgraph for v0.1, future alternatives) implements
 //! this trait. The cfdb-query parser/builder constructs `Query` AST values;
 //! consumers then call `backend.execute(&query)`. The trait is deliberately
-//! small (four methods) and hides all backend-specific state behind `&self`.
+//! small (7 methods) and hides all backend-specific state behind `&self`.
+//!
+//! Enrichment (docs / metrics / history / concepts) was previously bolted on
+//! as four default-stub methods here; it is now a sibling trait
+//! [`crate::enrich::EnrichBackend`]. See RFC-031 §2 for the split rationale
+//! (ISP — library consumers that only query should not pull the enrichment
+//! surface; correctness — silent no-op stubs across five real adapters in v0.2
+//! would be a drift factory).
 
 use thiserror::Error;
 
-use crate::enrich::EnrichReport;
 use crate::fact::{Edge, Node};
 use crate::query::Query;
 use crate::result::QueryResult;
@@ -78,37 +84,4 @@ pub trait StoreBackend: Send + Sync {
     /// Produce the canonical sorted dump of a keyspace (JSONL). G1 hinges on
     /// this being byte-stable across runs with the same inputs.
     fn canonical_dump(&self, keyspace: &Keyspace) -> Result<String, StoreError>;
-
-    /// Enrich a keyspace with documentation facts (rustdoc, README, RFC text).
-    ///
-    /// **Phase A stub (#3628):** the default implementation returns
-    /// [`EnrichReport::not_implemented`]. Real implementations ship in v0.2 /
-    /// Phase D per EPIC #3622. Backends override this method as the
-    /// enrichment passes land.
-    fn enrich_docs(&mut self, _keyspace: &Keyspace) -> Result<EnrichReport, StoreError> {
-        Ok(EnrichReport::not_implemented("enrich_docs"))
-    }
-
-    /// Enrich a keyspace with quality-signal facts (complexity, unwrap counts,
-    /// clone-in-loop counts, etc.).
-    ///
-    /// **Phase A stub (#3628):** see [`Self::enrich_docs`].
-    fn enrich_metrics(&mut self, _keyspace: &Keyspace) -> Result<EnrichReport, StoreError> {
-        Ok(EnrichReport::not_implemented("enrich_metrics"))
-    }
-
-    /// Enrich a keyspace with git-history facts (last-touched, churn, author).
-    ///
-    /// **Phase A stub (#3628):** see [`Self::enrich_docs`].
-    fn enrich_history(&mut self, _keyspace: &Keyspace) -> Result<EnrichReport, StoreError> {
-        Ok(EnrichReport::not_implemented("enrich_history"))
-    }
-
-    /// Enrich a keyspace with bounded-context / concept facts (which crate
-    /// owns which type, which concepts are canonical bypasses).
-    ///
-    /// **Phase A stub (#3628):** see [`Self::enrich_docs`].
-    fn enrich_concepts(&mut self, _keyspace: &Keyspace) -> Result<EnrichReport, StoreError> {
-        Ok(EnrichReport::not_implemented("enrich_concepts"))
-    }
 }

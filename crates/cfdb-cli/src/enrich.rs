@@ -5,9 +5,8 @@
 
 use std::path::PathBuf;
 
-use cfdb_core::enrich::EnrichReport;
+use cfdb_core::enrich::{EnrichBackend, EnrichReport};
 use cfdb_core::schema::Keyspace;
-use cfdb_core::store::StoreBackend;
 use cfdb_petgraph::{persist, PetgraphStore};
 
 use crate::commands::keyspace_path;
