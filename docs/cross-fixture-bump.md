@@ -101,13 +101,15 @@ Procedure:
 
 cfdb's `cfdb_core::SchemaVersion` is the wire contract for every on-disk keyspace. When cfdb bumps it:
 
-1. The cfdb PR bumping `SchemaVersion` **must** be accompanied by a draft PR on `yg/graph-specs-rust` that bumps `.cfdb/cross-fixture.toml` to the cfdb PR's HEAD SHA.
+1. The cfdb PR bumping `SchemaVersion` **must** be accompanied by a graph-specs-rust PR that bumps `.cfdb/cross-fixture.toml` to **the cfdb PR's branch HEAD SHA at PR creation time**. This SHA is set **once**. See "Anti-pattern" below.
 2. Merge order: cfdb first, then the graph-specs fixture bump **within minutes** (not hours).
 3. During the lockstep window, graph-specs' PR-time cross-dogfood step may return exit 20 briefly — this is the documented reason for the 20 code.
 4. If no matching graph-specs PR is open within the cfdb PR's review window, the cfdb reviewer **blocks** the cfdb PR. Lockstep is author discipline; enforcement is human.
 5. The next weekly cron after a missed lockstep will file a `cross-drift-YYYY-WW` issue automatically.
 
-cfdb's own `SchemaVersion` bump PRs must carry `Tests: Schema lockstep — draft graph-specs fixture bump PR <number> open` in the body.
+cfdb's own `SchemaVersion` bump PRs must carry `Tests: Schema lockstep — graph-specs fixture bump PR <number> open` in the body.
+
+**Anti-pattern — do not do this.** Do not ask the reviewer to update the graph-specs PR's pinned SHA to the post-merge develop HEAD after cfdb merges. The cfdb branch HEAD SHA is the commit that becomes part of develop on merge (with an identical tree). Pointing the cross-fixture at the wrapping merge commit adds zero correctness and creates a manual ceremony every SchemaVersion bump: an extra CI run, a fragmented review window, and an easy place to forget and ship stale. The weekly Monday cross-bump cron is the right place for "advance the pin to develop HEAD" — not a per-PR manual step.
 
 ---
 
