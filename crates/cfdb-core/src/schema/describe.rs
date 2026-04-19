@@ -69,6 +69,7 @@ fn node_descriptors() -> Vec<NodeLabelDescriptor> {
                 attr("module_qpath", "string", "Fully-qualified path of the enclosing module.", Extractor),
                 attr("name", "string", "Unqualified item name.", Extractor),
                 attr("qname", "string", "Fully-qualified name (`crate::module::Item`).", Extractor),
+                attr("cfg_gate", "string?", "Feature-only `#[cfg(...)]` expression captured on the item: `feature = \"x\"`, `all(...)`, `any(...)`, `not(...)`. Absent when the item has no `cfg(feature = ...)` or carries a non-feature cfg predicate. SchemaVersion v0.1.2+ only.", Extractor),
                 attr("signature_hash", "string", "Stable hash of the item's normalized signature.", Extractor),
                 attr("test_coverage", "float", "Covered-line ratio in [0.0, 1.0] (fn items only).", EnrichMetrics),
                 attr("unwrap_count", "int", "Number of `.unwrap()` / `.expect()` sites inside the item body.", EnrichMetrics),

@@ -149,11 +149,21 @@ impl SchemaVersion {
         patch: 1,
     };
 
+    /// v0.1.2 — Issue #36 adds the optional `:Item.cfg_gate` attribute
+    /// carrying the `#[cfg(feature = "…")]` expression tree captured on
+    /// the item (absent when the item has no feature-cfg). Additive and
+    /// non-breaking within 0.x.
+    pub const V0_1_2: Self = Self {
+        major: 0,
+        minor: 1,
+        patch: 2,
+    };
+
     /// The schema version this build of cfdb-core writes and reads.
     /// Producers tag every keyspace persist with `CURRENT`. Consumers use
     /// `CURRENT.can_read(&file.schema_version)` to reject forward-
     /// incompatible graphs per G4.
-    pub const CURRENT: Self = Self::V0_1_1;
+    pub const CURRENT: Self = Self::V0_1_2;
 
     pub fn new(major: u16, minor: u16, patch: u16) -> Self {
         Self {

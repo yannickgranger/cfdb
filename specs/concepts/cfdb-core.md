@@ -10,6 +10,10 @@ Aggregation functions supported in `RETURN` and `WITH` clauses.
 
 Metadata for a single node or edge attribute — name, value kind, provenance, documentation.
 
+## CfgGate
+
+Feature-only `#[cfg(...)]` expression tree captured on `:Item.cfg_gate`: `Feature("x")` for `feature = "x"`, `All(children)`, `Any(children)`, `Not(child)`. Added in SchemaVersion v0.1.2 per Issue #36. `Display`/`FromStr` round-trip canonical wire strings; `evaluate(&[&str]) -> bool` so consumers can ask "is this item active under feature set X". All-or-nothing capture: the extractor omits the attribute when any non-feature cfg predicate appears on the item.
+
 ## CompareOp
 
 Comparison operators available in predicates (`Eq`, `Ne`, `Lt`, `Le`, `Gt`, `Ge`).

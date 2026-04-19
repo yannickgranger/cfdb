@@ -11,7 +11,8 @@ use cfdb_core::Visibility;
 use syn::visit::Visit;
 
 use crate::attrs::{
-    attrs_contain_cfg_test, attrs_contain_hash_test, extract_path_attr, extract_serde_default_attr,
+    attrs_contain_cfg_test, attrs_contain_hash_test, extract_cfg_feature_gate, extract_path_attr,
+    extract_serde_default_attr,
 };
 use crate::call_visitor::walk_call_sites_with_test_flag;
 use crate::file_walker::PendingExternalMod;
@@ -72,8 +73,15 @@ impl ItemVisitor<'_> {
         self.is_in_test_mod() || attrs_contain_hash_test(attrs)
     }
 
-    fn emit_item(&mut self, name: &str, kind: &str, line: usize, vis: &syn::Visibility) -> String {
-        self.emit_item_with_flags(name, kind, line, self.is_in_test_mod(), vis)
+    fn emit_item(
+        &mut self,
+        name: &str,
+        kind: &str,
+        line: usize,
+        vis: &syn::Visibility,
+        attrs: &[syn::Attribute],
+    ) -> String {
+        self.emit_item_with_flags(name, kind, line, self.is_in_test_mod(), vis, attrs)
     }
 
     /// Like [`emit_item`] but the caller supplies the `is_test` flag
@@ -86,6 +94,7 @@ impl ItemVisitor<'_> {
         line: usize,
         is_test: bool,
         vis: &syn::Visibility,
+        attrs: &[syn::Attribute],
     ) -> String {
         let qname = self.qname(name);
         let id = format!("item:{qname}");
@@ -109,6 +118,9 @@ impl ItemVisitor<'_> {
             "visibility".into(),
             PropValue::Str(parse_syn_visibility(vis).to_string()),
         );
+        if let Some(gate) = extract_cfg_feature_gate(attrs) {
+            props.insert("cfg_gate".into(), PropValue::Str(gate.to_string()));
+        }
         self.emitter.emit_node(Node {
             id: id.clone(),
             label: Label::new(Label::ITEM),
@@ -200,8 +212,14 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
     fn visit_item_fn(&mut self, node: &'ast syn::ItemFn) {
         let name = node.sig.ident.to_string();
         let is_test = self.fn_is_test(&node.attrs);
-        let id =
-            self.emit_item_with_flags(&name, "fn", span_line(&node.sig.ident), is_test, &node.vis);
+        let id = self.emit_item_with_flags(
+            &name,
+            "fn",
+            span_line(&node.sig.ident),
+            is_test,
+            &node.vis,
+            &node.attrs,
+        );
         let caller_qname = id.trim_start_matches("item:").to_string();
         walk_call_sites_with_test_flag(
             self.emitter,
@@ -256,6 +274,9 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
             "visibility".into(),
             PropValue::Str(parse_syn_visibility(&node.vis).to_string()),
         );
+        if let Some(gate) = extract_cfg_feature_gate(&node.attrs) {
+            props.insert("cfg_gate".into(), PropValue::Str(gate.to_string()));
+        }
         self.emitter.emit_node(Node {
             id: id.clone(),
             label: Label::new(Label::ITEM),
@@ -272,7 +293,13 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
 
     fn visit_item_struct(&mut self, node: &'ast syn::ItemStruct) {
         let name = node.ident.to_string();
-        let id = self.emit_item(&name, "struct", span_line(&node.ident), &node.vis);
+        let id = self.emit_item(
+            &name,
+            "struct",
+            span_line(&node.ident),
+            &node.vis,
+            &node.attrs,
+        );
         let parent_qname = id.trim_start_matches("item:").to_string();
         if let syn::Fields::Named(named) = &node.fields {
             for f in &named.named {
@@ -301,27 +328,57 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
 
     fn visit_item_enum(&mut self, node: &'ast syn::ItemEnum) {
         let name = node.ident.to_string();
-        self.emit_item(&name, "enum", span_line(&node.ident), &node.vis);
+        self.emit_item(
+            &name,
+            "enum",
+            span_line(&node.ident),
+            &node.vis,
+            &node.attrs,
+        );
     }
 
     fn visit_item_trait(&mut self, node: &'ast syn::ItemTrait) {
         let name = node.ident.to_string();
-        self.emit_item(&name, "trait", span_line(&node.ident), &node.vis);
+        self.emit_item(
+            &name,
+            "trait",
+            span_line(&node.ident),
+            &node.vis,
+            &node.attrs,
+        );
     }
 
     fn visit_item_type(&mut self, node: &'ast syn::ItemType) {
         let name = node.ident.to_string();
-        self.emit_item(&name, "type_alias", span_line(&node.ident), &node.vis);
+        self.emit_item(
+            &name,
+            "type_alias",
+            span_line(&node.ident),
+            &node.vis,
+            &node.attrs,
+        );
     }
 
     fn visit_item_const(&mut self, node: &'ast syn::ItemConst) {
         let name = node.ident.to_string();
-        self.emit_item(&name, "const", span_line(&node.ident), &node.vis);
+        self.emit_item(
+            &name,
+            "const",
+            span_line(&node.ident),
+            &node.vis,
+            &node.attrs,
+        );
     }
 
     fn visit_item_static(&mut self, node: &'ast syn::ItemStatic) {
         let name = node.ident.to_string();
-        self.emit_item(&name, "static", span_line(&node.ident), &node.vis);
+        self.emit_item(
+            &name,
+            "static",
+            span_line(&node.ident),
+            &node.vis,
+            &node.attrs,
+        );
     }
 
     fn visit_item_mod(&mut self, node: &'ast syn::ItemMod) {

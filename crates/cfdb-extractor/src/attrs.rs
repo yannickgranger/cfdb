@@ -2,6 +2,10 @@
 //! string-shaped piece of information out of a `syn::Attribute` slice.
 //! Each helper is a pure function; none of them touch the `Emitter`.
 
+use cfdb_core::CfgGate;
+use syn::punctuated::Punctuated;
+use syn::Token;
+
 /// Extract the callback path string from `#[serde(default = "Utc::now")]`
 /// or similar serde default-via-function attributes on a field.
 ///
@@ -110,6 +114,95 @@ pub(crate) fn attrs_contain_hash_test(attrs: &[syn::Attribute]) -> bool {
     })
 }
 
+/// Extract the feature-only `cfg(...)` gate from the item's attribute list
+/// (Issue #36). Recognises `cfg(feature = "x")`, `cfg(all(...))`,
+/// `cfg(any(...))`, `cfg(not(...))` and nested combinations thereof.
+///
+/// **All-or-nothing policy.** Returns `None` when the item either (a)
+/// has no `#[cfg(...)]` attributes, or (b) carries a cfg expression with
+/// any non-feature leaf (e.g. `cfg(test)`, `cfg(target_os = "…")`,
+/// `cfg(unix)`). A mixed capture would force every consumer to decide
+/// how to interpret a partial tree — the closed vocabulary keeps
+/// downstream queries unambiguous.
+///
+/// **Conjunction across multiple attributes.** Multiple `#[cfg(...)]`
+/// attributes on the same item conjoin (Rust semantics). When an item
+/// carries both `#[cfg(feature = "a")]` and `#[cfg(feature = "b")]`
+/// this helper returns `All(vec![Feature("a"), Feature("b")])`.
+pub(crate) fn extract_cfg_feature_gate(attrs: &[syn::Attribute]) -> Option<CfgGate> {
+    let mut gates: Vec<CfgGate> = Vec::new();
+    for attr in attrs {
+        if !attr.path().is_ident("cfg") {
+            continue;
+        }
+        // `#[cfg(...)]` — parse the parenthesised contents as a Meta.
+        let Ok(inner) = attr.parse_args::<syn::Meta>() else {
+            // Anything that doesn't parse as a Meta (malformed or
+            // macro-generated) is treated as opaque — drop the whole
+            // item's gate rather than guess.
+            return None;
+        };
+        let gate = meta_to_feature_gate(&inner)?;
+        gates.push(gate);
+    }
+    match gates.len() {
+        0 => None,
+        1 => Some(gates.into_iter().next().expect("len==1 so first() exists")),
+        _ => Some(CfgGate::All(gates)),
+    }
+}
+
+/// Translate a single `syn::Meta` node into a `CfgGate`, or `None` if the
+/// tree contains any non-feature predicate.
+fn meta_to_feature_gate(meta: &syn::Meta) -> Option<CfgGate> {
+    match meta {
+        syn::Meta::NameValue(nv) if nv.path.is_ident("feature") => {
+            if let syn::Expr::Lit(syn::ExprLit {
+                lit: syn::Lit::Str(s),
+                ..
+            }) = &nv.value
+            {
+                Some(CfgGate::Feature(s.value()))
+            } else {
+                None
+            }
+        }
+        syn::Meta::List(list) if list.path.is_ident("all") => {
+            let children = parse_meta_list_children(list)?;
+            if children.is_empty() {
+                None
+            } else {
+                Some(CfgGate::All(children))
+            }
+        }
+        syn::Meta::List(list) if list.path.is_ident("any") => {
+            let children = parse_meta_list_children(list)?;
+            if children.is_empty() {
+                None
+            } else {
+                Some(CfgGate::Any(children))
+            }
+        }
+        syn::Meta::List(list) if list.path.is_ident("not") => {
+            let mut children = parse_meta_list_children(list)?;
+            if children.len() != 1 {
+                None
+            } else {
+                Some(CfgGate::Not(Box::new(children.remove(0))))
+            }
+        }
+        // Any other shape (cfg(test), cfg(target_os = "linux"),
+        // cfg(unix), cfg(panic = "unwind"), …) — not a feature gate.
+        _ => None,
+    }
+}
+
+fn parse_meta_list_children(list: &syn::MetaList) -> Option<Vec<CfgGate>> {
+    let metas: Punctuated<syn::Meta, Token![,]> =
+        list.parse_args_with(Punctuated::parse_terminated).ok()?;
+    metas.iter().map(meta_to_feature_gate).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -148,5 +241,133 @@ mod tests {
             fn plain() {}
         };
         assert!(!attrs_contain_hash_test(&item.attrs));
+    }
+
+    // ---- extract_cfg_feature_gate (Issue #36) ----------------------------
+
+    fn parse_attrs(src: &str) -> Vec<syn::Attribute> {
+        let wrapped = format!("{src} fn dummy() {{}}");
+        let item: syn::ItemFn = syn::parse_str(&wrapped).expect("test fixture parses");
+        item.attrs
+    }
+
+    #[test]
+    fn extract_cfg_feature_gate_none_when_no_attrs() {
+        let attrs = parse_attrs("");
+        assert_eq!(extract_cfg_feature_gate(&attrs), None);
+    }
+
+    #[test]
+    fn extract_cfg_feature_gate_simple_feature() {
+        let attrs = parse_attrs(r#"#[cfg(feature = "async")]"#);
+        assert_eq!(
+            extract_cfg_feature_gate(&attrs),
+            Some(CfgGate::Feature("async".into()))
+        );
+    }
+
+    #[test]
+    fn extract_cfg_feature_gate_all_combinator() {
+        let attrs = parse_attrs(r#"#[cfg(all(feature = "a", feature = "b"))]"#);
+        assert_eq!(
+            extract_cfg_feature_gate(&attrs),
+            Some(CfgGate::All(vec![
+                CfgGate::Feature("a".into()),
+                CfgGate::Feature("b".into()),
+            ]))
+        );
+    }
+
+    #[test]
+    fn extract_cfg_feature_gate_any_combinator() {
+        let attrs = parse_attrs(r#"#[cfg(any(feature = "x", feature = "y"))]"#);
+        assert_eq!(
+            extract_cfg_feature_gate(&attrs),
+            Some(CfgGate::Any(vec![
+                CfgGate::Feature("x".into()),
+                CfgGate::Feature("y".into()),
+            ]))
+        );
+    }
+
+    #[test]
+    fn extract_cfg_feature_gate_not_combinator() {
+        let attrs = parse_attrs(r#"#[cfg(not(feature = "legacy"))]"#);
+        assert_eq!(
+            extract_cfg_feature_gate(&attrs),
+            Some(CfgGate::Not(Box::new(CfgGate::Feature("legacy".into()))))
+        );
+    }
+
+    #[test]
+    fn extract_cfg_feature_gate_nested_combinators() {
+        let attrs = parse_attrs(
+            r#"#[cfg(all(feature = "async", any(feature = "tokio", not(feature = "legacy"))))]"#,
+        );
+        assert_eq!(
+            extract_cfg_feature_gate(&attrs),
+            Some(CfgGate::All(vec![
+                CfgGate::Feature("async".into()),
+                CfgGate::Any(vec![
+                    CfgGate::Feature("tokio".into()),
+                    CfgGate::Not(Box::new(CfgGate::Feature("legacy".into()))),
+                ]),
+            ]))
+        );
+    }
+
+    #[test]
+    fn extract_cfg_feature_gate_multiple_attrs_conjoin() {
+        // Two separate #[cfg(...)] attributes on the same item conjoin.
+        let attrs = parse_attrs(
+            r#"#[cfg(feature = "a")]
+               #[cfg(feature = "b")]"#,
+        );
+        assert_eq!(
+            extract_cfg_feature_gate(&attrs),
+            Some(CfgGate::All(vec![
+                CfgGate::Feature("a".into()),
+                CfgGate::Feature("b".into()),
+            ]))
+        );
+    }
+
+    #[test]
+    fn extract_cfg_feature_gate_non_feature_poisons_result() {
+        // Pure non-feature cfg — whole item gate drops to None.
+        assert_eq!(
+            extract_cfg_feature_gate(&parse_attrs(r#"#[cfg(test)]"#)),
+            None
+        );
+        assert_eq!(
+            extract_cfg_feature_gate(&parse_attrs(r#"#[cfg(unix)]"#)),
+            None
+        );
+        assert_eq!(
+            extract_cfg_feature_gate(&parse_attrs(r#"#[cfg(target_os = "linux")]"#)),
+            None
+        );
+    }
+
+    #[test]
+    fn extract_cfg_feature_gate_mixed_feature_and_non_feature_drops_to_none() {
+        // Even ONE non-feature leaf poisons the whole tree (all-or-nothing).
+        let attrs = parse_attrs(r#"#[cfg(all(feature = "x", target_os = "linux"))]"#);
+        assert_eq!(extract_cfg_feature_gate(&attrs), None);
+    }
+
+    #[test]
+    fn extract_cfg_feature_gate_ignores_non_cfg_attrs() {
+        // #[derive(Debug)], #[serde(default)] etc. must not leak into
+        // the gate computation.
+        let attrs = parse_attrs(
+            r#"#[derive(Debug)]
+               #[cfg(feature = "async")]
+               #[must_use]"#,
+        );
+        assert_eq!(
+            extract_cfg_feature_gate(&attrs),
+            Some(CfgGate::Feature("async".into()))
+        );
     }
 }
