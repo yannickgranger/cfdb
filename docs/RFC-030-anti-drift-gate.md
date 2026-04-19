@@ -499,13 +499,13 @@ specs. For subsequent crates (e.g., `cfdb-hir-extractor` introduced by
 RFC-029 §A1.2), the RFC that introduces the crate must include a
 corresponding spec as a required deliverable.
 
-### §7.4 What breaks if graph-specs changes its dialect
+### §7.4 What happens when graph-specs develop introduces a breaking dialect change
 
-graph-specs `develop` is the authoritative dialect reference. cfdb CI
-pins to a specific released binary, not `develop`, so dialect upgrades
-are opt-in. When a new graph-specs release ships a breaking dialect
-change, cfdb adopts it via the §5.3 upgrade path: a dedicated RFC,
-updated spec files, CI passing before merge.
+cfdb tracks `graph-specs` `develop` always (user directive 2026-04-19; §1.2).
+When graph-specs `develop` introduces a breaking dialect change, cfdb fixes
+its `specs/` files in the same PR that pulls the updated dependency. There is
+no pinned release tag and no deferred adoption window. A breaking change that
+arrives on `develop` is a spec-update task, not a decision.
 
 ---
 
