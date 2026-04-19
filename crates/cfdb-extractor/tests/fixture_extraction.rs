@@ -696,3 +696,133 @@ owning_rfc = "RFC-007"
     assert_eq!(belongs.len(), 1);
     assert_eq!(belongs[0].dst, "context:portfolio");
 }
+
+/// SchemaVersion v0.1.3+ — every `:CallSite` node carries the
+/// `resolver` and `callee_resolved` discriminator properties (issue #83,
+/// RFC-029 §A1.2 homonym mitigation). The syn-based extractor ALWAYS
+/// emits `resolver="syn"` + `callee_resolved=false`; never any other
+/// value. This fixture exercises all four call-site kinds that emit
+/// `:CallSite` (`call`, `fn_ptr`, `method`, `serde_default`) in one
+/// workspace so the assertion covers both emit_call_site and
+/// emit_attr_call_site paths with a single extraction.
+#[test]
+fn every_syn_call_site_carries_resolver_and_callee_resolved_discriminators() {
+    let fixture = tempdir().expect("tempdir");
+    let root = fixture.path();
+
+    write_fixture_file(
+        root,
+        "Cargo.toml",
+        r#"[workspace]
+resolver = "2"
+members = ["discfixture"]
+"#,
+    );
+    write_fixture_file(
+        root,
+        "discfixture/Cargo.toml",
+        r#"[package]
+name = "discfixture"
+version = "0.0.1"
+edition = "2021"
+"#,
+    );
+    // All four CallSite kinds exercised in one crate:
+    //   - `call`          (ExprCall)
+    //   - `fn_ptr`        (path-as-arg to a fn-pointer parameter)
+    //   - `method`        (MethodCall)
+    //   - `serde_default` (#[serde(default = "…")] on a struct field)
+    write_fixture_file(
+        root,
+        "discfixture/src/lib.rs",
+        r#"
+pub fn greet() -> String { String::from("hi") }
+
+pub fn register(_f: fn() -> String) {}
+
+pub struct Counter(pub u32);
+impl Counter {
+    pub fn tick(&mut self) { self.0 += 1; }
+}
+
+pub fn default_answer() -> u32 { 42 }
+
+#[derive(Debug)]
+pub struct Config {
+    #[serde(default = "default_answer")]
+    pub answer: u32,
+}
+
+pub fn demo() {
+    let _ = greet();           // call
+    register(greet);           // fn_ptr
+    let mut c = Counter(0);
+    c.tick();                  // method
+}
+"#,
+    );
+
+    let (nodes, _edges) = extract_workspace(root).expect("extract discfixture");
+
+    let call_sites: Vec<_> = nodes
+        .iter()
+        .filter(|n| n.label.as_str() == Label::CALL_SITE)
+        .collect();
+
+    // Guard: the fixture must actually produce :CallSite nodes — else
+    // the discriminator assertion below vacuously passes.
+    assert!(
+        call_sites.len() >= 3,
+        "discfixture should emit ≥3 :CallSite nodes; got {}",
+        call_sites.len(),
+    );
+
+    // Per-kind coverage — both emission paths are exercised:
+    //   * emit_call_site (call_visitor.rs) → `call`, `fn_ptr`, `method`
+    //   * emit_attr_call_site (item_visitor.rs) → `serde_default`
+    let observed_kinds: std::collections::BTreeSet<_> = call_sites
+        .iter()
+        .filter_map(|n| n.props.get("kind").and_then(PropValue::as_str))
+        .map(str::to_string)
+        .collect();
+    for expected_kind in ["call", "fn_ptr", "method", "serde_default"] {
+        assert!(
+            observed_kinds.contains(expected_kind),
+            "fixture must emit a :CallSite of kind={expected_kind} to exercise the discriminator \
+             on both emit paths; observed kinds: {observed_kinds:?}",
+        );
+    }
+
+    // The core assertion: every emitted :CallSite carries the v0.1.3
+    // discriminator properties — `resolver="syn"` and
+    // `callee_resolved=false`. No syn-extracted :CallSite ever claims
+    // `resolver="hir"` or `callee_resolved=true`; those values are
+    // reserved for cfdb-hir-extractor (v0.2+).
+    for cs in &call_sites {
+        let id = &cs.id;
+        let resolver = cs
+            .props
+            .get("resolver")
+            .and_then(PropValue::as_str)
+            .unwrap_or_else(|| {
+                panic!("{id}: :CallSite missing `resolver` prop (v0.1.3+ contract)")
+            });
+        assert_eq!(
+            resolver, "syn",
+            "{id}: cfdb-extractor must emit `resolver=\"syn\"`, got {resolver:?}"
+        );
+        let callee_resolved = cs.props.get("callee_resolved").unwrap_or_else(|| {
+            panic!("{id}: :CallSite missing `callee_resolved` prop (v0.1.3+ contract)")
+        });
+        match callee_resolved {
+            PropValue::Bool(false) => {}
+            PropValue::Bool(true) => {
+                panic!(
+                    "{id}: syn-based extractor must never emit `callee_resolved=true`; \
+                     that value is reserved for cfdb-hir-extractor (v0.2+)"
+                );
+            }
+            other => panic!("{id}: `callee_resolved` must be a Bool prop, got {other:?}",),
+        }
+    }
+}
