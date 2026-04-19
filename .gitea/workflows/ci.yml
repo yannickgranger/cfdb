@@ -142,3 +142,15 @@ jobs:
             echo ">> $rule"
             ./target/release/cfdb violations --db .cfdb/db --keyspace cfdb-self --rule "$rule"
           done
+
+      - name: Cross-dogfood — cfdb on graph-specs-rust (RFC-033 §3.2)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd repo
+          # ci/cross-dogfood.sh clones yg/graph-specs-rust at the SHA pinned
+          # in .cfdb/cross-fixture.toml and runs arch-ban-*.cypher against
+          # that tree. Zero-false-positive invariant per RFC-033 §3.4: exit
+          # 30 on any finding blocks merge. Fix at source (companion repo)
+          # or scope the rule narrower — no allowlist.
+          ./ci/cross-dogfood.sh

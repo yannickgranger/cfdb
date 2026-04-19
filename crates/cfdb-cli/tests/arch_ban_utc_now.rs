@@ -282,4 +282,50 @@ fn arch_ban_utc_now_finds_violator_in_fixture_workspace() {
         ])
         .assert()
         .success();
+
+    // 8. --count-only emits just the integer row count on stdout.
+    //    Intended for capture by `ci/cross-dogfood.sh` (RFC-033 §3.2) via
+    //    `rows=$(cfdb violations ... --count-only --no-fail)`. Combine with
+    //    --no-fail so `set -euo pipefail` doesn't kill the script at the
+    //    first non-clean rule. Stderr still carries the `violations: N`
+    //    summary + any shape-lint output for diagnostic parity.
+    let count_only_output = Command::cargo_bin("cfdb")
+        .expect("cfdb binary is built for integration tests")
+        .args([
+            "violations",
+            "--db",
+            db.path().to_str().expect("db tempdir path is valid utf-8"),
+            "--keyspace",
+            "fixture",
+            "--rule",
+            rule_path
+                .to_str()
+                .expect("cfdb rule file path is valid utf-8"),
+            "--count-only",
+            "--no-fail",
+        ])
+        .output()
+        .expect("run cfdb violations --count-only --no-fail");
+
+    assert!(
+        count_only_output.status.success(),
+        "--count-only --no-fail must exit 0 even when the rule fires"
+    );
+
+    let stdout = String::from_utf8_lossy(&count_only_output.stdout);
+    let stdout_trimmed = stdout.trim_end_matches('\n');
+    assert_eq!(
+        stdout_trimmed, "3",
+        "expected `--count-only` stdout to be exactly the integer row count (3), got:\n{stdout:?}"
+    );
+    assert!(
+        !stdout.contains('{'),
+        "--count-only must suppress the pretty-JSON payload, got:\n{stdout}"
+    );
+
+    let stderr = String::from_utf8_lossy(&count_only_output.stderr);
+    assert!(
+        stderr.contains("violations: 3"),
+        "stderr summary must still fire under --count-only (diagnostic parity), got:\n{stderr}"
+    );
 }
