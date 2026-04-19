@@ -11,3 +11,9 @@ Trait defining the store-adapter contract: consume pre-extracted `(Vec<Node>, Ve
 ## EmitStats
 
 Observable counts returned by `CallSiteEmitter::ingest_resolved_call_sites`: `call_sites_emitted`, `calls_edges_emitted`, `invokes_at_edges_emitted`. Counts reflect the input batch, not cumulative store state — callers aggregate across successive calls when they need totals. Default-constructed `EmitStats` is all-zero.
+
+## HirError
+
+Error type produced by the HIR pipeline. Covers workspace-discovery failures (`ProjectManifest` cannot be located), loader failures (`load_workspace_at` returned an error from `ra_ap_load_cargo`), and parse failures during syntax-tree walking. Variants carry the offending `PathBuf` and a stringified message — NO `ra_ap_*` concrete type ever appears in the error payload, preserving the RFC-029 §A1.2 boundary contract (acceptance gate v0.2-6).
+
+The two public free functions `build_hir_database(workspace_root) -> Result<(RootDatabase, Vfs), HirError>` and `extract_call_sites<DB: HirDatabase + Sized>(db, vfs) -> Result<(Vec<Node>, Vec<Edge>), HirError>` compose to emit v0.1.4-shaped HIR facts into cfdb-core's schema vocabulary. Extraction is deterministic (output sorted by ID) and wraps work in `ra_ap_hir_ty::attach_db` to satisfy hir-ty's next-solver thread-local requirement. Unresolved individual calls are silently skipped — the syn extractor catches those as `resolver="syn"`. The SchemaVersion v0.1.4 bump is the first introduction of `CALLS` edges with a `resolved: bool` attribute.

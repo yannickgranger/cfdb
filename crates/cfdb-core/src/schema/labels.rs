@@ -191,11 +191,27 @@ impl SchemaVersion {
         patch: 3,
     };
 
+    /// v0.1.4 — Issue #94 adds the `CALLS.resolved: bool` edge
+    /// attribute distinguishing HIR-resolved dispatch (true, emitted
+    /// by `cfdb-hir-extractor` v0.2+) from syn-based textual calls
+    /// (false, reserved for future unresolved-baseline emission). The
+    /// #94 slice also wires the first resolved `CALLS` +
+    /// `INVOKES_AT` emissions end-to-end through the
+    /// `cfdb-hir-petgraph-adapter`. Additive and non-breaking within
+    /// 0.x — V0_1_3 graphs have no `CALLS` edges emitted at all (the
+    /// syn extractor doesn't emit them; the HIR extractor is the
+    /// first producer).
+    pub const V0_1_4: Self = Self {
+        major: 0,
+        minor: 1,
+        patch: 4,
+    };
+
     /// The schema version this build of cfdb-core writes and reads.
     /// Producers tag every keyspace persist with `CURRENT`. Consumers use
     /// `CURRENT.can_read(&file.schema_version)` to reject forward-
     /// incompatible graphs per G4.
-    pub const CURRENT: Self = Self::V0_1_3;
+    pub const CURRENT: Self = Self::V0_1_4;
 
     pub fn new(major: u16, minor: u16, patch: u16) -> Self {
         Self {

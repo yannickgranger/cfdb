@@ -90,6 +90,41 @@ pub fn qname_from_node_id(node_id: &str) -> &str {
     node_id.strip_prefix("item:").unwrap_or(node_id)
 }
 
+/// Canonicalise an `impl` target rendering by dropping any generic
+/// argument list. Both the syn-based `cfdb-extractor` and the
+/// HIR-based `cfdb-hir-extractor` feed their raw type rendering
+/// through this function before calling [`method_qname`], so an
+/// `impl Vec<Node> { fn push }` produces the same qname via either
+/// extractor (`<crate>::Vec::push`, not `<crate>::Vec<Node>::push`
+/// from HIR and `<crate>::Vec::push` from syn).
+///
+/// Without this normalisation, syn's shallow renderer
+/// (`cfdb-extractor/src/type_render.rs::render_type`) produces
+/// `Vec` — which strips the generic args — while HIR's
+/// `HirDisplay::display` produces `Vec<Node>`. That divergence
+/// would make cross-extractor `CALLS(item:…, item:…)` edges dangle
+/// silently — exactly the failure mode the #40 ddd-specialist review
+/// flagged as HIGH and the #94 review caught as still unremediated.
+///
+/// Algorithm: strip every character at bracket depth ≥ 1 (where
+/// depth tracks nested `<` / `>`). Trailing whitespace that remains
+/// after a stripped region is trimmed.
+#[must_use]
+pub fn normalize_impl_target(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    let mut depth: usize = 0;
+    for c in raw.chars() {
+        match c {
+            '<' => depth += 1,
+            '>' => depth = depth.saturating_sub(1),
+            _ if depth == 0 => out.push(c),
+            _ => {}
+        }
+    }
+    out.truncate(out.trim_end().len());
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -180,6 +215,58 @@ mod tests {
         // Degenerate but valid — the wrapper is a pure string operation,
         // not a parser. Empty qname is illegal-but-representable.
         assert_eq!(item_node_id(""), "item:");
+    }
+
+    #[test]
+    fn normalize_impl_target_strips_single_generic_param() {
+        assert_eq!(normalize_impl_target("Vec<Node>"), "Vec");
+    }
+
+    #[test]
+    fn normalize_impl_target_strips_nested_generics() {
+        assert_eq!(normalize_impl_target("Vec<HashMap<K, V>>"), "Vec");
+        assert_eq!(
+            normalize_impl_target("BTreeMap<String, Vec<u8>>"),
+            "BTreeMap"
+        );
+    }
+
+    #[test]
+    fn normalize_impl_target_preserves_qualified_paths_without_generics() {
+        assert_eq!(
+            normalize_impl_target("std::fmt::Display"),
+            "std::fmt::Display"
+        );
+        assert_eq!(normalize_impl_target("Foo"), "Foo");
+    }
+
+    #[test]
+    fn normalize_impl_target_strips_lifetime_and_bounds() {
+        assert_eq!(normalize_impl_target("Foo<'a, T: Bound>"), "Foo");
+        assert_eq!(normalize_impl_target("Iter<'a, T>"), "Iter");
+    }
+
+    #[test]
+    fn normalize_impl_target_trims_trailing_whitespace_after_strip() {
+        assert_eq!(normalize_impl_target("Foo <T>"), "Foo");
+    }
+
+    #[test]
+    fn normalize_impl_target_preserves_non_angle_punctuation() {
+        assert_eq!(normalize_impl_target("&dyn Foo"), "&dyn Foo");
+        assert_eq!(normalize_impl_target("(A, B)"), "(A, B)");
+    }
+
+    #[test]
+    fn normalize_impl_target_handles_empty_input() {
+        assert_eq!(normalize_impl_target(""), "");
+    }
+
+    #[test]
+    fn normalize_impl_target_handles_unmatched_closing_bracket() {
+        // Defensive: saturating_sub prevents underflow on malformed
+        // input. We don't claim correctness on garbage — just no panic.
+        assert_eq!(normalize_impl_target("Foo>"), "Foo");
     }
 
     #[test]

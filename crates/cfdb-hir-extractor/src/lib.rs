@@ -68,9 +68,15 @@ use ra_ap_rustc_type_ir as _;
 use ra_ap_syntax as _;
 use ra_ap_vfs as _;
 
-// thiserror is declared for v0.2+ error types (slice 3c).
-use thiserror as _;
-
 // The `emit` module exposes the `CallSiteEmitter` trait and `EmitStats`
 // struct — the store-adapter contract. Slice 3b (Issue #92).
 pub mod emit;
+
+// Slice 3c (Issue #85c) — the HIR extraction logic.
+pub mod call_site_emitter;
+pub mod error;
+pub mod hir_db;
+
+pub use call_site_emitter::extract_call_sites;
+pub use error::HirError;
+pub use hir_db::build_hir_database;

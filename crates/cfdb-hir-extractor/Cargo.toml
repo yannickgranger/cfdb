@@ -27,12 +27,19 @@ ra_ap_hir.workspace = true
 ra_ap_hir_def.workspace = true
 ra_ap_hir_ty.workspace = true
 ra_ap_hir_expand.workspace = true
+# base-db is brought in for its `pub use salsa` re-export used to
+# attach the database to the current thread before HIR queries.
 ra_ap_base_db.workspace = true
 ra_ap_ide_db.workspace = true
 ra_ap_syntax.workspace = true
 ra_ap_vfs.workspace = true
 ra_ap_project_model.workspace = true
 ra_ap_proc_macro_api.workspace = true
+ra_ap_load-cargo.workspace = true
+ra_ap_edition.workspace = true
 
 # rustc internals (independent cadence — rust-systems C1).
 ra-ap-rustc_type_ir.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
