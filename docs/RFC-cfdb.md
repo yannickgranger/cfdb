@@ -898,7 +898,7 @@ The roadmap is **optional**; v0.1 must stand alone. Each post-v0.1 version is in
 Per council-cfdb-wiring `RATIFIED.md §B.1` (same-day addendum), four strictly **additive** extensions land in v0.1 without incrementing the schema version:
 
 1. **`Item.is_test: bool`** — extended to recognise the bare `#[test]` function attribute in addition to the existing `#[cfg(test)]` module path (`attrs_contain_hash_test` helper alongside `attrs_contain_cfg_test`). The Item `NodeLabelDescriptor` now declares the attribute, closing the pre-existing asymmetry with the already-declared CallSite descriptor.
-2. **`Item.bounded_context: String`** — stamped at extraction time (syn-level, **NOT** post-extraction enrichment) via `cfdb_extractor::context::compute_bounded_context`, with override support from `.cfdb/concepts/<name>.toml` files under the workspace root.
+2. **`Item.bounded_context: String`** — stamped at extraction time (syn-level, **NOT** post-extraction enrichment) via `cfdb_concepts::compute_bounded_context` (shared `cfdb-concepts` crate, Issue #3 extraction), with override support from `.cfdb/concepts/<name>.toml` files under the workspace root.
 3. **`:Context {name, canonical_crate?, owning_rfc?}` node label** — new 11th well-known label added as `pub const CONTEXT` on the `Label` newtype (open-newtype encoding per §7.1).
 4. **`(:Crate)-[:BELONGS_TO]->(:Context)` edge label** — new structural edge added as `pub const BELONGS_TO` on the `EdgeLabel` newtype.
 

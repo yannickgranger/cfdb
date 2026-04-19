@@ -47,12 +47,11 @@ use thiserror::Error;
 
 mod attrs;
 mod call_visitor;
-mod context;
 mod file_walker;
 mod item_visitor;
 mod type_render;
 
-use context::{compute_bounded_context, load_concept_overrides, ContextMeta};
+use cfdb_concepts::{compute_bounded_context, load_concept_overrides, ContextMeta};
 use file_walker::visit_file;
 
 #[derive(Debug, Error)]

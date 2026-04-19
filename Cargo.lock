@@ -272,6 +272,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cfdb-concepts"
+version = "0.0.1"
+dependencies = [
+ "serde",
+ "tempfile",
+ "thiserror",
+ "toml 0.8.23",
+]
+
+[[package]]
 name = "cfdb-core"
 version = "0.0.1"
 dependencies = [
@@ -286,6 +296,7 @@ name = "cfdb-extractor"
 version = "0.0.1"
 dependencies = [
  "cargo_metadata 0.22.0",
+ "cfdb-concepts",
  "cfdb-core",
  "serde",
  "serde_json",

@@ -1,13 +1,13 @@
-//! Bounded-context resolution for the syn extractor (council-cfdb-wiring §B.1.2).
+//! Bounded-context resolution for the cfdb workspace — shared library.
 //!
-//! This module is the SINGLE canonical resolver of `(crate name) ->
-//! bounded context`. The strategy is two-layer:
+//! This crate is the SINGLE canonical resolver of `(crate name) ->
+//! bounded context`. Two layers:
 //!
 //! 1. Optional `.cfdb/concepts/<context>.toml` overrides read at the start of
-//!    `extract_workspace`. Each TOML file declares a context name, an optional
-//!    `canonical_crate`, an optional `owning_rfc`, and an explicit `crates`
-//!    list. The reverse map (crate name -> context name + metadata) WINS over
-//!    the heuristic.
+//!    `extract_workspace` (or any other consumer). Each TOML file declares a
+//!    context name, an optional `canonical_crate`, an optional `owning_rfc`,
+//!    and an explicit `crates` list. The reverse map (crate name -> context
+//!    name + metadata) WINS over the heuristic.
 //! 2. A fallback crate-prefix heuristic for crates the overrides do not name.
 //!    Well-known prefixes (`domain-`, `ports-`, `adapters-`, `application-`,
 //!    `use-cases-`, `qbot-`) are stripped and the remainder becomes the
@@ -17,6 +17,17 @@
 //!
 //! Determinism: everything here uses `BTreeMap` / sorted `Vec<PathBuf>` so
 //! two runs on the same inputs emit byte-identical facts — RFC-029 §12.1 G1.
+//!
+//! # Origin
+//!
+//! Originally `cfdb-extractor/src/context.rs`; extracted into this dedicated
+//! crate per Issue #3 (council-ratified #3841 doctrine). The extraction exists
+//! because multiple consumers (`cfdb-extractor` and the future `cfdb-query`
+//! DSL evaluator's `ContextMap` type) need the same loader, and a shared
+//! crate is the Rust-level implementation of the Conformist pattern.
+//!
+//! Dependency discipline: zero heavy deps. No `syn`, no `cargo_metadata`,
+//! no `ra-ap-hir`. Pure TOML + serde.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -42,7 +53,7 @@ const WELL_KNOWN_PREFIXES: &[&str] = &[
 /// `:Context` node; also used to look up the per-Item `bounded_context`
 /// prop and the per-Crate `BELONGS_TO` edge target.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ContextMeta {
+pub struct ContextMeta {
     pub name: String,
     pub canonical_crate: Option<String>,
     pub owning_rfc: Option<String>,
@@ -63,7 +74,7 @@ struct ConceptFile {
 /// Loaded overrides: reverse map (crate name -> ContextMeta) so the
 /// extractor can answer "which context does `crate X` belong to" in O(log n).
 #[derive(Debug, Default)]
-pub(crate) struct ConceptOverrides {
+pub struct ConceptOverrides {
     /// Reverse map: crate name -> owning context metadata.
     by_crate: BTreeMap<String, ContextMeta>,
 }
@@ -92,7 +103,12 @@ impl ConceptOverrides {
 /// reverse map. Missing directory is NOT an error — returns an empty
 /// `ConceptOverrides`. Parse errors are surfaced as `LoadError` so the
 /// caller can fail loudly rather than silently fall back to the heuristic.
-pub(crate) fn load_concept_overrides(workspace_root: &Path) -> Result<ConceptOverrides, LoadError> {
+///
+/// # Errors
+///
+/// Returns [`LoadError::Io`] on filesystem access failures (directory read,
+/// file read) and [`LoadError::Toml`] on malformed TOML content.
+pub fn load_concept_overrides(workspace_root: &Path) -> Result<ConceptOverrides, LoadError> {
     let dir = workspace_root.join(".cfdb").join("concepts");
     if !dir.exists() {
         return Ok(ConceptOverrides::default());
@@ -144,7 +160,8 @@ pub(crate) fn load_concept_overrides(workspace_root: &Path) -> Result<ConceptOve
 /// Override wins over the heuristic. The heuristic strips one well-known
 /// crate-prefix (from [`WELL_KNOWN_PREFIXES`]) and returns the remainder;
 /// crates with no known prefix return their full name unchanged.
-pub(crate) fn compute_bounded_context(package_name: &str, overrides: &ConceptOverrides) -> String {
+#[must_use]
+pub fn compute_bounded_context(package_name: &str, overrides: &ConceptOverrides) -> String {
     if let Some(meta) = overrides.lookup(package_name) {
         return meta.name.clone();
     }
@@ -158,8 +175,11 @@ pub(crate) fn compute_bounded_context(package_name: &str, overrides: &ConceptOve
     package_name.to_string()
 }
 
+/// Errors surfaced by [`load_concept_overrides`] — file-system access and
+/// TOML parse failures. I/O errors carry the offending path so callers can
+/// pinpoint which concept file is malformed.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum LoadError {
+pub enum LoadError {
     #[error("io error reading {path}: {source}")]
     Io {
         path: PathBuf,

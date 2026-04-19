@@ -6,14 +6,15 @@
 # because none of them starts with a well-known prefix. This override
 # declares the single canonical grouping.
 #
-# Used by `cfdb_extractor::context::load_concept_overrides` at extraction
-# time (issue #3727, syn-level, NOT post-extraction enrichment).
+# Used by `cfdb_concepts::load_concept_overrides` (shared crate, Issue #3)
+# at extraction time (issue #3727, syn-level, NOT post-extraction enrichment).
 
 name = "cfdb"
 canonical_crate = "cfdb-core"
 owning_rfc = "RFC-029"
 crates = [
     "cfdb-core",
+    "cfdb-concepts",
     "cfdb-query",
     "cfdb-petgraph",
     "cfdb-extractor",

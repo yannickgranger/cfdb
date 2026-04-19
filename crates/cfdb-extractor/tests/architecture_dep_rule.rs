@@ -15,6 +15,10 @@ const CARGO_TOML: &str = include_str!("../Cargo.toml");
 const ALLOWED_DEPS: &[&str] = &[
     // The hub — cfdb-extractor produces `Node`/`Edge` types defined in cfdb-core.
     "cfdb-core",
+    // Shared `.cfdb/concepts/*.toml` loader + crate→bounded-context resolver
+    // (Issue #3 extraction). Pure-library crate, zero heavy deps —
+    // cfdb-query will also depend on it (Conformist pattern).
+    "cfdb-concepts",
     // Rust source AST visitor.
     "syn",
     // Workspace/crate metadata resolution.
