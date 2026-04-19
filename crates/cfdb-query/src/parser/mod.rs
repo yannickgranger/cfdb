@@ -119,11 +119,51 @@ pub fn parse(source: &str) -> Result<Query, ParseError> {
     Err(err)
 }
 
+/// String-literal classification of a single byte for the Cypher-subset
+/// scanners. Both [`strip_comments`] and [`find_keyword`] need to skip
+/// `'…'` / `"…"` content; keeping the state machine in one place means a
+/// future dialect change (raw strings, backtick identifiers, escape
+/// sequences) lands in exactly one function (RFC-031 §6 / issue #28).
+#[derive(Debug, Clone, Copy)]
+enum StringLiteralStep {
+    /// Byte is an opening or closing quote — it toggled `in_single` or
+    /// `in_double`. Both scanners treat quotes as string-content for
+    /// their purposes (the quote itself is pushed verbatim / skipped),
+    /// but we distinguish it from a mid-literal byte for clarity.
+    Quote,
+    /// Byte sits inside a string literal (neither a quote nor outside
+    /// any literal). Scanners advance past it without inspecting.
+    InsideString,
+    /// Byte is outside any string literal. Scanners run their own
+    /// comment-detection / keyword-matching logic here.
+    OutsideString,
+}
+
+/// Advance the string-literal state machine by one byte and classify it.
+/// Mutates `in_single` / `in_double` on quote bytes so the caller's next
+/// call sees the updated state.
+fn classify_string_byte(b: u8, in_single: &mut bool, in_double: &mut bool) -> StringLiteralStep {
+    if !*in_double && b == b'\'' {
+        *in_single = !*in_single;
+        return StringLiteralStep::Quote;
+    }
+    if !*in_single && b == b'"' {
+        *in_double = !*in_double;
+        return StringLiteralStep::Quote;
+    }
+    if *in_single || *in_double {
+        StringLiteralStep::InsideString
+    } else {
+        StringLiteralStep::OutsideString
+    }
+}
+
 /// Replace `//` line comments and `/* */` block comments with spaces so the
 /// rest of the parser never sees them. Positions are preserved byte-for-byte
 /// which keeps error line/col correct against the user's original source.
 ///
-/// String literals are respected — `'foo // not a comment'` stays intact.
+/// String literals are respected — `'foo // not a comment'` stays intact —
+/// via the shared [`classify_string_byte`] state machine.
 fn strip_comments(source: &str) -> String {
     let bytes = source.as_bytes();
     let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
@@ -132,55 +172,67 @@ fn strip_comments(source: &str) -> String {
     let mut in_double = false;
     while i < bytes.len() {
         let b = bytes[i];
-        if !in_double && b == b'\'' {
-            in_single = !in_single;
-            out.push(b);
-            i += 1;
-            continue;
-        }
-        if !in_single && b == b'"' {
-            in_double = !in_double;
-            out.push(b);
-            i += 1;
-            continue;
-        }
-        if in_single || in_double {
-            out.push(b);
-            i += 1;
-            continue;
-        }
-        // `//` line comment: blank out until (and including) the newline.
-        if b == b'/' && i + 1 < bytes.len() && bytes[i + 1] == b'/' {
-            while i < bytes.len() && bytes[i] != b'\n' {
-                out.push(b' ');
+        match classify_string_byte(b, &mut in_single, &mut in_double) {
+            StringLiteralStep::Quote | StringLiteralStep::InsideString => {
+                out.push(b);
                 i += 1;
             }
-            continue;
-        }
-        // `/* */` block comment: blank out until terminator, preserving
-        // embedded newlines so line numbers stay aligned.
-        if b == b'/' && i + 1 < bytes.len() && bytes[i + 1] == b'*' {
-            out.push(b' ');
-            out.push(b' ');
-            i += 2;
-            while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
-                out.push(if bytes[i] == b'\n' { b'\n' } else { b' ' });
+            StringLiteralStep::OutsideString if is_line_comment_start(bytes, i) => {
+                consume_line_comment(bytes, &mut i, &mut out);
+            }
+            StringLiteralStep::OutsideString if is_block_comment_start(bytes, i) => {
+                consume_block_comment(bytes, &mut i, &mut out);
+            }
+            StringLiteralStep::OutsideString => {
+                out.push(b);
                 i += 1;
             }
-            if i + 1 < bytes.len() {
-                out.push(b' ');
-                out.push(b' ');
-                i += 2;
-            }
-            continue;
         }
-        out.push(b);
-        i += 1;
     }
     // Safety: strip_comments only replaces bytes with ASCII space / newline
     // and preserves all non-comment bytes verbatim — so multi-byte UTF-8
     // sequences stay valid.
     String::from_utf8(out).expect("comment-stripped source stays valid UTF-8")
+}
+
+fn is_line_comment_start(bytes: &[u8], i: usize) -> bool {
+    bytes.get(i) == Some(&b'/') && bytes.get(i + 1) == Some(&b'/')
+}
+
+fn is_block_comment_start(bytes: &[u8], i: usize) -> bool {
+    bytes.get(i) == Some(&b'/') && bytes.get(i + 1) == Some(&b'*')
+}
+
+/// Consume a `//` line comment starting at `*i`, pushing a space for every
+/// byte except the terminating newline (which is preserved to keep line
+/// numbers aligned with the original source). Advances `*i` past the last
+/// comment byte — the newline itself (if any) is left for the outer loop
+/// to push verbatim.
+fn consume_line_comment(bytes: &[u8], i: &mut usize, out: &mut Vec<u8>) {
+    while *i < bytes.len() && bytes[*i] != b'\n' {
+        out.push(b' ');
+        *i += 1;
+    }
+}
+
+/// Consume a `/* */` block comment starting at `*i`. Pushes two spaces for
+/// the opening `/*`, a space-or-newline for each inner byte (newlines are
+/// preserved to keep line numbers aligned), and two spaces for the closing
+/// `*/`. Advances `*i` past the closing `*/` — or to EOF if the block is
+/// unterminated (parser will surface a syntax error further down).
+fn consume_block_comment(bytes: &[u8], i: &mut usize, out: &mut Vec<u8>) {
+    out.push(b' ');
+    out.push(b' ');
+    *i += 2;
+    while *i + 1 < bytes.len() && !(bytes[*i] == b'*' && bytes[*i + 1] == b'/') {
+        out.push(if bytes[*i] == b'\n' { b'\n' } else { b' ' });
+        *i += 1;
+    }
+    if *i + 1 < bytes.len() {
+        out.push(b' ');
+        out.push(b' ');
+        *i += 2;
+    }
 }
 
 /// Reject v0.1-out-of-scope keywords early with a clear message. We do this
@@ -221,24 +273,18 @@ fn find_keyword(source: &str, kw: &str) -> Option<usize> {
     let bytes = source.as_bytes();
     let kw_bytes = kw.as_bytes();
     let mut i = 0;
-    // Skip content inside string literals to avoid false positives.
+    // Skip content inside string literals to avoid false positives. Shared
+    // state machine with `strip_comments` via [`classify_string_byte`].
     let mut in_single = false;
     let mut in_double = false;
     while i < bytes.len() {
         let b = bytes[i];
-        if !in_double && b == b'\'' {
-            in_single = !in_single;
-            i += 1;
-            continue;
-        }
-        if !in_single && b == b'"' {
-            in_double = !in_double;
-            i += 1;
-            continue;
-        }
-        if in_single || in_double {
-            i += 1;
-            continue;
+        match classify_string_byte(b, &mut in_single, &mut in_double) {
+            StringLiteralStep::Quote | StringLiteralStep::InsideString => {
+                i += 1;
+                continue;
+            }
+            StringLiteralStep::OutsideString => {}
         }
         if i + kw_bytes.len() <= bytes.len() {
             let slice = &bytes[i..i + kw_bytes.len()];
