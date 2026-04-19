@@ -172,6 +172,9 @@ impl ItemVisitor<'_> {
         props.insert("line".into(), PropValue::Int(0));
         props.insert("is_test".into(), PropValue::Bool(self.is_in_test_mod()));
         props.insert("field".into(), PropValue::Str(field_name.to_string()));
+        // SchemaVersion v0.1.3+ discriminator (Label::CALL_SITE doc, #83).
+        props.insert("resolver".into(), PropValue::Str("syn".to_string()));
+        props.insert("callee_resolved".into(), PropValue::Bool(false));
         self.emitter.emit_node(Node {
             id: cs_id.clone(),
             label: Label::new(Label::CALL_SITE),

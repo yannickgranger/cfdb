@@ -114,12 +114,14 @@ fn node_descriptors() -> Vec<NodeLabelDescriptor> {
             description: "One concrete call expression in the source tree (caller → callee, file:line).".into(),
             attributes: vec![
                 attr("arg_count", "int", "Number of arguments at the call site.", Extractor),
-                attr("caller_qname", "string", "Qualified name of the fn that contains this call.", Extractor),
                 attr("callee_path", "string", "Best-effort path of the callee (may be unresolved).", Extractor),
+                attr("callee_resolved", "bool", "`true` when method dispatch / re-export / trait impl was resolved via HIR; `false` for textual-only syn-based extraction. SchemaVersion v0.1.3+ only. See Label::CALL_SITE discriminator contract.", Extractor),
+                attr("caller_qname", "string", "Qualified name of the fn that contains this call.", Extractor),
                 attr("file", "string", "Source file relative to workspace root.", Extractor),
                 attr("is_test", "bool", "True when the enclosing item is under `#[cfg(test)]` or in `tests/`.", Extractor),
                 attr("kind", "enum", "CallSite shape: `call` (ExprCall/MethodCall), `fn_ptr` (path passed as fn-pointer arg), `serde_default` (`#[serde(default = \"...\")]`).", Extractor),
                 attr("line", "int", "1-based line number.", Extractor),
+                attr("resolver", "enum", "Which extractor produced this node: `syn` (cfdb-extractor, unresolved name-based) or `hir` (cfdb-hir-extractor, HIR-resolved). SchemaVersion v0.1.3+ only. See Label::CALL_SITE discriminator contract.", Extractor),
             ],
         },
         NodeLabelDescriptor {
