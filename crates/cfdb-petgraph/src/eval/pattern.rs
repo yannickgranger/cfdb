@@ -23,33 +23,89 @@ impl<'a> Evaluator<'a> {
         let candidates = self.candidate_nodes(np);
         let mut out: Vec<Bindings> = Vec::new();
         for bindings in table {
-            if let Some(var) = &np.var {
-                if let Some(existing) = bindings.get(var) {
-                    for idx in &candidates {
-                        if matches_existing(existing, *idx) && self.node_props_match(*idx, np) {
-                            out.push(bindings.clone());
-                            break;
-                        }
-                    }
-                } else {
-                    for idx in &candidates {
-                        if !self.node_props_match(*idx, np) {
-                            continue;
-                        }
-                        let mut next = bindings.clone();
-                        next.insert(var.clone(), Binding::NodeRef(*idx));
-                        out.push(next);
-                    }
-                }
-            } else {
-                for idx in &candidates {
-                    if self.node_props_match(*idx, np) {
-                        out.push(bindings.clone());
-                    }
-                }
-            }
+            self.emit_node_bindings(&mut out, bindings, &candidates, np);
         }
         out
+    }
+
+    /// Dispatch a single binding row through the three node-pattern cases:
+    /// anonymous (no `var`), pre-bound `var` (pinned to the existing ref), or
+    /// fresh `var` (multiplied by candidates). Split out of
+    /// `apply_node_pattern` to keep cognitive complexity below the project
+    /// ceiling (RFC-031 §5 / issue #26).
+    fn emit_node_bindings(
+        &self,
+        out: &mut Vec<Bindings>,
+        bindings: Bindings,
+        candidates: &[NodeIndex],
+        np: &NodePattern,
+    ) {
+        match np.var.as_deref() {
+            None => self.emit_anon_node(out, bindings, candidates, np),
+            Some(var) if bindings.contains_key(var) => {
+                self.emit_bound_node(out, bindings, var, candidates, np);
+            }
+            Some(var) => self.emit_new_var_node(out, bindings, var, candidates, np),
+        }
+    }
+
+    /// Anonymous node pattern — every candidate that matches props emits a
+    /// fresh clone of the carrying bindings.
+    fn emit_anon_node(
+        &self,
+        out: &mut Vec<Bindings>,
+        bindings: Bindings,
+        candidates: &[NodeIndex],
+        np: &NodePattern,
+    ) {
+        for idx in candidates {
+            if self.node_props_match(*idx, np) {
+                out.push(bindings.clone());
+            }
+        }
+    }
+
+    /// Pre-bound variable — the incoming bindings already carry `var`.
+    /// Emit a single clone iff at least one candidate matches the existing
+    /// pin AND its props. Breaks on first match (confirmation semantics).
+    fn emit_bound_node(
+        &self,
+        out: &mut Vec<Bindings>,
+        bindings: Bindings,
+        var: &str,
+        candidates: &[NodeIndex],
+        np: &NodePattern,
+    ) {
+        let existing = match bindings.get(var) {
+            Some(b) => b,
+            None => return,
+        };
+        for idx in candidates {
+            if matches_existing(existing, *idx) && self.node_props_match(*idx, np) {
+                out.push(bindings.clone());
+                return;
+            }
+        }
+    }
+
+    /// Fresh variable — each matching candidate produces a new binding row
+    /// with `var` inserted.
+    fn emit_new_var_node(
+        &self,
+        out: &mut Vec<Bindings>,
+        bindings: Bindings,
+        var: &str,
+        candidates: &[NodeIndex],
+        np: &NodePattern,
+    ) {
+        for idx in candidates {
+            if !self.node_props_match(*idx, np) {
+                continue;
+            }
+            let mut next = bindings.clone();
+            next.insert(var.to_string(), Binding::NodeRef(*idx));
+            out.push(next);
+        }
     }
 
     pub(super) fn candidate_nodes(&mut self, np: &NodePattern) -> Vec<NodeIndex> {
@@ -88,54 +144,95 @@ impl<'a> Evaluator<'a> {
         table: Vec<Bindings>,
         pp: &PathPattern,
     ) -> Vec<Bindings> {
-        if let Some(label) = &pp.edge.label {
-            if !self.state.has_edge_label(label) {
-                let suggestion = suggest_label(
-                    label.as_str(),
-                    self.state.edge_labels.iter().map(|l| l.as_str()),
-                );
-                self.warnings.push(Warning {
-                    kind: WarningKind::UnknownEdgeLabel,
-                    message: format!("unknown edge label: {}", label),
-                    suggestion,
-                });
-                return Vec::new();
-            }
+        if self.warn_on_unknown_edge_label(pp) {
+            return Vec::new();
         }
 
         let mut out: Vec<Bindings> = Vec::new();
         for bindings in table {
-            let from_candidates = self.resolve_endpoint(&bindings, &pp.from);
-            for src_idx in from_candidates {
-                if !self.node_props_match(src_idx, &pp.from) {
-                    continue;
-                }
-                let reached = self.traverse(src_idx, &pp.edge);
-                for dst_idx in reached {
-                    if !self.matches_node_pattern_for_endpoint(dst_idx, &pp.to) {
-                        continue;
-                    }
-                    if !self.node_props_match(dst_idx, &pp.to) {
-                        continue;
-                    }
-                    let mut next = bindings.clone();
-                    if let Some(var) = &pp.from.var {
-                        next.insert(var.clone(), Binding::NodeRef(src_idx));
-                    }
-                    if let Some(var) = &pp.to.var {
-                        if let Some(existing) = next.get(var) {
-                            if !matches_existing(existing, dst_idx) {
-                                continue;
-                            }
-                        } else {
-                            next.insert(var.clone(), Binding::NodeRef(dst_idx));
-                        }
-                    }
+            self.emit_path_bindings(&mut out, &bindings, pp);
+        }
+        out
+    }
+
+    /// Emit the `UnknownEdgeLabel` warning for a path pattern whose declared
+    /// edge label is absent from the keyspace. Returns `true` when the caller
+    /// should short-circuit (no matches possible).
+    fn warn_on_unknown_edge_label(&mut self, pp: &PathPattern) -> bool {
+        let Some(label) = &pp.edge.label else {
+            return false;
+        };
+        if self.state.has_edge_label(label) {
+            return false;
+        }
+        let suggestion = suggest_label(
+            label.as_str(),
+            self.state.edge_labels.iter().map(|l| l.as_str()),
+        );
+        self.warnings.push(Warning {
+            kind: WarningKind::UnknownEdgeLabel,
+            message: format!("unknown edge label: {}", label),
+            suggestion,
+        });
+        true
+    }
+
+    /// Expand one binding row by enumerating src candidates, walking edges,
+    /// and emitting new rows for each `(src_idx, dst_idx)` pair that passes
+    /// [`Self::build_path_binding`]. Split out of `apply_path_pattern` to
+    /// keep cognitive complexity below the project ceiling (RFC-031 §5 /
+    /// issue #26).
+    fn emit_path_bindings(
+        &mut self,
+        out: &mut Vec<Bindings>,
+        bindings: &Bindings,
+        pp: &PathPattern,
+    ) {
+        let from_candidates = self.resolve_endpoint(bindings, &pp.from);
+        for src_idx in from_candidates {
+            if !self.node_props_match(src_idx, &pp.from) {
+                continue;
+            }
+            let reached = self.traverse(src_idx, &pp.edge);
+            for dst_idx in reached {
+                if let Some(next) = self.build_path_binding(bindings, src_idx, dst_idx, pp) {
                     out.push(next);
                 }
             }
         }
-        out
+    }
+
+    /// Assemble a single output binding for a `(src_idx, dst_idx)` path. Runs
+    /// the destination-side filters, clones the carrying bindings, inserts
+    /// `from.var` / `to.var` (or fails if a pre-bound `to.var` disagrees with
+    /// `dst_idx`). Returns `None` when any filter rejects the pair.
+    fn build_path_binding(
+        &self,
+        bindings: &Bindings,
+        src_idx: NodeIndex,
+        dst_idx: NodeIndex,
+        pp: &PathPattern,
+    ) -> Option<Bindings> {
+        if !self.matches_node_pattern_for_endpoint(dst_idx, &pp.to) {
+            return None;
+        }
+        if !self.node_props_match(dst_idx, &pp.to) {
+            return None;
+        }
+        let mut next = bindings.clone();
+        if let Some(var) = &pp.from.var {
+            next.insert(var.clone(), Binding::NodeRef(src_idx));
+        }
+        if let Some(var) = &pp.to.var {
+            match next.get(var) {
+                Some(existing) if !matches_existing(existing, dst_idx) => return None,
+                Some(_) => {}
+                None => {
+                    next.insert(var.clone(), Binding::NodeRef(dst_idx));
+                }
+            }
+        }
+        Some(next)
     }
 
     /// Resolve the source-side endpoints of a path pattern. If the endpoint
