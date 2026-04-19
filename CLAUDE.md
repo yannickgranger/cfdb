@@ -31,7 +31,7 @@ Every RFC answers, in this order:
 4. **Invariants.** Determinism (sha256 byte-stable re-extract), recall (extractor ≡ rustdoc-json ground truth), no-ratchet rule (§6.8), keyspace backward-compat.
 5. **Architect lenses.** Dedicated subsections for each architect perspective (see §2.3). Architects' verdicts are captured inline.
 6. **Non-goals.** Explicit.
-7. **Issue decomposition.** Vertical slices, one issue each.
+7. **Issue decomposition.** Vertical slices, one issue each. Each entry carries an explicit `Tests:` line naming the test surface per §2.5 — architects prescribe, implementers execute.
 
 Ratified RFCs live alongside drafts. The `council/RATIFIED.md` and `council/verdicts/` pattern already shows how cfdb records architect verdicts.
 
@@ -50,11 +50,35 @@ Every RFC is reviewed by a team of architect sub-agents, one teammate per lens:
 
 Invocation is via `Agent(subagent_type=...)` or agent teams. Each lens returns a verdict (RATIFY / REJECT / REQUEST CHANGES) with evidence. The RFC is not ratified until all four verdicts are RATIFY, or a single author-documented override is recorded in `council/RATIFIED.md`.
 
+**Architects also prescribe tests** (§2.5). The verdict is not complete until each issue in the decomposition carries a named test surface — unit, integration, recall-corpus extension, dogfood assertion, or a documented `Tests: none` rationale. Implementers do not choose the test shape; they deliver against the prescription.
+
 The existing `council/BRIEF.md` / `council/SYNTHESIS-R1.md` / `council/RATIFIED.md` artifacts are the model for this — make the pattern mandatory for new capability, not optional.
 
 ### §2.4 — Ratification → issues
 
-Once ratified, the RFC's "Issue decomposition" section becomes the concrete backlog. Each vertical slice is filed as a `forge_create_issue` with body linking back to the RFC (`Refs: docs/RFC-<name>.md`). Issues are worked via `/work-issue-lib`.
+Once ratified, the RFC's "Issue decomposition" section becomes the concrete backlog. Each vertical slice is filed as a `forge_create_issue` with body linking back to the RFC (`Refs: docs/RFC-<name>.md`) and carrying the prescribed `Tests:` section from the RFC verbatim. Issues are worked via `/work-issue-lib`. A PR against an issue without the prescribed test is not merged.
+
+### §2.5 — Tests and real infra
+
+**Tests are always mandatory when possible.** "When possible" = there is an executable path the change touches that can be exercised deterministically. "Mandatory" = the PR implementing the issue lands the prescribed test; a PR without it is not merged. Architects prescribe in the RFC + issue body (§2.3 + §2.4); implementers pass.
+
+**Real infra is always preferred over mocks.** The hierarchy:
+
+1. **Dogfood / self-integration.** Exercise the change against cfdb's own source tree via `cfdb extract --workspace .` and assert an invariant (e.g. "the new `:Visibility` attribute is emitted for ≥ N% of pub items in our own crates"). This is the strongest signal because it uses real data flowing through the real pipeline.
+2. **Integration against real inputs.** Construct a small real-shaped input (a synthetic cargo workspace fixture, a concrete `.cypher` rule file) and run the full pipeline end-to-end. Assert on the observable output.
+3. **Unit tests on pure functions.** Fine when the function is genuinely pure (values in → values out, zero I/O). Do not stub out I/O that could be exercised via option 2.
+4. **Mocks / doubles.** Last resort. Must carry an inline comment naming why real infra was unavailable (e.g. nightly-only ground truth absent in CI).
+
+**Prescribed test categories by work type:**
+
+| Work type | Required test |
+|---|---|
+| New capability (new verb, fact type, schema field) | Dogfood-against-cfdb assertion **AND** unit tests for extracted pure functions **AND** `cfdb-recall` corpus extension when the change adds a new fact kind |
+| Bug fix | Regression test that reproduces the bug first (red → green in the same PR) |
+| Mechanical refactor | No new tests; the existing suite must pass byte-identically (the invariant the refactor preserves) |
+| Docs / CI / chore | No test required; the change is its own verification surface |
+
+**Escape hatch.** An issue that is genuinely untestable carries `Tests: none — rationale: <why>` in its body. "I didn't bother" is not a valid rationale. Examples that DO qualify: a typo fix in a comment; a README paragraph rewrite. Examples that do NOT: "it's just a small refactor" (mechanical refactor still requires the existing suite to pass); "the CI test will catch it" (the prescribed test IS the signal, not a hope about CI).
 
 ## §3 — Dogfood enforcement
 
