@@ -1,0 +1,43 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/cfdb-core",
+    "crates/cfdb-query",
+    "crates/cfdb-petgraph",
+    "crates/cfdb-extractor",
+    "crates/cfdb-cli",
+    "crates/cfdb-recall",
+]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2021"
+rust-version = "1.75"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[workspace.dependencies]
+# Core
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+
+# Parser
+chumsky = "0.10"
+
+# Store
+petgraph = "0.8"
+
+# Extractor
+syn = { version = "2", features = ["full", "extra-traits", "visit"] }
+cargo_metadata = "0.22"
+toml = { version = "0.8", default-features = false, features = ["parse"] }
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Testing / utilities
+regex = "1"
+indexmap = "2"
+tempfile = "3"
+assert_cmd = "2"

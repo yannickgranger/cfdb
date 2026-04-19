@@ -1,0 +1,26 @@
+# cfdb-recall audit list
+#
+# One fully-qualified item name per line. Lines beginning with `#` and
+# blank lines are ignored. Items listed here are subtracted from BOTH
+# the denominator and numerator of the recall formula, which is
+# equivalent to treating them as outside the measurement surface.
+#
+# Use sparingly. An audit entry is a promise that:
+#   1. The item is genuinely macro-generated (or otherwise invisible to
+#      syn) and therefore cannot be reached by cfdb-extractor in v0.1,
+#      AND
+#   2. A downstream v0.2 effort (ra-ap-hir, macro walker, etc.) is
+#      either already in flight or explicitly deferred in the RFC.
+#
+# The list is checked during every `cfdb-recall` CLI invocation. It
+# does NOT hide missing items — they still appear in KNOWN_GAPS.md
+# under the "Audited (carved out)" heading so a reviewer can spot-check
+# whether the carve-out is still justified.
+#
+# Format:  <crate>::<module>::<item_name>
+# Example: qbot_domain::id::TradingAccountId
+#
+# ── Entries ──
+# (empty — cfdb-core recall is 100% as of 2026-04-14, no carve-outs
+#  needed yet. Phase B follow-ons measuring cfdb-query / cfdb-petgraph /
+#  cfdb-extractor will add entries here as real gaps surface.)

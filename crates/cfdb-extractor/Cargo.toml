@@ -1,0 +1,19 @@
+[package]
+name = "cfdb-extractor"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+cfdb-core = { path = "../cfdb-core" }
+syn.workspace = true
+cargo_metadata.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+toml.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+tempfile.workspace = true

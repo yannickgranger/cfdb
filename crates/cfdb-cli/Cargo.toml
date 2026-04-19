@@ -1,0 +1,27 @@
+[package]
+name = "cfdb-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "cfdb"
+path = "src/main.rs"
+
+[dependencies]
+cfdb-core = { path = "../cfdb-core" }
+cfdb-query = { path = "../cfdb-query" }
+cfdb-petgraph = { path = "../cfdb-petgraph" }
+cfdb-extractor = { path = "../cfdb-extractor" }
+clap.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+assert_cmd = "2"

@@ -1,0 +1,22 @@
+# Bounded context declaration — `cfdb` sub-workspace
+#
+# council-cfdb-wiring §B.1.2 — the six cfdb crates form a single bounded
+# context ("cfdb"). The crate-prefix heuristic would otherwise map each
+# crate to its own context (`cfdb-core`, `cfdb-extractor`, ...) because
+# none of them starts with a well-known prefix. This override declares
+# the single canonical grouping.
+#
+# Used by `cfdb_extractor::context::load_concept_overrides` at extraction
+# time (issue #3727, syn-level, NOT post-extraction enrichment).
+
+name = "cfdb"
+canonical_crate = "cfdb-core"
+owning_rfc = "RFC-029"
+crates = [
+    "cfdb-core",
+    "cfdb-query",
+    "cfdb-petgraph",
+    "cfdb-extractor",
+    "cfdb-cli",
+    "cfdb-recall",
+]
