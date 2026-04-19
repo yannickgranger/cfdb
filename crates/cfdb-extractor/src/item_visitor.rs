@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 
 use cfdb_core::fact::{Edge, Node, PropValue};
 use cfdb_core::schema::{EdgeLabel, Label};
+use cfdb_core::Visibility;
 use syn::visit::Visit;
 
 use crate::attrs::{
@@ -71,8 +72,8 @@ impl ItemVisitor<'_> {
         self.is_in_test_mod() || attrs_contain_hash_test(attrs)
     }
 
-    fn emit_item(&mut self, name: &str, kind: &str, line: usize) -> String {
-        self.emit_item_with_flags(name, kind, line, self.is_in_test_mod())
+    fn emit_item(&mut self, name: &str, kind: &str, line: usize, vis: &syn::Visibility) -> String {
+        self.emit_item_with_flags(name, kind, line, self.is_in_test_mod(), vis)
     }
 
     /// Like [`emit_item`] but the caller supplies the `is_test` flag
@@ -84,6 +85,7 @@ impl ItemVisitor<'_> {
         kind: &str,
         line: usize,
         is_test: bool,
+        vis: &syn::Visibility,
     ) -> String {
         let qname = self.qname(name);
         let id = format!("item:{qname}");
@@ -103,6 +105,10 @@ impl ItemVisitor<'_> {
         props.insert("file".into(), PropValue::Str(self.file_path.clone()));
         props.insert("line".into(), PropValue::Int(line as i64));
         props.insert("is_test".into(), PropValue::Bool(is_test));
+        props.insert(
+            "visibility".into(),
+            PropValue::Str(parse_syn_visibility(vis).to_string()),
+        );
         self.emitter.emit_node(Node {
             id: id.clone(),
             label: Label::new(Label::ITEM),
@@ -194,7 +200,8 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
     fn visit_item_fn(&mut self, node: &'ast syn::ItemFn) {
         let name = node.sig.ident.to_string();
         let is_test = self.fn_is_test(&node.attrs);
-        let id = self.emit_item_with_flags(&name, "fn", span_line(&node.sig.ident), is_test);
+        let id =
+            self.emit_item_with_flags(&name, "fn", span_line(&node.sig.ident), is_test, &node.vis);
         let caller_qname = id.trim_start_matches("item:").to_string();
         walk_call_sites_with_test_flag(
             self.emitter,
@@ -245,6 +252,10 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
             PropValue::Int(span_line(&node.sig.ident) as i64),
         );
         props.insert("is_test".into(), PropValue::Bool(is_test));
+        props.insert(
+            "visibility".into(),
+            PropValue::Str(parse_syn_visibility(&node.vis).to_string()),
+        );
         self.emitter.emit_node(Node {
             id: id.clone(),
             label: Label::new(Label::ITEM),
@@ -261,7 +272,7 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
 
     fn visit_item_struct(&mut self, node: &'ast syn::ItemStruct) {
         let name = node.ident.to_string();
-        let id = self.emit_item(&name, "struct", span_line(&node.ident));
+        let id = self.emit_item(&name, "struct", span_line(&node.ident), &node.vis);
         let parent_qname = id.trim_start_matches("item:").to_string();
         if let syn::Fields::Named(named) = &node.fields {
             for f in &named.named {
@@ -290,27 +301,27 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
 
     fn visit_item_enum(&mut self, node: &'ast syn::ItemEnum) {
         let name = node.ident.to_string();
-        self.emit_item(&name, "enum", span_line(&node.ident));
+        self.emit_item(&name, "enum", span_line(&node.ident), &node.vis);
     }
 
     fn visit_item_trait(&mut self, node: &'ast syn::ItemTrait) {
         let name = node.ident.to_string();
-        self.emit_item(&name, "trait", span_line(&node.ident));
+        self.emit_item(&name, "trait", span_line(&node.ident), &node.vis);
     }
 
     fn visit_item_type(&mut self, node: &'ast syn::ItemType) {
         let name = node.ident.to_string();
-        self.emit_item(&name, "type_alias", span_line(&node.ident));
+        self.emit_item(&name, "type_alias", span_line(&node.ident), &node.vis);
     }
 
     fn visit_item_const(&mut self, node: &'ast syn::ItemConst) {
         let name = node.ident.to_string();
-        self.emit_item(&name, "const", span_line(&node.ident));
+        self.emit_item(&name, "const", span_line(&node.ident), &node.vis);
     }
 
     fn visit_item_static(&mut self, node: &'ast syn::ItemStatic) {
         let name = node.ident.to_string();
-        self.emit_item(&name, "static", span_line(&node.ident));
+        self.emit_item(&name, "static", span_line(&node.ident), &node.vis);
     }
 
     fn visit_item_mod(&mut self, node: &'ast syn::ItemMod) {
@@ -366,4 +377,103 @@ fn span_line(_ident: &syn::Ident) -> usize {
     // is a known placeholder that callers can overwrite later with a
     // rustc-generated source map. RFC §8.2 phase B tracks this.
     0
+}
+
+/// Translate a `syn::Visibility` AST node into the typed cfdb-core enum
+/// (RFC-033 §7 A1 / Issue #35). The mapping:
+///
+/// - `pub`                        → `Public`
+/// - `pub(crate)`                 → `CrateLocal`
+/// - `pub(super)` / `pub(self)`   → `Module` (semantic equivalence; wire
+///   always renders as `pub(super)`)
+/// - inherited (no modifier)      → `Private`
+/// - `pub(in path::to::mod)` and any other `Restricted` path → `Restricted`
+///   carrying the `::`-joined path string
+fn parse_syn_visibility(vis: &syn::Visibility) -> Visibility {
+    match vis {
+        syn::Visibility::Public(_) => Visibility::Public,
+        syn::Visibility::Inherited => Visibility::Private,
+        syn::Visibility::Restricted(r) => {
+            let segments: Vec<String> = r
+                .path
+                .segments
+                .iter()
+                .map(|s| s.ident.to_string())
+                .collect();
+            // `pub(in crate)` / `pub(in super)` / `pub(in self)` — the
+            // `in` keyword makes these canonically-path-restricted. syn
+            // distinguishes them from the shorter `pub(crate)` /
+            // `pub(super)` / `pub(self)` forms via `r.in_token.is_some()`.
+            // The short form matches on a single-segment path without the
+            // `in` keyword; the long form always keeps the path verbatim.
+            let has_in = r.in_token.is_some();
+            match (segments.len(), segments.first().map(String::as_str), has_in) {
+                (1, Some("crate"), false) => Visibility::CrateLocal,
+                (1, Some("super"), false) | (1, Some("self"), false) => Visibility::Module,
+                _ => Visibility::Restricted(segments.join("::")),
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod parse_syn_visibility_tests {
+    use super::parse_syn_visibility;
+    use cfdb_core::Visibility;
+
+    fn parse(src: &str) -> syn::Visibility {
+        // Parse via a wrapper item so the visibility appears in a
+        // well-formed context syn accepts.
+        let wrapped = format!("{src} fn dummy() {{}}");
+        let item: syn::ItemFn = syn::parse_str(&wrapped).expect("parse test fixture");
+        item.vis
+    }
+
+    #[test]
+    fn inherited_is_private() {
+        assert_eq!(parse_syn_visibility(&parse("")), Visibility::Private);
+    }
+
+    #[test]
+    fn pub_is_public() {
+        assert_eq!(parse_syn_visibility(&parse("pub")), Visibility::Public);
+    }
+
+    #[test]
+    fn pub_crate_is_crate_local() {
+        assert_eq!(
+            parse_syn_visibility(&parse("pub(crate)")),
+            Visibility::CrateLocal
+        );
+    }
+
+    #[test]
+    fn pub_super_and_pub_self_collapse_to_module() {
+        assert_eq!(
+            parse_syn_visibility(&parse("pub(super)")),
+            Visibility::Module
+        );
+        assert_eq!(
+            parse_syn_visibility(&parse("pub(self)")),
+            Visibility::Module
+        );
+    }
+
+    #[test]
+    fn pub_in_path_is_restricted() {
+        assert_eq!(
+            parse_syn_visibility(&parse("pub(in crate::foo::bar)")),
+            Visibility::Restricted("crate::foo::bar".into())
+        );
+    }
+
+    #[test]
+    fn pub_in_crate_does_not_collapse_to_crate_local() {
+        // `pub(in crate)` is a restricted-path form, not the short
+        // `pub(crate)`. We preserve the distinction on the wire.
+        assert_eq!(
+            parse_syn_visibility(&parse("pub(in crate)")),
+            Visibility::Restricted("crate".into())
+        );
+    }
 }

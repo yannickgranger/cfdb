@@ -141,6 +141,20 @@ impl SchemaVersion {
         patch: 0,
     };
 
+    /// v0.1.1 — Issue #35 adds `:Item.visibility` (additive, non-breaking
+    /// within the 0.x major; V0_1_0 readers refuse V0_1_1 graphs per G4).
+    pub const V0_1_1: Self = Self {
+        major: 0,
+        minor: 1,
+        patch: 1,
+    };
+
+    /// The schema version this build of cfdb-core writes and reads.
+    /// Producers tag every keyspace persist with `CURRENT`. Consumers use
+    /// `CURRENT.can_read(&file.schema_version)` to reject forward-
+    /// incompatible graphs per G4.
+    pub const CURRENT: Self = Self::V0_1_1;
+
     pub fn new(major: u16, minor: u16, patch: u16) -> Self {
         Self {
             major,
