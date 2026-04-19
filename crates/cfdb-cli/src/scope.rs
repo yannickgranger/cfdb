@@ -5,15 +5,15 @@
 
 use std::path::Path;
 
-use cfdb_core::query::list_items_matching as compose_list_items_matching;
 use cfdb_core::result::{Warning, WarningKind};
 use cfdb_core::schema::Keyspace;
 use cfdb_core::store::StoreBackend;
-use cfdb_core::{
-    CanonicalCandidate, DebtClass, Finding, Param, PropValue, Query, RowValue, ScopeInventory,
-};
+use cfdb_core::{Param, PropValue, Query, RowValue};
 use cfdb_petgraph::{persist, PetgraphStore};
-use cfdb_query::parse;
+use cfdb_query::{
+    list_items_matching as compose_list_items_matching, parse, CanonicalCandidate, DebtClass,
+    Finding, ScopeInventory,
+};
 
 use crate::commands::keyspace_path;
 

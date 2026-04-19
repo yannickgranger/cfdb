@@ -5,11 +5,12 @@
 
 use std::path::{Path, PathBuf};
 
-use cfdb_core::query::{list_items_matching as compose_list_items_matching, ItemKind};
+use cfdb_core::query::ItemKind;
 use cfdb_core::result::{Warning, WarningKind};
 use cfdb_core::schema::{schema_describe, Keyspace};
 use cfdb_core::store::StoreBackend;
 use cfdb_petgraph::{persist, PetgraphStore};
+use cfdb_query::list_items_matching as compose_list_items_matching;
 
 use crate::commands::keyspace_path;
 

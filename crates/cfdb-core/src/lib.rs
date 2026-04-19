@@ -29,10 +29,9 @@ pub mod store;
 pub use enrich::{EnrichBackend, EnrichReport};
 pub use fact::{Edge, Node, PropValue, Props};
 pub use query::{
-    list_items_matching, Aggregation, CanonicalCandidate, CompareOp, DebtClass, Direction,
-    EdgePattern, Expr, Finding, ItemKind, NodePattern, OrderBy, Param, PathPattern, Pattern,
-    Predicate, Projection, ProjectionValue, Query, ReachabilityEntry, ReturnClause, ScopeInventory,
-    UnknownDebtClass, UnknownItemKind, WithClause,
+    Aggregation, CompareOp, Direction, EdgePattern, Expr, ItemKind, NodePattern, OrderBy, Param,
+    PathPattern, Pattern, Predicate, Projection, ProjectionValue, Query, ReturnClause,
+    UnknownItemKind, WithClause,
 };
 pub use result::{QueryResult, Row, RowValue, Warning, WarningKind};
 pub use schema::{

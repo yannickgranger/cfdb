@@ -10,17 +10,9 @@ Aggregation functions supported in `RETURN` and `WITH` clauses.
 
 Metadata for a single node or edge attribute — name, value kind, provenance, documentation.
 
-## CanonicalCandidate
-
-A candidate for the canonical form of a duplicated concept — qname, usage count, owning crate.
-
 ## CompareOp
 
 Comparison operators available in predicates (`Eq`, `Ne`, `Lt`, `Le`, `Gt`, `Ge`).
-
-## DebtClass
-
-The six debt-cause classes from RFC-029 §A2.1 used by the classifier.
 
 ## Direction
 
@@ -53,10 +45,6 @@ The result of an enrichment pass — verb, completed flag, optional message, fac
 ## Expr
 
 A query expression used in `WITH` and `RETURN` — literal, property access, function call, aggregation, or arithmetic combination.
-
-## Finding
-
-A structured debt finding emitted by the classifier. Carries qnames, evidence, `DebtClass`, confidence, RFC references, bounded contexts.
 
 ## ItemKind
 
@@ -130,10 +118,6 @@ The root AST node for a parsed or builder-constructed Cypher-subset query.
 
 The output of `StoreBackend::execute` — list of `Row` values and list of `Warning` values.
 
-## ReachabilityEntry
-
-An entry in the reachability map — item qname, reachable-from-entry boolean, entry-point count.
-
 ## ReturnClause
 
 The `RETURN` clause — projections, optional `ORDER BY`, optional `SKIP`, optional `LIMIT`.
@@ -154,10 +138,6 @@ The full schema introspection payload returned by `schema_describe` — version,
 
 Versioned schema identifier (major + minor). Backends assert compatibility on `execute` and `ingest_*`.
 
-## ScopeInventory
-
-Structured output of `cfdb scope` — findings grouped by `DebtClass`, canonical candidates, reachability map, LoC per crate.
-
 ## StoreBackend
 
 The graph-store port. Implementations ingest facts, execute queries, emit canonical dumps, and manage keyspace lifecycle (7 methods). Enrichment now lives on the sibling `EnrichBackend` trait (RFC-031 §2). v0.1 has one implementor — `cfdb-petgraph::PetgraphStore` — which implements both traits.
@@ -165,10 +145,6 @@ The graph-store port. Implementations ingest facts, execute queries, emit canoni
 ## StoreError
 
 Error type produced by backend operations — `UnknownKeyspace`, `SchemaMismatch`, `Eval`, `Ingest`, `Io`, `Other`.
-
-## UnknownDebtClass
-
-Error type for unrecognised `DebtClass` string values during deserialisation.
 
 ## UnknownItemKind
 
