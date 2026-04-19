@@ -8,8 +8,9 @@ use std::path::{Path, PathBuf};
 use cfdb_core::schema::Keyspace;
 use cfdb_core::store::StoreBackend;
 use cfdb_core::{Param, PropValue, Query};
-use cfdb_petgraph::{persist, PetgraphStore};
 use cfdb_query::{lint_shape, parse, ShapeLint};
+
+use crate::compose;
 
 /// Embedded cypher template for `cfdb list-callers`. Loaded via `include_str!`
 /// at compile time so the shipped binary is self-contained — no runtime file
@@ -39,13 +40,11 @@ pub fn extract(
     let (nodes, edges) = cfdb_extractor::extract_workspace(&workspace)?;
     eprintln!("extract: {} nodes, {} edges", nodes.len(), edges.len());
 
-    let mut store = PetgraphStore::new();
+    let mut store = compose::empty_store();
     store.ingest_nodes(&ks, nodes)?;
     store.ingest_edges(&ks, edges)?;
 
-    std::fs::create_dir_all(&db)?;
-    let path = keyspace_path(&db, &ks_name);
-    persist::save(&store, &ks, &path)?;
+    let path = compose::save_store(&store, &ks, &db)?;
     eprintln!("extract: saved keyspace `{ks_name}` to {}", path.display());
     Ok(())
 }
@@ -57,9 +56,6 @@ pub fn query(
     params: Option<String>,
     input: Option<PathBuf>,
 ) -> Result<(), crate::CfdbCliError> {
-    let ks = Keyspace::new(&keyspace);
-    let path = keyspace_path(&db, &keyspace);
-
     let mut parsed = parse(&cypher).map_err(|e| format!("parse error: {e}"))?;
 
     if let Some(raw) = params.as_deref() {
@@ -89,8 +85,7 @@ pub fn query(
         }
     }
 
-    let mut store = PetgraphStore::new();
-    persist::load(&mut store, &ks, &path)?;
+    let (store, ks) = compose::load_store(&db, &keyspace)?;
 
     let result = store.execute(&ks, &parsed)?;
 
@@ -148,7 +143,6 @@ pub fn list_callers(
     keyspace: String,
     qname: String,
 ) -> Result<(), crate::CfdbCliError> {
-    let ks = Keyspace::new(&keyspace);
     let path = keyspace_path(&db, &keyspace);
     if !path.exists() {
         return Err(format!(
@@ -165,8 +159,7 @@ pub fn list_callers(
         .params
         .insert("qname".to_string(), Param::Scalar(PropValue::Str(qname)));
 
-    let mut store = PetgraphStore::new();
-    persist::load(&mut store, &ks, &path)?;
+    let (store, ks) = compose::load_store(&db, &keyspace)?;
     let result = store.execute(&ks, &parsed)?;
 
     let as_json = serde_json::to_string_pretty(&result)?;
@@ -192,9 +185,6 @@ pub fn violations(
     let cypher = std::fs::read_to_string(&rule)
         .map_err(|e| format!("read rule file {}: {e}", rule.display()))?;
 
-    let ks = Keyspace::new(&keyspace);
-    let path = keyspace_path(&db, &keyspace);
-
     let parsed = parse(&cypher).map_err(|e| format!("parse error in {}: {e}", rule.display()))?;
     let lints = lint_shape(&parsed);
     for lint in &lints {
@@ -210,8 +200,7 @@ pub fn violations(
         }
     }
 
-    let mut store = PetgraphStore::new();
-    persist::load(&mut store, &ks, &path)?;
+    let (store, ks) = compose::load_store(&db, &keyspace)?;
     let result = store.execute(&ks, &parsed)?;
 
     let row_count = result.rows.len();
@@ -224,12 +213,7 @@ pub fn violations(
 }
 
 pub fn dump(db: PathBuf, keyspace: String) -> Result<(), crate::CfdbCliError> {
-    let ks = Keyspace::new(&keyspace);
-    let path = keyspace_path(&db, &keyspace);
-
-    let mut store = PetgraphStore::new();
-    persist::load(&mut store, &ks, &path)?;
-
+    let (store, ks) = compose::load_store(&db, &keyspace)?;
     let dump = store.canonical_dump(&ks)?;
     println!("{dump}");
     Ok(())
