@@ -44,11 +44,12 @@
 //! keyspace. Extract writes; query/dump/list read.
 
 use std::path::PathBuf;
+use std::process::ExitCode;
 
 use cfdb_cli::{
     diff, drop_keyspace_cmd, dump, enrich, export, extract, list_callers, list_items_matching,
     list_keyspaces, query, schema_describe_cmd, scope, snapshots, typed_stub, violations,
-    EnrichVerb,
+    CfdbCliError, EnrichVerb,
 };
 use cfdb_core::{ItemKind, UnknownItemKind};
 use clap::{Parser, Subcommand};
@@ -323,8 +324,18 @@ enum Command {
     },
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> ExitCode {
     let cli = Cli::parse();
+    match run(cli) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("cfdb: {e}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+fn run(cli: Cli) -> Result<(), CfdbCliError> {
     match cli.command {
         Command::Version => {
             println!("cfdb {}", env!("CARGO_PKG_VERSION"));

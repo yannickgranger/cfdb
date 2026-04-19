@@ -25,7 +25,7 @@ pub fn enrich(
     db: PathBuf,
     keyspace: String,
     verb: EnrichVerb,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), crate::CfdbCliError> {
     let ks = Keyspace::new(&keyspace);
     let path = keyspace_path(&db, &keyspace);
     let mut store = PetgraphStore::new();

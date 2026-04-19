@@ -11,6 +11,7 @@
 
 mod commands;
 mod enrich;
+mod error;
 mod scope;
 mod stubs;
 
@@ -18,6 +19,7 @@ pub use commands::{
     dump, export, extract, keyspace_path, list_callers, list_keyspaces, query, violations,
 };
 pub use enrich::{enrich, EnrichVerb};
+pub use error::CfdbCliError;
 pub use scope::scope;
 pub use stubs::{
     diff, drop_keyspace_cmd, list_items_matching, schema_describe_cmd, snapshots, typed_stub,
