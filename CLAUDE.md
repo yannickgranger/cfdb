@@ -80,6 +80,18 @@ Once ratified, the RFC's "Issue decomposition" section becomes the concrete back
 
 **Escape hatch.** An issue that is genuinely untestable carries `Tests: none — rationale: <why>` in its body. "I didn't bother" is not a valid rationale. Examples that DO qualify: a typo fix in a comment; a README paragraph rewrite. Examples that do NOT: "it's just a small refactor" (mechanical refactor still requires the existing suite to pass); "the CI test will catch it" (the prescribed test IS the signal, not a hope about CI).
 
+**Tests: template (RFC-033 §3.5).** New-capability issues carry a `Tests:` block with four rows. Architects fill each entry when prescribing the issue; `none — rationale: <why>` is the only valid way to leave a row empty.
+
+```
+Tests:
+  - Unit: <pure-function assertions>
+  - Self dogfood (cfdb on cfdb): <assertion shape on this repo's own tree>
+  - Cross dogfood (cfdb on graph-specs-rust at pinned SHA): <assertion shape on companion tree; exit 30 on any rule row blocks merge>
+  - Target dogfood (on qbot-core at pinned SHA): <assertion shape; often "report metric X in PR body for reviewer sanity-check">
+```
+
+The `Cross dogfood` row exists because cfdb and graph-specs-rust are a paired toolchain (RFC-033); every new ban rule or schema change is contracted to be zero-false-positive against the companion at its pinned SHA. See [`docs/cross-fixture-bump.md`](docs/cross-fixture-bump.md) for the pin semantics and the runbook §5 escape-hatch rules for legitimate companion-side findings.
+
 ## §3 — Dogfood enforcement
 
 Every PR passes these gates. CI enforces them.
@@ -95,6 +107,8 @@ Every PR passes these gates. CI enforces them.
 **Adding a new ban rule is an RFC-gated change.** The rule goes into the same PR as the code motivating it, with proof that develop is zero-violation before the rule lands.
 
 **Adding a new fact type, Cypher subset construct, or schema field is RFC-gated.** The schema vocabulary in `cfdb-core` is the source of truth — changes here invalidate downstream keyspaces.
+
+**`SchemaVersion` bumps require a lockstep PR on graph-specs-rust** (RFC-033 §4 I2 / Invariant I5). Any cfdb PR that bumps `cfdb_core::SchemaVersion` MUST be accompanied by a draft PR on `yg/graph-specs-rust` that bumps `.cfdb/cross-fixture.toml` to the cfdb PR's HEAD SHA. Merge order is cfdb first, then the graph-specs fixture bump within minutes. During that window graph-specs' PR-time cross-dogfood step may return exit 20 briefly — this is the documented reason for the 20 code. The lockstep is author discipline; the cfdb reviewer blocks the cfdb PR if no matching graph-specs PR is open. See [`docs/cross-fixture-bump.md`](docs/cross-fixture-bump.md) §4 for the full flow and exit-code contract.
 
 Downstream consumption: `agency:yg/graph-specs-rust` vendors cfdb as a pinned git dep (see graph-specs-rust `.cfdb/cfdb.rev`). Schema breakage there is a cross-repo coordination cost — bump `schema_version` visibly and give downstream one release of overlap when possible.
 
