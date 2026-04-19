@@ -25,7 +25,7 @@ pub fn extract(
     workspace: PathBuf,
     db: PathBuf,
     keyspace: Option<String>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), crate::CfdbCliError> {
     let ks_name = keyspace.unwrap_or_else(|| {
         workspace
             .file_name()
@@ -56,7 +56,7 @@ pub fn query(
     cypher: String,
     params: Option<String>,
     input: Option<PathBuf>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), crate::CfdbCliError> {
     let ks = Keyspace::new(&keyspace);
     let path = keyspace_path(&db, &keyspace);
 
@@ -109,7 +109,7 @@ pub fn query(
 fn bind_json_params(
     parsed: &mut Query,
     json: &serde_json::Value,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), crate::CfdbCliError> {
     let obj = json
         .as_object()
         .ok_or("--params must be a JSON object, e.g. '{\"qname\":\"(?i).*kalman.*\"}'")?;
@@ -147,7 +147,7 @@ pub fn list_callers(
     db: PathBuf,
     keyspace: String,
     qname: String,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), crate::CfdbCliError> {
     let ks = Keyspace::new(&keyspace);
     let path = keyspace_path(&db, &keyspace);
     if !path.exists() {
@@ -188,7 +188,7 @@ pub fn violations(
     db: PathBuf,
     keyspace: String,
     rule: PathBuf,
-) -> Result<usize, Box<dyn std::error::Error>> {
+) -> Result<usize, crate::CfdbCliError> {
     let cypher = std::fs::read_to_string(&rule)
         .map_err(|e| format!("read rule file {}: {e}", rule.display()))?;
 
@@ -223,7 +223,7 @@ pub fn violations(
     Ok(row_count)
 }
 
-pub fn dump(db: PathBuf, keyspace: String) -> Result<(), Box<dyn std::error::Error>> {
+pub fn dump(db: PathBuf, keyspace: String) -> Result<(), crate::CfdbCliError> {
     let ks = Keyspace::new(&keyspace);
     let path = keyspace_path(&db, &keyspace);
 
@@ -235,7 +235,7 @@ pub fn dump(db: PathBuf, keyspace: String) -> Result<(), Box<dyn std::error::Err
     Ok(())
 }
 
-pub fn list_keyspaces(db: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+pub fn list_keyspaces(db: PathBuf) -> Result<(), crate::CfdbCliError> {
     if !db.exists() {
         return Ok(());
     }
@@ -259,11 +259,7 @@ pub fn list_keyspaces(db: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
 
 /// `cfdb export` — alias of `cfdb dump` with a `--format` flag for forward
 /// compatibility. v0.1 only supports `sorted-jsonl` (the canonical dump).
-pub fn export(
-    db: PathBuf,
-    keyspace: String,
-    format: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub fn export(db: PathBuf, keyspace: String, format: &str) -> Result<(), crate::CfdbCliError> {
     if format != "sorted-jsonl" {
         return Err(format!("unsupported --format `{format}`. v0.1 supports: sorted-jsonl").into());
     }

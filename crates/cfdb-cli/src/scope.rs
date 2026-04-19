@@ -50,7 +50,7 @@ pub fn scope(
     format: &str,
     output: Option<&Path>,
     keyspace: Option<&str>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), crate::CfdbCliError> {
     if format != "json" {
         return Err(format!(
             "`--format {format}` is not supported in v0.1. \
@@ -188,10 +188,7 @@ pub fn scope(
 /// supplied `--keyspace`, use it. Otherwise, if the db directory holds
 /// exactly one `.json` keyspace file, use its stem. Any other case is a
 /// usage error — the user must disambiguate.
-fn resolve_keyspace_name(
-    db: &Path,
-    keyspace: Option<&str>,
-) -> Result<String, Box<dyn std::error::Error>> {
+fn resolve_keyspace_name(db: &Path, keyspace: Option<&str>) -> Result<String, crate::CfdbCliError> {
     if let Some(name) = keyspace {
         return Ok(name.to_string());
     }
@@ -229,7 +226,7 @@ fn resolve_keyspace_name(
 fn query_known_contexts(
     store: &PetgraphStore,
     ks: &Keyspace,
-) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+) -> Result<Vec<String>, crate::CfdbCliError> {
     use cfdb_core::query::{NodePattern, Pattern, ProjectionValue};
     use cfdb_core::{Expr, Projection, ReturnClause};
     use std::collections::BTreeMap;
@@ -275,7 +272,7 @@ fn crates_for_context(
     store: &PetgraphStore,
     ks: &Keyspace,
     context: &str,
-) -> Result<std::collections::BTreeSet<String>, Box<dyn std::error::Error>> {
+) -> Result<std::collections::BTreeSet<String>, crate::CfdbCliError> {
     use cfdb_core::query::{NodePattern, Pattern, ProjectionValue};
     use cfdb_core::{CompareOp, Expr, Predicate, Projection, ReturnClause};
     use std::collections::BTreeMap;

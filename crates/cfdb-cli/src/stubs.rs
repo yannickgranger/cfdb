@@ -22,7 +22,7 @@ pub fn typed_stub(
     db: &Path,
     keyspace: &str,
     args: &[(&str, &str)],
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), crate::CfdbCliError> {
     let ks_path = keyspace_path(db, keyspace);
     if !ks_path.exists() {
         return Err(format!(
@@ -72,7 +72,7 @@ pub fn list_items_matching(
     name_pattern: &str,
     kinds: Option<&[ItemKind]>,
     group_by_context: bool,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), crate::CfdbCliError> {
     let ks_path = keyspace_path(db, keyspace);
     if !ks_path.exists() {
         return Err(format!(
@@ -116,7 +116,7 @@ pub fn list_items_matching(
 /// `cfdb snapshots` — list snapshots in a database. v0.1: each on-disk
 /// keyspace is one snapshot; sha/timestamp columns are populated as
 /// available (Phase A reports keyspace + schema_version only).
-pub fn snapshots(db: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+pub fn snapshots(db: PathBuf) -> Result<(), crate::CfdbCliError> {
     if !db.exists() {
         println!("[]");
         return Ok(());
@@ -158,7 +158,7 @@ pub fn diff(
     a: String,
     b: String,
     kinds: Option<String>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), crate::CfdbCliError> {
     let path_a = keyspace_path(&db, &a);
     let path_b = keyspace_path(&db, &b);
     if !path_a.exists() {
@@ -191,7 +191,7 @@ pub fn diff(
 /// `cfdb drop` — drop a keyspace from the database. The only deletion verb
 /// (RFC §6 G5). Loads the store from `db/<ks>.json`, calls
 /// `StoreBackend::drop_keyspace`, then deletes the on-disk file.
-pub fn drop_keyspace_cmd(db: PathBuf, keyspace: String) -> Result<(), Box<dyn std::error::Error>> {
+pub fn drop_keyspace_cmd(db: PathBuf, keyspace: String) -> Result<(), crate::CfdbCliError> {
     let ks = Keyspace::new(&keyspace);
     let path = keyspace_path(&db, &keyspace);
     if !path.exists() {
@@ -207,7 +207,7 @@ pub fn drop_keyspace_cmd(db: PathBuf, keyspace: String) -> Result<(), Box<dyn st
 
 /// `cfdb schema-describe` — print the canonical SchemaDescribe (RFC §7) as
 /// pretty JSON. Read-only and deterministic for a given build.
-pub fn schema_describe_cmd() -> Result<(), Box<dyn std::error::Error>> {
+pub fn schema_describe_cmd() -> Result<(), crate::CfdbCliError> {
     let describe = schema_describe();
     let json = serde_json::to_string_pretty(&describe)?;
     println!("{json}");
