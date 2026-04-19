@@ -6,6 +6,7 @@
 use std::collections::BTreeMap;
 
 use cfdb_core::fact::{Edge, Node, PropValue};
+use cfdb_core::qname::{item_node_id, item_qname, method_qname, module_qpath};
 use cfdb_core::schema::{EdgeLabel, Label};
 use cfdb_core::Visibility;
 use syn::visit::Visit;
@@ -53,11 +54,11 @@ pub(crate) struct ItemVisitor<'e> {
 
 impl ItemVisitor<'_> {
     fn current_module_qpath(&self) -> String {
-        self.module_stack.join("::")
+        module_qpath(&self.module_stack)
     }
 
     fn qname(&self, item_name: &str) -> String {
-        format!("{}::{item_name}", self.current_module_qpath())
+        item_qname(&self.module_stack, item_name)
     }
 
     fn is_in_test_mod(&self) -> bool {
@@ -97,7 +98,7 @@ impl ItemVisitor<'_> {
         attrs: &[syn::Attribute],
     ) -> String {
         let qname = self.qname(name);
-        let id = format!("item:{qname}");
+        let id = item_node_id(&qname);
         let mut props = BTreeMap::new();
         props.insert("qname".into(), PropValue::Str(qname.clone()));
         props.insert("name".into(), PropValue::Str(name.to_string()));
@@ -181,7 +182,7 @@ impl ItemVisitor<'_> {
             props,
         });
         self.emitter.emit_edge(Edge {
-            src: format!("item:{parent_qname}"),
+            src: item_node_id(parent_qname),
             dst: cs_id,
             label: EdgeLabel::new(EdgeLabel::INVOKES_AT),
             props: BTreeMap::new(),
@@ -203,7 +204,7 @@ impl ItemVisitor<'_> {
             props,
         });
         self.emitter.emit_edge(Edge {
-            src: format!("item:{parent_qname}"),
+            src: item_node_id(parent_qname),
             dst: id,
             label: EdgeLabel::new(EdgeLabel::HAS_FIELD),
             props: BTreeMap::new(),
@@ -250,8 +251,8 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
         // Method qname includes the impl target: `module::Foo::bar`.
         // We bypass emit_item() because it composes qname from
         // current_module_qpath() + name, which would drop the impl target.
-        let qname = format!("{}::{}::{}", self.current_module_qpath(), target, method);
-        let id = format!("item:{qname}");
+        let qname = method_qname(&self.module_stack, &target, &method);
+        let id = item_node_id(&qname);
         let is_test = self.fn_is_test(&node.attrs);
         let mut props = BTreeMap::new();
         props.insert("qname".into(), PropValue::Str(qname.clone()));
