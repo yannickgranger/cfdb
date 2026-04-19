@@ -48,6 +48,10 @@ pub fn save(store: &PetgraphStore, keyspace: &Keyspace, path: &Path) -> Result<(
     nodes.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
     edges.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
 
+    // Unknown keyspaces default to V0_1_0 — the pre-`visibility` wire shape.
+    // Upgrading a legacy file to V0_1_1 is a no-op for reads: the new
+    // `:Item.visibility` attribute is optional on every item, so readers at
+    // V0_1_1 treat its absence as "not recorded" rather than malformed.
     let schema_version = store
         .schema_version(keyspace)
         .unwrap_or(SchemaVersion::V0_1_0);
@@ -78,9 +82,9 @@ pub fn load(store: &mut PetgraphStore, keyspace: &Keyspace, path: &Path) -> Resu
     let file: KeyspaceFile = serde_json::from_slice(&bytes)
         .map_err(|e| StoreError::Other(format!("parse keyspace file: {e}")))?;
 
-    if !SchemaVersion::V0_1_0.can_read(&file.schema_version) {
+    if !SchemaVersion::CURRENT.can_read(&file.schema_version) {
         return Err(StoreError::SchemaMismatch {
-            reader: SchemaVersion::V0_1_0,
+            reader: SchemaVersion::CURRENT,
             graph: file.schema_version,
         });
     }

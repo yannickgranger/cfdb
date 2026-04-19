@@ -49,11 +49,14 @@ impl Default for PetgraphStore {
 }
 
 impl PetgraphStore {
-    /// Create an empty store at schema version v0.1.0.
+    /// Create an empty store at `SchemaVersion::CURRENT`. New keyspaces
+    /// are tagged with the current build's schema version; any legacy file
+    /// ingested via `persist::load` retains its own version unless it is
+    /// rewritten through `persist::save` (which stamps CURRENT).
     pub fn new() -> Self {
         Self {
             keyspaces: BTreeMap::new(),
-            schema_version: SchemaVersion::V0_1_0,
+            schema_version: SchemaVersion::CURRENT,
         }
     }
 

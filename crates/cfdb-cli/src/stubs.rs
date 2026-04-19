@@ -138,7 +138,7 @@ pub fn snapshots(db: PathBuf) -> Result<(), crate::CfdbCliError> {
         row.insert("keyspace".into(), serde_json::Value::String(name));
         row.insert(
             "schema_version".into(),
-            serde_json::Value::String(cfdb_core::SchemaVersion::V0_1_0.to_string()),
+            serde_json::Value::String(cfdb_core::SchemaVersion::CURRENT.to_string()),
         );
         row.insert("sha".into(), serde_json::Value::Null);
         row.insert("timestamp".into(), serde_json::Value::Null);

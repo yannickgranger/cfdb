@@ -150,6 +150,10 @@ Error type produced by backend operations — `UnknownKeyspace`, `SchemaMismatch
 
 Error type for unrecognised `ItemKind` string values during deserialisation.
 
+## Visibility
+
+Rust item visibility captured on `:Item` facts: `Public` (`pub`), `CrateLocal` (`pub(crate)`), `Module` (`pub(super)` or `pub(self)`), `Private` (inherited), `Restricted(path)` (`pub(in path)`). Added in SchemaVersion v0.1.1 per Issue #35. Wire form via `Display`/`FromStr`.
+
 ## Warning
 
 Non-fatal diagnostic produced during query evaluation — a `WarningKind` plus a human-readable message.

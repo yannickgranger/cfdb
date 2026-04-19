@@ -15,7 +15,7 @@ use super::labels::{EdgeLabel, Label, SchemaVersion};
 /// byte-stable for a given build.
 pub fn schema_describe() -> SchemaDescribe {
     SchemaDescribe {
-        schema_version: SchemaVersion::V0_1_0,
+        schema_version: SchemaVersion::CURRENT,
         nodes: node_descriptors(),
         edges: edge_descriptors(),
     }
@@ -72,6 +72,7 @@ fn node_descriptors() -> Vec<NodeLabelDescriptor> {
                 attr("signature_hash", "string", "Stable hash of the item's normalized signature.", Extractor),
                 attr("test_coverage", "float", "Covered-line ratio in [0.0, 1.0] (fn items only).", EnrichMetrics),
                 attr("unwrap_count", "int", "Number of `.unwrap()` / `.expect()` sites inside the item body.", EnrichMetrics),
+                attr("visibility", "enum", "Rust visibility: `pub`, `pub(crate)`, `pub(super)`, `private`, or `pub(in <path>)`. SchemaVersion v0.1.1+ only — legacy V0_1_0 graphs do not carry this attribute.", Extractor),
             ],
         },
         NodeLabelDescriptor {

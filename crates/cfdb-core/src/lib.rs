@@ -25,6 +25,7 @@ pub mod query;
 pub mod result;
 pub mod schema;
 pub mod store;
+pub mod visibility;
 
 pub use enrich::{EnrichBackend, EnrichReport};
 pub use fact::{Edge, Node, PropValue, Props};
@@ -39,3 +40,4 @@ pub use schema::{
     NodeLabelDescriptor, Provenance, SchemaDescribe, SchemaVersion,
 };
 pub use store::{StoreBackend, StoreError};
+pub use visibility::Visibility;

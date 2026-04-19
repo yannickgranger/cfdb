@@ -346,7 +346,7 @@ fn run(cli: Cli) -> Result<(), CfdbCliError> {
     match cli.command {
         Command::Version => {
             println!("cfdb {}", env!("CARGO_PKG_VERSION"));
-            println!("schema {}", cfdb_core::SchemaVersion::V0_1_0);
+            println!("schema {}", cfdb_core::SchemaVersion::CURRENT);
         }
         Command::Extract {
             workspace,
