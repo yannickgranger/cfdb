@@ -1,0 +1,51 @@
+name: ra-ap-upgrade
+
+# Weekly `ra-ap-*` upgrade chore workflow stub (RFC-032 / Issue #39).
+#
+# PRESENT STATE — workflow_dispatch-only stub. Prints the protocol and
+# exits 0. Real behaviour (Cargo.toml rewrite + chore-branch PR) lands
+# when Issue #40 adds the `cfdb-hir-extractor` crate and its `ra-ap-*`
+# dependencies — there is nothing to upgrade until then.
+#
+# Target post-#40 schedule: Wednesday 06:00 UTC (chosen to avoid Monday
+# 06:00 / 06:30 cross-dogfood bump jobs and Tuesday 06:00 / 06:30
+# closed-loop jobs; one weekly slot per workday).
+#
+# See `docs/ra-ap-upgrade-protocol.md` for the full protocol, rollback
+# procedure, and safety rails (no auto-merge, no source edits,
+# determinism check always runs).
+
+on:
+  workflow_dispatch: {}
+  # schedule:  # uncomment post-#40 when the workflow does real work
+  #   - cron: "0 6 * * 3"
+
+jobs:
+  stub:
+    name: ra-ap upgrade stub
+    runs-on: rust
+    container:
+      image: docker.io/library/rust:1.93
+    steps:
+      - name: Print protocol + exit
+        run: |
+          cat <<'EOF'
+          ra-ap-upgrade workflow — STUB MODE
+
+          This workflow is a placeholder pending cfdb Issue #40
+          (cfdb-hir-extractor keystone). Once #40 lands, this
+          workflow is upgraded to:
+
+            1. Fetch the latest ra-ap-hir version from crates.io.
+            2. Rewrite every =0.0.N pin in
+               crates/cfdb-hir-extractor/Cargo.toml to the new version.
+            3. Run `cargo test --workspace --all-features` +
+               `ci/determinism-check.sh`.
+            4. On success — commit to chore/ra-ap-upgrade-<version>
+               and open a PR via the Gitea API.
+            5. On failure — open a compat issue.
+
+          Full protocol: docs/ra-ap-upgrade-protocol.md
+
+          Exiting 0 (stub).
+          EOF
