@@ -6,10 +6,8 @@
 use std::path::PathBuf;
 
 use cfdb_core::enrich::{EnrichBackend, EnrichReport};
-use cfdb_core::schema::Keyspace;
-use cfdb_petgraph::{persist, PetgraphStore};
 
-use crate::commands::keyspace_path;
+use crate::compose;
 
 /// Which `enrich_*` verb to dispatch to. Lets one handler function service all
 /// four CLI variants without duplicating the load-store-print boilerplate.
@@ -21,10 +19,7 @@ pub enum EnrichVerb {
 }
 
 pub fn enrich(db: PathBuf, keyspace: String, verb: EnrichVerb) -> Result<(), crate::CfdbCliError> {
-    let ks = Keyspace::new(&keyspace);
-    let path = keyspace_path(&db, &keyspace);
-    let mut store = PetgraphStore::new();
-    persist::load(&mut store, &ks, &path)?;
+    let (mut store, ks) = compose::load_store(&db, &keyspace)?;
 
     let report: EnrichReport = match verb {
         EnrichVerb::Docs => store.enrich_docs(&ks)?,

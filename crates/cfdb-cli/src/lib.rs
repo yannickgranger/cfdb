@@ -10,6 +10,7 @@
 //! public API surface is unchanged.
 
 mod commands;
+mod compose;
 mod enrich;
 mod error;
 mod scope;

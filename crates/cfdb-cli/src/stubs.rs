@@ -7,12 +7,12 @@ use std::path::{Path, PathBuf};
 
 use cfdb_core::query::ItemKind;
 use cfdb_core::result::{Warning, WarningKind};
-use cfdb_core::schema::{schema_describe, Keyspace};
+use cfdb_core::schema::schema_describe;
 use cfdb_core::store::StoreBackend;
-use cfdb_petgraph::{persist, PetgraphStore};
 use cfdb_query::list_items_matching as compose_list_items_matching;
 
 use crate::commands::keyspace_path;
+use crate::compose;
 
 /// Phase A stub for typed convenience verbs (`find_canonical`, `list_callers`,
 /// `list_bypasses`). Validates --db / --keyspace exist so the user gets a real
@@ -84,9 +84,7 @@ pub fn list_items_matching(
         .into());
     }
 
-    let ks = Keyspace::new(keyspace);
-    let mut store = PetgraphStore::new();
-    persist::load(&mut store, &ks, &ks_path)?;
+    let (store, ks) = compose::load_store(db, keyspace)?;
 
     let query = compose_list_items_matching(name_pattern, kinds, group_by_context);
     let mut result = store.execute(&ks, &query)?;
@@ -193,13 +191,11 @@ pub fn diff(
 /// (RFC §6 G5). Loads the store from `db/<ks>.json`, calls
 /// `StoreBackend::drop_keyspace`, then deletes the on-disk file.
 pub fn drop_keyspace_cmd(db: PathBuf, keyspace: String) -> Result<(), crate::CfdbCliError> {
-    let ks = Keyspace::new(&keyspace);
     let path = keyspace_path(&db, &keyspace);
     if !path.exists() {
         return Err(format!("keyspace `{keyspace}` not found at {}", path.display()).into());
     }
-    let mut store = PetgraphStore::new();
-    persist::load(&mut store, &ks, &path)?;
+    let (mut store, ks) = compose::load_store(&db, &keyspace)?;
     store.drop_keyspace(&ks)?;
     std::fs::remove_file(&path)?;
     eprintln!("drop: removed keyspace `{keyspace}` ({})", path.display());

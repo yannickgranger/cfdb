@@ -9,13 +9,13 @@ use cfdb_core::result::{Warning, WarningKind};
 use cfdb_core::schema::Keyspace;
 use cfdb_core::store::StoreBackend;
 use cfdb_core::{Param, PropValue, Query, RowValue};
-use cfdb_petgraph::{persist, PetgraphStore};
 use cfdb_query::{
     list_items_matching as compose_list_items_matching, parse, CanonicalCandidate, DebtClass,
     Finding, ScopeInventory,
 };
 
 use crate::commands::keyspace_path;
+use crate::compose;
 
 /// Embedded hsb-by-name rule, used by `cfdb scope` to seed
 /// `canonical_candidates` from Pattern A horizontal split-brain findings.
@@ -60,7 +60,6 @@ pub fn scope(
     }
 
     let ks_name = resolve_keyspace_name(db, keyspace)?;
-    let ks = Keyspace::new(&ks_name);
     let ks_path = keyspace_path(db, &ks_name);
     if !ks_path.exists() {
         return Err(format!(
@@ -71,8 +70,7 @@ pub fn scope(
         .into());
     }
 
-    let mut store = PetgraphStore::new();
-    persist::load(&mut store, &ks, &ks_path)?;
+    let (store, ks) = compose::load_store(db, &ks_name)?;
 
     // 1) Validate the context by enumerating `:Context{name}` nodes in the
     //    keyspace. cfdb-extractor emits one :Context per unique
@@ -223,8 +221,12 @@ fn resolve_keyspace_name(db: &Path, keyspace: Option<&str>) -> Result<String, cr
 }
 
 /// Run `MATCH (c:Context) RETURN c.name` and collect the sorted list.
+///
+/// Takes `&dyn StoreBackend` rather than `&PetgraphStore` — this helper
+/// depends only on the port contract (`execute`), not on the concrete backend.
+/// Keeps the composition root (PetgraphStore construction) in `compose.rs`.
 fn query_known_contexts(
-    store: &PetgraphStore,
+    store: &dyn StoreBackend,
     ks: &Keyspace,
 ) -> Result<Vec<String>, crate::CfdbCliError> {
     use cfdb_core::query::{NodePattern, Pattern, ProjectionValue};
@@ -268,8 +270,10 @@ fn query_known_contexts(
 
 /// Enumerate every `:Item.crate` whose `bounded_context` equals the
 /// requested context. Used to filter `hsb-by-name` candidate rows.
+///
+/// Accepts `&dyn StoreBackend` for the same reason as `query_known_contexts`.
 fn crates_for_context(
-    store: &PetgraphStore,
+    store: &dyn StoreBackend,
     ks: &Keyspace,
     context: &str,
 ) -> Result<std::collections::BTreeSet<String>, crate::CfdbCliError> {
