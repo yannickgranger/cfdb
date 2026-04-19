@@ -5,7 +5,7 @@
 //! keeping the 90-150s `ra-ap-*` cold compile cost out of every
 //! CLI build per RFC-032 §3 lines 221-227. Enable with:
 //!
-//! ```
+//! ```text
 //! cargo build -p cfdb-cli --features hir
 //! ```
 
