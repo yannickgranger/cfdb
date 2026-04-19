@@ -49,7 +49,14 @@ jobs:
           export RUSTUP_HOME=/cache/rustup
           echo "RUSTUP_HOME=/cache/rustup" >> "$GITHUB_ENV"
           rustup component add rustfmt clippy
+          # cfdb-recall integration tests shell out to `rustdoc-json`, which
+          # requires nightly rustdoc. Install if cache miss; cached path is
+          # /cache/rustup/toolchains/nightly-*.
+          if ! rustup toolchain list | grep -q '^nightly'; then
+            rustup toolchain install nightly --profile minimal --component rust-docs
+          fi
           rustc --version
+          rustc +nightly --version
 
           if [ ! -f "/cache/cargo/bin/sccache" ]; then
             SCCACHE_VERSION="v0.8.2"
