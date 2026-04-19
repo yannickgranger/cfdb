@@ -1,0 +1,74 @@
+name: cross-loop
+
+# Weekly closed-loop housekeeping cron (RFC-033 §3.6, Issue #70).
+#
+# Schedule: Tuesday 06:00 UTC. Runs 24h after the Monday bump job so
+# any automated pin advance has landed (or hasn't, which is the
+# drift the loop catches). Distinct from graph-specs-rust's mirror
+# at Tuesday 06:30 UTC to prevent issue-tracker collision (rust-systems C3).
+#
+# Unlike the Monday bump cron, this job NEVER bumps the pin — it
+# tests companion HEAD directly and files a cross-drift-YYYY-WW
+# issue on any non-zero exit. Blocks the next PR until resolved.
+
+on:
+  schedule:
+    - cron: "0 6 * * 2"
+  workflow_dispatch: {}
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -Dwarnings
+  GIT_SSL_NO_VERIFY: true
+  CARGO_HOME: /cache/cargo
+  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+  SCCACHE_REDIS_ENDPOINT: "redis://192.168.1.107:6380"
+  SCCACHE_REDIS_KEY_PREFIX: "cfdb-1.93"
+  SCCACHE_REDIS_EXPIRATION: "604800"
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  cross-loop:
+    name: Weekly closed-loop cross-check
+    runs-on: rust
+    container:
+      image: docker.io/library/rust:1.93
+    steps:
+      - name: Setup
+        run: |
+          set -e
+          apt-get update && apt-get install -y --no-install-recommends \
+            git build-essential libssl-dev pkg-config curl ca-certificates python3
+          mkdir -p /cache/cargo/registry /cache/cargo/git /cache/cargo/bin ~/.cargo
+          ln -sf /cache/cargo/registry ~/.cargo/registry
+          ln -sf /cache/cargo/git ~/.cargo/git
+
+          if [ ! -f "/cache/cargo/bin/sccache" ]; then
+            SCCACHE_VERSION="v0.8.2"
+            curl -fsSL "https://github.com/mozilla/sccache/releases/download/${SCCACHE_VERSION}/sccache-${SCCACHE_VERSION}-x86_64-unknown-linux-musl.tar.gz" | \
+              tar xzf - --strip-components=1 -C /cache/cargo/bin/ "sccache-${SCCACHE_VERSION}-x86_64-unknown-linux-musl/sccache"
+            chmod +x /cache/cargo/bin/sccache
+          fi
+          echo "PATH=/cache/cargo/bin:${PATH}" >> "$GITHUB_ENV"
+          if /cache/cargo/bin/sccache --start-server 2>&1; then
+            echo "RUSTC_WRAPPER=/cache/cargo/bin/sccache" >> "$GITHUB_ENV"
+          fi
+
+      - name: Clone
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config --global url."https://oauth2:${GITHUB_TOKEN}@agency.lab:3000/".insteadOf "https://agency.lab:3000/"
+          git clone --branch develop "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" repo
+
+      - name: Build cfdb binary
+        run: |
+          cd repo
+          cargo build --release -p cfdb-cli --bin cfdb
+
+      - name: Run cross-loop
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd repo
+          ./ci/cross-loop.sh
