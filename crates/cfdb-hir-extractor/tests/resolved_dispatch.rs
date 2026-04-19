@@ -173,3 +173,124 @@ pub fn dispatch() -> &'static str {
             .collect::<Vec<_>>(),
     );
 }
+
+/// Q7 fix from #94 ddd-specialist review — prove HIR offers value
+/// BEYOND what syn can do.
+///
+/// Fixture: trait `Greet` with TWO impls (`En`, `Fr`). A generic
+/// function `dispatch<G: Greet>(g: &G) -> &str` calls `g.greet()`.
+/// Syn sees only the textual path `greet` — it cannot determine
+/// which impl's `greet` is called because the receiver type is a
+/// generic parameter. HIR monomorphises the call site and resolves
+/// the concrete callee when the caller specialises `G`.
+///
+/// This test exercises trait-dispatch resolution — the case RFC-029
+/// §A1.2 line 92 specifically named as the HIR value proposition.
+/// The inherent-method test above is simpler but does not prove the
+/// HIR vs syn delta; this one does.
+#[test]
+fn hir_resolves_trait_method_via_generic_receiver() {
+    let tmp = tempdir().expect("tempdir");
+    let root = tmp.path();
+
+    write(
+        root,
+        "Cargo.toml",
+        r#"[workspace]
+resolver = "2"
+members = ["traitfixture"]
+"#,
+    );
+    write(
+        root,
+        "traitfixture/Cargo.toml",
+        r#"[package]
+name = "traitfixture"
+version = "0.0.1"
+edition = "2021"
+
+[dependencies]
+"#,
+    );
+    // `dispatch::<En>(&En)` forces monomorphisation to En's greet.
+    // Syn sees: `g.greet()` — a textual `greet` with no type context.
+    // HIR resolves: En::greet (after monomorphising the callee).
+    write(
+        root,
+        "traitfixture/src/lib.rs",
+        r#"pub trait Greet {
+    fn greet(&self) -> &'static str;
+}
+
+pub struct En;
+pub struct Fr;
+
+impl Greet for En {
+    fn greet(&self) -> &'static str { "hello" }
+}
+
+impl Greet for Fr {
+    fn greet(&self) -> &'static str { "bonjour" }
+}
+
+pub fn dispatch<G: Greet>(g: &G) -> &'static str {
+    g.greet()
+}
+
+pub fn use_en() -> &'static str {
+    dispatch(&En)
+}
+"#,
+    );
+
+    let (db, vfs) = build_hir_database(root).expect("build_hir_database on traitfixture");
+    let (nodes, edges) = extract_call_sites(&db, &vfs).expect("extract_call_sites on traitfixture");
+
+    // HIR should resolve g.greet() in `dispatch<G>` to the trait
+    // method `Greet::greet`. The callee_path ends in `Greet::greet`.
+    // (Generic monomorphisation may surface either the trait method
+    // or a specific impl depending on solver state; both are
+    // acceptable — the point is that HIR resolves SOMETHING where
+    // syn would see nothing.)
+    let hir_call_sites: Vec<_> = nodes
+        .iter()
+        .filter(|n| n.label.as_str() == Label::CALL_SITE)
+        .filter(|n| n.props.get("resolver").and_then(PropValue::as_str) == Some("hir"))
+        .collect();
+
+    let resolved_greet = hir_call_sites.iter().find(|n| {
+        n.props
+            .get("callee_path")
+            .and_then(PropValue::as_str)
+            .is_some_and(|p| p.ends_with("::greet"))
+    });
+    assert!(
+        resolved_greet.is_some(),
+        "HIR failed to resolve trait-dispatch call `g.greet()` on `&G: Greet`. \
+         This is the canonical case where HIR offers value beyond syn (RFC-029 §A1.2 \
+         line 92). :CallSite callee_paths observed: {:?}",
+        hir_call_sites
+            .iter()
+            .filter_map(|n| n.props.get("callee_path").and_then(PropValue::as_str))
+            .collect::<Vec<_>>(),
+    );
+
+    // The CALLS edge must point to a real Greet impl or the trait
+    // method — NOT to a textual `greet` with no prefix. Syn could
+    // never produce this target.
+    let calls: Vec<_> = edges
+        .iter()
+        .filter(|e| e.label.as_str() == EdgeLabel::CALLS)
+        .filter(|e| e.dst.ends_with("::greet"))
+        .collect();
+    assert!(
+        !calls.is_empty(),
+        "expected at least one CALLS edge whose dst ends with `::greet`; \
+         all CALLS edges: {:?}",
+        edges
+            .iter()
+            .filter(|e| e.label.as_str() == EdgeLabel::CALLS)
+            .map(|e| format!("{} → {}", e.src, e.dst))
+            .collect::<Vec<_>>(),
+    );
+}

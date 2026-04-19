@@ -6,7 +6,9 @@
 use std::collections::BTreeMap;
 
 use cfdb_core::fact::{Edge, Node, PropValue};
-use cfdb_core::qname::{item_node_id, item_qname, method_qname, module_qpath, qname_from_node_id};
+use cfdb_core::qname::{
+    item_node_id, item_qname, method_qname, module_qpath, normalize_impl_target, qname_from_node_id,
+};
 use cfdb_core::schema::{EdgeLabel, Label};
 use cfdb_core::Visibility;
 use syn::visit::Visit;
@@ -235,8 +237,14 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
     }
 
     fn visit_item_impl(&mut self, node: &'ast syn::ItemImpl) {
-        // Capture the impl target so nested method visits can build qnames.
-        let target = render_type_string(&node.self_ty);
+        // Capture the impl target so nested method visits can build
+        // qnames. Normalise through `cfdb_core::qname::normalize_impl_target`
+        // so the stripped-angle-brackets form (`Vec` not `Vec<Node>`)
+        // matches what `cfdb-hir-extractor` emits when it runs on the
+        // same impl. Without this, generic impl targets produce
+        // divergent qnames across the two extractors and cross-extractor
+        // `CALLS(Item→Item)` edges silently dangle (#94 ddd review).
+        let target = normalize_impl_target(&render_type_string(&node.self_ty));
         let prev = self.current_impl_target.replace(target);
         syn::visit::visit_item_impl(self, node);
         self.current_impl_target = prev;

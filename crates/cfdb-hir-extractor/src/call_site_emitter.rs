@@ -24,7 +24,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use cfdb_core::fact::{Edge, Node, PropValue};
-use cfdb_core::qname::{item_node_id, item_qname, method_qname};
+use cfdb_core::qname::{item_node_id, item_qname, method_qname, normalize_impl_target};
 use cfdb_core::schema::{EdgeLabel, Label};
 use ra_ap_edition::Edition;
 use ra_ap_hir::db::HirDatabase;
@@ -53,8 +53,12 @@ use crate::error::HirError;
 /// Returns [`HirError`] on I/O or parsing failures. Individual method
 /// calls that fail to resolve are silently skipped — an unresolved
 /// call is not an error; it is simply data the HIR extractor cannot
-/// claim resolution over (the syn extractor already catches it as
-/// `resolver="syn"`).
+/// claim resolution over. Note: this does NOT imply the syn extractor
+/// has already seen the same call (syn may miss calls inside
+/// macro-generated bodies that HIR can see but not resolve). The
+/// semantic is "claim resolution only when precise" — HIR's
+/// higher-precision / lower-recall tradeoff on generics and dynamic
+/// dispatch is deliberate.
 ///
 /// # Determinism
 ///
@@ -266,10 +270,17 @@ where
         let display_target = DisplayTarget::from_crate(db, func.krate(db).into());
         match assoc.container(db) {
             AssocItemContainer::Impl(impl_block) => {
-                let target = impl_block
+                // `HirDisplay` emits the fully monomorphised form
+                // (`Vec<Node>`); `cfdb-extractor`'s syn renderer emits
+                // the stripped form (`Vec`). Route through
+                // `normalize_impl_target` so both extractors converge
+                // on the same qname for `CALLS(Item→Item)` — #94 ddd
+                // Q1 fix.
+                let rendered = impl_block
                     .self_ty(db)
                     .display(db, display_target)
                     .to_string();
+                let target = normalize_impl_target(&rendered);
                 method_qname(&module_stack, &target, &fn_name)
             }
             AssocItemContainer::Trait(trait_def) => {
