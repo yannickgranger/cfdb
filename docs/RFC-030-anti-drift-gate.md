@@ -191,26 +191,39 @@ for rule in examples/queries/*.cypher; do
 done
 ```
 
-**Semantics:**
+**Semantics (v0.1 — what the tool actually supports today):**
 
-- Any violation classified as `canonical_bypass` or `context_homonym`
-  **blocks merge** (per council/RATIFIED.md §A.8 BLOCK routing).
-- Any violation classified as `duplicated_feature`, `unfinished_refactor`,
-  or `random_scattering` **warns** but does not block.
-- The extract is always a fresh run against HEAD. Pre-existing violations
-  in untouched scope are advisory; violations in the scope touched by
-  the PR are blocking.
+- `cfdb violations --rule <file>` exits non-zero iff the rule matched
+  at least one row. Any non-empty match blocks merge. This is a coarse
+  but honest gate: it fails on any rule-defined violation regardless
+  of classification.
+- Per-class routing (e.g. `canonical_bypass` blocks vs
+  `duplicated_feature` warns) is **not yet implemented**. It requires
+  the `:Finding` classifier prescribed by RFC-032 §4 / Group D (issue
+  #48). The classifier emits a `DebtClass` per finding; until then the
+  gate cannot distinguish a block-worthy match from a warn-worthy
+  match. Current CI treats every match as blocking.
+- Once #48 lands and the classifier populates `DebtClass`, this section
+  is amended by a follow-up RFC (not silently) to declare which classes
+  block vs. warn. No hand-written routing table in shell scripts.
 
 **Diff gate (future):** a `cfdb diff --db .cfdb/db --a <base-ks>
 --b <head-ks>` command is present in the CLI but is a Phase A stub
 (no violation-delta output yet). A dedicated issue will track adding
 `--new-violations-block` semantics that exit non-zero only when the
 diff introduces net-new violations. Until that lands, the per-PR gate
-re-runs all rules on HEAD and the reviewer inspects the diff.
+re-runs all rules on HEAD — any match is blocking, pre-existing or not.
+This is stricter than ideal but surfaces no false negatives.
 
-**Snapshot storage:** `.cfdb/snapshots/<sha>.jsonl.gz` committed as a
-determinism fixture (tier-2 per council/RATIFIED.md §A.10). The
-`.cfdb/` directory is gitignored except for `snapshots/`.
+**Keyspace storage:** `cfdb extract` writes keyspace state as
+`cfdb-petgraph`'s canonical JSON format — one `<keyspace>.json` file
+per keyspace, produced by `cfdb_petgraph::persist::save` (pretty-printed
+`serde_json` with sorted nodes and edges for determinism). This is the
+v0.1 on-disk shape; the `.cfdb/db/` directory holding these files is
+gitignored by default. Compressed sha-named snapshot archives
+(`.cfdb/snapshots/<sha>.jsonl.gz` or similar) are not implemented in
+v0.1 — they are future work tracked by a separate issue when the need
+for cross-PR historical comparison becomes concrete.
 
 ### §3.3 Adoption 3 — RFC-to-spec-to-issue-to-impl workflow
 
