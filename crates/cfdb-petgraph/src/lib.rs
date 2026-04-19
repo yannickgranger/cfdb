@@ -5,7 +5,7 @@
 //! `BTreeMap`-based label index.
 //!
 //! Evaluation is routed through `eval::Evaluator` which ports the Gate 3 spike
-//! (`.concept-graph/studies/spike/petgraph/src/main.rs`) onto the real
+//! (`studies/spike/petgraph/src/main.rs`) onto the real
 //! `cfdb_core::Query` AST. Canonical dumping is a single sorted `Vec<String>`
 //! join so two consecutive calls are byte-identical (RFC §12 G1).
 //!
