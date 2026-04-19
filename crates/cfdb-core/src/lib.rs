@@ -22,6 +22,7 @@
 pub mod cfg_gate;
 pub mod enrich;
 pub mod fact;
+pub mod qname;
 pub mod query;
 pub mod result;
 pub mod schema;

@@ -9,6 +9,7 @@
 use std::collections::BTreeMap;
 
 use cfdb_core::fact::{Edge, Node, PropValue};
+use cfdb_core::qname::item_node_id;
 use cfdb_core::schema::{EdgeLabel, Label};
 use syn::visit::Visit;
 
@@ -194,7 +195,7 @@ impl CallSiteVisitor<'_, '_> {
             props,
         });
         self.emitter.emit_edge(Edge {
-            src: format!("item:{}", self.caller_qname),
+            src: item_node_id(self.caller_qname),
             dst: cs_id,
             label: EdgeLabel::new(EdgeLabel::INVOKES_AT),
             props: BTreeMap::new(),
