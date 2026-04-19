@@ -19,6 +19,7 @@
 //! Determinism invariants G1–G5 (RFC §6) are enforced at the trait level where
 //! possible and documented where they must be respected by implementors.
 
+pub mod cfg_gate;
 pub mod enrich;
 pub mod fact;
 pub mod query;
@@ -27,6 +28,7 @@ pub mod schema;
 pub mod store;
 pub mod visibility;
 
+pub use cfg_gate::CfgGate;
 pub use enrich::{EnrichBackend, EnrichReport};
 pub use fact::{Edge, Node, PropValue, Props};
 pub use query::{
