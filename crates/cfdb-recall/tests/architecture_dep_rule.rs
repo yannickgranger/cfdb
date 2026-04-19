@@ -22,13 +22,16 @@ const ALLOWED_DEPS: &[&str] = &[
     "serde",
     "serde_json",
     "thiserror",
-    // CLI for the `cfdb-recall` binary. NOTE: tracking issue #24 proposes
-    // gating this behind a `runner` feature so pure-library consumers do
-    // not pay its compile cost.
-    "clap",
-    // Ground-truth adapter. NOTE: #24 proposes gating these behind the
-    // same `runner` feature.
+    // Parsed ground-truth data model — kept ungated because
+    // `project_rustdoc_paths` is a pure function in the public library
+    // API and consumers need `Crate`/`ItemKind` in their signatures.
     "rustdoc-types",
+    // Optional deps — gated behind the `runner` feature so slim library
+    // consumers do not pay their compile cost. The Cargo.toml parser in
+    // this test captures names from `[dependencies]` whether or not the
+    // entry carries `optional = true`, so these still belong in the
+    // allowlist.
+    "clap",
     "rustdoc-json",
 ];
 
