@@ -21,11 +21,7 @@ pub enum EnrichVerb {
     Concepts,
 }
 
-pub fn enrich(
-    db: PathBuf,
-    keyspace: String,
-    verb: EnrichVerb,
-) -> Result<(), crate::CfdbCliError> {
+pub fn enrich(db: PathBuf, keyspace: String, verb: EnrichVerb) -> Result<(), crate::CfdbCliError> {
     let ks = Keyspace::new(&keyspace);
     let path = keyspace_path(&db, &keyspace);
     let mut store = PetgraphStore::new();

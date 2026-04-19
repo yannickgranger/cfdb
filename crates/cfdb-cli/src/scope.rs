@@ -188,10 +188,7 @@ pub fn scope(
 /// supplied `--keyspace`, use it. Otherwise, if the db directory holds
 /// exactly one `.json` keyspace file, use its stem. Any other case is a
 /// usage error — the user must disambiguate.
-fn resolve_keyspace_name(
-    db: &Path,
-    keyspace: Option<&str>,
-) -> Result<String, crate::CfdbCliError> {
+fn resolve_keyspace_name(db: &Path, keyspace: Option<&str>) -> Result<String, crate::CfdbCliError> {
     if let Some(name) = keyspace {
         return Ok(name.to_string());
     }

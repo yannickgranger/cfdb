@@ -259,11 +259,7 @@ pub fn list_keyspaces(db: PathBuf) -> Result<(), crate::CfdbCliError> {
 
 /// `cfdb export` — alias of `cfdb dump` with a `--format` flag for forward
 /// compatibility. v0.1 only supports `sorted-jsonl` (the canonical dump).
-pub fn export(
-    db: PathBuf,
-    keyspace: String,
-    format: &str,
-) -> Result<(), crate::CfdbCliError> {
+pub fn export(db: PathBuf, keyspace: String, format: &str) -> Result<(), crate::CfdbCliError> {
     if format != "sorted-jsonl" {
         return Err(format!("unsupported --format `{format}`. v0.1 supports: sorted-jsonl").into());
     }
