@@ -84,6 +84,31 @@ jobs:
           cd repo
           cargo fmt --all -- --check
 
+      - name: Install graph-specs (track develop — RFC-030 §1.2)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # User directive (2026-04-19): always track graph-specs develop. We
+          # reinstall on every CI run so breaking dialect changes surface on
+          # the next run that tries to lint against them (RFC-030 §7.4). The
+          # build is sccache-warm → typical install ~5–15s.
+          git config --global url."https://oauth2:${GITHUB_TOKEN}@agency.lab:3000/".insteadOf "https://agency.lab:3000/"
+          # The `graph-specs` binary lives in the `application` package of
+          # the graph-specs-rust workspace — pass the package name and the
+          # bin name explicitly so cargo install can resolve both.
+          # `--force` is load-bearing: we track develop, so the cached binary
+          # from the previous CI run must be overwritten with the current
+          # develop HEAD. Without --force, cargo install would refuse on
+          # second+ runs and we'd silently gate against a stale dialect.
+          cargo install --git https://agency.lab:3000/yg/graph-specs-rust \
+            --branch develop --root /cache/cargo --bin graph-specs --force application
+          graph-specs --version
+
+      - name: Graph-specs check (RFC-030 §3.1 anti-drift gate)
+        run: |
+          cd repo
+          graph-specs check --specs specs/concepts/ --code crates/
+
       - name: Clippy
         run: |
           cd repo
@@ -104,3 +129,16 @@ jobs:
           cd repo
           cargo build --release -p cfdb-cli --bin cfdb
           CFDB_BIN="$(pwd)/target/release/cfdb" bash ci/determinism-check.sh "$(pwd)/spikes/qa5-utc-now"
+
+      - name: cfdb self-audit (RFC-030 §3.2 X-ray gate)
+        run: |
+          cd repo
+          mkdir -p .cfdb/db
+          ./target/release/cfdb extract --workspace . --db .cfdb/db --keyspace cfdb-self
+          # Run every arch-ban-*.cypher rule against cfdb's own source.
+          # v0.1 semantics (RFC-030 §3.2 as amended): any non-empty match
+          # blocks merge. Per-class routing awaits #48 (Finding classifier).
+          for rule in examples/queries/arch-ban-*.cypher; do
+            echo ">> $rule"
+            ./target/release/cfdb violations --db .cfdb/db --keyspace cfdb-self --rule "$rule"
+          done
