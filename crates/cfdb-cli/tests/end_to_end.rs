@@ -18,14 +18,13 @@ use assert_cmd::prelude::*;
 use tempfile::tempdir;
 
 fn cfdb_workspace_root() -> PathBuf {
-    // This test binary lives at .concept-graph/cfdb/target/debug/deps/...;
-    // CARGO_MANIFEST_DIR for this crate is .concept-graph/cfdb/crates/cfdb-cli/.
-    // The cfdb sub-workspace root is two levels up.
+    // CARGO_MANIFEST_DIR for this crate is <repo>/crates/cfdb-cli/.
+    // The cfdb workspace root is two levels up.
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("cfdb-cli manifest dir has a parent crates/ directory")
         .parent()
-        .expect("crates/ has a parent cfdb sub-workspace root")
+        .expect("crates/ has a parent cfdb workspace root")
         .to_path_buf()
 }
 

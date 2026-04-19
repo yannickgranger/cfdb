@@ -4,9 +4,8 @@ This file documents the `cfdb-extractor` public-API recall gap against
 `rustdoc-json` ground truth, per RFC-029 §13 acceptance gate Item 2.
 
 Generated manually or by invoking
-`cargo run --release -p cfdb-recall -- --workspace .concept-graph/cfdb
---crate <name> --gaps-file .concept-graph/cfdb/KNOWN_GAPS.md` from the
-qbot-core worktree root.
+`cargo run --release -p cfdb-recall -- --workspace .
+--crate <name> --gaps-file KNOWN_GAPS.md` from the cfdb repo root.
 
 ## How the gate works
 
