@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# .concept-graph/cfdb/ci/determinism-check.sh
+# ci/determinism-check.sh
 #
 # RFC-029 §12.1 G1 — byte-identical sorted-jsonl canonical dump check.
 #
@@ -15,9 +15,9 @@
 # Usage:
 #   determinism-check.sh [WORKSPACE]
 #
-# WORKSPACE defaults to the fixture workspace (.concept-graph/cfdb/
-# spikes/qa5-utc-now). Pass an explicit path to check a different workspace
-# (used by the negative test that mutates a copy of the fixture).
+# WORKSPACE defaults to the fixture workspace (spikes/qa5-utc-now).
+# Pass an explicit path to check a different workspace (used by the
+# negative test that mutates a copy of the fixture).
 #
 # No baseline file exists. Determinism is proven by the two consecutive
 # extractions in this script producing byte-identical dumps — it is a
@@ -44,7 +44,7 @@ if ! command -v "$CFDB_BIN" >/dev/null 2>&1; then
 fi
 if ! command -v "$CFDB_BIN" >/dev/null 2>&1 && [ ! -x "$CFDB_BIN" ]; then
   echo "determinism-check: cfdb binary not found (tried PATH + sub-workspace target/)" >&2
-  echo "  hint: build it first via 'cargo build -p cfdb-cli' from .concept-graph/cfdb/" >&2
+  echo "  hint: build it first via 'cargo build -p cfdb-cli' from the cfdb repo root" >&2
   exit 2
 fi
 

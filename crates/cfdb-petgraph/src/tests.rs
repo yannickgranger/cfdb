@@ -166,7 +166,7 @@ fn unknown_keyspace_returns_error() {
 
 // ---- Fixture-driven tests: F1b=5, F2=20, F3=8 --------------------------
 
-const FIXTURE_SMALL: &str = include_str!("../../../../studies/spike/fixture-small.json");
+const FIXTURE_SMALL: &str = include_str!("../../../studies/spike/fixture-small.json");
 
 #[derive(serde::Deserialize)]
 struct FixtureNode {

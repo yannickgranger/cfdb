@@ -6,7 +6,9 @@ use std::collections::BTreeMap;
 use cfdb_core::{CompareOp, Expr, Pattern, Predicate, PropValue, Query, ReturnClause};
 use chumsky::prelude::*;
 
-use super::lexical::{bool_or_null_parser, ident_parser, number_literal_parser, string_literal_parser};
+use super::lexical::{
+    bool_or_null_parser, ident_parser, number_literal_parser, string_literal_parser,
+};
 use super::match_clause::{edge_pattern_parser, node_pattern_parser, path_pattern_parser};
 use super::{kw, BoxedParser, Extra};
 
