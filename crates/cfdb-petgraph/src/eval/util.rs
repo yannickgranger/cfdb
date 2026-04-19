@@ -96,7 +96,10 @@ pub(super) fn row_sort_key(row: &Row) -> String {
 
 /// Return a did-you-mean suggestion for `query` picked from `known`, if any
 /// entry is within edit distance 2. Deterministic: ties broken by sorted order.
-pub(super) fn suggest_label<'a>(query: &str, known: impl Iterator<Item = &'a str>) -> Option<String> {
+pub(super) fn suggest_label<'a>(
+    query: &str,
+    known: impl Iterator<Item = &'a str>,
+) -> Option<String> {
     let mut best: Option<(usize, String)> = None;
     for cand in known {
         let d = edit_distance(query, cand);
