@@ -6,6 +6,7 @@ members = [
     "crates/cfdb-petgraph",
     "crates/cfdb-extractor",
     "crates/cfdb-hir-extractor",
+    "crates/cfdb-hir-petgraph-adapter",
     "crates/cfdb-cli",
     "crates/cfdb-recall",
 ]
