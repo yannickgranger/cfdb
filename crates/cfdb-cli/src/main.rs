@@ -307,6 +307,13 @@ enum Command {
         /// inventorying current state without failing CI.
         #[arg(long)]
         no_fail: bool,
+        /// Emit only the integer row count on stdout, suppressing the
+        /// pretty-JSON payload. Intended for CI scripts like
+        /// `ci/cross-dogfood.sh` (RFC-033 §3.2) that capture the count
+        /// via `rows=$(cfdb violations ... --count-only --no-fail)` and
+        /// tally findings across rules. Stderr is unchanged.
+        #[arg(long)]
+        count_only: bool,
     },
 
     /// Print the canonical sorted dump of a keyspace.
@@ -358,8 +365,9 @@ fn run(cli: Cli) -> Result<(), CfdbCliError> {
             keyspace,
             rule,
             no_fail,
+            count_only,
         } => {
-            let rows_found = violations(db, keyspace, rule)?;
+            let rows_found = violations(db, keyspace, rule, count_only)?;
             if rows_found > 0 && !no_fail {
                 std::process::exit(1);
             }

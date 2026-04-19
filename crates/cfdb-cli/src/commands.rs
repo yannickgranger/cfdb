@@ -167,20 +167,26 @@ pub fn list_callers(
     Ok(())
 }
 
-/// Run a .cypher rule file and print violations as pretty JSON. Returns
-/// the number of rows found so the caller can set the process exit code.
+/// Run a .cypher rule file and print violations. Returns the number of
+/// rows found so the caller can set the process exit code.
 ///
-/// Prints to stderr:
+/// Prints to stderr (always):
 /// - A shape-lint warning if one fires on the rule (same as `cfdb query`).
 /// - A human-readable `violations: N (rule: <path>)` summary line.
 ///
 /// Prints to stdout:
-/// - Pretty-printed JSON of the full `QueryResult` (rows + warnings) so
-///   callers can parse it programmatically.
+/// - Default: pretty-printed JSON of the full `QueryResult` (rows +
+///   warnings) so callers can parse it programmatically.
+/// - When `count_only` is set: the integer row count on its own line,
+///   suitable for capture by `rows=$(cfdb violations ... --count-only)`
+///   in CI scripts like `ci/cross-dogfood.sh` (RFC-033 §3.2). The
+///   JSON payload is suppressed in this mode — the caller already
+///   knows the rule file path and wants only the terse count.
 pub fn violations(
     db: PathBuf,
     keyspace: String,
     rule: PathBuf,
+    count_only: bool,
 ) -> Result<usize, crate::CfdbCliError> {
     let cypher = std::fs::read_to_string(&rule)
         .map_err(|e| format!("read rule file {}: {e}", rule.display()))?;
@@ -206,8 +212,12 @@ pub fn violations(
     let row_count = result.rows.len();
     eprintln!("violations: {row_count} (rule: {})", rule.display());
 
-    let as_json = serde_json::to_string_pretty(&result)?;
-    println!("{as_json}");
+    if count_only {
+        println!("{row_count}");
+    } else {
+        let as_json = serde_json::to_string_pretty(&result)?;
+        println!("{as_json}");
+    }
 
     Ok(row_count)
 }
