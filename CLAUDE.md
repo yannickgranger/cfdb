@@ -89,6 +89,7 @@ Every PR passes these gates. CI enforces them.
 | Self-hosted ban rules | `cfdb violations` against `.cfdb/queries/*.cypher` (cfdb run on cfdb) | "Does cfdb's own code use forbidden patterns?" | Any new row under a ban rule |
 | Extractor recall | `cfdb-recall` (extractor vs `rustdoc --output-format=json`) | "Does the syn-based extractor see everything rustdoc sees?" | Missing items, missing edges, missing call sites |
 | Determinism | `ci/determinism-check.sh` | "Is `cfdb extract` byte-stable on an unchanged tree?" | sha256 mismatch across two extracts |
+| Cross-dogfood | `ci/cross-dogfood.sh` against companion at pinned SHA | "Does cfdb still produce zero findings on graph-specs-rust?" | Any rule row on companion → exit 30; see [docs/cross-fixture-bump.md](docs/cross-fixture-bump.md) |
 | No metric ratchets | Global rule (`~/.claude/CLAUDE.md` §6.8) | "Does this PR introduce a baseline / ceiling / allowlist file?" | PR rejected on sight |
 
 **Adding a new ban rule is an RFC-gated change.** The rule goes into the same PR as the code motivating it, with proof that develop is zero-violation before the rule lands.
