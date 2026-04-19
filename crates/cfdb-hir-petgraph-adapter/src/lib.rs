@@ -74,6 +74,10 @@ impl CallSiteEmitter for PetgraphAdapter<'_> {
             .iter()
             .filter(|n| n.label.as_str() == Label::CALL_SITE)
             .count();
+        let entry_points_emitted = nodes
+            .iter()
+            .filter(|n| n.label.as_str() == Label::ENTRY_POINT)
+            .count();
         let calls_edges_emitted = edges
             .iter()
             .filter(|e| e.label.as_str() == EdgeLabel::CALLS)
@@ -81,6 +85,10 @@ impl CallSiteEmitter for PetgraphAdapter<'_> {
         let invokes_at_edges_emitted = edges
             .iter()
             .filter(|e| e.label.as_str() == EdgeLabel::INVOKES_AT)
+            .count();
+        let exposes_edges_emitted = edges
+            .iter()
+            .filter(|e| e.label.as_str() == EdgeLabel::EXPOSES)
             .count();
 
         self.store.ingest_nodes(&self.keyspace, nodes)?;
@@ -90,6 +98,8 @@ impl CallSiteEmitter for PetgraphAdapter<'_> {
             call_sites_emitted,
             calls_edges_emitted,
             invokes_at_edges_emitted,
+            entry_points_emitted,
+            exposes_edges_emitted,
         })
     }
 }

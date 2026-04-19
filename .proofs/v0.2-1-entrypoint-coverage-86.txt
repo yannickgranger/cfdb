@@ -1,0 +1,64 @@
+# v0.2-1 Acceptance Gate — :EntryPoint Coverage
+# Issue #86 (slice 4 of #85/#40 HIR-keystone decomposition)
+# Target: cfdb itself (the only in-scope workspace for v0.2-1 —
+#   qbot-core evaluation deferred to v0.3).
+
+## Threshold
+
+Per docs/RFC-cfdb-v0.2-addendum-draft.md §A1.5 v0.2-1:
+  "`:EntryPoint` catalog covers ≥95% of MCP tools + CLI commands on develop."
+
+## Baseline (rg)
+
+Raw rg count of `#[derive(...)]` attributes containing `Parser` or
+`Subcommand`:
+
+    $ rg '#\[derive\([^)]*(Parser|Subcommand)' crates/ | wc -l
+    13
+
+Filter to REAL command derives (excluding test-fixture source in
+string literals, doc-comment examples, and the emitter's own
+documentation of the match patterns):
+
+    crates/cfdb-cli/src/main.rs          : 2  (Cli + Command)
+    crates/cfdb-recall/src/bin/cfdb-recall.rs : 1  (Cli)
+    -----------------------------------------------
+    real clap command types               : 3
+
+## HIR-detected count
+
+Command:
+    ./target/release/cfdb extract --workspace . \
+      --db /tmp/dogfood-86/db --keyspace cfdb --hir
+
+Output:
+    extract --hir: 64720 :CallSite, 64720 CALLS, 64720 INVOKES_AT,
+                   3 :EntryPoint, 3 EXPOSES
+
+:EntryPoint nodes (jq'd from the saved keyspace):
+
+    entrypoint:cli_command:cfdb::Cli
+        handler_qname: cfdb::Cli
+        file:          crates/cfdb-cli/src/main.rs
+    entrypoint:cli_command:cfdb::Command
+        handler_qname: cfdb::Command
+        file:          crates/cfdb-cli/src/main.rs
+    entrypoint:cli_command:cfdb_recall::Cli
+        handler_qname: cfdb_recall::Cli
+        file:          crates/cfdb-recall/src/bin/cfdb-recall.rs
+
+## Coverage
+
+    3 detected / 3 real = 100%
+
+    Threshold: ≥95%
+    Verdict:   PASS (5 percentage-point margin over threshold)
+
+## MCP-tool coverage
+
+cfdb has ZERO MCP tools on develop — the denominator for the `mcp_tool`
+kind is 0, so the gate is vacuously satisfied for that axis. The
+`#[tool]` detection pattern is exercised by the synthetic integration
+test at
+`crates/cfdb-hir-extractor/tests/entry_point.rs::attribute_based_entry_point_detection_covers_cli_and_mcp`
+(fixture contains a `#[tool]`-annotated fn; HIR detects it).

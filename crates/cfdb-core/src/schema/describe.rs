@@ -126,12 +126,13 @@ fn node_descriptors() -> Vec<NodeLabelDescriptor> {
         },
         NodeLabelDescriptor {
             label: Label::new(Label::ENTRY_POINT),
-            description: "A top-level entry into the system — MCP tool, CLI command, HTTP route, or cron registration.".into(),
+            description: "A top-level entry into the system — MCP tool, CLI command, HTTP route, or cron registration. First populated in SchemaVersion v0.2.0 (Issue #86) by `cfdb-hir-extractor::extract_entry_points`. v0.1.x graphs have no :EntryPoint nodes.".into(),
             attributes: vec![
-                attr("handler_qname", "string", "Qualified name of the handler fn this entry point dispatches to.", Extractor),
-                attr("kind", "enum", "Entry-point kind: `mcp`, `cli`, `http`, `cron`.", Extractor),
+                attr("file", "string", "Source file path where the entry-point declaration lives (relative to workspace root, or absolute).", Extractor),
+                attr("handler_qname", "string", "Qualified name of the handler item (fn / struct / enum) this entry point dispatches to.", Extractor),
+                attr("kind", "enum", "Entry-point kind: `mcp_tool`, `cli_command`, `http_route`, or `cron_job`. v0.2.0 MVP detects `cli_command` (clap `#[derive(Parser/Subcommand)]`) and `mcp_tool` (`#[tool]`) via attribute heuristics; HTTP + cron kinds reserved for follow-up.", Extractor),
                 attr("name", "string", "Public-facing name (tool name, CLI subcommand, route path, cron job id).", Extractor),
-                attr("params", "json", "Registered parameters as a JSON array of `{name, type}` objects.", Extractor),
+                attr("params", "json", "Registered parameters as a JSON array of `{name, type}` objects. v0.2.0 MVP emits `[]`; clap arg + MCP tool input-schema enrichment deferred to follow-up.", Extractor),
             ],
         },
         NodeLabelDescriptor {

@@ -85,6 +85,13 @@ enum Command {
         /// Keyspace name. Defaults to the basename of `--workspace`.
         #[arg(long)]
         keyspace: Option<String>,
+        /// Run the HIR-based extractor after syn to add resolved
+        /// `:CallSite`, `CALLS`, `INVOKES_AT`, `:EntryPoint`, and
+        /// `EXPOSES` facts. Requires the `hir` Cargo feature —
+        /// rebuild with `cargo build -p cfdb-cli --features hir`
+        /// to opt in (Issue #86 / slice 4).
+        #[arg(long)]
+        hir: bool,
     },
 
     /// Run a Cypher-subset query against a loaded keyspace.
@@ -352,7 +359,8 @@ fn run(cli: Cli) -> Result<(), CfdbCliError> {
             workspace,
             db,
             keyspace,
-        } => extract(workspace, db, keyspace)?,
+            hir,
+        } => extract(workspace, db, keyspace, hir)?,
         Command::Query {
             db,
             keyspace,

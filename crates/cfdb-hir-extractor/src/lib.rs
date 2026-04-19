@@ -77,6 +77,10 @@ pub mod call_site_emitter;
 pub mod error;
 pub mod hir_db;
 
+// Slice 4 (Issue #86) — :EntryPoint catalog.
+pub mod entry_point_emitter;
+
 pub use call_site_emitter::extract_call_sites;
+pub use entry_point_emitter::extract_entry_points;
 pub use error::HirError;
 pub use hir_db::build_hir_database;

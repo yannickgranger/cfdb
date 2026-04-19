@@ -13,14 +13,19 @@ mod commands;
 mod compose;
 mod enrich;
 mod error;
+#[cfg(feature = "hir")]
+mod hir;
 mod scope;
 mod stubs;
 
 pub use commands::{
     dump, export, extract, keyspace_path, list_callers, list_keyspaces, query, violations,
 };
+
 pub use enrich::{enrich, EnrichVerb};
 pub use error::CfdbCliError;
+#[cfg(feature = "hir")]
+pub use hir::{extract_and_ingest_hir, HirExtractError};
 pub use scope::scope;
 pub use stubs::{
     diff, drop_keyspace_cmd, list_items_matching, schema_describe_cmd, snapshots, typed_stub,
