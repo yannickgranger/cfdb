@@ -1,29 +1,11 @@
----
-crate: cfdb-cli
-rfc: RFC-029, RFC-030
-status: approved
----
-
 # Spec: cfdb-cli
 
-The `cfdb` binary — entry point for all 16 API verbs. Wires `cfdb-extractor`, `cfdb-petgraph`, `cfdb-query`, and `cfdb-core` into a cohesive CLI. Depends on all four library crates; nothing in the workspace depends on `cfdb-cli`.
+The `cfdb` binary — clap subcommand dispatcher that wraps `cfdb-extractor` + `cfdb-petgraph` + `cfdb-query` behind the 16-verb API surface ratified in RFC-029. Library types re-exported through `lib.rs` so integration tests can call command logic directly.
 
-This is a binary crate with no public Rust API surface (no downstream Rust consumer). Its "public surface" is the CLI contract: the 16 verbs, their flags, and their exit-code semantics. The spec covers concept ownership and the entry-point contract.
+## CfdbCliError
 
-## Entry point
+Typed error enum returned by every cfdb-cli command handler. Wraps upstream errors (`ExtractError`, `StoreError`, `ParseError`, `std::io::Error`, `serde_json::Error`) as named variants plus a `Usage(String)` escape hatch for runtime-validation failures. Landed in PR #38 under RFC-031 §7.
 
-### main (binary entry point)
+## EnrichVerb
 
-The `cfdb` binary. Command dispatch via `clap`. Hands off to handler functions in `commands`, `enrich`, `scope`, and `stubs` modules.
-
-## Verb handlers (commands)
-
-The command handlers own the 16 API verbs: `extract`, `query`, `list-callers`, `violations`, `dump`, `list-keyspaces`, `export`, `typed-stub`, `list-items-matching`, `snapshots`, `diff`, `drop-keyspace`, `schema-describe`, `scope`, `enrich`, and any future verbs.
-
-Note (RFC-031 §4): the composition concern (store instantiation, persistence wiring) is currently scattered across handler modules. RFC-031 prescribes introducing a `compose.rs` module as a single construction path. This spec reflects current state; the `compose.rs` concept will be added in the same PR as that change.
-
-## Enrichment
-
-### EnrichVerb
-
-The set of enrichment verbs exposed by the `enrich` sub-command: `Docs`, `Metrics`, `History`, `Concepts`. Maps directly to the four `enrich_*` methods on `StoreBackend`.
+Selector for the four enrichment subcommands (`enrich-docs`, `enrich-metrics`, `enrich-history`, `enrich-concepts`). Lets one handler function service all four CLI variants without duplicating the load-store-print boilerplate.
