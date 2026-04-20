@@ -183,7 +183,10 @@ fn classifier_rules() -> [(DebtClass, &'static str); 6] {
             DebtClass::RandomScattering,
             CLASSIFIER_RANDOM_SCATTERING_CYPHER,
         ),
-        (DebtClass::CanonicalBypass, CLASSIFIER_CANONICAL_BYPASS_CYPHER),
+        (
+            DebtClass::CanonicalBypass,
+            CLASSIFIER_CANONICAL_BYPASS_CYPHER,
+        ),
         (DebtClass::Unwired, CLASSIFIER_UNWIRED_CYPHER),
     ]
 }
@@ -199,8 +202,8 @@ fn run_classifier_rule(
     context: &str,
     cypher: &str,
 ) -> Result<Vec<Finding>, crate::CfdbCliError> {
-    let mut parsed = parse(cypher)
-        .map_err(|e| format!("parse error in embedded classifier rule: {e}"))?;
+    let mut parsed =
+        parse(cypher).map_err(|e| format!("parse error in embedded classifier rule: {e}"))?;
     parsed.params.insert(
         "context".to_string(),
         Param::Scalar(PropValue::Str(context.to_string())),
@@ -219,11 +222,7 @@ fn run_classifier_rule(
         // document the degradation.
         Err(_) => return Ok(Vec::new()),
     };
-    Ok(result
-        .rows
-        .iter()
-        .filter_map(finding_from_row)
-        .collect())
+    Ok(result.rows.iter().filter_map(finding_from_row).collect())
 }
 
 /// Pull the context-filtered inventory rows + derive the per-crate LOC

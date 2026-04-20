@@ -202,9 +202,7 @@ council_required = false
     #[test]
     fn route_carries_mode_flag_for_unfinished_refactor() {
         let t = SkillRoutingTable::from_toml_str(FULL_TABLE).expect("parse");
-        let r = t
-            .route(DebtClass::UnfinishedRefactor)
-            .expect("row present");
+        let r = t.route(DebtClass::UnfinishedRefactor).expect("row present");
         assert_eq!(r.skill, "sweep-epic");
         assert_eq!(r.mode.as_deref(), Some("port"));
         assert!(!r.council_required);

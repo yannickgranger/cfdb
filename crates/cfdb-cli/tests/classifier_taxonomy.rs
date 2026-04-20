@@ -156,11 +156,15 @@ fn classifier_emits_duplicated_feature_for_orderbook_pair() {
     let names = qnames(bucket(&inv, "duplicated_feature"));
     // Both halves of the pair should surface (one row per definition).
     assert!(
-        names.iter().any(|q| q.contains("trading_domain_a") && q.ends_with("OrderBook")),
+        names
+            .iter()
+            .any(|q| q.contains("trading_domain_a") && q.ends_with("OrderBook")),
         "expected trading_domain_a::OrderBook in duplicated_feature, got {names:?}"
     );
     assert!(
-        names.iter().any(|q| q.contains("trading_domain_b") && q.ends_with("OrderBook")),
+        names
+            .iter()
+            .any(|q| q.contains("trading_domain_b") && q.ends_with("OrderBook")),
         "expected trading_domain_b::OrderBook in duplicated_feature, got {names:?}"
     );
 }
@@ -189,7 +193,9 @@ fn classifier_emits_context_homonym_for_position_value_pair() {
     let inv = run_scope(&db, ks, "trading");
     let names = qnames(bucket(&inv, "context_homonym"));
     assert!(
-        names.iter().any(|q| q.contains("trading_domain_a") && q.contains("value")),
+        names
+            .iter()
+            .any(|q| q.contains("trading_domain_a") && q.contains("value")),
         "expected Position::value from trading_domain_a in context_homonym, got {names:?}"
     );
 }
@@ -216,7 +222,9 @@ fn classifier_emits_canonical_bypass_for_orphan_isolated() {
     // `Orphan::isolated` lives in the canonical crate (trading_domain_a)
     // and has no CLI caller → CANONICAL_FOR + reachable_from_entry=false.
     assert!(
-        names.iter().any(|q| q.contains("Orphan") || q.contains("isolated")),
+        names
+            .iter()
+            .any(|q| q.contains("Orphan") || q.contains("isolated")),
         "expected an Orphan::isolated-rooted item in canonical_bypass, got {names:?}"
     );
 }
