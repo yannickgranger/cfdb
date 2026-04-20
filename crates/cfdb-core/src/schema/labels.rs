@@ -256,11 +256,30 @@ impl SchemaVersion {
         patch: 1,
     };
 
+    /// v0.2.2 — Issue #42 lands first emissions of impl-block `:Item`
+    /// nodes (`kind = "impl_block"`) plus `IMPLEMENTS` and
+    /// `IMPLEMENTS_FOR` edges. Both edge labels were reserved in
+    /// `labels.rs` and described in `describe.rs` from v0.1 onwards but
+    /// no extractor produced them. `cfdb-extractor::visit_item_impl`
+    /// now emits, per `impl ... {}` block: (a) a `:Item { kind:
+    /// "impl_block" }` node with a qname of shape
+    /// `<module>::<target>::impl[_<trait>]`, (b) an `IMPLEMENTS_FOR`
+    /// edge pointing at the target type's `:Item`, and (c) for trait
+    /// impls only, an `IMPLEMENTS` edge pointing at the trait's
+    /// `:Item`. Additive and non-breaking within 0.2.x. Pre-V0_2_2
+    /// keyspaces carry zero `impl_block` items. Paired lockstep
+    /// `graph-specs-rust` cross-fixture bump per cfdb CLAUDE.md §3.
+    pub const V0_2_2: Self = Self {
+        major: 0,
+        minor: 2,
+        patch: 2,
+    };
+
     /// The schema version this build of cfdb-core writes and reads.
     /// Producers tag every keyspace persist with `CURRENT`. Consumers use
     /// `CURRENT.can_read(&file.schema_version)` to reject forward-
     /// incompatible graphs per G4.
-    pub const CURRENT: Self = Self::V0_2_1;
+    pub const CURRENT: Self = Self::V0_2_2;
 
     pub fn new(major: u16, minor: u16, patch: u16) -> Self {
         Self {

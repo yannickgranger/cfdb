@@ -307,13 +307,15 @@ mod tests {
     }
 
     #[test]
-    fn list_items_matching_implblock_maps_to_unemitted_sentinel() {
-        // Council §A.14 accepts ImplBlock in the CLI surface even though the
-        // v0.1 syn extractor does not emit :Item nodes for impl blocks. The
-        // composer maps ImplBlock to an unmatched sentinel so the Predicate::In
-        // filter matches zero rows — the CLI handler surfaces a warning
-        // explaining the Phase A limitation (tested in cfdb-cli integration
-        // tests, not here).
+    fn list_items_matching_implblock_maps_to_impl_block_kind() {
+        // Post-#42 (SchemaVersion V0_2_2), `cfdb-extractor::visit_item_impl`
+        // emits `:Item { kind: "impl_block" }` nodes for every impl block
+        // walked. The composer therefore maps `ItemKind::ImplBlock` to the
+        // concrete `"impl_block"` kind string so
+        // `list-items-matching --kinds ImplBlock` returns real rows on
+        // V0_2_2+ keyspaces. Pre-V0_2_2 keyspaces carry zero impl_block
+        // items; the CLI handler surfaces a schema-version warning for
+        // that case (tested in cfdb-cli integration tests, not here).
         let q = list_items_matching(".*", Some(&[ItemKind::ImplBlock]), false);
         let pred = regex_of(&q);
         let (_, rhs) = match pred {
@@ -324,9 +326,7 @@ mod tests {
             Predicate::In { right, .. } => {
                 assert_eq!(
                     right,
-                    &Expr::List(vec![Expr::Literal(PropValue::Str(
-                        "<unemitted:impl_block>".into()
-                    ))])
+                    &Expr::List(vec![Expr::Literal(PropValue::Str("impl_block".into()))])
                 );
             }
             other => panic!("expected Predicate::In, got {other:?}"),

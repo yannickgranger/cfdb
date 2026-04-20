@@ -19,7 +19,7 @@ use crate::attrs::{
 };
 use crate::call_visitor::walk_call_sites_with_test_flag;
 use crate::file_walker::PendingExternalMod;
-use crate::type_render::render_type_string;
+use crate::type_render::{render_path, render_type_string};
 use crate::Emitter;
 
 pub(crate) struct ItemVisitor<'e> {
@@ -148,6 +148,107 @@ impl ItemVisitor<'_> {
         id
     }
 
+    /// Emit an `:Item { kind: "impl_block" }` node for the current `impl`
+    /// block plus its `IMPLEMENTS` + `IMPLEMENTS_FOR` edges (#42 / RFC
+    /// Study 002 §11.4b).
+    ///
+    /// The impl-block's qname encodes the module path, the normalised
+    /// target type, and (when present) the trait path, so two trait
+    /// impls targeting the same type land on distinct nodes:
+    ///
+    /// ```text
+    /// impl Foo { ... }            → <module>::Foo::impl
+    /// impl Bar for Foo { ... }    → <module>::Foo::impl_Bar
+    /// impl Baz for Foo { ... }    → <module>::Foo::impl_Baz
+    /// ```
+    ///
+    /// Trait paths containing `::` are flattened to `_` for use in the
+    /// qname segment — the original trait path is preserved in the
+    /// `IMPLEMENTS` edge target so queries can resolve back to the
+    /// canonical trait node.
+    fn emit_impl_block(
+        &mut self,
+        target: &str,
+        trait_qname: Option<&str>,
+        attrs: &[syn::Attribute],
+    ) {
+        let impl_qname = impl_block_qname(&self.module_stack, target, trait_qname);
+        let impl_id = item_node_id(&impl_qname);
+
+        let mut props = BTreeMap::new();
+        props.insert("qname".into(), PropValue::Str(impl_qname.clone()));
+        props.insert(
+            "name".into(),
+            PropValue::Str(impl_block_name(target, trait_qname)),
+        );
+        props.insert("kind".into(), PropValue::Str("impl_block".into()));
+        props.insert("crate".into(), PropValue::Str(self.crate_name.clone()));
+        props.insert(
+            "bounded_context".into(),
+            PropValue::Str(self.bounded_context.clone()),
+        );
+        props.insert(
+            "module_qpath".into(),
+            PropValue::Str(self.current_module_qpath()),
+        );
+        props.insert("file".into(), PropValue::Str(self.file_path.clone()));
+        props.insert("line".into(), PropValue::Int(0));
+        props.insert("is_test".into(), PropValue::Bool(self.is_in_test_mod()));
+        // impl blocks carry no visibility modifier of their own in Rust;
+        // the impl's effective reachability is the intersection of the
+        // target type's and the trait's visibilities — treat the impl
+        // block itself as private for the cfdb vocabulary (council
+        // wiring §B.1.1 default).
+        props.insert("visibility".into(), PropValue::Str("private".into()));
+        props.insert("impl_target".into(), PropValue::Str(target.into()));
+        if let Some(t) = trait_qname {
+            props.insert("impl_trait".into(), PropValue::Str(t.into()));
+        }
+        if let Some(gate) = extract_cfg_feature_gate(attrs) {
+            props.insert("cfg_gate".into(), PropValue::Str(gate.to_string()));
+        }
+        let (is_deprecated, deprecation_since) = extract_deprecated_attr(attrs);
+        props.insert("is_deprecated".into(), PropValue::Bool(is_deprecated));
+        if let Some(since) = deprecation_since {
+            props.insert("deprecation_since".into(), PropValue::Str(since));
+        }
+
+        self.emitter.emit_node(Node {
+            id: impl_id.clone(),
+            label: Label::new(Label::ITEM),
+            props,
+        });
+        self.emitter.emit_edge(Edge {
+            src: impl_id.clone(),
+            dst: self.crate_id.clone(),
+            label: EdgeLabel::new(EdgeLabel::IN_CRATE),
+            props: BTreeMap::new(),
+        });
+
+        // IMPLEMENTS_FOR — always emitted. Target resolution via the
+        // `item:<qname>` id formula. The dst may dangle when the target
+        // type is defined outside the workspace; the petgraph ingest
+        // layer emits a non-fatal warning rather than failing.
+        let target_qname = resolve_target_qname(&self.module_stack, target);
+        self.emitter.emit_edge(Edge {
+            src: impl_id.clone(),
+            dst: item_node_id(&target_qname),
+            label: EdgeLabel::new(EdgeLabel::IMPLEMENTS_FOR),
+            props: BTreeMap::new(),
+        });
+
+        // IMPLEMENTS — trait impls only.
+        if let Some(t) = trait_qname {
+            let trait_resolved = resolve_target_qname(&self.module_stack, t);
+            self.emitter.emit_edge(Edge {
+                src: impl_id,
+                dst: item_node_id(&trait_resolved),
+                label: EdgeLabel::new(EdgeLabel::IMPLEMENTS),
+                props: BTreeMap::new(),
+            });
+        }
+    }
+
     /// Emit a CallSite for an attribute-based name-reference to a callable
     /// (e.g. `#[serde(default = "Utc::now")]`). The owning `Item` is the
     /// struct that holds the field, so the INVOKES_AT edge flows from the
@@ -255,6 +356,18 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
         // divergent qnames across the two extractors and cross-extractor
         // `CALLS(Item→Item)` edges silently dangle (#94 ddd review).
         let target = normalize_impl_target(&render_type_string(&node.self_ty));
+
+        // #42 — emit an `:Item { kind: "impl_block" }` node for the impl
+        // itself plus `IMPLEMENTS` (trait impls only) + `IMPLEMENTS_FOR`
+        // edges. The impl-block node is the shared source for both
+        // edges so queries can express "the trait-target pair for this
+        // impl block" by joining `IMPLEMENTS` and `IMPLEMENTS_FOR` on
+        // the impl-block id. (Inherent impls emit `IMPLEMENTS_FOR`
+        // only — no trait to point to.)
+        let trait_qname: Option<String> =
+            node.trait_.as_ref().map(|(_, path, _)| render_path(path));
+        self.emit_impl_block(&target, trait_qname.as_deref(), &node.attrs);
+
         let prev = self.current_impl_target.replace(target);
         syn::visit::visit_item_impl(self, node);
         self.current_impl_target = prev;
@@ -455,6 +568,52 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
             self.test_mod_depth -= 1;
         }
     }
+}
+
+/// Build the `qname` for an `impl` block (#42). The segments combine the
+/// current module path, the normalised target type, and the canonical
+/// `impl[_<Trait>]` suffix — yielding a stable, human-readable id that
+/// disambiguates inherent impls from each distinct trait impl on the
+/// same target:
+///
+/// - `impl Foo { ... }` at module `m`        → `m::Foo::impl`
+/// - `impl Display for Foo { ... }`          → `m::Foo::impl_Display`
+/// - `impl crate::bar::Trait for Foo { ... }` → `m::Foo::impl_crate_bar_Trait`
+fn impl_block_qname(module_stack: &[String], target: &str, trait_qname: Option<&str>) -> String {
+    let module = module_qpath(module_stack);
+    let prefix = if module.is_empty() {
+        String::new()
+    } else {
+        format!("{module}::")
+    };
+    let trait_segment = trait_qname
+        .map(|t| format!("_{}", t.replace("::", "_")))
+        .unwrap_or_default();
+    format!("{prefix}{target}::impl{trait_segment}")
+}
+
+/// Human-readable `name` prop for an impl-block :Item node (#42). Mirrors
+/// Rust source-level rendering: `impl Foo` (inherent) or
+/// `impl Bar for Foo` (trait impl).
+fn impl_block_name(target: &str, trait_qname: Option<&str>) -> String {
+    match trait_qname {
+        Some(t) => format!("impl {t} for {target}"),
+        None => format!("impl {target}"),
+    }
+}
+
+/// Resolve a bare type/trait name (as written in source) into the full
+/// qname formula used by [`item_qname`]. For an unqualified segment like
+/// `"Polite"`, the current crate + module prefix is prepended so the
+/// resulting `item:<qname>` id matches what the struct/trait emitters
+/// produce. Already-qualified inputs (containing `::`) pass through
+/// unchanged — they may dangle when they point outside the workspace,
+/// which the petgraph ingest layer handles with a non-fatal warning.
+fn resolve_target_qname(module_stack: &[String], type_or_trait: &str) -> String {
+    if type_or_trait.contains("::") {
+        return type_or_trait.to_string();
+    }
+    item_qname(module_stack, type_or_trait)
 }
 
 fn span_line(_ident: &syn::Ident) -> usize {

@@ -1,0 +1,6 @@
+extract: 1880 nodes, 1873 edges
+extract: saved keyspace `cross-companion-913f06ffa783` to /var/mnt/workspaces/cfdb/.claude/worktrees/42-impl-trait/.cfdb/db/cross-companion-913f06ffa783.json
+violations: 0 (rule: /var/mnt/workspaces/cfdb/.claude/worktrees/42-impl-trait/examples/queries/arch-ban-f64-in-domain.cypher)
+violations: 0 (rule: /var/mnt/workspaces/cfdb/.claude/worktrees/42-impl-trait/examples/queries/arch-ban-reqwest-client-new.cypher)
+violations: 0 (rule: /var/mnt/workspaces/cfdb/.claude/worktrees/42-impl-trait/examples/queries/arch-ban-utc-now.cypher)
+cross-dogfood: 0 violations on yg/graph-specs-rust@913f06ffa783
