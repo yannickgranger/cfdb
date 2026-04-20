@@ -40,3 +40,9 @@ git-enrich = ["dep:git2"]
 [dev-dependencies]
 serde_json.workspace = true
 tempfile.workspace = true
+# Used by `tests/pattern_b_vertical_split_brain.rs` (issue #44) to parse the
+# `examples/queries/vertical-split-brain.cypher` rule text and execute it
+# against a synthetic in-memory graph. Dev-only — the backend itself MUST
+# NOT depend on the parser (see `tests/architecture_dep_rule.rs` /
+# FORBIDDEN_DEPS).
+cfdb-query = { path = "../cfdb-query" }
