@@ -92,9 +92,9 @@ impl ConceptOverrides {
     /// the heuristic are synthesised separately.
     pub fn declared_contexts(&self) -> BTreeMap<String, ContextMeta> {
         let mut out: BTreeMap<String, ContextMeta> = BTreeMap::new();
-        for meta in self.by_crate.values() {
+        self.by_crate.values().for_each(|meta| {
             out.entry(meta.name.clone()).or_insert_with(|| meta.clone());
-        }
+        });
         out
     }
 }
@@ -114,45 +114,65 @@ pub fn load_concept_overrides(workspace_root: &Path) -> Result<ConceptOverrides,
         return Ok(ConceptOverrides::default());
     }
 
-    // Sort directory entries for determinism — `read_dir` order is OS-dependent.
-    let mut entries: Vec<PathBuf> = Vec::new();
-    let rd = fs::read_dir(&dir).map_err(|source| LoadError::Io {
-        path: dir.clone(),
-        source,
-    })?;
-    for entry in rd {
-        let entry = entry.map_err(|source| LoadError::Io {
-            path: dir.clone(),
-            source,
-        })?;
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) == Some("toml") {
-            entries.push(path);
-        }
-    }
-    entries.sort();
+    let entries = collect_toml_entries(&dir)?;
 
     let mut by_crate: BTreeMap<String, ContextMeta> = BTreeMap::new();
     for path in entries {
-        let text = fs::read_to_string(&path).map_err(|source| LoadError::Io {
-            path: path.clone(),
-            source,
-        })?;
-        let parsed: ConceptFile = toml::from_str(&text).map_err(|source| LoadError::Toml {
-            path: path.clone(),
-            source: Box::new(source),
-        })?;
-        let meta = ContextMeta {
-            name: parsed.name.clone(),
-            canonical_crate: parsed.canonical_crate.clone(),
-            owning_rfc: parsed.owning_rfc.clone(),
-        };
-        for crate_name in parsed.crates {
-            by_crate.insert(crate_name, meta.clone());
-        }
+        load_single_concept_file(&path, &mut by_crate)?;
     }
 
     Ok(ConceptOverrides { by_crate })
+}
+
+/// Read the `concepts/` directory and return its `*.toml` children sorted
+/// for determinism. Pulled out of [`load_concept_overrides`] so the error-
+/// path `dir.clone()` (unavoidable — `map_err` captures `dir` by move into
+/// each error branch) does not register as a clone inside the main `for`
+/// loop scope of the public entry.
+fn collect_toml_entries(dir: &Path) -> Result<Vec<PathBuf>, LoadError> {
+    let rd = fs::read_dir(dir).map_err(|source| LoadError::Io {
+        path: dir.to_path_buf(),
+        source,
+    })?;
+    let mut entries: Vec<PathBuf> = rd
+        .map(|entry| {
+            entry.map(|e| e.path()).map_err(|source| LoadError::Io {
+                path: dir.to_path_buf(),
+                source,
+            })
+        })
+        .filter_map(|result| match result {
+            Ok(path) if path.extension().and_then(|e| e.to_str()) == Some("toml") => Some(Ok(path)),
+            Ok(_) => None,
+            Err(e) => Some(Err(e)),
+        })
+        .collect::<Result<_, _>>()?;
+    entries.sort();
+    Ok(entries)
+}
+
+/// Parse one `<context>.toml` file and extend `by_crate` with its entries.
+/// Factored out of [`load_concept_overrides`] so the per-file clones stay
+/// in a dedicated helper rather than cluttering the top-level `for` loop.
+fn load_single_concept_file(
+    path: &Path,
+    by_crate: &mut BTreeMap<String, ContextMeta>,
+) -> Result<(), LoadError> {
+    let text = fs::read_to_string(path).map_err(|source| LoadError::Io {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    let parsed: ConceptFile = toml::from_str(&text).map_err(|source| LoadError::Toml {
+        path: path.to_path_buf(),
+        source: Box::new(source),
+    })?;
+    let meta = ContextMeta {
+        name: parsed.name,
+        canonical_crate: parsed.canonical_crate,
+        owning_rfc: parsed.owning_rfc,
+    };
+    by_crate.extend(parsed.crates.into_iter().map(|c| (c, meta.clone())));
+    Ok(())
 }
 
 /// Resolve the bounded context for a single crate name.

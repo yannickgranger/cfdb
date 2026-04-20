@@ -40,6 +40,7 @@ use ra_ap_hir::db::HirDatabase;
 use ra_ap_hir::{HasCrate, Semantics};
 use ra_ap_hir_ty::attach_db;
 use ra_ap_syntax::ast::{self, AstNode, HasAttrs, HasName};
+use ra_ap_syntax::SyntaxNode;
 use ra_ap_vfs::{Vfs, VfsPath};
 
 use crate::error::HirError;
@@ -108,24 +109,41 @@ fn scan_file<DB>(
 ) where
     DB: HirDatabase + Sized,
 {
-    for descendant in source_file.syntax().descendants() {
-        if let Some(strukt) = ast::Struct::cast(descendant.clone()) {
-            if has_clap_derive(&strukt) {
-                if let Some((name, qname)) = struct_name_and_qname(sema, &strukt) {
-                    emit(nodes, edges, qname, name, "cli_command", file_path);
-                }
+    source_file
+        .syntax()
+        .descendants()
+        .for_each(|descendant| classify_descendant(sema, &descendant, file_path, nodes, edges));
+}
+
+/// Dispatch one syntax descendant into the matching `:EntryPoint` emission
+/// path. Extracted from the walk in [`scan_file`] so the per-cast
+/// `descendant.clone()` calls (required by `AstNode::cast` consuming its
+/// argument) live in a helper rather than in the outer `for` loop body.
+fn classify_descendant<DB>(
+    sema: &Semantics<'_, DB>,
+    descendant: &SyntaxNode,
+    file_path: &Path,
+    nodes: &mut Vec<Node>,
+    edges: &mut Vec<Edge>,
+) where
+    DB: HirDatabase + Sized,
+{
+    if let Some(strukt) = ast::Struct::cast(descendant.clone()) {
+        if has_clap_derive(&strukt) {
+            if let Some((name, qname)) = struct_name_and_qname(sema, &strukt) {
+                emit(nodes, edges, qname, name, "cli_command", file_path);
             }
-        } else if let Some(enum_) = ast::Enum::cast(descendant.clone()) {
-            if has_clap_derive(&enum_) {
-                if let Some((name, qname)) = enum_name_and_qname(sema, &enum_) {
-                    emit(nodes, edges, qname, name, "cli_command", file_path);
-                }
+        }
+    } else if let Some(enum_) = ast::Enum::cast(descendant.clone()) {
+        if has_clap_derive(&enum_) {
+            if let Some((name, qname)) = enum_name_and_qname(sema, &enum_) {
+                emit(nodes, edges, qname, name, "cli_command", file_path);
             }
-        } else if let Some(fn_ast) = ast::Fn::cast(descendant.clone()) {
-            if has_tool_attr(&fn_ast) {
-                if let Some((name, qname)) = fn_name_and_qname(sema, &fn_ast) {
-                    emit(nodes, edges, qname, name, "mcp_tool", file_path);
-                }
+        }
+    } else if let Some(fn_ast) = ast::Fn::cast(descendant.clone()) {
+        if has_tool_attr(&fn_ast) {
+            if let Some((name, qname)) = fn_name_and_qname(sema, &fn_ast) {
+                emit(nodes, edges, qname, name, "mcp_tool", file_path);
             }
         }
     }

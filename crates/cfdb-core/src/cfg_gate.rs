@@ -110,41 +110,57 @@ impl FromStr for CfgGate {
 fn parse_expr(input: &str) -> Result<(CfgGate, &str), String> {
     let s = input.trim_start();
     if let Some(rest) = s.strip_prefix("all(") {
-        let (children, rest) = parse_list(rest)?;
-        if children.is_empty() {
-            return Err("all(...) with no children".into());
-        }
-        Ok((CfgGate::All(children), rest))
+        parse_all_expr(rest)
     } else if let Some(rest) = s.strip_prefix("any(") {
-        let (children, rest) = parse_list(rest)?;
-        if children.is_empty() {
-            return Err("any(...) with no children".into());
-        }
-        Ok((CfgGate::Any(children), rest))
+        parse_any_expr(rest)
     } else if let Some(rest) = s.strip_prefix("not(") {
-        let (inner, rest) = parse_expr(rest)?;
-        let rest = rest.trim_start();
-        let rest = rest
-            .strip_prefix(')')
-            .ok_or_else(|| format!("expected ')' after not(...): {rest:?}"))?;
-        Ok((CfgGate::Not(Box::new(inner)), rest))
+        parse_not_expr(rest)
     } else if let Some(rest) = s.strip_prefix("feature") {
-        let rest = rest.trim_start();
-        let rest = rest
-            .strip_prefix('=')
-            .ok_or_else(|| format!("expected '=' after feature: {rest:?}"))?;
-        let rest = rest.trim_start();
-        let rest = rest
-            .strip_prefix('"')
-            .ok_or_else(|| format!("expected '\"' for feature name: {rest:?}"))?;
-        let end = rest
-            .find('"')
-            .ok_or_else(|| "unterminated feature-name string".to_string())?;
-        let name = &rest[..end];
-        Ok((CfgGate::Feature(name.to_string()), &rest[end + 1..]))
+        parse_feature_expr(rest)
     } else {
         Err(format!("unrecognised cfg expression prefix: {s:?}"))
     }
+}
+
+fn parse_all_expr(rest: &str) -> Result<(CfgGate, &str), String> {
+    let (children, rest) = parse_list(rest)?;
+    if children.is_empty() {
+        return Err("all(...) with no children".into());
+    }
+    Ok((CfgGate::All(children), rest))
+}
+
+fn parse_any_expr(rest: &str) -> Result<(CfgGate, &str), String> {
+    let (children, rest) = parse_list(rest)?;
+    if children.is_empty() {
+        return Err("any(...) with no children".into());
+    }
+    Ok((CfgGate::Any(children), rest))
+}
+
+fn parse_not_expr(rest: &str) -> Result<(CfgGate, &str), String> {
+    let (inner, rest) = parse_expr(rest)?;
+    let rest = rest.trim_start();
+    let rest = rest
+        .strip_prefix(')')
+        .ok_or_else(|| format!("expected ')' after not(...): {rest:?}"))?;
+    Ok((CfgGate::Not(Box::new(inner)), rest))
+}
+
+fn parse_feature_expr(rest: &str) -> Result<(CfgGate, &str), String> {
+    let rest = rest.trim_start();
+    let rest = rest
+        .strip_prefix('=')
+        .ok_or_else(|| format!("expected '=' after feature: {rest:?}"))?;
+    let rest = rest.trim_start();
+    let rest = rest
+        .strip_prefix('"')
+        .ok_or_else(|| format!("expected '\"' for feature name: {rest:?}"))?;
+    let end = rest
+        .find('"')
+        .ok_or_else(|| "unterminated feature-name string".to_string())?;
+    let name = &rest[..end];
+    Ok((CfgGate::Feature(name.to_string()), &rest[end + 1..]))
 }
 
 /// Parse a `,`-separated list of expressions up to the matching `)`. The

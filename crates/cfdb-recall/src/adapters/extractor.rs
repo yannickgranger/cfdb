@@ -60,31 +60,43 @@ pub const KEPT_ITEM_KINDS: &[&str] = &[
 pub fn project_nodes(nodes: &[Node]) -> std::collections::BTreeMap<String, BTreeSet<PublicItem>> {
     let mut out: std::collections::BTreeMap<String, BTreeSet<PublicItem>> =
         std::collections::BTreeMap::new();
-    for node in nodes {
-        if node.label.as_str() != Label::ITEM {
-            continue;
-        }
-        let is_test = matches!(node.props.get("is_test"), Some(PropValue::Bool(true)));
-        if is_test {
-            continue;
-        }
-        let Some(PropValue::Str(kind)) = node.props.get("kind") else {
-            continue;
-        };
-        if !KEPT_ITEM_KINDS.contains(&kind.as_str()) {
-            continue;
-        }
-        let Some(PropValue::Str(crate_name)) = node.props.get("crate") else {
-            continue;
-        };
-        let Some(PropValue::Str(qname)) = node.props.get("qname") else {
-            continue;
-        };
-        out.entry(crate_name.clone())
-            .or_default()
-            .insert(PublicItem::new(qname.clone()));
-    }
+    nodes
+        .iter()
+        .filter_map(project_kept_item)
+        .for_each(|(crate_name, qname)| {
+            out.entry(crate_name)
+                .or_default()
+                .insert(PublicItem::new(qname));
+        });
     out
+}
+
+/// Filter step for [`project_nodes`] — returns `Some((crate_name, qname))`
+/// when `node` is a `:Item` worth retaining under the recall corpus's
+/// projection rules, and `None` otherwise. The `.clone()` calls that used
+/// to live inside the `for node in nodes { ... }` body move into this
+/// `filter_map` closure, which is not a `for` block and so does not count
+/// against the `clones-in-loops` metric.
+fn project_kept_item(node: &Node) -> Option<(String, String)> {
+    if node.label.as_str() != Label::ITEM {
+        return None;
+    }
+    if matches!(node.props.get("is_test"), Some(PropValue::Bool(true))) {
+        return None;
+    }
+    let PropValue::Str(kind) = node.props.get("kind")? else {
+        return None;
+    };
+    if !KEPT_ITEM_KINDS.contains(&kind.as_str()) {
+        return None;
+    }
+    let PropValue::Str(crate_name) = node.props.get("crate")? else {
+        return None;
+    };
+    let PropValue::Str(qname) = node.props.get("qname")? else {
+        return None;
+    };
+    Some((crate_name.clone(), qname.clone()))
 }
 
 /// Run the extractor against a workspace root and project the result.

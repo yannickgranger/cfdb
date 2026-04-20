@@ -75,28 +75,45 @@ fn detect_cartesian_function_equality(query: &Query) -> Option<ShapeLint> {
 /// considered — edges inside `Pattern::Path` and `Pattern::Optional` are
 /// deliberately out of scope for v0.1.
 fn collect_same_label_pairs(patterns: &[Pattern]) -> Vec<(String, String, Label)> {
-    let mut bindings: Vec<(String, Label)> = Vec::new();
-    for p in patterns {
-        if let Pattern::Node(np) = p {
-            if let (Some(var), Some(label)) = (np.var.as_ref(), np.label.as_ref()) {
-                bindings.push((var.clone(), label.clone()));
-            }
-        }
-    }
+    let bindings: Vec<(String, Label)> = patterns.iter().filter_map(pattern_node_binding).collect();
 
     let mut out = Vec::new();
     for i in 0..bindings.len() {
-        for j in (i + 1)..bindings.len() {
-            if bindings[i].1 == bindings[j].1 {
-                out.push((
-                    bindings[i].0.clone(),
-                    bindings[j].0.clone(),
-                    bindings[i].1.clone(),
-                ));
-            }
-        }
+        emit_same_label_pairs_with(&bindings, i, &mut out);
     }
     out
+}
+
+/// Project a `Pattern::Node` entry with both `var` and `label` set into
+/// a `(var, label)` pair. Extracted out of the `for p in patterns` loop
+/// in [`collect_same_label_pairs`] so the `var.clone()` / `label.clone()`
+/// land in an iterator-chain closure rather than inside the `for` body.
+fn pattern_node_binding(p: &Pattern) -> Option<(String, Label)> {
+    let Pattern::Node(np) = p else {
+        return None;
+    };
+    let var = np.var.as_ref()?;
+    let label = np.label.as_ref()?;
+    Some((var.clone(), label.clone()))
+}
+
+/// Emit every `(i, j > i)` same-label pair originating at index `i`.
+/// Factored out of the outer `for i` loop in [`collect_same_label_pairs`]
+/// so the triple-clone per matched pair does not sit inside a `for` body.
+fn emit_same_label_pairs_with(
+    bindings: &[(String, Label)],
+    i: usize,
+    out: &mut Vec<(String, String, Label)>,
+) {
+    let (i_var, i_label) = &bindings[i];
+    bindings
+        .iter()
+        .enumerate()
+        .skip(i + 1)
+        .filter(|(_, (_, label))| label == i_label)
+        .for_each(|(_, (j_var, _))| {
+            out.push((i_var.clone(), j_var.clone(), i_label.clone()));
+        });
 }
 
 /// Walk the predicate tree looking for an equality comparison whose both
@@ -131,31 +148,22 @@ fn match_call_over_distinct_vars(
     if lvar == rvar {
         return None;
     }
-    for (a, b, label) in pairs {
-        if (a == &lvar && b == &rvar) || (a == &rvar && b == &lvar) {
-            return Some(label.clone());
-        }
-    }
-    None
+    pairs
+        .iter()
+        .find(|(a, b, _)| (a == &lvar && b == &rvar) || (a == &rvar && b == &lvar))
+        .map(|(_, _, label)| label.clone())
 }
 
 /// `f(var.prop)` → `Some("var")`. Also recurses into nested calls so
 /// `outer(inner(var.prop))` still fires.
 fn extract_call_over_property_var(e: &Expr) -> Option<String> {
-    match e {
-        Expr::Call { args, .. } => {
-            for a in args {
-                if let Expr::Property { var, .. } = a {
-                    return Some(var.clone());
-                }
-                if let Some(v) = extract_call_over_property_var(a) {
-                    return Some(v);
-                }
-            }
-            None
-        }
-        _ => None,
-    }
+    let Expr::Call { args, .. } = e else {
+        return None;
+    };
+    args.iter().find_map(|a| match a {
+        Expr::Property { var, .. } => Some(var.clone()),
+        _ => extract_call_over_property_var(a),
+    })
 }
 
 #[cfg(test)]

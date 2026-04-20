@@ -408,23 +408,56 @@ fn main() -> ExitCode {
 
 fn run(cli: Cli) -> Result<(), CfdbCliError> {
     match cli.command {
-        Command::Version => {
-            println!("cfdb {}", env!("CARGO_PKG_VERSION"));
-            println!("schema {}", cfdb_core::SchemaVersion::CURRENT);
+        Command::Version => print_version(),
+        Command::SchemaDescribe => schema_describe_cmd()?,
+        cmd @ (Command::Extract { .. }
+        | Command::Query { .. }
+        | Command::Violations { .. }
+        | Command::Dump { .. }
+        | Command::Export { .. }
+        | Command::ListKeyspaces { .. }) => dispatch_core(cmd)?,
+        cmd @ (Command::EnrichGitHistory { .. }
+        | Command::EnrichRfcDocs { .. }
+        | Command::EnrichDeprecation { .. }
+        | Command::EnrichBoundedContext { .. }
+        | Command::EnrichConcepts { .. }
+        | Command::EnrichReachability { .. }
+        | Command::EnrichMetrics { .. }) => dispatch_enrich(cmd)?,
+        cmd @ (Command::FindCanonical { .. }
+        | Command::ListCallers { .. }
+        | Command::ListBypasses { .. }
+        | Command::ListItemsMatching { .. }
+        | Command::Scope { .. }) => dispatch_typed(cmd)?,
+        cmd @ (Command::Snapshots { .. } | Command::Diff { .. } | Command::Drop { .. }) => {
+            dispatch_snapshot(cmd)?
         }
+    }
+    Ok(())
+}
+
+fn print_version() {
+    println!("cfdb {}", env!("CARGO_PKG_VERSION"));
+    println!("schema {}", cfdb_core::SchemaVersion::CURRENT);
+}
+
+/// Dispatch helper for the INGEST + RAW + AUX core verbs. Factored out of
+/// [`run`] to keep the top-level match flat — each group's expansion of
+/// the `cmd @ Command::*` alternation lives in a dedicated helper.
+fn dispatch_core(cmd: Command) -> Result<(), CfdbCliError> {
+    match cmd {
         Command::Extract {
             workspace,
             db,
             keyspace,
             hir,
-        } => extract(workspace, db, keyspace, hir)?,
+        } => extract(workspace, db, keyspace, hir),
         Command::Query {
             db,
             keyspace,
             cypher,
             params,
             input,
-        } => query(db, keyspace, cypher, params, input)?,
+        } => query(db, keyspace, cypher, params, input),
         Command::Violations {
             db,
             keyspace,
@@ -436,36 +469,38 @@ fn run(cli: Cli) -> Result<(), CfdbCliError> {
             if rows_found > 0 && !no_fail {
                 std::process::exit(1);
             }
+            Ok(())
         }
-        Command::Dump { db, keyspace } => dump(db, keyspace)?,
+        Command::Dump { db, keyspace } => dump(db, keyspace),
         Command::Export {
             db,
             keyspace,
             format,
-        } => export(db, keyspace, &format)?,
-        Command::ListKeyspaces { db } => list_keyspaces(db)?,
-        cmd @ (Command::EnrichGitHistory { .. }
-        | Command::EnrichRfcDocs { .. }
-        | Command::EnrichDeprecation { .. }
-        | Command::EnrichBoundedContext { .. }
-        | Command::EnrichConcepts { .. }
-        | Command::EnrichReachability { .. }
-        | Command::EnrichMetrics { .. }) => dispatch_enrich(cmd)?,
+        } => export(db, keyspace, &format),
+        Command::ListKeyspaces { db } => list_keyspaces(db),
+        other => unreachable!("dispatch_core called with non-core command: {other:?}"),
+    }
+}
+
+/// Dispatch helper for the TYPED verbs — the composer-over-Cypher
+/// shortcuts. Same rationale as [`dispatch_core`].
+fn dispatch_typed(cmd: Command) -> Result<(), CfdbCliError> {
+    match cmd {
         Command::FindCanonical {
             db,
             keyspace,
             concept,
-        } => typed_stub("find_canonical", &db, &keyspace, &[("concept", &concept)])?,
+        } => typed_stub("find_canonical", &db, &keyspace, &[("concept", &concept)]),
         Command::ListCallers {
             db,
             keyspace,
             qname,
-        } => list_callers(db, keyspace, qname)?,
+        } => list_callers(db, keyspace, qname),
         Command::ListBypasses {
             db,
             keyspace,
             concept,
-        } => typed_stub("list_bypasses", &db, &keyspace, &[("concept", &concept)])?,
+        } => typed_stub("list_bypasses", &db, &keyspace, &[("concept", &concept)]),
         Command::ListItemsMatching {
             db,
             keyspace,
@@ -478,7 +513,7 @@ fn run(cli: Cli) -> Result<(), CfdbCliError> {
             &name_pattern,
             kinds.as_deref(),
             group_by_context,
-        )?,
+        ),
         Command::Scope {
             db,
             context,
@@ -493,13 +528,20 @@ fn run(cli: Cli) -> Result<(), CfdbCliError> {
             &format,
             output.as_deref(),
             keyspace.as_deref(),
-        )?,
-        Command::Snapshots { db } => snapshots(db)?,
-        Command::Diff { db, a, b, kinds } => diff(db, a, b, kinds)?,
-        Command::Drop { db, keyspace } => drop_keyspace_cmd(db, keyspace)?,
-        Command::SchemaDescribe => schema_describe_cmd()?,
+        ),
+        other => unreachable!("dispatch_typed called with non-typed command: {other:?}"),
     }
-    Ok(())
+}
+
+/// Dispatch helper for the SNAPSHOT verbs. Same rationale as
+/// [`dispatch_core`].
+fn dispatch_snapshot(cmd: Command) -> Result<(), CfdbCliError> {
+    match cmd {
+        Command::Snapshots { db } => snapshots(db),
+        Command::Diff { db, a, b, kinds } => diff(db, a, b, kinds),
+        Command::Drop { db, keyspace } => drop_keyspace_cmd(db, keyspace),
+        other => unreachable!("dispatch_snapshot called with non-snapshot command: {other:?}"),
+    }
 }
 
 /// Dispatch helper for the seven `Command::Enrich*` variants. Pulled out of
