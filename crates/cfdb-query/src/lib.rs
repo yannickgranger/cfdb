@@ -17,6 +17,7 @@ pub mod inventory;
 pub mod list_items;
 pub mod parser;
 pub mod shape_lint;
+pub mod skill_routing;
 
 pub use builder::QueryBuilder;
 pub use inventory::{
@@ -25,3 +26,4 @@ pub use inventory::{
 pub use list_items::list_items_matching;
 pub use parser::{parse, ParseError};
 pub use shape_lint::{lint_shape, ShapeLint};
+pub use skill_routing::{SkillRoute, SkillRoutingLoadError, SkillRoutingTable};

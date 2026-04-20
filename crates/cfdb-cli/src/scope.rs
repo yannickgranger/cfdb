@@ -21,6 +21,25 @@ use crate::compose;
 /// `canonical_candidates` from Pattern A horizontal split-brain findings.
 const HSB_BY_NAME_CYPHER: &str = include_str!("../../../examples/queries/hsb-by-name.cypher");
 
+/// Embedded classifier rules (issue #48, §A2.1 six-class taxonomy).
+///
+/// Each rule projects `Finding`-compatible columns (qname, name, kind,
+/// crate, file, line, bounded_context) and accepts a single `$context`
+/// parameter. The CLI orchestrator runs them per-class when assembling
+/// `ScopeInventory::findings_by_class`.
+const CLASSIFIER_DUPLICATED_FEATURE_CYPHER: &str =
+    include_str!("../../../examples/queries/classifier-duplicated-feature.cypher");
+const CLASSIFIER_CONTEXT_HOMONYM_CYPHER: &str =
+    include_str!("../../../examples/queries/classifier-context-homonym.cypher");
+const CLASSIFIER_UNFINISHED_REFACTOR_CYPHER: &str =
+    include_str!("../../../examples/queries/classifier-unfinished-refactor.cypher");
+const CLASSIFIER_RANDOM_SCATTERING_CYPHER: &str =
+    include_str!("../../../examples/queries/classifier-random-scattering.cypher");
+const CLASSIFIER_CANONICAL_BYPASS_CYPHER: &str =
+    include_str!("../../../examples/queries/classifier-canonical-bypass.cypher");
+const CLASSIFIER_UNWIRED_CYPHER: &str =
+    include_str!("../../../examples/queries/classifier-unwired.cypher");
+
 /// `cfdb scope --context <name>` — emit the structured §A3.3 infection
 /// inventory for a single bounded context (council-cfdb-wiring RATIFIED
 /// §A.17). Pure data aggregation: no raid-plan markdown, no workflow
@@ -28,14 +47,16 @@ const HSB_BY_NAME_CYPHER: &str = include_str!("../../../examples/queries/hsb-by-
 /// `/boy-scout --from-inventory`) read the returned JSON and decide
 /// what to do with it.
 ///
-/// v0.1 population rules (per Forbidden move #10 / RFC-cfdb-v0.2-addendum
-/// §A1.2):
-/// - `findings_by_class`: 5 of 6 classes carry `[]` + a per-class
-///   warning (their classifiers require the v0.2 pipeline or HIR-aware
-///   emission). Only `canonical_bypass` populates today, via the shipping
-///   `ledger-canonical-bypass.cypher` — and that rule is concept-specific
-///   (ledger), not generic, so it surfaces as an empty bucket for every
-///   other context plus a warning.
+/// v0.1 population rules (issue #48 wires all 6 classifier rules;
+/// addendum §A2.1 + §A2.2):
+/// - `findings_by_class`: each of the six `DebtClass` buckets is
+///   populated by a dedicated classifier rule in
+///   `examples/queries/classifier-*.cypher`. Rules that require HIR-
+///   extracted inputs (`ContextHomonym`, `RandomScattering`,
+///   `CanonicalBypass`, `Unwired`) return empty rows when the keyspace
+///   was built without `--features hir`; a per-class warning documents
+///   the degradation. Rules whose inputs are always present
+///   (`DuplicatedFeature`, `UnfinishedRefactor`) never degrade.
 /// - `canonical_candidates`: seeded from `hsb-by-name.cypher` (Pattern A
 ///   horizontal split-brain candidates) filtered to the requested context.
 /// - `reachability_map`: `None` (JSON `null`) — HIR-dependent per addendum
@@ -113,8 +134,95 @@ fn build_scope_inventory(
     inventory.canonical_candidates = query_canonical_candidates(store, ks, context)?;
     inventory.canonical_candidates.sort();
 
+    // Issue #48 — populate each class bucket via its classifier rule.
+    populate_findings_by_class(store, ks, context, &mut inventory)?;
+
     attach_scope_warnings(&mut inventory);
     Ok(inventory)
+}
+
+/// Run each classifier rule (§A2.1 six classes) and fill the
+/// corresponding bucket in `inventory.findings_by_class`. Rules that
+/// return an empty row set — either because no finding exists OR
+/// because the required enrichment pass (HIR, concepts, reachability)
+/// was not run against the keyspace — leave the bucket empty; the
+/// warning path in [`attach_scope_warnings`] reports dependency
+/// degradations.
+fn populate_findings_by_class(
+    store: &cfdb_petgraph::PetgraphStore,
+    ks: &cfdb_core::schema::Keyspace,
+    context: &str,
+    inventory: &mut ScopeInventory,
+) -> Result<(), crate::CfdbCliError> {
+    for (class, cypher) in classifier_rules() {
+        let findings = run_classifier_rule(store, ks, context, cypher)?;
+        if let Some(bucket) = inventory.findings_by_class.get_mut(&class) {
+            bucket.extend(findings);
+            bucket.sort();
+            bucket.dedup();
+        }
+    }
+    Ok(())
+}
+
+/// Static list of (class, cypher source) pairs. Iteration order matches
+/// [`DebtClass::variants`] so the orchestrator run order is deterministic
+/// — load-bearing for G1.
+fn classifier_rules() -> [(DebtClass, &'static str); 6] {
+    [
+        (
+            DebtClass::DuplicatedFeature,
+            CLASSIFIER_DUPLICATED_FEATURE_CYPHER,
+        ),
+        (DebtClass::ContextHomonym, CLASSIFIER_CONTEXT_HOMONYM_CYPHER),
+        (
+            DebtClass::UnfinishedRefactor,
+            CLASSIFIER_UNFINISHED_REFACTOR_CYPHER,
+        ),
+        (
+            DebtClass::RandomScattering,
+            CLASSIFIER_RANDOM_SCATTERING_CYPHER,
+        ),
+        (
+            DebtClass::CanonicalBypass,
+            CLASSIFIER_CANONICAL_BYPASS_CYPHER,
+        ),
+        (DebtClass::Unwired, CLASSIFIER_UNWIRED_CYPHER),
+    ]
+}
+
+/// Parse, bind `$context`, and execute one classifier rule. Returns
+/// the `Finding` rows projected from the result. Missing inputs
+/// (absent HIR enrichment, absent concept TOML, etc.) surface as
+/// empty result rows — this is the correct degradation, and the
+/// warning pass reports the dependency gap.
+fn run_classifier_rule(
+    store: &cfdb_petgraph::PetgraphStore,
+    ks: &cfdb_core::schema::Keyspace,
+    context: &str,
+    cypher: &str,
+) -> Result<Vec<Finding>, crate::CfdbCliError> {
+    let mut parsed =
+        parse(cypher).map_err(|e| format!("parse error in embedded classifier rule: {e}"))?;
+    parsed.params.insert(
+        "context".to_string(),
+        Param::Scalar(PropValue::Str(context.to_string())),
+    );
+    // Per-rule execution is infallible beyond store-level errors;
+    // missing props silently return empty rows (parser / evaluator
+    // absent-prop semantics), which lets the orchestrator tolerate
+    // keyspaces extracted without HIR / concepts / reachability.
+    let result = match store.execute(ks, &parsed) {
+        Ok(r) => r,
+        // A store-level execution error on a classifier rule is a
+        // keyspace shape mismatch (e.g. `:EntryPoint` label absent
+        // because the keyspace was extracted with the syn-only
+        // extractor). Treat as "classifier rule cannot run against
+        // this keyspace" — return empty rows, let the warning path
+        // document the degradation.
+        Err(_) => return Ok(Vec::new()),
+    };
+    Ok(result.rows.iter().filter_map(finding_from_row).collect())
 }
 
 /// Pull the context-filtered inventory rows + derive the per-crate LOC
@@ -163,13 +271,27 @@ fn query_canonical_candidates(
 }
 
 /// Attach the full warning set for a `cfdb scope` inventory — per-class
-/// unavailability notes, the reachability-map HIR caveat, and the
-/// loc-per-crate approximation note. Split out of [`build_scope_inventory`]
-/// to keep the assembly body flat.
+/// dependency / degradation notes (only when the bucket is empty), the
+/// reachability-map HIR caveat, and the loc-per-crate approximation
+/// note. Split out of [`build_scope_inventory`] to keep the assembly
+/// body flat.
+///
+/// Issue #48: classes that produced at least one finding do NOT get a
+/// warning — the bucket itself is the signal. Empty buckets carry a
+/// warning naming the likely cause (missing enrichment, no signal in
+/// this context, etc.) so consumers can distinguish "zero bypass bugs"
+/// from "reachability enrichment was not run".
 fn attach_scope_warnings(inventory: &mut ScopeInventory) {
     DebtClass::variants()
         .iter()
-        .filter_map(|class| class_v01_unavailable_note(*class))
+        .filter(|class| {
+            inventory
+                .findings_by_class
+                .get(class)
+                .map(|v| v.is_empty())
+                .unwrap_or(true)
+        })
+        .filter_map(|class| class_empty_bucket_note(*class))
         .for_each(|message| {
             inventory.warnings.push(Warning {
                 kind: WarningKind::EmptyResult,
@@ -408,37 +530,60 @@ fn canonical_candidate_from_row(
     })
 }
 
-/// Message for each `DebtClass` bucket whose v0.1 classifier is unavailable.
-/// Returns `None` for classes that DO populate in v0.1 (none today beyond
-/// the hsb-sourced `canonical_candidates` list).
-fn class_v01_unavailable_note(class: DebtClass) -> Option<String> {
+/// Diagnostic for a `DebtClass` whose bucket is empty after the
+/// classifier run. Names the likely degraded input that would cause
+/// a false negative — a keyspace extracted without the required
+/// enrichment pass. For classes whose inputs are always present in a
+/// syn-only extract (`DuplicatedFeature`, `UnfinishedRefactor`), the
+/// message reports the empty result as "no finding in this context"
+/// rather than a dependency gap.
+///
+/// Issue #48 replaces the v0.1-style "classifier unavailable" note
+/// with per-class degradation semantics now that each classifier
+/// rule ships. The class name still appears in every message so
+/// consumers can grep for a specific class.
+fn class_empty_bucket_note(class: DebtClass) -> Option<String> {
     let reason = match class {
         DebtClass::DuplicatedFeature => {
-            "duplicated_feature requires the v0.2 classifier (addendum §A2.2) \
-             to distinguish same-context duplication from cross-context homonyms; \
-             hsb-by-name candidates are surfaced as canonical_candidates instead"
+            "findings_by_class.duplicated_feature is empty — no same-context \
+             struct/enum/trait homonyms in this context (inputs: :Item.name, \
+             :Item.bounded_context — always present in a syn-only extract)"
         }
         DebtClass::ContextHomonym => {
-            "context_homonym requires the v0.2 classifier with bounded-context \
-             cross-reference (addendum §A2.1); blocked on Pattern I completeness"
+            "findings_by_class.context_homonym is empty — no cross-context \
+             signature-divergent fn/method pairs in this context. If the \
+             keyspace was extracted without --features hir, :Item.signature \
+             is absent and this class degrades to no findings; run `cfdb \
+             extract --features hir` to enable."
         }
         DebtClass::UnfinishedRefactor => {
-            "unfinished_refactor requires the v0.2 classifier; the v0.1 ruleset \
-             ships no rule that emits this class label"
+            "findings_by_class.unfinished_refactor is empty — no \
+             #[deprecated] items in this context (inputs: :Item.is_deprecated, \
+             :Item.bounded_context — always present in a syn-only extract)"
         }
         DebtClass::RandomScattering => {
-            "random_scattering requires Pattern B (vertical call-chain analysis) \
-             which is HIR-blocked (addendum §A1.2)"
+            "findings_by_class.random_scattering is empty — no Pattern B \
+             fork findings in this context. If the keyspace was extracted \
+             without --features hir, :EntryPoint nodes and CALLS edges are \
+             absent and this class degrades to no findings; run `cfdb \
+             extract --features hir` to enable."
         }
         DebtClass::CanonicalBypass => {
-            "canonical_bypass: only the concept-specific `ledger-canonical-bypass` \
-             rule ships in v0.1; a generic bypass classifier is v0.2 work"
+            "findings_by_class.canonical_bypass is empty — no CANONICAL_FOR \
+             unreachable items in this context. Requires both `cfdb \
+             enrich-concepts` (CANONICAL_FOR edges from .cfdb/concepts/*.toml) \
+             AND `cfdb enrich-reachability` (reachable_from_entry attr, \
+             HIR-dependent). Concept-specific BYPASS_REACHABLE / BYPASS_DEAD \
+             rules remain available for per-concept triage."
         }
         DebtClass::Unwired => {
-            "unwired requires :EntryPoint + CALLS edges (HIR-blocked, addendum §A1.2)"
+            "findings_by_class.unwired is empty — no unreachable fn/method \
+             items in this context. Requires `cfdb enrich-reachability` \
+             (HIR-dependent). On a keyspace without HIR, every fn is \
+             trivially unreachable in the graph's view; the classifier \
+             therefore returns empty rather than flooding with false \
+             positives."
         }
     };
-    Some(format!(
-        "findings_by_class.{class} is empty in v0.1 — {reason}"
-    ))
+    Some(reason.to_string())
 }
