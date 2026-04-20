@@ -10,7 +10,13 @@
 //! - `git_last_author: PropValue::Str(String)` — committer email of the most
 //!   recent commit touching the file. `""` when the commit has no author email.
 //! - `git_commit_count: PropValue::Int(i64)` — number of commits in HEAD's
-//!   history whose diff-vs-first-parent touches the file.
+//!   history whose diff-vs-first-parent touches the file. This matches
+//!   `git rev-list HEAD --full-history -- <file>` semantics (no history
+//!   simplification), which is deliberately broader than `git log -- <file>`
+//!   default — the churn signal used by the downstream classifier
+//!   (`docs/RFC-cfdb-v0.2-addendum-draft.md` §A2.1 class 5 / §A2.2 row 1)
+//!   should count every commit that touched the file, including those on
+//!   branches later squashed out of mainline.
 //!
 //! Items with a `file` prop that git does not track (untracked paths, paths
 //! outside the repo, or items produced by a workspace whose enclosing directory

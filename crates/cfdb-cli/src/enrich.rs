@@ -56,6 +56,17 @@ pub fn enrich(
         EnrichVerb::Reachability => store.enrich_reachability(&ks)?,
         EnrichVerb::Metrics => store.enrich_metrics(&ks)?,
     };
+
+    // Persist enrichment back to disk when the pass actually ran AND mutated
+    // the graph. Phase A stubs (`ran: false`) and no-op reports (`ran: true,
+    // attrs_written: 0` — e.g. `enrich_deprecation`, whose real work is
+    // extractor-time) skip the save to avoid unnecessary rewrites. Slice 43-B
+    // (`enrich_git_history`) is the first pass to produce real mutations, so
+    // this is where persistence wires in for the CLI path.
+    if report.ran && (report.attrs_written > 0 || report.edges_written > 0) {
+        compose::save_store(&store, &ks, &db)?;
+    }
+
     let json = serde_json::to_string_pretty(&report)?;
     println!("{json}");
     Ok(())
