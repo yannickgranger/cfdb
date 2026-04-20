@@ -1,0 +1,48 @@
+quality-all: scope-sha=e7c13c2, base=origin/develop
+Phase 1: FAST (no compilation)
+  [hygiene] running...
+  [hygiene] PASS (291ms)
+  [metrics] running...
+  [metrics] PASS (11ms)
+  [architecture] running...
+  [architecture] FAIL (1ms)
+{
+  "workspace": "/var/mnt/workspaces/cfdb/.claude/worktrees/125-cron-ws",
+  "scope_sha": "e7c13c2",
+  "phase_1": {
+    "hygiene": {
+      "status": "PASS",
+      "duration_ms": 291,
+      "output": "{\n  \"auto_fixed\": false,\n  \"error\": null,\n  \"passed\": true,\n  \"result\": \"PASS\",\n  \"violations\": []\n}\n"
+    },
+    "metrics": {
+      "status": "PASS",
+      "duration_ms": 11,
+      "output": "{\n  \"doughnut\": {\n    \"hole\": [\n      \"cfdb-hir-extractor\"\n    ],\n    \"ring1\": [\n      \"cfdb-cli\",\n      \"cfdb-core\",\n      \"cfdb-hir-petgraph-adapter\"\n    ],\n    \"ring2\": [\n      \"cfdb-extractor\",\n      \"cfdb-petgraph\",\n      \"cfdb-query\",\n      \"cfdb-recall\"\n    ]\n  },\n  \"files_scanned\": 73,\n  \"result\": \"PASS\",\n  \"total_violations\": 0,\n  \"violations\": {\n    \"clones_in_loops\": [],\n    \"complexity\": [],\n    \"unwraps\": []\n  }\n}\n"
+    },
+    "architecture": {
+      "status": "FAIL",
+      "duration_ms": 1,
+      "output": ""
+    }
+  },
+  "phase_2": {
+    "lint": {
+      "status": "SKIP",
+      "duration_ms": 0,
+      "output": ""
+    },
+    "test_quality": {
+      "status": "SKIP",
+      "duration_ms": 0,
+      "output": ""
+    }
+  },
+  "summary": {
+    "pass": 2,
+    "fail": 1,
+    "skip": 2
+  },
+  "total_duration_ms": 304,
+  "exit_code": 1
+}
