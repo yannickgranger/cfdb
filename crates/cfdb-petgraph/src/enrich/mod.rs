@@ -13,9 +13,10 @@
 //! | `enrich_git_history` | [`git_history`] | 43-B | #105 | `git-enrich` |
 //! | `enrich_rfc_docs` | [`rfc_docs`] | 43-D | #107 | — |
 //! | `enrich_bounded_context` | [`bounded_context`] | 43-E | #108 | — |
+//! | `enrich_concepts` | [`concepts`] | 43-F | #109 | — |
 //!
-//! Remaining passes (43-F `enrich_concepts`, 43-G `enrich_reachability`)
-//! land their modules alongside these as their slices merge.
+//! Remaining pass (43-G `enrich_reachability`) lands its module alongside
+//! these as its slice merges.
 
 // The module is compiled only with the `git-enrich` feature — libgit2 is a
 // heavy dep and we gate it per RFC addendum §A2.2 / rust-systems Q1+Q6. The
@@ -35,3 +36,8 @@ pub(crate) mod rfc_docs;
 // into the shared `cfdb_concepts` crate so the resolution logic has a
 // single home (extract-time + enrich-time cannot diverge).
 pub(crate) mod bounded_context;
+
+// Slice 43-F (issue #109) — materialises `:Concept` nodes from
+// `.cfdb/concepts/*.toml` and emits `LABELED_AS` + `CANONICAL_FOR` edges.
+// Unblocks trigger queries #101 and #102.
+pub(crate) mod concepts;

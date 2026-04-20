@@ -196,6 +196,12 @@ enum Command {
         db: PathBuf,
         #[arg(long)]
         keyspace: String,
+        /// Workspace root whose `.cfdb/concepts/*.toml` files to read.
+        /// Without this flag the pass reports `ran: false` + a warning about
+        /// the missing root (TOML overrides live under the workspace root, so
+        /// there is no useful default).
+        #[arg(long)]
+        workspace: Option<PathBuf>,
     },
 
     /// Enrich a keyspace with entry-point-reachability facts — BFS from
@@ -594,10 +600,17 @@ fn dispatch_enrich(cmd: Command) -> Result<(), CfdbCliError> {
     {
         return enrich(db, keyspace, EnrichVerb::BoundedContext, workspace);
     }
+    if let Command::EnrichConcepts {
+        db,
+        keyspace,
+        workspace,
+    } = cmd
+    {
+        return enrich(db, keyspace, EnrichVerb::Concepts, workspace);
+    }
 
     let (db, keyspace, verb) = match cmd {
         Command::EnrichDeprecation { db, keyspace } => (db, keyspace, EnrichVerb::Deprecation),
-        Command::EnrichConcepts { db, keyspace } => (db, keyspace, EnrichVerb::Concepts),
         Command::EnrichReachability { db, keyspace } => (db, keyspace, EnrichVerb::Reachability),
         Command::EnrichMetrics { db, keyspace } => (db, keyspace, EnrichVerb::Metrics),
         other => {

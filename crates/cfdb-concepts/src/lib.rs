@@ -97,6 +97,14 @@ impl ConceptOverrides {
         });
         out
     }
+
+    /// Iterate every `(crate_name, owning_context)` mapping in sorted crate
+    /// order. Used by `enrich_concepts` (slice 43-F / issue #109) to emit
+    /// `(:Item)-[:LABELED_AS]->(:Concept)` edges for every item whose crate
+    /// is covered by a TOML-declared context.
+    pub fn crate_assignments(&self) -> &BTreeMap<String, ContextMeta> {
+        &self.by_crate
+    }
 }
 
 /// Load every `.cfdb/concepts/*.toml` file under `workspace_root` into a
