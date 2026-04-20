@@ -269,6 +269,33 @@ impl EnrichBackend for PetgraphStore {
             .expect("keyspace presence checked above");
         Ok(crate::enrich::bounded_context::run(state, &root))
     }
+
+    fn enrich_concepts(
+        &mut self,
+        keyspace: &cfdb_core::schema::Keyspace,
+    ) -> Result<cfdb_core::enrich::EnrichReport, StoreError> {
+        if !self.keyspaces.contains_key(keyspace) {
+            return Err(StoreError::UnknownKeyspace(keyspace.clone()));
+        }
+        let Some(root) = self.workspace_root.clone() else {
+            return Ok(cfdb_core::enrich::EnrichReport {
+                verb: "enrich_concepts".into(),
+                ran: false,
+                facts_scanned: 0,
+                attrs_written: 0,
+                edges_written: 0,
+                warnings: vec![
+                    "enrich_concepts: no workspace_root attached to PetgraphStore — construct via `PetgraphStore::new().with_workspace(root)` so the pass can read `.cfdb/concepts/*.toml`"
+                        .into(),
+                ],
+            });
+        };
+        let state = self
+            .keyspaces
+            .get_mut(keyspace)
+            .expect("keyspace presence checked above");
+        Ok(crate::enrich::concepts::run(state, &root))
+    }
 }
 
 /// Feature-off path — the real pass is gated on `git-enrich` to keep libgit2
