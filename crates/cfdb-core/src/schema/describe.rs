@@ -147,6 +147,7 @@ fn item_attrs_extractor() -> Vec<AttributeDescriptor> {
         attr("module_qpath", "string", "Fully-qualified path of the enclosing module.", Extractor),
         attr("name", "string", "Unqualified item name.", Extractor),
         attr("qname", "string", "Fully-qualified name (`crate::module::Item`).", Extractor),
+        attr("signature", "string?", "Canonical fn / method signature string of shape `[const ][async ][unsafe ]fn(<param-types>) -> <return-type>` — parameter NAMES omitted, only types contribute. Emitted on fn / method kinds only (absent on struct / enum / trait / const / impl_block / type_alias / static). Produced by `cfdb-extractor::type_render::render_fn_signature`. Load-bearing input for the `signature_divergent(a, b)` UDF (issue #47, RFC-029 §A1.5 gate v0.2-8) that discriminates Shared Kernel (same signature across bounded contexts) from Context Homonym (divergent signatures). Additive and non-breaking — V0_2_3 readers loading a keyspace that emits the prop ignore the extra attribute.", Extractor),
         attr("signature_hash", "string", "Stable hash of the item's normalized signature.", Extractor),
         attr("visibility", "enum", "Rust visibility: `pub`, `pub(crate)`, `pub(super)`, `private`, or `pub(in <path>)`. SchemaVersion v0.1.1+ only — legacy V0_1_0 graphs do not carry this attribute.", Extractor),
     ]

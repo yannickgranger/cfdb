@@ -115,6 +115,7 @@ impl<'a> Evaluator<'a> {
             "starts_with" => self.call_starts_with(args, bindings),
             "ends_with" => self.call_ends_with(args, bindings),
             "last_segment" => self.call_last_segment(args, bindings),
+            "signature_divergent" => self.call_signature_divergent(args, bindings),
             _ => None,
         }
     }
@@ -166,6 +167,68 @@ impl<'a> Evaluator<'a> {
         };
         Some(PropValue::Str(seg))
     }
+
+    /// `signature_divergent(sig_a, sig_b) -> Bool` — issue #47.
+    ///
+    /// Returns `true` when two `:Item.signature` strings (produced by
+    /// `cfdb-extractor::type_render::render_fn_signature`) differ after
+    /// whitespace normalization. This is the load-bearing discriminator
+    /// for the DDD Shared-Kernel-vs-Homonym check (RFC-029 §A1.5 gate
+    /// v0.2-8, `council/RATIFIED.md` R1): two items that share a last
+    /// qname segment across bounded contexts are a Shared Kernel when
+    /// their signatures match byte-for-byte and a Context Homonym when
+    /// they diverge.
+    ///
+    /// # Normalization
+    ///
+    /// Both inputs are trimmed and internal whitespace is collapsed to
+    /// single spaces before comparison. This keeps the UDF robust
+    /// against harmless whitespace noise in the extractor's future
+    /// evolution. Parameter NAMES are already normalized out by
+    /// `render_fn_signature` at extract time (it emits types only), so
+    /// this UDF does not re-enact that normalization.
+    ///
+    /// # Type-mismatch behavior
+    ///
+    /// Matches the convention of the other hard-wired UDFs
+    /// (`starts_with`, `ends_with`): if either argument is not a
+    /// string, the UDF returns `None`, which the predicate evaluator
+    /// treats as "unknown" — the enclosing `WHERE` clause rejects the
+    /// binding rather than silently coercing to `true` or `false`. This
+    /// is the correct failure mode for the classifier (#48) — an item
+    /// with no `:Item.signature` prop (non-fn kinds) should not surface
+    /// as a divergent pair simply because the prop is absent.
+    fn call_signature_divergent(&self, args: &[Expr], bindings: &Bindings) -> Option<PropValue> {
+        let a = self.eval_expr(args.first()?, bindings)?;
+        let b = self.eval_expr(args.get(1)?, bindings)?;
+        let (PropValue::Str(sa), PropValue::Str(sb)) = (a, b) else {
+            return None;
+        };
+        Some(PropValue::Bool(
+            normalize_signature(&sa) != normalize_signature(&sb),
+        ))
+    }
+}
+
+/// Normalize a signature string for `signature_divergent` comparison —
+/// trim outer whitespace and collapse any run of internal whitespace to
+/// a single ASCII space. See [`Evaluator::call_signature_divergent`]
+/// for the rationale.
+fn normalize_signature(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut prev_ws = false;
+    for c in s.trim().chars() {
+        if c.is_whitespace() {
+            if !prev_ws {
+                out.push(' ');
+                prev_ws = true;
+            }
+        } else {
+            out.push(c);
+            prev_ws = false;
+        }
+    }
+    out
 }
 
 pub(super) fn compare_propvalues(
@@ -200,5 +263,44 @@ pub(super) fn compare_propvalues(
         CompareOp::Le => ord != std::cmp::Ordering::Greater,
         CompareOp::Gt => ord == std::cmp::Ordering::Greater,
         CompareOp::Ge => ord != std::cmp::Ordering::Less,
+    }
+}
+
+#[cfg(test)]
+mod signature_divergent_tests {
+    use super::normalize_signature;
+
+    #[test]
+    fn trim_outer_whitespace() {
+        assert_eq!(normalize_signature("  fn() -> ()  "), "fn() -> ()");
+    }
+
+    #[test]
+    fn collapse_internal_whitespace() {
+        assert_eq!(
+            normalize_signature("fn(i32,   String)  ->  bool"),
+            "fn(i32, String) -> bool"
+        );
+    }
+
+    #[test]
+    fn identical_normalized_strings_are_not_divergent() {
+        let a = normalize_signature("fn(i32) -> bool");
+        let b = normalize_signature("fn(i32) -> bool");
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn whitespace_only_difference_is_not_divergent() {
+        let a = normalize_signature("fn(i32) -> bool");
+        let b = normalize_signature("fn(i32)  ->   bool");
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn different_types_are_divergent() {
+        let a = normalize_signature("fn() -> f64");
+        let b = normalize_signature("fn() -> (f64, f64)");
+        assert_ne!(a, b);
     }
 }
