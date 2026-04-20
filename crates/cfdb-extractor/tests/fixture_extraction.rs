@@ -826,3 +826,145 @@ pub fn demo() {
         }
     }
 }
+
+/// #42 — `impl Trait for Type` blocks emit:
+///   (a) a `:Item { kind: "impl_block" }` node for the impl itself
+///   (b) `IMPLEMENTS` edge from impl-block → trait Item
+///   (c) `IMPLEMENTS_FOR` edge from impl-block → target type Item
+///
+/// Inherent `impl Type {}` blocks emit (a) + (c) but not (b) — IMPLEMENTS
+/// requires a trait. The test fixture carries both shapes so the
+/// assertion catches either emission accidentally firing on the wrong
+/// one.
+#[test]
+fn impl_blocks_emit_implements_and_implements_for_edges() {
+    let fixture = tempdir().expect("tempdir");
+    let root = fixture.path();
+
+    write_fixture_file(
+        root,
+        "Cargo.toml",
+        r#"[workspace]
+resolver = "2"
+members = ["impls"]
+"#,
+    );
+    write_fixture_file(
+        root,
+        "impls/Cargo.toml",
+        r#"[package]
+name = "impls"
+version = "0.0.1"
+edition = "2021"
+"#,
+    );
+    write_fixture_file(
+        root,
+        "impls/src/lib.rs",
+        r#"
+pub trait Greeter {
+    fn hello(&self) -> &str;
+}
+
+pub struct Polite;
+
+// Trait impl — should emit IMPLEMENTS (impl_block -> Greeter)
+// plus IMPLEMENTS_FOR (impl_block -> Polite).
+impl Greeter for Polite {
+    fn hello(&self) -> &str {
+        "hi"
+    }
+}
+
+// Inherent impl — should emit IMPLEMENTS_FOR only (no trait to target).
+impl Polite {
+    pub fn new() -> Self {
+        Polite
+    }
+}
+"#,
+    );
+
+    let (nodes, edges) = extract_workspace(root).expect("extract succeeds");
+
+    // (a) impl-block Item nodes — two of them, one per impl block.
+    let impl_blocks: Vec<&cfdb_core::fact::Node> = nodes
+        .iter()
+        .filter(|n| n.label.as_str() == Label::ITEM)
+        .filter(|n| {
+            matches!(
+                n.props.get("kind"),
+                Some(PropValue::Str(k)) if k == "impl_block"
+            )
+        })
+        .collect();
+    assert_eq!(
+        impl_blocks.len(),
+        2,
+        "expected 2 impl_block :Item nodes (trait impl + inherent), got {}:\n{:#?}",
+        impl_blocks.len(),
+        impl_blocks
+            .iter()
+            .map(|n| n.id.as_str())
+            .collect::<Vec<_>>(),
+    );
+
+    // (b) IMPLEMENTS edge — exactly one, from the trait-impl block to Greeter.
+    let implements_edges: Vec<&cfdb_core::fact::Edge> = edges
+        .iter()
+        .filter(|e| e.label.as_str() == EdgeLabel::IMPLEMENTS)
+        .collect();
+    assert_eq!(
+        implements_edges.len(),
+        1,
+        "expected exactly 1 IMPLEMENTS edge (trait impl only), got {}:\n{:#?}",
+        implements_edges.len(),
+        implements_edges
+            .iter()
+            .map(|e| (e.src.as_str(), e.dst.as_str()))
+            .collect::<Vec<_>>(),
+    );
+    let implements = implements_edges[0];
+    assert!(
+        implements.dst.contains("Greeter"),
+        "IMPLEMENTS edge dst should reference the Greeter trait, got {:?}",
+        implements.dst
+    );
+    assert!(
+        impl_blocks.iter().any(|n| n.id == implements.src),
+        "IMPLEMENTS edge src ({}) should be one of the emitted impl_block :Item ids: {:?}",
+        implements.src,
+        impl_blocks
+            .iter()
+            .map(|n| n.id.as_str())
+            .collect::<Vec<_>>(),
+    );
+
+    // (c) IMPLEMENTS_FOR edges — exactly two, both targeting Polite.
+    let implements_for_edges: Vec<&cfdb_core::fact::Edge> = edges
+        .iter()
+        .filter(|e| e.label.as_str() == EdgeLabel::IMPLEMENTS_FOR)
+        .collect();
+    assert_eq!(
+        implements_for_edges.len(),
+        2,
+        "expected 2 IMPLEMENTS_FOR edges (one per impl block), got {}:\n{:#?}",
+        implements_for_edges.len(),
+        implements_for_edges
+            .iter()
+            .map(|e| (e.src.as_str(), e.dst.as_str()))
+            .collect::<Vec<_>>(),
+    );
+    for e in &implements_for_edges {
+        assert!(
+            e.dst.contains("Polite"),
+            "IMPLEMENTS_FOR edge dst should reference Polite, got {:?}",
+            e.dst
+        );
+        assert!(
+            impl_blocks.iter().any(|n| n.id == e.src),
+            "IMPLEMENTS_FOR edge src ({}) must be an emitted impl_block :Item",
+            e.src
+        );
+    }
+}
