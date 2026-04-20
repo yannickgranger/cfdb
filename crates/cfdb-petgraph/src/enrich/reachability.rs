@@ -421,8 +421,8 @@ mod tests {
 
         // Confirm no attrs were silently written on A or B.
         let props_a = get_item_props(&store, &ks, "A");
-        assert!(props_a.get("reachable_from_entry").is_none());
-        assert!(props_a.get("reachable_entry_count").is_none());
+        assert!(!props_a.contains_key("reachable_from_entry"));
+        assert!(!props_a.contains_key("reachable_entry_count"));
     }
 
     // ------------------------------------------------------------------
