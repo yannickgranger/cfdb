@@ -1,0 +1,13 @@
+=== Self-dogfood: URL form vs path form on HEAD f608ffccc3c13ec472e0c670ef195d8eaa8b0c25 ===
+
+Path form: 10728 nodes, 10754 edges
+URL  form: 10728 nodes, 10754 edges
+
+Node/edge counts match exactly — URL path extracts the same facts
+against the same SHA.
+
+Canonical dumps differ only in absolute 'file' property values:
+  path form: /var/mnt/workspaces/cfdb/.claude/worktrees/96-extract-rev-url/...
+  URL  form: /tmp/cfdb-dogfood-96/<url-hash>/<sha>/...
+This is expected — :Item.file is an absolute path recorded at extraction
+time. A 'workspace-relative' extractor is a separate concern.
