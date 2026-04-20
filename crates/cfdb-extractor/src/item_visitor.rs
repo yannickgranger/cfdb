@@ -29,7 +29,7 @@ pub(crate) struct ItemVisitor<'e> {
     pub(crate) file_path: String,
     /// Bounded context the containing crate belongs to — computed once per
     /// crate in [`crate::extract_workspace`] via
-    /// [`crate::context::compute_bounded_context`] and propagated down through
+    /// [`cfdb_concepts::compute_bounded_context`] and propagated down through
     /// [`crate::file_walker::visit_file`]. Stamped onto every Item node at
     /// emission time (council-cfdb-wiring §B.1.2).
     pub(crate) bounded_context: String,
