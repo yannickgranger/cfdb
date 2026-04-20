@@ -1,0 +1,40 @@
+...
+225 |           let r = b
+    |  _________________-
+226 | |             .enrich_bounded_context(&ks)
+    | |             -^^^^^^^^^^^^^^^^^^^^^^ method not found in `TestBackend`
+    | |_____________|
+    |
+
+error[E0599]: no method named `enrich_deprecation` found for struct `TestBackend` in the current scope
+   --> crates/cfdb-core/src/enrich.rs:236:14
+    |
+183 |       struct TestBackend;
+    |       ------------------ method `enrich_deprecation` not found for this struct
+...
+235 |           let r = b
+    |  _________________-
+236 | |             .enrich_deprecation(&ks)
+    | |_____________-^^^^^^^^^^^^^^^^^^
+    |
+help: there is a method `enrich_metrics` with a similar name
+    |
+236 -             .enrich_deprecation(&ks)
+236 +             .enrich_metrics(&ks)
+    |
+
+error[E0599]: no method named `enrich_reachability` found for struct `TestBackend` in the current scope
+   --> crates/cfdb-core/src/enrich.rs:246:14
+    |
+183 |       struct TestBackend;
+    |       ------------------ method `enrich_reachability` not found for this struct
+...
+245 |           let r = b
+    |  _________________-
+246 | |             .enrich_reachability(&ks)
+    | |             -^^^^^^^^^^^^^^^^^^^ method not found in `TestBackend`
+    | |_____________|
+    |
+
+For more information about this error, try `rustc --explain E0599`.
+error: could not compile `cfdb-core` (lib test) due to 5 previous errors

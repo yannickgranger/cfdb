@@ -43,6 +43,13 @@ impl Label {
     pub const ENTRY_POINT: &'static str = "EntryPoint";
     pub const CONCEPT: &'static str = "Concept";
     pub const CONTEXT: &'static str = "Context";
+    /// An RFC document file (`docs/rfc/*.md`, `.concept-graph/*.md`, etc.)
+    /// referenced by concept-name matching during `enrich_rfc_docs()`.
+    /// Reserved in #43-A; first emissions land in slice 43-D (issue #107)
+    /// alongside the `REFERENCED_BY` edge and a SchemaVersion patch bump.
+    /// `:RfcDoc` nodes carry `path` (string, workspace-relative) and
+    /// optional `title` (string, from the first `# ` heading).
+    pub const RFC_DOC: &'static str = "RfcDoc";
 
     pub fn new(s: impl Into<String>) -> Self {
         Self(s.into())
@@ -97,6 +104,12 @@ impl EdgeLabel {
     pub const LABELED_AS: &'static str = "LABELED_AS";
     pub const CANONICAL_FOR: &'static str = "CANONICAL_FOR";
     pub const EQUIVALENT_TO: &'static str = "EQUIVALENT_TO";
+
+    // Enrichment-time overlay (RFC addendum §A2.2 — #43-A reservations)
+    /// `(:Item)-[:REFERENCED_BY]->(:RfcDoc)` — set when an item's `name`
+    /// or `qname` is matched in an RFC document during `enrich_rfc_docs()`.
+    /// Reserved in #43-A; first emissions land in slice 43-D (issue #107).
+    pub const REFERENCED_BY: &'static str = "REFERENCED_BY";
 
     pub fn new(s: impl Into<String>) -> Self {
         Self(s.into())

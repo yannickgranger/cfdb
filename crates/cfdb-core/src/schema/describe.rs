@@ -22,7 +22,7 @@ pub fn schema_describe() -> SchemaDescribe {
 }
 
 fn node_descriptors() -> Vec<NodeLabelDescriptor> {
-    use Provenance::{EnrichConcepts, EnrichMetrics, Extractor};
+    use Provenance::{EnrichConcepts, EnrichMetrics, EnrichRfcDocs, Extractor};
     vec![
         NodeLabelDescriptor {
             label: Label::new(Label::CRATE),
@@ -150,6 +150,14 @@ fn node_descriptors() -> Vec<NodeLabelDescriptor> {
                 attr("canonical_crate", "string?", "Crate nominated as the authoritative owner of this context (if declared in `.cfdb/concepts/<name>.toml`; else empty).", Extractor),
                 attr("name", "string", "Context identifier (e.g. `trading`, `strategy`, `cfdb`).", Extractor),
                 attr("owning_rfc", "string?", "RFC identifier attached to this context (if declared in override TOML).", Extractor),
+            ],
+        },
+        NodeLabelDescriptor {
+            label: Label::new(Label::RFC_DOC),
+            description: "An RFC document file (`docs/rfc/*.md`, `.concept-graph/*.md`, etc.) scanned by `enrich_rfc_docs()` for concept-name matches (RFC addendum §A2.2 row 2). Reserved in #43-A; first emissions land in slice 43-D (issue #107) with a SchemaVersion patch bump.".into(),
+            attributes: vec![
+                attr("path", "string", "Workspace-relative path of the RFC file.", EnrichRfcDocs),
+                attr("title", "string?", "First `# ` heading of the file; `None` when the file has no level-1 heading.", EnrichRfcDocs),
             ],
         },
     ]
@@ -312,6 +320,14 @@ fn edge_descriptors() -> Vec<EdgeLabelDescriptor> {
             from: vec![Label::new(Label::CONCEPT)],
             to: vec![Label::new(Label::CONCEPT)],
         },
+        // ---- Enrichment overlay (RFC addendum §A2.2 — #43-A reservations) ---
+        EdgeLabelDescriptor {
+            label: EdgeLabel::new(EdgeLabel::REFERENCED_BY),
+            description: "An Item is mentioned (by `name` or `qname`) in an RFC document. Emitted by `enrich_rfc_docs()` — slice 43-D (issue #107) ships the first emissions with a SchemaVersion patch bump.".into(),
+            attributes: vec![],
+            from: vec![Label::new(Label::ITEM)],
+            to: vec![Label::new(Label::RFC_DOC)],
+        },
     ]
 }
 
@@ -325,7 +341,9 @@ mod tests {
         let d = schema_describe();
         let labels: Vec<&str> = d.nodes.iter().map(|n| n.label.as_str()).collect();
         // Order follows RFC §6.1 / PLAN-v1 §6.1 table order; `Context` appended
-        // per council-cfdb-wiring §B.1.3 (v0.1 minor schema bump, #3727).
+        // per council-cfdb-wiring §B.1.3 (v0.1 minor schema bump, #3727);
+        // `RfcDoc` appended per #43-A council round 1 synthesis (reservation
+        // only — first emissions land in slice 43-D).
         assert_eq!(
             labels,
             vec![
@@ -340,6 +358,7 @@ mod tests {
                 "EntryPoint",
                 "Concept",
                 "Context",
+                "RfcDoc",
             ]
         );
     }
@@ -348,7 +367,9 @@ mod tests {
     fn schema_describe_covers_all_edge_labels() {
         let d = schema_describe();
         let edges: Vec<&str> = d.edges.iter().map(|e| e.label.as_str()).collect();
-        // Every const on EdgeLabel must appear in schema_describe exactly once.
+        // Every const on EdgeLabel must appear in schema_describe exactly
+        // once. `REFERENCED_BY` appended per #43-A (reservation only — first
+        // emissions land in slice 43-D alongside `:RfcDoc`).
         let expected = [
             "IN_CRATE",
             "IN_MODULE",
@@ -369,6 +390,7 @@ mod tests {
             "LABELED_AS",
             "CANONICAL_FOR",
             "EQUIVALENT_TO",
+            "REFERENCED_BY",
         ];
         assert_eq!(edges.len(), expected.len());
         for e in &expected {

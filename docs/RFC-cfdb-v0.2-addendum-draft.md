@@ -193,15 +193,28 @@ Every cfdb finding (from Pattern A, B, or C rules) is labeled with exactly one c
 
 **Architectural correction (council BLOCK-1, clean-arch).** The classifier cannot be a standalone `.cypher` rule. The signals it joins on require filesystem and subprocess I/O (git log, file reads of `.concept-graph/*.md`, deprecation attribute extraction) that Cypher traversal cannot perform atomically. The classifier is a **two-stage pipeline**: enrichment passes materialize signals into the graph as new edges/attributes, THEN a Cypher query joins on the enriched graph.
 
-**Stage 1 — enrichment passes** (each is an extractor-layer operation that mutates the graph):
+**Stage 1 — enrichment passes** (each is an extractor-layer operation that mutates the graph). The table below was revised by the #43 council round 1 synthesis (2026-04-20): six passes (not five) per DDD Q4 finding; `:Concept` node materialization is a distinct sixth pass that #101 and #102 block on. `enrich_metrics` is explicitly deferred out of this pipeline:
 
-| Pass | Input | Output edges / attributes | Layer |
-|---|---|---|---|
-| `enrich_git_history` | git log for each `:Item`'s defining file | `:Item.git_age_days`, `:Item.git_last_author`, `:Item.git_commit_count` | extractor (uses `git2` crate to avoid subprocess overhead) |
-| `enrich_rfc_docs` | `.concept-graph/` + `docs/rfc/*.md` keyword match against concept names | `(:Item)-[:REFERENCED_BY]->(:RfcDoc)` edges | extractor (reads RFC files once at ingestion) |
-| `enrich_deprecation` | `#[deprecated]` attribute extraction from syn AST | `:Item.is_deprecated`, `:Item.deprecation_since` | extractor (no new I/O; reuses existing AST walk) |
-| `enrich_bounded_context` | crate-prefix convention + optional `.cfdb/concepts/*.toml` overrides | `:Item.bounded_context` + `(:Crate)-[:BELONGS_TO]->(:Context)` edges | extractor (deterministic, declarative) |
-| `enrich_reachability` | BFS from `:EntryPoint` over `CALLS*` | `:Item.reachable_from_entry = bool`, `:Item.reachable_entry_count` | enricher (runs after Pattern A/B extraction completes) |
+| # | Pass | Slice | Input | Output edges / attributes | Layer |
+|---|---|---|---|---|---|
+| 1 | `enrich_git_history` | 43-B (#105) | git log for each `:Item`'s defining file | `:Item.git_last_commit_unix_ts` (i64 epoch, **not** `git_age_days` — see G1 note), `:Item.git_last_author`, `:Item.git_commit_count` | extractor crate (uses `git2` crate behind `git-enrich` feature flag) |
+| 2 | `enrich_rfc_docs` | 43-D (#107) | `docs/rfc/*.md` + `.concept-graph/*.md` keyword match against concept names (scope narrowed — see scope-narrowing note) | `(:Item)-[:REFERENCED_BY]->(:RfcDoc {path, title})` edges + nodes | petgraph impl (reads RFC files once at pass time via workspace path stored on `PetgraphStore`) |
+| 3 | `enrich_deprecation` | 43-C (#106) | `#[deprecated]` attribute extraction from syn AST | `:Item.is_deprecated`, `:Item.deprecation_since` | **extractor (extractor-time — not a Phase D enrichment)** — the attribute is syntactic and the AST walker already visits attributes (see deprecation provenance note) |
+| 4 | `enrich_bounded_context` | 43-E (#108) | crate-prefix convention + `.cfdb/concepts/*.toml` overrides | `:Item.bounded_context` (re-enrichment of extractor-time output when TOML changes) | petgraph impl (re-enrichment only — extractor already populates `bounded_context` + `BELONGS_TO`) |
+| 5 | `enrich_concepts` | 43-F (#109) | `.cfdb/concepts/<name>.toml` declarations | `:Concept {name, assigned_by}` nodes + `(:Item)-[:LABELED_AS]->(:Concept)` + `(:Item)-[:CANONICAL_FOR]->(:Concept)` — **DDD Q4 sixth pass; unblocks #101 + #102** | petgraph impl (reads TOML via `cfdb-concepts::ConceptOverrides`) |
+| 6 | `enrich_reachability` | 43-G (#110) | BFS from `:EntryPoint` over `CALLS*` | `:Item.reachable_from_entry = bool`, `:Item.reachable_entry_count` | petgraph impl (runs after HIR extraction; degraded path with `ran: false` + warning when no `:EntryPoint` nodes present) |
+
+**G1 determinism note — timestamps, not ages.** `enrich_git_history` stores `git_last_commit_unix_ts` (i64 epoch seconds), not `git_age_days`. Days-since-now computed at enrichment time violates G1 byte-stability across calendar days (clean-arch verdict B2, council/43/clean-arch.md). The Stage-2 classifier Cypher below computes `age_delta = abs(a.git_last_commit_unix_ts - b.git_last_commit_unix_ts) / 86400` at query time instead of reading a pre-baked `git_age_days` value.
+
+**`enrich_metrics` — deferred out of #43 scope.** The quality-metrics pass (`unwrap_count`, `cyclomatic`, `dup_cluster_id`, `test_coverage`) is orthogonal to the debt-cause classifier pipeline: the six classes in §A2.1 do not consume these signals. The Phase A stub is retained on `EnrichBackend` and in `Provenance::EnrichMetrics` so the surface is stable; a future RFC can resuscitate the pass without a breaking rename.
+
+**Scope narrowing of `enrich_rfc_docs`.** Renamed from the v0.1 `enrich_docs` stub and scope-narrowed to RFC-file keyword matching only. The broader rustdoc rendering implied by the former Phase A stub doc comment is an **explicit non-goal for v0.2** — no #43 slice implements it. Full rustdoc enrichment is deferred beyond v0.2 and may land behind its own RFC and Provenance variant.
+
+**Deprecation provenance — `Provenance::Extractor`, not an enrichment tag.** The RFC's original wording ("reuses existing AST walk") is now explicit: `#[deprecated]` is extracted at extraction time and tagged `Provenance::Extractor`. The `EnrichBackend::enrich_deprecation` method exists for surface symmetry but its `PetgraphStore` impl is a `ran: true, attrs_written: 0` no-op naming the extractor as the real source. This prevents the provenance split-brain DDD Q4 flagged.
+
+**Invariant I6 (v0.2-9 load-bearing gate).** The Stage-2 classifier (issue #48) MUST NOT be deployed until `enrich_bounded_context` (slice 43-E) hits the v0.2-9 ≥95% accuracy gate on the ground-truth crates (`domain-strategy`, `ports-trading`, `qbot-mcp`). Below 95% accuracy the `cross_context` boolean produces enough false positives to misroute mechanical dedup into expensive council deliberations and (worse) false negatives that misroute homonyms into `/sweep-epic --consolidate` — which deletes bounded-context distinctions (DDD Q3 analysis, council/43/ddd.md).
+
+**SchemaVersion bump policy.** Per-slice patch bumps — **not** a batched single bump. Each slice that writes new attributes or labels into the graph bumps the version (V0_2_1, V0_2_2, …) with its own lockstep `graph-specs-rust` cross-fixture PR per cfdb CLAUDE.md §3. Slice 43-A ships schema reservations (`:RfcDoc` label, `REFERENCED_BY` edge, new `Provenance` variants) without bumping the version — stubs write nothing, so no wire-format consumer sees a change. The first real bump lands with whichever of 43-B/43-D/43-G reaches ship first.
 
 **Stage 2 — classifier Cypher query** (reads only enriched facts, no I/O):
 
@@ -212,7 +225,7 @@ WHERE <pattern A/B/C match conditions>
   AND a.bounded_context IS NOT NULL
   AND b.bounded_context IS NOT NULL
 WITH a, b,
-     abs(a.git_age_days - b.git_age_days) AS age_delta,
+     abs(a.git_last_commit_unix_ts - b.git_last_commit_unix_ts) / 86400 AS age_delta,
      (a.bounded_context <> b.bounded_context) AS cross_context,
      exists { (a)-[:REFERENCED_BY]->(:RfcDoc) } AS has_rfc_ref,
      a.is_deprecated OR b.is_deprecated AS has_deprecation,
