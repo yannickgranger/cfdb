@@ -275,11 +275,29 @@ impl SchemaVersion {
         patch: 2,
     };
 
+    /// v0.2.3 — Issue #107 (Slice 43-D) lands first emissions of `:RfcDoc`
+    /// nodes and `(:Item)-[:REFERENCED_BY]->(:RfcDoc)` edges. Both were
+    /// descriptor-reserved in slice 43-A (issue #104) but no enrichment
+    /// pass produced them. `PetgraphStore::enrich_rfc_docs` now scans
+    /// workspace `docs/**/*.md` and `.concept-graph/*.md` for whole-word
+    /// matches on every `:Item`'s `name` and `qname`, emitting one
+    /// `:RfcDoc { path, title }` per referenced file and one
+    /// `REFERENCED_BY` edge per (item, file) pair. Additive and
+    /// non-breaking within 0.2.x — V0_2_2 readers loading a V0_2_3
+    /// keyspace see extra nodes and edges they do not understand and
+    /// ignore them. Paired lockstep `graph-specs-rust` cross-fixture
+    /// bump per cfdb CLAUDE.md §3.
+    pub const V0_2_3: Self = Self {
+        major: 0,
+        minor: 2,
+        patch: 3,
+    };
+
     /// The schema version this build of cfdb-core writes and reads.
     /// Producers tag every keyspace persist with `CURRENT`. Consumers use
     /// `CURRENT.can_read(&file.schema_version)` to reject forward-
     /// incompatible graphs per G4.
-    pub const CURRENT: Self = Self::V0_2_2;
+    pub const CURRENT: Self = Self::V0_2_3;
 
     pub fn new(major: u16, minor: u16, patch: u16) -> Self {
         Self {

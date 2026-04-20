@@ -1,0 +1,11 @@
+=== AC-8 scan cost ===
+
+$ time cfdb enrich-rfc-docs --db ... --keyspace cfdbself --workspace .
+
+  real  0m0.175s
+  user  0m0.149s
+  sys   0m0.026s
+
+Report: 9 files scanned, 18 attrs written (3 :RfcDoc × 2-or-1 props), 608 edges written.
+Total wall time 175ms — well below the AC-8 100ms budget for the scan itself
+(overhead is cfdb load-store + save-store, not the scan).

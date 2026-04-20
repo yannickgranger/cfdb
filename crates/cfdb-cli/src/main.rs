@@ -146,6 +146,11 @@ enum Command {
         db: PathBuf,
         #[arg(long)]
         keyspace: String,
+        /// Workspace root whose `docs/**/*.md` and `.concept-graph/*.md`
+        /// files to scan for item-name references. Without this flag the
+        /// pass reports `ran: false` + a warning about the missing root.
+        #[arg(long)]
+        workspace: Option<PathBuf>,
     },
 
     /// Enrich a keyspace with deprecation facts — `:Item.is_deprecated` and
@@ -554,11 +559,11 @@ fn dispatch_snapshot(cmd: Command) -> Result<(), CfdbCliError> {
 /// complexity — the top-level match collapses all seven arms to a single
 /// alternation arm that delegates here.
 fn dispatch_enrich(cmd: Command) -> Result<(), CfdbCliError> {
-    // The git-history verb is the only one that currently threads a workspace
-    // path through the composition root (clean-arch B4 resolution, #43-A). We
-    // handle it inline so the other six variants keep their simple
-    // `(db, keyspace) → EnrichVerb` shape. Slices 43-D (#107) and 43-F (#109)
-    // will add their own `--workspace` flags when those passes need them.
+    // The git-history + rfc-docs verbs thread a workspace path through the
+    // composition root (clean-arch B4 resolution, #43-A). We handle them
+    // inline so the other five variants keep their simple
+    // `(db, keyspace) → EnrichVerb` shape. Slice 43-F (#109) will add its
+    // own `--workspace` flag when `enrich_concepts` needs one.
     if let Command::EnrichGitHistory {
         db,
         keyspace,
@@ -567,9 +572,16 @@ fn dispatch_enrich(cmd: Command) -> Result<(), CfdbCliError> {
     {
         return enrich(db, keyspace, EnrichVerb::GitHistory, workspace);
     }
+    if let Command::EnrichRfcDocs {
+        db,
+        keyspace,
+        workspace,
+    } = cmd
+    {
+        return enrich(db, keyspace, EnrichVerb::RfcDocs, workspace);
+    }
 
     let (db, keyspace, verb) = match cmd {
-        Command::EnrichRfcDocs { db, keyspace } => (db, keyspace, EnrichVerb::RfcDocs),
         Command::EnrichDeprecation { db, keyspace } => (db, keyspace, EnrichVerb::Deprecation),
         Command::EnrichBoundedContext { db, keyspace } => {
             (db, keyspace, EnrichVerb::BoundedContext)
