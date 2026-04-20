@@ -248,7 +248,13 @@ where
 /// using the canonical `cfdb_core::qname` formula. Both the syn and
 /// HIR extractors share this formula so cross-extractor edges land
 /// on the same Item node (DDD HIGH finding in #40 decomposition).
-fn function_qname<DB>(sema: &Semantics<'_, DB>, func: Function) -> String
+///
+/// `pub(crate)` so [`crate::entry_point_emitter`] can reuse the same
+/// formula when resolving `http_route` handler paths (Issue #124,
+/// `ddd-specialist` gate: cross-kind ID stability — a handler fn
+/// reached via `Semantics::resolve_path` must produce the same qname
+/// as the same fn reached via `Semantics::resolve_method_call`).
+pub(crate) fn function_qname<DB>(sema: &Semantics<'_, DB>, func: Function) -> String
 where
     DB: HirDatabase + Sized,
 {

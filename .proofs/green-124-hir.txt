@@ -1,0 +1,57 @@
+   Compiling cfdb-hir-extractor v0.0.1 (/var/mnt/workspaces/cfdb/.claude/worktrees/124-http-route/crates/cfdb-hir-extractor)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.86s
+     Running unittests src/lib.rs (target/debug/deps/cfdb_hir_extractor-2ead1936c5346e50)
+
+running 2 tests
+test emit::tests::emit_stats_default_is_all_zero ... ok
+test emit::tests::emit_stats_equality_is_field_wise ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/arch_boundary.rs (target/debug/deps/arch_boundary-f9b9101d2d20a401)
+
+running 1 test
+test cfdb_core_contains_no_ra_ap_token ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/entry_point.rs (target/debug/deps/entry_point-75898fece8c33f9c)
+
+running 1 test
+test attribute_based_entry_point_detection_covers_cli_and_mcp ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+     Running tests/exclusion.rs (target/debug/deps/exclusion-d7c1156da0cf4fce)
+
+running 1 test
+test cfdb_hir_extractor_does_not_emit_item_crate_or_module_labels ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/http_route.rs (target/debug/deps/http_route-861b091ccc9d5ad9)
+
+running 6 tests
+test axum_get_method_emits_http_route_entry_point ... ok
+test axum_post_method_emits_http_route_entry_point ... ok
+test axum_route_method_emits_http_route_entry_point ... ok
+test actix_app_route_with_web_get_to_emits_http_route_entry_point ... ok
+test actix_service_web_resource_route_emits_http_route_entry_point ... ok
+test axum_nest_method_emits_http_route_entry_point ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+     Running tests/resolved_dispatch.rs (target/debug/deps/resolved_dispatch-730730bdee0767ee)
+
+running 2 tests
+test hir_resolves_trait_method_via_generic_receiver ... ok
+test hir_resolves_inherent_method_call ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+   Doc-tests cfdb_hir_extractor
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
