@@ -34,6 +34,18 @@ The JSON envelope returned by `cfdb scope` — findings grouped by `DebtClass`, 
 
 A shape-lint finding emitted during parse — flags queries whose shape is likely a mistake (e.g. cartesian function-equality — the main v0.1 example). Non-fatal; surfaced to the caller as warnings rather than errors.
 
+## SkillRoute
+
+One routing decision loaded from `.cfdb/skill-routing.toml` — class → concrete Claude skill name, `council_required` flag, optional `mode` variant (e.g. `--mode=port`), optional free-form `notes`. DIP-clean: the classifier only emits `DebtClass`; mapping to a skill is external policy per RFC-029 addendum §A2.3.
+
+## SkillRoutingTable
+
+Parsed `.cfdb/skill-routing.toml` content — `schema_version` plus a `classes` map keyed by `DebtClass` snake-case spelling. Consumed by downstream orchestration skills (`/operate-module`, `/boy-scout --from-inventory`) to decide how to act on a `Finding`. Pinned by the `finding_no_skill_field` architecture test: `Finding` MUST NOT carry any skill-related column.
+
+## SkillRoutingLoadError
+
+Error type for `SkillRoutingTable::from_path` / `from_toml_str` — separates filesystem (`Io`) from TOML-parse (`Toml`) failures so the CLI surface can distinguish missing-file from malformed-policy.
+
 ## UnknownDebtClass
 
 Error type for unrecognised `DebtClass` string values during deserialisation.
