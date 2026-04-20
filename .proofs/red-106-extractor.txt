@@ -1,0 +1,25 @@
+    | --------------------------------------------------------------------------- similarly named function `extract_path_attr` defined here
+...
+416 |             extract_deprecated_attr(&attrs),
+    |             ^^^^^^^^^^^^^^^^^^^^^^^ help: a function with a similar name exists: `extract_path_attr`
+
+error[E0425]: cannot find function `extract_deprecated_attr` in this scope
+   --> crates/cfdb-extractor/src/attrs.rs:431:13
+    |
+ 45 | pub(crate) fn extract_path_attr(attrs: &[syn::Attribute]) -> Option<String> {
+    | --------------------------------------------------------------------------- similarly named function `extract_path_attr` defined here
+...
+431 |             extract_deprecated_attr(&attrs),
+    |             ^^^^^^^^^^^^^^^^^^^^^^^ help: a function with a similar name exists: `extract_path_attr`
+
+error[E0425]: cannot find function `extract_deprecated_attr` in this scope
+   --> crates/cfdb-extractor/src/attrs.rs:442:20
+    |
+ 45 | pub(crate) fn extract_path_attr(attrs: &[syn::Attribute]) -> Option<String> {
+    | --------------------------------------------------------------------------- similarly named function `extract_path_attr` defined here
+...
+442 |         assert_eq!(extract_deprecated_attr(&attrs), (false, None));
+    |                    ^^^^^^^^^^^^^^^^^^^^^^^ help: a function with a similar name exists: `extract_path_attr`
+
+For more information about this error, try `rustc --explain E0425`.
+error: could not compile `cfdb-extractor` (lib test) due to 7 previous errors

@@ -14,8 +14,8 @@ use cfdb_core::Visibility;
 use syn::visit::Visit;
 
 use crate::attrs::{
-    attrs_contain_cfg_test, attrs_contain_hash_test, extract_cfg_feature_gate, extract_path_attr,
-    extract_serde_default_attr,
+    attrs_contain_cfg_test, attrs_contain_hash_test, extract_cfg_feature_gate,
+    extract_deprecated_attr, extract_path_attr, extract_serde_default_attr,
 };
 use crate::call_visitor::walk_call_sites_with_test_flag;
 use crate::file_walker::PendingExternalMod;
@@ -123,6 +123,16 @@ impl ItemVisitor<'_> {
         );
         if let Some(gate) = extract_cfg_feature_gate(attrs) {
             props.insert("cfg_gate".into(), PropValue::Str(gate.to_string()));
+        }
+        // Deprecation facts (#106 / RFC addendum §A2.2 row 3) —
+        // extractor-time per DDD + rust-systems verdicts. `is_deprecated`
+        // always emitted (false by default so downstream classifier
+        // queries can treat absence as a data gap vs. false). `deprecation_since`
+        // only emitted when the `#[deprecated(since = "X")]` form is used.
+        let (is_deprecated, deprecation_since) = extract_deprecated_attr(attrs);
+        props.insert("is_deprecated".into(), PropValue::Bool(is_deprecated));
+        if let Some(since) = deprecation_since {
+            props.insert("deprecation_since".into(), PropValue::Str(since));
         }
         self.emitter.emit_node(Node {
             id: id.clone(),
@@ -288,6 +298,12 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
         );
         if let Some(gate) = extract_cfg_feature_gate(&node.attrs) {
             props.insert("cfg_gate".into(), PropValue::Str(gate.to_string()));
+        }
+        // Deprecation facts (#106) — impl-method path mirrors `emit_item_with_flags`.
+        let (is_deprecated, deprecation_since) = extract_deprecated_attr(&node.attrs);
+        props.insert("is_deprecated".into(), PropValue::Bool(is_deprecated));
+        if let Some(since) = deprecation_since {
+            props.insert("deprecation_since".into(), PropValue::Str(since));
         }
         self.emitter.emit_node(Node {
             id: id.clone(),
