@@ -152,4 +152,3 @@ fn count_accuracy(
         .count();
     (total, matches)
 }
-
