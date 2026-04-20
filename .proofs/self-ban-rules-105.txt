@@ -1,0 +1,12 @@
+# examples/queries/arch-ban-f64-in-domain.cypher
+    }
+  ]
+}
+# examples/queries/arch-ban-reqwest-client-new.cypher
+    }
+  ]
+}
+# examples/queries/arch-ban-utc-now.cypher
+    }
+  ]
+}

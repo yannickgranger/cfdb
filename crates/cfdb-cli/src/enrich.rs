@@ -39,8 +39,13 @@ pub enum EnrichVerb {
     Metrics,
 }
 
-pub fn enrich(db: PathBuf, keyspace: String, verb: EnrichVerb) -> Result<(), crate::CfdbCliError> {
-    let (mut store, ks) = compose::load_store(&db, &keyspace)?;
+pub fn enrich(
+    db: PathBuf,
+    keyspace: String,
+    verb: EnrichVerb,
+    workspace: Option<PathBuf>,
+) -> Result<(), crate::CfdbCliError> {
+    let (mut store, ks) = compose::load_store_with_workspace(&db, &keyspace, workspace)?;
 
     let report: EnrichReport = match verb {
         EnrichVerb::GitHistory => store.enrich_git_history(&ks)?,
@@ -51,6 +56,17 @@ pub fn enrich(db: PathBuf, keyspace: String, verb: EnrichVerb) -> Result<(), cra
         EnrichVerb::Reachability => store.enrich_reachability(&ks)?,
         EnrichVerb::Metrics => store.enrich_metrics(&ks)?,
     };
+
+    // Persist enrichment back to disk when the pass actually ran AND mutated
+    // the graph. Phase A stubs (`ran: false`) and no-op reports (`ran: true,
+    // attrs_written: 0` — e.g. `enrich_deprecation`, whose real work is
+    // extractor-time) skip the save to avoid unnecessary rewrites. Slice 43-B
+    // (`enrich_git_history`) is the first pass to produce real mutations, so
+    // this is where persistence wires in for the CLI path.
+    if report.ran && (report.attrs_written > 0 || report.edges_written > 0) {
+        compose::save_store(&store, &ks, &db)?;
+    }
+
     let json = serde_json::to_string_pretty(&report)?;
     println!("{json}");
     Ok(())

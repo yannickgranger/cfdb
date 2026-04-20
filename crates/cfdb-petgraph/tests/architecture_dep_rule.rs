@@ -24,6 +24,12 @@ const ALLOWED_DEPS: &[&str] = &[
     "regex",
     // Stable-order binding tables needed for determinism invariant G1.
     "indexmap",
+    // Backend-layer enrichment I/O: `enrich_git_history` walks HEAD via libgit2
+    // to populate `:Item.git_*` attrs (#105 / slice 43-B). Optional; gated
+    // behind the `git-enrich` feature so default builds stay libgit2-free.
+    // Stays backend-side because the pass MUTATES KeyspaceState (the backend's
+    // owned data), not the port trait surface.
+    "git2",
 ];
 
 /// Crates that MUST NEVER appear in cfdb-petgraph's `[dependencies]` section.
