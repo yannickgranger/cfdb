@@ -4,6 +4,7 @@
 //! into.
 
 use std::collections::BTreeMap;
+use std::str::FromStr;
 
 use cfdb_core::fact::{Edge, Node, PropValue};
 use cfdb_core::qname::{
@@ -624,7 +625,17 @@ fn span_line(_ident: &syn::Ident) -> usize {
 }
 
 /// Translate a `syn::Visibility` AST node into the typed cfdb-core enum
-/// (RFC-033 §7 A1 / Issue #35). The mapping:
+/// (RFC-033 §7 A1 / Issue #35).
+///
+/// Two-step pipeline: render the AST to the canonical wire string, then
+/// delegate to `Visibility::from_str`. This keeps a **single resolution
+/// point** for the Rust→`Visibility` mapping — when the variant list grows,
+/// only `Visibility`'s wire-str / `FromStr` pair needs updating, and the
+/// extractor automatically picks up the new variant. Split-brain audit
+/// (`audit-split-brain` FromStrBypass check) enforces the invariant.
+///
+/// Mapping (see `render_syn_visibility_wire` for the AST side and
+/// `impl FromStr for Visibility` for the string side):
 ///
 /// - `pub`                        → `Public`
 /// - `pub(crate)`                 → `CrateLocal`
@@ -634,9 +645,22 @@ fn span_line(_ident: &syn::Ident) -> usize {
 /// - `pub(in path::to::mod)` and any other `Restricted` path → `Restricted`
 ///   carrying the `::`-joined path string
 fn parse_syn_visibility(vis: &syn::Visibility) -> Visibility {
+    let wire = render_syn_visibility_wire(vis);
+    Visibility::from_str(&wire).expect(
+        "render_syn_visibility_wire produces canonical wire strings that FromStr accepts — \
+         if this panics, the two sides of the visibility mapping drifted and audit-split-brain \
+         should have caught it",
+    )
+}
+
+/// Render a `syn::Visibility` AST node to its canonical wire string
+/// (see `Visibility::as_wire_str` for the inverse + full grammar). Kept
+/// separate from `parse_syn_visibility` so tests can assert the rendering
+/// alone without the FromStr round-trip.
+fn render_syn_visibility_wire(vis: &syn::Visibility) -> String {
     match vis {
-        syn::Visibility::Public(_) => Visibility::Public,
-        syn::Visibility::Inherited => Visibility::Private,
+        syn::Visibility::Public(_) => "pub".to_string(),
+        syn::Visibility::Inherited => "private".to_string(),
         syn::Visibility::Restricted(r) => {
             let segments: Vec<String> = r
                 .path
@@ -652,9 +676,9 @@ fn parse_syn_visibility(vis: &syn::Visibility) -> Visibility {
             // `in` keyword; the long form always keeps the path verbatim.
             let has_in = r.in_token.is_some();
             match (segments.len(), segments.first().map(String::as_str), has_in) {
-                (1, Some("crate"), false) => Visibility::CrateLocal,
-                (1, Some("super"), false) | (1, Some("self"), false) => Visibility::Module,
-                _ => Visibility::Restricted(segments.join("::")),
+                (1, Some("crate"), false) => "pub(crate)".to_string(),
+                (1, Some("super"), false) | (1, Some("self"), false) => "pub(super)".to_string(),
+                _ => format!("pub(in {})", segments.join("::")),
             }
         }
     }
