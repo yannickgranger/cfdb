@@ -1,14 +1,17 @@
-//! `cfdb` — CLI wire form for cfdb v0.1 (RFC §6.2 / §11).
+//! `cfdb` — CLI wire form for cfdb v0.1 + v0.2 (RFC §6.2 / §11).
 //!
-//! Exposes the full 17-verb cfdb API surface (RFC §6 + council-cfdb-wiring
-//! RATIFIED §A.14 + §A.17) as clap subcommands:
+//! Exposes the full 20-verb cfdb API surface (RFC §6 + council-cfdb-wiring
+//! RATIFIED §A.14 + §A.17 + #43 council round 1 §43-A) as clap subcommands:
 //!
-//! INGEST (5):
+//! INGEST (8 — post #43-A amendment):
 //! - `cfdb extract --workspace <path> --db <path> [--keyspace <name>]`
-//! - `cfdb enrich-docs --db <path> --keyspace <name>`             (Phase A stub)
-//! - `cfdb enrich-metrics --db <path> --keyspace <name>`          (Phase A stub)
-//! - `cfdb enrich-history --db <path> --keyspace <name>`          (Phase A stub)
-//! - `cfdb enrich-concepts --db <path> --keyspace <name>`         (Phase A stub)
+//! - `cfdb enrich-git-history --db <path> --keyspace <name>`      (Phase A stub — slice 43-B)
+//! - `cfdb enrich-rfc-docs --db <path> --keyspace <name>`         (Phase A stub — slice 43-D)
+//! - `cfdb enrich-deprecation --db <path> --keyspace <name>`      (Phase A stub — slice 43-C)
+//! - `cfdb enrich-bounded-context --db <path> --keyspace <name>`  (Phase A stub — slice 43-E)
+//! - `cfdb enrich-concepts --db <path> --keyspace <name>`         (Phase A stub — slice 43-F)
+//! - `cfdb enrich-reachability --db <path> --keyspace <name>`     (Phase A stub — slice 43-G)
+//! - `cfdb enrich-metrics --db <path> --keyspace <name>`          (Phase A stub — deferred, out of #43 scope)
 //!
 //! RAW (1):
 //! - `cfdb query --db <path> --keyspace <name> <cypher> [--params <json>] [--input <yaml>]`
@@ -116,9 +119,77 @@ enum Command {
         input: Option<PathBuf>,
     },
 
-    /// Enrich a keyspace with documentation facts. Phase A stub — returns
-    /// an `EnrichReport` flagged as not-implemented per RFC §6 / EPIC #3622.
-    EnrichDocs {
+    /// Enrich a keyspace with git-history facts — commit age, author, churn
+    /// count per `:Item` file. RFC addendum §A2.2 row 1. Phase A stub —
+    /// implementation lands in #43 slice 43-B (issue #105) behind the
+    /// `git-enrich` feature flag.
+    EnrichGitHistory {
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long)]
+        keyspace: String,
+    },
+
+    /// Enrich a keyspace with RFC-reference facts — scan `docs/rfc/*.md` and
+    /// `.concept-graph/*.md` for concept-name matches, emit `:RfcDoc` nodes
+    /// and `(:Item)-[:REFERENCED_BY]->(:RfcDoc)` edges. RFC addendum §A2.2
+    /// row 2. Phase A stub — implementation lands in #43 slice 43-D
+    /// (issue #107). Scope is RFC-file matching only; broader rustdoc
+    /// rendering is a non-goal for v0.2 per the §A2.2 amendment.
+    EnrichRfcDocs {
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long)]
+        keyspace: String,
+    },
+
+    /// Enrich a keyspace with deprecation facts — `:Item.is_deprecated` and
+    /// `deprecation_since`. RFC addendum §A2.2 row 3. Phase A stub — the
+    /// real work lands in #43 slice 43-C (issue #106) as an
+    /// **extractor extension** in `cfdb-extractor/src/attrs.rs`, not as a
+    /// Phase D enrichment body; this CLI verb's post-43-C behavior is a
+    /// `ran: true, attrs_written: 0` report naming the extractor as the
+    /// real source.
+    EnrichDeprecation {
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long)]
+        keyspace: String,
+    },
+
+    /// Re-enrich a keyspace's `:Item.bounded_context` attribute after
+    /// `.cfdb/concepts/*.toml` has changed. RFC addendum §A2.2 row 4.
+    /// Phase A stub — implementation lands in #43 slice 43-E (issue #108).
+    /// Mostly a no-op on fresh extractions (the extractor already populates
+    /// `bounded_context`); slice 43-E's v0.2-9 ≥95% accuracy gate gates
+    /// merge of both #108 and the downstream classifier (#48).
+    EnrichBoundedContext {
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long)]
+        keyspace: String,
+    },
+
+    /// Materialize `:Concept` nodes from `.cfdb/concepts/<name>.toml`
+    /// declarations and emit `LABELED_AS` + `CANONICAL_FOR` edges. RFC
+    /// addendum §A2.2 row 6 (sixth pass added by #43 council DDD lens).
+    /// Phase A stub — implementation lands in #43 slice 43-F (issue #109)
+    /// and unblocks issues #101 (Trigger T1) and #102 (Trigger T3).
+    EnrichConcepts {
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long)]
+        keyspace: String,
+    },
+
+    /// Enrich a keyspace with entry-point-reachability facts — BFS from
+    /// every `:EntryPoint` over `CALLS*` edges. RFC addendum §A2.2 row 5.
+    /// Phase A stub — implementation lands in #43 slice 43-G (issue #110)
+    /// and consumes `:EntryPoint` nodes produced by `cfdb-hir-extractor`
+    /// (v0.2+). When the keyspace has zero `:EntryPoint` nodes the real
+    /// implementation returns `ran: false` with a clear warning per
+    /// clean-arch B3 degraded path.
+    EnrichReachability {
         #[arg(long)]
         db: PathBuf,
         #[arg(long)]
@@ -126,25 +197,11 @@ enum Command {
     },
 
     /// Enrich a keyspace with quality-signal facts (complexity, unwraps,
-    /// clones-in-loops). Phase A stub.
+    /// clones-in-loops). Phase A stub — **deferred out of #43 scope** per
+    /// RFC amendment §A2.2: orthogonal to the debt-cause classifier
+    /// pipeline. Surface retained so a future RFC can resuscitate it
+    /// without a breaking rename.
     EnrichMetrics {
-        #[arg(long)]
-        db: PathBuf,
-        #[arg(long)]
-        keyspace: String,
-    },
-
-    /// Enrich a keyspace with git-history facts (last-touched, churn,
-    /// author). Phase A stub.
-    EnrichHistory {
-        #[arg(long)]
-        db: PathBuf,
-        #[arg(long)]
-        keyspace: String,
-    },
-
-    /// Enrich a keyspace with bounded-context / concept facts. Phase A stub.
-    EnrichConcepts {
         #[arg(long)]
         db: PathBuf,
         #[arg(long)]
@@ -387,10 +444,13 @@ fn run(cli: Cli) -> Result<(), CfdbCliError> {
             format,
         } => export(db, keyspace, &format)?,
         Command::ListKeyspaces { db } => list_keyspaces(db)?,
-        Command::EnrichDocs { db, keyspace } => enrich(db, keyspace, EnrichVerb::Docs)?,
-        Command::EnrichMetrics { db, keyspace } => enrich(db, keyspace, EnrichVerb::Metrics)?,
-        Command::EnrichHistory { db, keyspace } => enrich(db, keyspace, EnrichVerb::History)?,
-        Command::EnrichConcepts { db, keyspace } => enrich(db, keyspace, EnrichVerb::Concepts)?,
+        cmd @ (Command::EnrichGitHistory { .. }
+        | Command::EnrichRfcDocs { .. }
+        | Command::EnrichDeprecation { .. }
+        | Command::EnrichBoundedContext { .. }
+        | Command::EnrichConcepts { .. }
+        | Command::EnrichReachability { .. }
+        | Command::EnrichMetrics { .. }) => dispatch_enrich(cmd)?,
         Command::FindCanonical {
             db,
             keyspace,
@@ -440,4 +500,29 @@ fn run(cli: Cli) -> Result<(), CfdbCliError> {
         Command::SchemaDescribe => schema_describe_cmd()?,
     }
     Ok(())
+}
+
+/// Dispatch helper for the seven `Command::Enrich*` variants. Pulled out of
+/// [`run`] so each new enrichment verb does not balloon `run`'s cyclomatic
+/// complexity — the top-level match collapses all seven arms to a single
+/// alternation arm that delegates here.
+fn dispatch_enrich(cmd: Command) -> Result<(), CfdbCliError> {
+    let (db, keyspace, verb) = match cmd {
+        Command::EnrichGitHistory { db, keyspace } => (db, keyspace, EnrichVerb::GitHistory),
+        Command::EnrichRfcDocs { db, keyspace } => (db, keyspace, EnrichVerb::RfcDocs),
+        Command::EnrichDeprecation { db, keyspace } => (db, keyspace, EnrichVerb::Deprecation),
+        Command::EnrichBoundedContext { db, keyspace } => {
+            (db, keyspace, EnrichVerb::BoundedContext)
+        }
+        Command::EnrichConcepts { db, keyspace } => (db, keyspace, EnrichVerb::Concepts),
+        Command::EnrichReachability { db, keyspace } => (db, keyspace, EnrichVerb::Reachability),
+        Command::EnrichMetrics { db, keyspace } => (db, keyspace, EnrichVerb::Metrics),
+        other => {
+            // Unreachable — the caller pattern-matches on the seven enrich
+            // variants before calling us. An unexpected command here is a
+            // dispatch-site bug, not an end-user error.
+            unreachable!("dispatch_enrich called with non-enrich command: {other:?}")
+        }
+    };
+    enrich(db, keyspace, verb)
 }
