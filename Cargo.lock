@@ -343,6 +343,7 @@ dependencies = [
 name = "cfdb-petgraph"
 version = "0.0.1"
 dependencies = [
+ "cfdb-concepts",
  "cfdb-core",
  "git2",
  "indexmap",

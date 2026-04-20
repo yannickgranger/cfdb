@@ -1,0 +1,45 @@
+=== AUDIT: SPLIT-BRAIN ===
+WORKSPACE: /var/mnt/workspaces/cfdb/.claude/worktrees/108-enrich-bounded-context
+DOUGHNUT: hole=[] ring1=[] ring2=[]
+FILES_SCANNED: 0
+
+--- CHECK: constant-table-census [confidence: HIGH] ---
+STATUS: PASS
+VIOLATIONS: 0
+---
+
+--- CHECK: resolution-point-census [confidence: HIGH] ---
+STATUS: PASS
+VIOLATIONS: 0
+---
+
+--- CHECK: alias-mapping-census [confidence: HIGH] ---
+STATUS: PASS
+VIOLATIONS: 0
+---
+
+--- CHECK: fromstr-bypass [confidence: MEDIUM] ---
+STATUS: PASS
+VIOLATIONS: 0
+---
+
+--- CHECK: match-arm-overlap [confidence: LOW] ---
+STATUS: PASS
+WARNINGS: 0
+---
+
+--- CHECK: duplicate-type-defs [confidence: HIGH] ---
+STATUS: PASS
+VIOLATIONS: 0
+---
+
+=== SUMMARY ===
+TOTAL_CHECKS: 6
+PASSED: 6
+BLOCKED: 0
+WARNED: 0
+TOTAL_VIOLATIONS: 0
+TOTAL_WARNINGS: 0
+DISMISSED: 0
+RESULT: PASS
+[audit-split-brain] WORKSPACE=/var/mnt/workspaces/cfdb/.claude/worktrees/108-enrich-bounded-context RESULT=PASS VIOLATIONS=0 WARNINGS=0

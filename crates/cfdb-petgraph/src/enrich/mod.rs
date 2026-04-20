@@ -12,10 +12,10 @@
 //! |---|---|---|---|---|
 //! | `enrich_git_history` | [`git_history`] | 43-B | #105 | `git-enrich` |
 //! | `enrich_rfc_docs` | [`rfc_docs`] | 43-D | #107 | — |
+//! | `enrich_bounded_context` | [`bounded_context`] | 43-E | #108 | — |
 //!
-//! Remaining passes (43-E `enrich_bounded_context`, 43-F `enrich_concepts`,
-//! 43-G `enrich_reachability`) land their modules alongside these as their
-//! slices merge.
+//! Remaining passes (43-F `enrich_concepts`, 43-G `enrich_reachability`)
+//! land their modules alongside these as their slices merge.
 
 // The module is compiled only with the `git-enrich` feature — libgit2 is a
 // heavy dep and we gate it per RFC addendum §A2.2 / rust-systems Q1+Q6. The
@@ -29,3 +29,9 @@ pub(crate) mod git_history;
 // boundary check. No feature flag needed: stdlib-only, negligible compile
 // cost.
 pub(crate) mod rfc_docs;
+
+// Slice 43-E (issue #108) — re-reads `.cfdb/concepts/*.toml` and patches
+// `:Item.bounded_context` on items whose crate's mapping changed. Calls
+// into the shared `cfdb_concepts` crate so the resolution logic has a
+// single home (extract-time + enrich-time cannot diverge).
+pub(crate) mod bounded_context;

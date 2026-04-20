@@ -1,0 +1,17 @@
+   Compiling cfdb-cli v0.0.1 (/var/mnt/workspaces/cfdb/.claude/worktrees/108-enrich-bounded-context/crates/cfdb-cli)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.42s
+     Running tests/v02_9_bounded_context_accuracy.rs (target/debug/deps/v02_9_bounded_context_accuracy-bfbe298149e34b08)
+
+running 1 test
+
+=== v0.2-9 bounded_context accuracy gate — qbot-core ===
+crate                    expected ctx          items  matches   accuracy
+qbot-strategy            strategy                100      100    100.00%
+qbot-postgres-trading    postgres-trading        383      383    100.00%
+qbot-mcp                 mcp                     745      745    100.00%
+OVERALL                  —                      1228     1228    100.00%
+
+test ac5_v02_9_accuracy_gate_on_qbot_core ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.07s
+
