@@ -1,0 +1,64 @@
+# skill-routing.toml — §A2.3 SkillRoutingTable (RFC-cfdb-v0.2-addendum-draft.md).
+#
+# Maps abstract DebtClass (emitted by the classifier, §A2.1) to a concrete
+# Claude skill. Lives OUTSIDE the graph schema to preserve DIP (council
+# BLOCK-1, solid-architect) — skill renames / splits / introductions MUST
+# NOT force a graph schema migration.
+#
+# Consumed by `cfdb_query::SkillRoutingTable::from_path`. The classifier
+# itself does not read this file; `:Finding` rows carry only the
+# structural class label.
+#
+# ---------------------------------------------------------------------------
+# Council guardrails (§A2.3 + §A2.1 class notes):
+#
+# 1. ContextHomonym NEVER routes to /sweep-epic. A mechanical sweep on a
+#    cross-context homonym deletes legitimate bounded-context isolation
+#    (DDD Q3 analysis, council/43/ddd.md). The council_required flag
+#    forces a raid-plan deliberation through /operate-module.
+# 2. UnfinishedRefactor routes to /sweep-epic --mode=port, not a new
+#    /port-epic skill (council Q14 vote). The mode flag is the input-
+#    protocol discriminator.
+# 3. RandomScattering → /boy-scout (inline fix during adjacent work).
+#    Do NOT parallelise — scatter fixes require local context the
+#    /sweep-epic fan-out shape does not preserve.
+# 4. CanonicalBypass → /sweep-epic (consolidation special case per
+#    council WARN-1 acknowledged seam).
+# 5. Unwired → /boy-scout delete by default. Items with TODO(#issue)
+#    markers route to the issue owner instead — that is a routing
+#    decision the orchestrator makes at invocation time, not a
+#    separate config row.
+# ---------------------------------------------------------------------------
+
+schema_version = 1
+
+[classes.duplicated_feature]
+skill = "sweep-epic"
+council_required = false
+notes = "Mechanical, parallelizable consolidation within one bounded context"
+
+[classes.context_homonym]
+skill = "operate-module"
+council_required = true
+notes = "Context Mapping decision — ACL / Shared Kernel / Conformist / Published Language. NEVER /sweep-epic."
+
+[classes.unfinished_refactor]
+skill = "sweep-epic"
+mode = "port"
+council_required = false
+notes = "Variant flag on /sweep-epic per Q14 vote — not a separate /port-epic skill"
+
+[classes.random_scattering]
+skill = "boy-scout"
+council_required = false
+notes = "Extract helper inline during adjacent feature work"
+
+[classes.canonical_bypass]
+skill = "sweep-epic"
+council_required = false
+notes = "Rewire callers through canonical; delete bypass if dead (council WARN-1 seam)"
+
+[classes.unwired]
+skill = "boy-scout"
+council_required = false
+notes = "Delete by default; orchestrator routes TODO(#N)-tagged items to issue owner at invocation time"

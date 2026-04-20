@@ -1,0 +1,11 @@
+# Concepts declaration for the classifier-taxonomy fixture.
+#
+# Names `trading_domain_a` as the canonical crate for `trading_concept`,
+# so that enrich_concepts emits CANONICAL_FOR edges on every :Item in
+# trading_domain_a. The `Orphan::isolated` item in that crate has no
+# callers → reachable_from_entry = false → surfaces as CanonicalBypass
+# via classifier-canonical-bypass.cypher.
+
+name = "trading"
+canonical_crate = "trading_domain_a"
+crates = ["trading_domain_a", "trading_domain_b"]

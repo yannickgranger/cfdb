@@ -194,7 +194,27 @@ fn scope_deterministic_across_runs() {
 }
 
 #[test]
-fn scope_empty_classes_warn_when_classifier_missing() {
+fn scope_empty_buckets_carry_per_class_warning_naming_missing_input() {
+    // Issue #48 semantics (§A2.2 degradation): each classifier rule
+    // projects empty rows when its required inputs are absent; the CLI
+    // attaches a per-class warning to every empty bucket naming the
+    // likely missing input (HIR / concepts / reachability) OR noting
+    // "no finding in this context" for classes whose inputs are always
+    // present in a syn-only extract.
+    //
+    // Runs against a syn-only cfdb keyspace (no --features hir, no
+    // enrich-concepts, no enrich-reachability), so the four HIR-dependent
+    // classes are GUARANTEED empty regardless of the code shape:
+    //   - context_homonym    (needs :Item.signature + signature_divergent)
+    //   - random_scattering  (needs :EntryPoint + reachable_from_entry)
+    //   - canonical_bypass   (needs :Concept + CANONICAL_FOR + reachable_from_entry)
+    //   - unwired            (needs reachable_from_entry)
+    //
+    // The remaining two classes (duplicated_feature, unfinished_refactor)
+    // have inputs that ARE present in a syn-only extract — whether their
+    // bucket is empty depends on the scanned code shape, so we don't
+    // assert on them here. The integration test
+    // `classifier_taxonomy.rs` (hir-gated) covers all 6 positive paths.
     let db = tempdir().expect("tempdir");
     extract_cfdb(db.path());
     let out = run_scope(db.path(), &["--keyspace", "cfdb-v01", "--context", "cfdb"]);
@@ -204,21 +224,21 @@ fn scope_empty_classes_warn_when_classifier_missing() {
         .as_array()
         .expect("warnings array present even when empty");
     let combined = serde_json::to_string(warnings).expect("serialize warnings");
-    // Every v0.1-unavailable class must have a warning mentioning it.
+
     for class in [
-        "duplicated_feature",
         "context_homonym",
-        "unfinished_refactor",
         "random_scattering",
         "canonical_bypass",
         "unwired",
     ] {
         assert!(
             combined.contains(class),
-            "expected warning for class `{class}`; warnings: {combined}"
+            "expected empty-bucket warning for HIR-dependent class `{class}` \
+             (syn-only keyspace guarantees empty bucket); warnings: {combined}"
         );
     }
-    // reachability_map HIR degradation warning.
+
+    // reachability_map HIR degradation warning (independent of classifier).
     assert!(
         combined.contains("reachability_map") && combined.contains("HIR")
             || combined.contains("reachability_map") && combined.contains("cfdb-hir"),
