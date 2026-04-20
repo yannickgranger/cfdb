@@ -14,9 +14,11 @@
 //! | `enrich_rfc_docs` | [`rfc_docs`] | 43-D | #107 | — |
 //! | `enrich_bounded_context` | [`bounded_context`] | 43-E | #108 | — |
 //! | `enrich_concepts` | [`concepts`] | 43-F | #109 | — |
+//! | `enrich_reachability` | [`reachability`] | 43-G | #110 | — |
 //!
-//! Remaining pass (43-G `enrich_reachability`) lands its module alongside
-//! these as its slice merges.
+//! Phase D enrichment set complete. `enrich_deprecation` ships as an
+//! extractor-time fact (slice 43-C / #106) — its EnrichBackend method is a
+//! no-op report, not a module in this directory.
 
 // The module is compiled only with the `git-enrich` feature — libgit2 is a
 // heavy dep and we gate it per RFC addendum §A2.2 / rust-systems Q1+Q6. The
@@ -41,3 +43,9 @@ pub(crate) mod bounded_context;
 // `.cfdb/concepts/*.toml` and emits `LABELED_AS` + `CANONICAL_FOR` edges.
 // Unblocks trigger queries #101 and #102.
 pub(crate) mod concepts;
+
+// Slice 43-G (issue #110) — BFS from every `:EntryPoint` over `CALLS*`
+// edges, writing `:Item.reachable_from_entry` + `reachable_entry_count`.
+// Degraded path when keyspace has zero entry points: ran=false + warning
+// (clean-arch B3). Closes the Phase D enrichment set.
+pub(crate) mod reachability;
