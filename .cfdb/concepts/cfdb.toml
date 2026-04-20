@@ -22,4 +22,9 @@ crates = [
     "cfdb-hir-petgraph-adapter",
     "cfdb-cli",
     "cfdb-recall",
+    # RFC-034 v3.3 Tier-1 binary — lives at `tools/check-prelude-triggers/`
+    # and has zero `cfdb-*` code deps (clean-arch boundary), but is owned
+    # + shipped by the cfdb team and belongs to the `cfdb` bounded context
+    # for ownership / concept-registry purposes (issue #127).
+    "check-prelude-triggers",
 ]
