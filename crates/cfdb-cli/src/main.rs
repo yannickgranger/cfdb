@@ -559,7 +559,12 @@ fn dispatch_enrich(cmd: Command) -> Result<(), CfdbCliError> {
     // handle it inline so the other six variants keep their simple
     // `(db, keyspace) → EnrichVerb` shape. Slices 43-D (#107) and 43-F (#109)
     // will add their own `--workspace` flags when those passes need them.
-    if let Command::EnrichGitHistory { db, keyspace, workspace } = cmd {
+    if let Command::EnrichGitHistory {
+        db,
+        keyspace,
+        workspace,
+    } = cmd
+    {
         return enrich(db, keyspace, EnrichVerb::GitHistory, workspace);
     }
 

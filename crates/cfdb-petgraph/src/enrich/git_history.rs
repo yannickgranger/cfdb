@@ -75,7 +75,9 @@ pub(crate) fn run(state: &mut KeyspaceState, workspace_root: &Path) -> EnrichRep
             facts_scanned: 0,
             attrs_written: 0,
             edges_written: 0,
-            warnings: vec![format!("{VERB}: no :Item nodes in keyspace — nothing to enrich")],
+            warnings: vec![format!(
+                "{VERB}: no :Item nodes in keyspace — nothing to enrich"
+            )],
         };
     }
 
@@ -157,11 +159,7 @@ fn accumulate_delta(
     author_email: &str,
     info: &mut BTreeMap<String, GitInfo>,
 ) {
-    let Some(path) = delta
-        .new_file()
-        .path()
-        .or_else(|| delta.old_file().path())
-    else {
+    let Some(path) = delta.new_file().path().or_else(|| delta.old_file().path()) else {
         return;
     };
     let path_str = path.to_string_lossy().into_owned();
@@ -209,10 +207,8 @@ fn write_attrs_one(node: &mut Node, git_info: &BTreeMap<String, GitInfo>) -> u64
         Some(info) => {
             node.props
                 .insert(ATTR_TS.into(), PropValue::Int(info.last_commit_unix_ts));
-            node.props.insert(
-                ATTR_AUTHOR.into(),
-                PropValue::Str(info.last_author.clone()),
-            );
+            node.props
+                .insert(ATTR_AUTHOR.into(), PropValue::Str(info.last_author.clone()));
             node.props
                 .insert(ATTR_COUNT.into(), PropValue::Int(info.commit_count));
         }
@@ -261,7 +257,8 @@ mod tests {
             let repo = git2::Repository::init(&workspace).expect("git init");
             let mut cfg = repo.config().expect("repo.config");
             cfg.set_str("user.name", "Test Author").expect("cfg name");
-            cfg.set_str("user.email", "test@example.com").expect("cfg email");
+            cfg.set_str("user.email", "test@example.com")
+                .expect("cfg email");
             GitFixture {
                 _tmp: tmp,
                 workspace,
@@ -288,12 +285,9 @@ mod tests {
                 Err(_) => Vec::new(),
             };
             let parent_refs: Vec<&git2::Commit<'_>> = parents.iter().collect();
-            let sig = git2::Signature::new(
-                "Test Author",
-                "test@example.com",
-                &git2::Time::new(time, 0),
-            )
-            .expect("sig");
+            let sig =
+                git2::Signature::new("Test Author", "test@example.com", &git2::Time::new(time, 0))
+                    .expect("sig");
             self.repo
                 .commit(Some("HEAD"), &sig, &sig, message, &tree, &parent_refs)
                 .expect("commit")
@@ -377,11 +371,7 @@ mod tests {
         fx.commit("src/tracked.rs", "initial", 1_700_000_000);
         fx.write("src/untracked.rs", "fn untracked() {}\n");
 
-        let mut store = store_with_item(
-            &fx.workspace,
-            "src/untracked.rs",
-            "crate::untracked",
-        );
+        let mut store = store_with_item(&fx.workspace, "src/untracked.rs", "crate::untracked");
         let ks = Keyspace::new("test");
         let report = store.enrich_git_history(&ks).expect("pass");
 
