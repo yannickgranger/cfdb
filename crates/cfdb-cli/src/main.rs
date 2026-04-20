@@ -80,12 +80,17 @@ enum Command {
     /// Extract facts from a Rust workspace into a keyspace on disk.
     Extract {
         /// Root of the target Rust workspace (must contain Cargo.toml).
+        /// When `--rev` is passed, this is the git repository root and
+        /// extraction walks a temporary worktree checked out at `<rev>`
+        /// rather than the live tree.
         #[arg(long)]
         workspace: PathBuf,
         /// Directory to write the per-keyspace JSON files into.
         #[arg(long)]
         db: PathBuf,
-        /// Keyspace name. Defaults to the basename of `--workspace`.
+        /// Keyspace name. Defaults to the basename of `--workspace`
+        /// (or the short `<rev>` when `--rev` is passed without an
+        /// explicit keyspace).
         #[arg(long)]
         keyspace: Option<String>,
         /// Run the HIR-based extractor after syn to add resolved
@@ -95,6 +100,14 @@ enum Command {
         /// to opt in (Issue #86 / slice 4).
         #[arg(long)]
         hir: bool,
+        /// Extract against a specific git revision (commit SHA, tag,
+        /// or branch name) instead of the working tree. Shells out to
+        /// `git worktree add --detach <tmp> <rev>` in `--workspace`,
+        /// extracts from the tmp tree, then removes the worktree.
+        /// `--workspace` MUST be a git repository root when `--rev`
+        /// is passed. Issue #37 / Addendum §A1.6.
+        #[arg(long)]
+        rev: Option<String>,
     },
 
     /// Run a Cypher-subset query against a loaded keyspace.
@@ -472,7 +485,8 @@ fn dispatch_core(cmd: Command) -> Result<(), CfdbCliError> {
             db,
             keyspace,
             hir,
-        } => extract(workspace, db, keyspace, hir),
+            rev,
+        } => extract(workspace, db, keyspace, hir, rev),
         Command::Query {
             db,
             keyspace,
