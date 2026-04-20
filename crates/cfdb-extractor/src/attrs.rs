@@ -114,6 +114,77 @@ pub(crate) fn attrs_contain_hash_test(attrs: &[syn::Attribute]) -> bool {
     })
 }
 
+/// Extract deprecation state from an item's attribute list (#106 /
+/// RFC addendum §A2.2 row 3).
+///
+/// Returns `(is_deprecated, deprecation_since)`:
+///
+/// - `is_deprecated` is `true` when at least one `#[deprecated]` or
+///   `#[deprecated(...)]` attribute appears on the item. All three
+///   accepted forms trigger a match:
+///   `#[deprecated]`, `#[deprecated(note = "...")]`,
+///   `#[deprecated(since = "X.Y.Z", note = "...")]`.
+/// - `deprecation_since` is `Some(version_string)` when the attribute
+///   carries an explicit `since = "..."` key; `None` otherwise. The
+///   string is the literal author-supplied value — no SemVer parsing.
+///
+/// Only the bare single-segment `deprecated` path is recognised.
+/// Multi-segment paths like `#[serde(deprecated = "true")]` are NOT
+/// treated as Rust stability deprecation (the `#[serde(...)]` namespace
+/// carries unrelated semantics). This matches the discipline used by
+/// [`attrs_contain_hash_test`] for `#[test]` vs `#[tokio::test]`.
+///
+/// Per the #43 council DDD + rust-systems verdicts, this is an
+/// extractor-time fact tagged `Provenance::Extractor` — the AST walker
+/// already visits item attributes, so extraction is the right layer.
+/// The [`cfdb_core::enrich::EnrichBackend::enrich_deprecation`] trait
+/// method exists for surface symmetry; its `PetgraphStore` override
+/// returns a `ran: true, attrs_written: 0` no-op naming the extractor
+/// as the real source.
+pub(crate) fn extract_deprecated_attr(attrs: &[syn::Attribute]) -> (bool, Option<String>) {
+    let mut is_deprecated = false;
+    let mut since: Option<String> = None;
+    for attr in attrs {
+        if !attr.path().is_ident("deprecated") {
+            continue;
+        }
+        is_deprecated = true;
+        // `#[deprecated]` parses as `Meta::Path` — carries no kv args.
+        // `#[deprecated(...)]` parses as `Meta::List` — delegate to a
+        // helper so `extract_deprecated_attr`'s nesting stays flat
+        // (cognitive complexity threshold per cfdb quality gates).
+        if let syn::Meta::List(list) = &attr.meta {
+            if let Some(v) = parse_deprecated_since(list) {
+                since = Some(v);
+            }
+        }
+        // Continue scanning in case multiple `#[deprecated]` attrs
+        // exist (not a standard pattern, but harmless — last `since`
+        // wins, matching Rust's own precedence).
+    }
+    (is_deprecated, since)
+}
+
+/// Pull the `since = "X.Y.Z"` string literal out of a
+/// `#[deprecated(since = "...", note = "...")]` meta list, if present.
+/// Factored out of [`extract_deprecated_attr`] so that the main loop
+/// body stays shallow enough to clear the cognitive-complexity gate.
+/// `note = "..."` is deliberately ignored — the current extractor
+/// surface only needs the version string.
+fn parse_deprecated_since(list: &syn::MetaList) -> Option<String> {
+    let mut since: Option<String> = None;
+    let _ = list.parse_nested_meta(|meta| {
+        if !meta.path.is_ident("since") {
+            return Ok(());
+        }
+        let value = meta.value()?;
+        let lit: syn::LitStr = value.parse()?;
+        since = Some(lit.value());
+        Ok(())
+    });
+    since
+}
+
 /// Extract the feature-only `cfg(...)` gate from the item's attribute list
 /// (Issue #36). Recognises `cfg(feature = "x")`, `cfg(all(...))`,
 /// `cfg(any(...))`, `cfg(not(...))` and nested combinations thereof.
@@ -369,5 +440,75 @@ mod tests {
             extract_cfg_feature_gate(&attrs),
             Some(CfgGate::Feature("async".into()))
         );
+    }
+
+    // ---- extract_deprecated_attr (#106 — RFC addendum §A2.2 row 3) ------
+    //
+    // Extractor-time fact per #43 council DDD + rust-systems verdicts:
+    // the `#[deprecated]` attribute is syntactic; the AST walker already
+    // visits item attributes, so extraction is the right layer.
+
+    #[test]
+    fn extract_deprecated_attr_none_when_no_attrs() {
+        let attrs = parse_attrs("");
+        assert_eq!(extract_deprecated_attr(&attrs), (false, None));
+    }
+
+    #[test]
+    fn extract_deprecated_attr_bare_form() {
+        // `#[deprecated]` on its own — deprecated, no since version.
+        let attrs = parse_attrs(r#"#[deprecated]"#);
+        assert_eq!(extract_deprecated_attr(&attrs), (true, None));
+    }
+
+    #[test]
+    fn extract_deprecated_attr_since_form() {
+        // `#[deprecated(since = "1.2.0")]` — since version captured.
+        let attrs = parse_attrs(r#"#[deprecated(since = "1.2.0")]"#);
+        assert_eq!(
+            extract_deprecated_attr(&attrs),
+            (true, Some("1.2.0".to_string()))
+        );
+    }
+
+    #[test]
+    fn extract_deprecated_attr_note_only_form() {
+        // `#[deprecated(note = "use Foo instead")]` — deprecated, no since.
+        let attrs = parse_attrs(r#"#[deprecated(note = "use Foo instead")]"#);
+        assert_eq!(extract_deprecated_attr(&attrs), (true, None));
+    }
+
+    #[test]
+    fn extract_deprecated_attr_since_and_note_form() {
+        let attrs =
+            parse_attrs(r#"#[deprecated(since = "2.0.0", note = "legacy path; see #123")]"#);
+        assert_eq!(
+            extract_deprecated_attr(&attrs),
+            (true, Some("2.0.0".to_string()))
+        );
+    }
+
+    #[test]
+    fn extract_deprecated_attr_ignores_non_deprecated_attrs() {
+        // `#[deprecated]` must still dominate even when other attrs
+        // surround it.
+        let attrs = parse_attrs(
+            r#"#[derive(Debug)]
+               #[deprecated(since = "3.1.4")]
+               #[must_use]"#,
+        );
+        assert_eq!(
+            extract_deprecated_attr(&attrs),
+            (true, Some("3.1.4".to_string()))
+        );
+    }
+
+    #[test]
+    fn extract_deprecated_attr_rejects_multi_segment_path() {
+        // `#[serde::deprecated(...)]` (hypothetical) is NOT the standard
+        // Rust deprecation attribute and must not be matched. Only the
+        // bare `deprecated` path counts.
+        let attrs = parse_attrs(r#"#[serde(deprecated = "true")]"#);
+        assert_eq!(extract_deprecated_attr(&attrs), (false, None));
     }
 }

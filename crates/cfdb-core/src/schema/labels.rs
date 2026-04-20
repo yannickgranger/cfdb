@@ -238,11 +238,29 @@ impl SchemaVersion {
         patch: 0,
     };
 
+    /// v0.2.1 — Issue #106 (Slice 43-C) lands the first extractor-time
+    /// emissions of `:Item.is_deprecated` (bool, always emitted) and
+    /// `:Item.deprecation_since` (string, emitted only when the
+    /// `#[deprecated(since = "X")]` form is used). Both attributes were
+    /// reserved in #104 (Slice 43-A) with `Provenance::Extractor`; #106
+    /// adds the `extract_deprecated_attr` helper and wires it through
+    /// `emit_item_with_flags` + the impl-method visitor path.
+    /// Additive and non-breaking within 0.2.x — V0_2_0 readers loading
+    /// a V0_2_1 keyspace ignore the extra item properties.
+    /// First patch bump under the post-#43-A per-slice bump policy;
+    /// ships with a lockstep `graph-specs-rust` cross-fixture PR per
+    /// cfdb CLAUDE.md §3.
+    pub const V0_2_1: Self = Self {
+        major: 0,
+        minor: 2,
+        patch: 1,
+    };
+
     /// The schema version this build of cfdb-core writes and reads.
     /// Producers tag every keyspace persist with `CURRENT`. Consumers use
     /// `CURRENT.can_read(&file.schema_version)` to reject forward-
     /// incompatible graphs per G4.
-    pub const CURRENT: Self = Self::V0_2_0;
+    pub const CURRENT: Self = Self::V0_2_1;
 
     pub fn new(major: u16, minor: u16, patch: u16) -> Self {
         Self {

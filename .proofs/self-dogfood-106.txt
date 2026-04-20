@@ -1,0 +1,52 @@
+=== examples/queries/arch-ban-f64-in-domain.cypher ===
+violations: 0 (rule: examples/queries/arch-ban-f64-in-domain.cypher)
+{
+  "rows": [],
+  "warnings": [
+    {
+      "kind": "EmptyResult",
+      "message": "query matched no rows"
+    }
+  ]
+}
+=== examples/queries/arch-ban-reqwest-client-new.cypher ===
+violations: 0 (rule: examples/queries/arch-ban-reqwest-client-new.cypher)
+{
+  "rows": [],
+  "warnings": [
+    {
+      "kind": "EmptyResult",
+      "message": "query matched no rows"
+    }
+  ]
+}
+=== examples/queries/arch-ban-utc-now.cypher ===
+violations: 0 (rule: examples/queries/arch-ban-utc-now.cypher)
+{
+  "rows": [],
+  "warnings": [
+    {
+      "kind": "EmptyResult",
+      "message": "query matched no rows"
+    }
+  ]
+}
+{
+  "verb": "enrich_deprecation",
+  "ran": true,
+  "facts_scanned": 0,
+  "attrs_written": 0,
+  "edges_written": 0,
+  "warnings": [
+    "enrich_deprecation: facts populated at extraction time by cfdb-extractor::extract_deprecated_attr (#43-C / RFC addendum §A2.2 row 3); no enrichment work to do"
+  ]
+}
+{
+  "rows": [],
+  "warnings": [
+    {
+      "kind": "EmptyResult",
+      "message": "query matched no rows"
+    }
+  ]
+}

@@ -435,6 +435,33 @@ mod tests {
         }
     }
 
+    /// #106 AC-4 — deprecation facts are extractor-time, not enrichment-time.
+    /// The `#[deprecated]` attribute is syntactic; cfdb-extractor's AST walker
+    /// captures it at extraction. Flipping either attr to an `Enrich*`
+    /// provenance would mis-route the classifier (#48) and contradict the
+    /// RFC amendment §A2.2 row 3.
+    #[test]
+    fn schema_describe_item_deprecation_attrs_are_extractor_provenanced() {
+        let d = schema_describe();
+        let item = d
+            .nodes
+            .iter()
+            .find(|n| n.label.as_str() == Label::ITEM)
+            .expect("Item node descriptor");
+        for name in ["is_deprecated", "deprecation_since"] {
+            let attr = item
+                .attributes
+                .iter()
+                .find(|a| a.name == name)
+                .unwrap_or_else(|| panic!("Item attr {name} missing"));
+            assert_eq!(
+                attr.provenance,
+                Provenance::Extractor,
+                "{name} is an extractor-time syntactic fact; any other provenance would mis-route the #48 classifier",
+            );
+        }
+    }
+
     #[test]
     fn schema_describe_concept_attrs_are_enrich_concepts() {
         let d = schema_describe();

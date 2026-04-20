@@ -169,11 +169,42 @@ impl StoreBackend for PetgraphStore {
     }
 }
 
-// RFC-031 §2 — enrichment is a sibling trait. PetgraphStore inherits the four
-// Phase A stubs (`EnrichReport::not_implemented`); concrete enrichment passes
-// are implemented by overriding individual methods as RFC-032 §4 / Group D
-// issues land (#43–#48).
-impl EnrichBackend for PetgraphStore {}
+// RFC-031 §2 — enrichment is a sibling trait. PetgraphStore inherits the
+// seven Phase A stubs (`EnrichReport::not_implemented`); concrete enrichment
+// passes override individual methods as #43 slices land.
+//
+// `enrich_deprecation` overridden in slice 43-C (#106) to report the real
+// source as the extractor rather than deflecting to `not_implemented`. The
+// deprecation facts (`is_deprecated`, `deprecation_since`) are populated at
+// extraction time by `cfdb-extractor` via `extract_deprecated_attr`, so the
+// `EnrichBackend::enrich_deprecation` method is a runtime no-op but must
+// advertise its non-stub status — `ran: true, attrs_written: 0` with a
+// warning naming the extractor so callers can distinguish "done upstream"
+// from "deferred".
+impl EnrichBackend for PetgraphStore {
+    fn enrich_deprecation(
+        &mut self,
+        keyspace: &cfdb_core::schema::Keyspace,
+    ) -> Result<cfdb_core::enrich::EnrichReport, StoreError> {
+        // Keyspace existence check mirrors other enrichment verbs — a
+        // caller targeting an unknown keyspace gets the same error shape
+        // as `schema_version`/`drop_keyspace`.
+        if !self.keyspaces.contains_key(keyspace) {
+            return Err(StoreError::UnknownKeyspace(keyspace.clone()));
+        }
+        Ok(cfdb_core::enrich::EnrichReport {
+            verb: "enrich_deprecation".into(),
+            ran: true,
+            facts_scanned: 0,
+            attrs_written: 0,
+            edges_written: 0,
+            warnings: vec![
+                "enrich_deprecation: facts populated at extraction time by cfdb-extractor::extract_deprecated_attr (#43-C / RFC addendum §A2.2 row 3); no enrichment work to do"
+                    .into(),
+            ],
+        })
+    }
+}
 
 /// Produce the canonical sorted-JSONL dump of a keyspace per RFC §12.1.
 ///
