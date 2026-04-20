@@ -215,6 +215,33 @@ impl EnrichBackend for PetgraphStore {
         }
         Ok(enrich_git_history_dispatch(self, keyspace))
     }
+
+    fn enrich_rfc_docs(
+        &mut self,
+        keyspace: &cfdb_core::schema::Keyspace,
+    ) -> Result<cfdb_core::enrich::EnrichReport, StoreError> {
+        if !self.keyspaces.contains_key(keyspace) {
+            return Err(StoreError::UnknownKeyspace(keyspace.clone()));
+        }
+        let Some(root) = self.workspace_root.clone() else {
+            return Ok(cfdb_core::enrich::EnrichReport {
+                verb: "enrich_rfc_docs".into(),
+                ran: false,
+                facts_scanned: 0,
+                attrs_written: 0,
+                edges_written: 0,
+                warnings: vec![
+                    "enrich_rfc_docs: no workspace_root attached to PetgraphStore — construct via `PetgraphStore::new().with_workspace(root)` so the pass can scan docs/ for RFC references"
+                        .into(),
+                ],
+            });
+        };
+        let state = self
+            .keyspaces
+            .get_mut(keyspace)
+            .expect("keyspace presence checked above");
+        Ok(crate::enrich::rfc_docs::run(state, &root))
+    }
 }
 
 /// Feature-off path — the real pass is gated on `git-enrich` to keep libgit2
