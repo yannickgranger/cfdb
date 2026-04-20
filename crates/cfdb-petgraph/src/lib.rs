@@ -18,6 +18,7 @@ mod graph;
 pub mod persist;
 
 use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 
 use cfdb_core::enrich::EnrichBackend;
 use cfdb_core::fact::{Edge, Node, PropValue};
@@ -40,6 +41,17 @@ use crate::graph::KeyspaceState;
 pub struct PetgraphStore {
     keyspaces: BTreeMap<Keyspace, KeyspaceState>,
     schema_version: SchemaVersion,
+    /// Optional workspace root for enrichment passes that read files
+    /// (`enrich_rfc_docs`, `enrich_concepts`). `None` when the store was
+    /// constructed for tests or for non-enrichment workflows. Wired by
+    /// [`crate::PetgraphStore::with_workspace`]; [`crate::PetgraphStore::new`]
+    /// remains argument-less so existing callers (30+ test sites, persist
+    /// round-trips) compile unchanged. Slices 43-D (issue #107) and 43-F
+    /// (issue #109) will consume this field via
+    /// [`crate::PetgraphStore::workspace_root`] without changing the
+    /// `EnrichBackend` port signature — clean-arch B4 resolution
+    /// (`council/43/clean-arch.md`).
+    workspace_root: Option<PathBuf>,
 }
 
 impl Default for PetgraphStore {
@@ -57,7 +69,28 @@ impl PetgraphStore {
         Self {
             keyspaces: BTreeMap::new(),
             schema_version: SchemaVersion::CURRENT,
+            workspace_root: None,
         }
+    }
+
+    /// Attach a workspace root for enrichment passes that read files.
+    /// Builder-style — returns `self` so a caller can chain
+    /// `PetgraphStore::new().with_workspace(path)` without changing the
+    /// zero-arg `::new()` signature that 30+ call sites depend on. The
+    /// composition root (`cfdb-cli::compose::load_store`) will wire this
+    /// when slices 43-D / 43-F actually need a workspace path; until then
+    /// every existing construction path returns `workspace_root = None`.
+    pub fn with_workspace(mut self, root: impl Into<PathBuf>) -> Self {
+        self.workspace_root = Some(root.into());
+        self
+    }
+
+    /// Return the attached workspace root, if any. Slices 43-D and 43-F
+    /// will consume this to locate `docs/rfc/*.md` and
+    /// `.cfdb/concepts/*.toml` without modifying the `EnrichBackend` port
+    /// signature.
+    pub fn workspace_root(&self) -> Option<&Path> {
+        self.workspace_root.as_deref()
     }
 
     /// Return a reference to a keyspace, creating it if missing.
