@@ -30,6 +30,12 @@ const ALLOWED_DEPS: &[&str] = &[
     // Stays backend-side because the pass MUTATES KeyspaceState (the backend's
     // owned data), not the port trait surface.
     "git2",
+    // Shared concept-override loader + heuristic (#108 / slice 43-E). The
+    // backend's `enrich_bounded_context` pass calls `compute_bounded_context`
+    // from this crate to patch `:Item.bounded_context` when
+    // `.cfdb/concepts/*.toml` changed between extractions. Single resolution
+    // point — the extract-time path in cfdb-extractor uses the same function.
+    "cfdb-concepts",
 ];
 
 /// Crates that MUST NEVER appear in cfdb-petgraph's `[dependencies]` section.

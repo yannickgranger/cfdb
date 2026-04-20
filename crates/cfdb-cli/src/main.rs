@@ -178,6 +178,12 @@ enum Command {
         db: PathBuf,
         #[arg(long)]
         keyspace: String,
+        /// Workspace root whose `.cfdb/concepts/*.toml` files to re-read.
+        /// Without this flag the pass reports `ran: false` + a warning about
+        /// the missing root (TOML overrides live under the workspace root, so
+        /// there is no useful default).
+        #[arg(long)]
+        workspace: Option<PathBuf>,
     },
 
     /// Materialize `:Concept` nodes from `.cfdb/concepts/<name>.toml`
@@ -559,9 +565,9 @@ fn dispatch_snapshot(cmd: Command) -> Result<(), CfdbCliError> {
 /// complexity — the top-level match collapses all seven arms to a single
 /// alternation arm that delegates here.
 fn dispatch_enrich(cmd: Command) -> Result<(), CfdbCliError> {
-    // The git-history + rfc-docs verbs thread a workspace path through the
-    // composition root (clean-arch B4 resolution, #43-A). We handle them
-    // inline so the other five variants keep their simple
+    // The git-history / rfc-docs / bounded-context verbs thread a workspace
+    // path through the composition root (clean-arch B4 resolution, #43-A).
+    // We handle them inline so the other four variants keep their simple
     // `(db, keyspace) → EnrichVerb` shape. Slice 43-F (#109) will add its
     // own `--workspace` flag when `enrich_concepts` needs one.
     if let Command::EnrichGitHistory {
@@ -580,12 +586,17 @@ fn dispatch_enrich(cmd: Command) -> Result<(), CfdbCliError> {
     {
         return enrich(db, keyspace, EnrichVerb::RfcDocs, workspace);
     }
+    if let Command::EnrichBoundedContext {
+        db,
+        keyspace,
+        workspace,
+    } = cmd
+    {
+        return enrich(db, keyspace, EnrichVerb::BoundedContext, workspace);
+    }
 
     let (db, keyspace, verb) = match cmd {
         Command::EnrichDeprecation { db, keyspace } => (db, keyspace, EnrichVerb::Deprecation),
-        Command::EnrichBoundedContext { db, keyspace } => {
-            (db, keyspace, EnrichVerb::BoundedContext)
-        }
         Command::EnrichConcepts { db, keyspace } => (db, keyspace, EnrichVerb::Concepts),
         Command::EnrichReachability { db, keyspace } => (db, keyspace, EnrichVerb::Reachability),
         Command::EnrichMetrics { db, keyspace } => (db, keyspace, EnrichVerb::Metrics),

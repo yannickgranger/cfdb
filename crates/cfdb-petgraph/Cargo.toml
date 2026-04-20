@@ -8,6 +8,13 @@ publish.workspace = true
 
 [dependencies]
 cfdb-core = { path = "../cfdb-core" }
+# Concept-override loader + heuristic shared with cfdb-extractor; used by
+# `enrich_bounded_context` (issue #108 / slice 43-E) to re-read
+# `.cfdb/concepts/*.toml` at enrichment time and patch `:Item.bounded_context`
+# when the TOML has changed between extractions. Single resolution point —
+# the crate owns `compute_bounded_context` so extract-time and enrich-time
+# paths cannot diverge.
+cfdb-concepts = { path = "../cfdb-concepts" }
 petgraph.workspace = true
 serde.workspace = true
 serde_json.workspace = true
