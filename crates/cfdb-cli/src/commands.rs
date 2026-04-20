@@ -194,39 +194,6 @@ impl Drop for GitWorktree {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn short_rev_truncates_long_sha() {
-        assert_eq!(
-            short_rev("abcdef0123456789abcdef0123456789abcdef01"),
-            "abcdef012345"
-        );
-    }
-
-    #[test]
-    fn short_rev_preserves_short_sha_or_branch_name() {
-        assert_eq!(short_rev("abc123"), "abc123");
-        assert_eq!(short_rev("main"), "main");
-        assert_eq!(short_rev("v0.2.3"), "v0.2.3");
-    }
-
-    #[test]
-    fn short_rev_sanitises_path_unsafe_chars() {
-        assert_eq!(short_rev("feature/new-thing"), "feature_new-thing");
-        assert_eq!(short_rev("release candidate"), "release_candidate");
-    }
-
-    #[test]
-    fn short_rev_keeps_non_hex_long_names_verbatim() {
-        // A tag like `v0.1.0-beta2` is longer than 12 chars but not
-        // hex-only — should be kept as-is (not truncated).
-        assert_eq!(short_rev("v0.1.0-beta2"), "v0.1.0-beta2");
-    }
-}
-
 /// Run the HIR pipeline when the `hir` feature is compiled in. The
 /// feature-gated `crate::hir::extract_and_ingest_hir` module is the
 /// single integration seam — if not compiled, `--hir` emits a clear
@@ -474,4 +441,37 @@ pub fn export(db: PathBuf, keyspace: String, format: &str) -> Result<(), crate::
         return Err(format!("unsupported --format `{format}`. v0.1 supports: sorted-jsonl").into());
     }
     dump(db, keyspace)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn short_rev_truncates_long_sha() {
+        assert_eq!(
+            short_rev("abcdef0123456789abcdef0123456789abcdef01"),
+            "abcdef012345"
+        );
+    }
+
+    #[test]
+    fn short_rev_preserves_short_sha_or_branch_name() {
+        assert_eq!(short_rev("abc123"), "abc123");
+        assert_eq!(short_rev("main"), "main");
+        assert_eq!(short_rev("v0.2.3"), "v0.2.3");
+    }
+
+    #[test]
+    fn short_rev_sanitises_path_unsafe_chars() {
+        assert_eq!(short_rev("feature/new-thing"), "feature_new-thing");
+        assert_eq!(short_rev("release candidate"), "release_candidate");
+    }
+
+    #[test]
+    fn short_rev_keeps_non_hex_long_names_verbatim() {
+        // A tag like `v0.1.0-beta2` is longer than 12 chars but not
+        // hex-only — should be kept as-is (not truncated).
+        assert_eq!(short_rev("v0.1.0-beta2"), "v0.1.0-beta2");
+    }
 }
