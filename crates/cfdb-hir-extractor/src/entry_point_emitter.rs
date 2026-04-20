@@ -1,58 +1,27 @@
-//! `extract_entry_points` — attribute-based + call-expression-level
-//! scanner that emits `:EntryPoint` nodes and `EXPOSES` edges for the
-//! v0.2 kind vocabulary (RFC-029 §A1.1).
+//! `extract_entry_points` — scan the HIR-loaded VFS and emit
+//! `:EntryPoint` nodes + `EXPOSES` edges for the v0.2 kind vocabulary
+//! (RFC-029 §A1.1). Two scan shapes coexist in a single pass:
 //!
-//! ## Detected kinds
+//! - **Attribute-level** (Issue #86): `cli_command` for `struct`/`enum`
+//!   with `#[derive(Parser/Subcommand)]`; `mcp_tool` for `fn` with an
+//!   attribute whose last path segment is `tool`.
+//! - **Call-expression-level** (Issue #125): `cron_job` for
+//!   `Job::new_async(<cron-lit>, ..)` / `Job::new(<cron-lit>, ..)` (also
+//!   catches wrapped forms like `JobScheduler::add(Job::new_async(...))`
+//!   because the inner `Job::new*` fires the emitter); `websocket` for
+//!   `<expr>.on_upgrade(<handler>)`. `cron_job` stores the literal
+//!   schedule in `cron_expr` and exposes the enclosing fn (closures have
+//!   no qname). `websocket` resolves a named-fn handler via
+//!   `Semantics::resolve_path` and otherwise falls back to the enclosing
+//!   fn (same closure policy as `cron_job`).
 //!
-//! Two orthogonal scan shapes are implemented in a single pass:
-//!
-//! ### Attribute-level (Issue #86)
-//!
-//! - `cli_command` — any `struct` or `enum` whose attribute list
-//!   contains a `#[derive(...)]` whose syntax text mentions `Parser`
-//!   or `Subcommand` (the canonical clap pattern). One `:EntryPoint`
-//!   per detected item.
-//! - `mcp_tool` — any `fn` item carrying an attribute whose last
-//!   path segment is `tool` (rmcp / mcp-core convention). One
-//!   `:EntryPoint` per annotated function.
-//!
-//! ### Call-expression-level (Issue #125)
-//!
-//! - `cron_job` — matches `Job::new_async(<cron-literal>, <closure>)`
-//!   and the synchronous `Job::new(<cron-literal>, <closure>)` from
-//!   `tokio_cron_scheduler`. Also matches when wrapped in a
-//!   registration path such as `JobScheduler::add(Job::new_async(...))`
-//!   — the outer scheduler method is not load-bearing; the `Job::new*`
-//!   sub-expression is what fires the emitter, so nested uses are
-//!   detected automatically. The `cron_expr` property carries the
-//!   first-argument string literal verbatim. `EXPOSES` points at the
-//!   enclosing fn's qname (closure bodies have no path-level qname of
-//!   their own).
-//! - `websocket` — matches `<expr>.on_upgrade(<handler>)` from
-//!   `axum::extract::ws::WebSocketUpgrade`. When `<handler>` is a path
-//!   to a named fn, `EXPOSES` resolves to that fn's qname via HIR;
-//!   when it is a closure or block, `EXPOSES` falls back to the
-//!   enclosing fn's qname (same policy as `cron_job`).
-//!
-//! `http_route` (the sibling call-expression kind) lands in Issue #124
-//! in parallel; the dispatch in `scan_file` adds additively and does
-//! not conflict at the structural level (new match arms only).
-//!
-//! ## Why attribute-based, not HIR-type-based (for `cli_command` /
-//! `mcp_tool`)
-//!
-//! Detecting clap commands via "impl clap::Parser for X" would require
-//! full trait-impl resolution and would miss struct-only derives that
-//! haven't yet been monomorphised into impls at parse time. The
-//! `#[derive(Parser)]` attribute is always textually present at the
-//! item site — cheaper and more complete.
-//!
-//! ## Why call-expression-level for `cron_job` / `websocket`
-//!
-//! Neither `tokio_cron_scheduler` nor `axum` defines user-facing
-//! attributes — a handler is registered by passing a closure or fn
-//! reference into a constructor/method call. Detection must therefore
-//! look at the call site, not at any handler's own attribute list.
+//! `http_route` is a sibling call-expression kind shipped in Issue #124;
+//! the `scan_file` dispatch in this module is additive so the two slices
+//! do not conflict. Clap/MCP detection is attribute-textual rather than
+//! trait-resolution-based so it works on unbuilt source and on
+//! struct-only derives. Cron/WS detection is call-expression-based
+//! because neither crate defines a user-facing attribute — the handler
+//! is always passed by value into a constructor.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -65,7 +34,7 @@ use ra_ap_hir::db::HirDatabase;
 use ra_ap_hir::{HasCrate, ModuleDef, PathResolution, Semantics};
 use ra_ap_hir_ty::attach_db;
 use ra_ap_syntax::ast::{self, AstNode, HasArgList, HasAttrs, HasName};
-use ra_ap_syntax::SyntaxNode;
+use ra_ap_syntax::{SyntaxKind, SyntaxNode};
 use ra_ap_vfs::{Vfs, VfsPath};
 
 use crate::error::HirError;
@@ -134,29 +103,51 @@ fn scan_file<DB>(
 ) where
     DB: HirDatabase + Sized,
 {
+    // Dispatch on `SyntaxKind` so only the matching branch casts
+    // (`AstNode::cast` moves by value, which would require a clone
+    // per branch in an `if let` chain; the metric scanner flags
+    // repeated `.clone()` inside a loop even though `SyntaxNode`
+    // clone is an `Rc` bump).
     for descendant in source_file.syntax().descendants() {
-        if let Some(strukt) = ast::Struct::cast(descendant.clone()) {
-            if has_clap_derive(&strukt) {
-                if let Some((name, qname)) = struct_name_and_qname(sema, &strukt) {
-                    emit(nodes, edges, qname, name, "cli_command", file_path, None);
+        match descendant.kind() {
+            SyntaxKind::STRUCT => {
+                if let Some(strukt) = ast::Struct::cast(descendant) {
+                    if has_clap_derive(&strukt) {
+                        if let Some((name, qname)) = struct_name_and_qname(sema, &strukt) {
+                            emit(nodes, edges, qname, name, "cli_command", file_path, None);
+                        }
+                    }
                 }
             }
-        } else if let Some(enum_) = ast::Enum::cast(descendant.clone()) {
-            if has_clap_derive(&enum_) {
-                if let Some((name, qname)) = enum_name_and_qname(sema, &enum_) {
-                    emit(nodes, edges, qname, name, "cli_command", file_path, None);
+            SyntaxKind::ENUM => {
+                if let Some(enum_) = ast::Enum::cast(descendant) {
+                    if has_clap_derive(&enum_) {
+                        if let Some((name, qname)) = enum_name_and_qname(sema, &enum_) {
+                            emit(nodes, edges, qname, name, "cli_command", file_path, None);
+                        }
+                    }
                 }
             }
-        } else if let Some(fn_ast) = ast::Fn::cast(descendant.clone()) {
-            if has_tool_attr(&fn_ast) {
-                if let Some((name, qname)) = fn_name_and_qname(sema, &fn_ast) {
-                    emit(nodes, edges, qname, name, "mcp_tool", file_path, None);
+            SyntaxKind::FN => {
+                if let Some(fn_ast) = ast::Fn::cast(descendant) {
+                    if has_tool_attr(&fn_ast) {
+                        if let Some((name, qname)) = fn_name_and_qname(sema, &fn_ast) {
+                            emit(nodes, edges, qname, name, "mcp_tool", file_path, None);
+                        }
+                    }
                 }
             }
-        } else if let Some(call) = ast::CallExpr::cast(descendant.clone()) {
-            try_emit_cron_job(sema, &call, file_path, nodes, edges);
-        } else if let Some(method_call) = ast::MethodCallExpr::cast(descendant.clone()) {
-            try_emit_websocket(sema, &method_call, file_path, nodes, edges);
+            SyntaxKind::CALL_EXPR => {
+                if let Some(call) = ast::CallExpr::cast(descendant) {
+                    try_emit_cron_job(sema, &call, file_path, nodes, edges);
+                }
+            }
+            SyntaxKind::METHOD_CALL_EXPR => {
+                if let Some(mcall) = ast::MethodCallExpr::cast(descendant) {
+                    try_emit_websocket(sema, &mcall, file_path, nodes, edges);
+                }
+            }
+            _ => {}
         }
     }
 }
