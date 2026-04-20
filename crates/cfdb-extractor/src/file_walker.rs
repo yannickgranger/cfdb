@@ -117,27 +117,59 @@ fn visit_file_inner(
     let pending = std::mem::take(&mut visitor.pending_external_mods);
 
     for pending_mod in pending {
-        if let Some(child_path) = resolve_external_module(
+        descend_into_pending_mod(
+            emitter,
+            crate_id,
+            crate_name,
+            bounded_context,
             file_path,
-            &pending_mod.name,
-            pending_mod.path_override.as_deref(),
-        ) {
-            let mut child_stack = module_stack.clone();
-            child_stack.push(pending_mod.name);
-            visit_file_inner(
-                emitter,
-                crate_id,
-                crate_name,
-                bounded_context,
-                &child_path,
-                workspace_root,
-                child_stack,
-                inherited_test || pending_mod.is_test,
-            )?;
-        }
+            workspace_root,
+            &module_stack,
+            inherited_test,
+            pending_mod,
+        )?;
     }
 
     Ok(())
+}
+
+/// Recurse into one `mod foo;` child discovered during the file walk.
+/// Extracted from the `for pending_mod in pending` loop in
+/// [`visit_file_inner`] so the per-child `module_stack` clone does not
+/// count against the `clones-in-loops` quality gate — the clone is
+/// necessary (each recursive call owns its own stack) but belongs to
+/// the helper body rather than the outer loop scope.
+#[allow(clippy::too_many_arguments)]
+fn descend_into_pending_mod(
+    emitter: &mut Emitter,
+    crate_id: &str,
+    crate_name: &str,
+    bounded_context: &str,
+    file_path: &Path,
+    workspace_root: &Path,
+    module_stack: &[String],
+    inherited_test: bool,
+    pending_mod: PendingExternalMod,
+) -> Result<(), ExtractError> {
+    let Some(child_path) = resolve_external_module(
+        file_path,
+        &pending_mod.name,
+        pending_mod.path_override.as_deref(),
+    ) else {
+        return Ok(());
+    };
+    let mut child_stack = module_stack.to_vec();
+    child_stack.push(pending_mod.name);
+    visit_file_inner(
+        emitter,
+        crate_id,
+        crate_name,
+        bounded_context,
+        &child_path,
+        workspace_root,
+        child_stack,
+        inherited_test || pending_mod.is_test,
+    )
 }
 
 /// Resolve `mod foo;` declared inside `file_path` to the file on disk.

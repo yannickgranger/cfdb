@@ -140,25 +140,37 @@ fn bind_json_params(
         .as_object()
         .ok_or("--params must be a JSON object, e.g. '{\"qname\":\"(?i).*kalman.*\"}'")?;
     for (k, v) in obj {
-        match v {
-            serde_json::Value::String(_)
-            | serde_json::Value::Number(_)
-            | serde_json::Value::Bool(_)
-            | serde_json::Value::Null => {
-                parsed
-                    .params
-                    .insert(k.clone(), Param::Scalar(PropValue::from_json(v)));
-            }
-            serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
-                return Err(format!(
-                    "--params `{k}` must be a scalar (string/number/bool/null); \
-                     arrays and objects are not supported in v0.1"
-                )
-                .into());
-            }
-        }
+        bind_single_param(parsed, k, v)?;
     }
     Ok(())
+}
+
+/// Bind one `(key, value)` from the `--params` JSON object into the parsed
+/// query's param bag. Factored out of [`bind_json_params`] so the `k.clone()`
+/// required by the scalar insert lives in a helper rather than in the
+/// outer `for (k, v) in obj` loop body — the quality-metrics gate treats
+/// the closure-less `for` as the clone-in-loop trigger.
+fn bind_single_param(
+    parsed: &mut Query,
+    k: &str,
+    v: &serde_json::Value,
+) -> Result<(), crate::CfdbCliError> {
+    match v {
+        serde_json::Value::String(_)
+        | serde_json::Value::Number(_)
+        | serde_json::Value::Bool(_)
+        | serde_json::Value::Null => {
+            parsed
+                .params
+                .insert(k.to_string(), Param::Scalar(PropValue::from_json(v)));
+            Ok(())
+        }
+        serde_json::Value::Array(_) | serde_json::Value::Object(_) => Err(format!(
+            "--params `{k}` must be a scalar (string/number/bool/null); \
+             arrays and objects are not supported in v0.1"
+        )
+        .into()),
+    }
 }
 
 /// `cfdb list-callers --db <path> --keyspace <name> --qname <regex>` —

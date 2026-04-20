@@ -198,9 +198,11 @@ fn load_small_fixture(store: &mut PetgraphStore) {
         .into_iter()
         .map(|fn_| {
             let mut node = Node::new(fn_.id, Label::new(fn_.label));
-            for (k, v) in &fn_.props {
-                node.props.insert(k.clone(), PropValue::from_json(v));
-            }
+            node.props.extend(
+                fn_.props
+                    .iter()
+                    .map(|(k, v)| (k.clone(), PropValue::from_json(v))),
+            );
             node
         })
         .collect();

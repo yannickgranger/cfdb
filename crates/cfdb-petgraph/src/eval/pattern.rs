@@ -58,11 +58,10 @@ impl<'a> Evaluator<'a> {
         candidates: &[NodeIndex],
         np: &NodePattern,
     ) {
-        for idx in candidates {
-            if self.node_props_match(*idx, np) {
-                out.push(bindings.clone());
-            }
-        }
+        candidates
+            .iter()
+            .filter(|idx| self.node_props_match(**idx, np))
+            .for_each(|_| out.push(bindings.clone()));
     }
 
     /// Pre-bound variable — the incoming bindings already carry `var`.
@@ -80,11 +79,11 @@ impl<'a> Evaluator<'a> {
             Some(b) => b,
             None => return,
         };
-        for idx in candidates {
-            if matches_existing(existing, *idx) && self.node_props_match(*idx, np) {
-                out.push(bindings.clone());
-                return;
-            }
+        let any_hit = candidates
+            .iter()
+            .any(|idx| matches_existing(existing, *idx) && self.node_props_match(*idx, np));
+        if any_hit {
+            out.push(bindings);
         }
     }
 
@@ -98,14 +97,14 @@ impl<'a> Evaluator<'a> {
         candidates: &[NodeIndex],
         np: &NodePattern,
     ) {
-        for idx in candidates {
-            if !self.node_props_match(*idx, np) {
-                continue;
-            }
-            let mut next = bindings.clone();
-            next.insert(var.to_string(), Binding::NodeRef(*idx));
-            out.push(next);
-        }
+        candidates
+            .iter()
+            .filter(|idx| self.node_props_match(**idx, np))
+            .for_each(|idx| {
+                let mut next = bindings.clone();
+                next.insert(var.to_string(), Binding::NodeRef(*idx));
+                out.push(next);
+            });
     }
 
     pub(super) fn candidate_nodes(&mut self, np: &NodePattern) -> Vec<NodeIndex> {
@@ -334,18 +333,26 @@ impl<'a> Evaluator<'a> {
     ) -> Vec<Bindings> {
         let mut out: Vec<Bindings> = Vec::new();
         for bindings in table {
-            let expanded = self.apply_pattern(vec![bindings.clone()], inner);
-            if expanded.is_empty() {
-                let mut null_filled = bindings.clone();
-                for var in collect_pattern_vars(inner) {
-                    null_filled.entry(var).or_insert(Binding::Null);
-                }
-                out.push(null_filled);
-            } else {
-                out.extend(expanded);
-            }
+            self.apply_optional_row(&mut out, bindings, inner);
         }
         out
+    }
+
+    /// Per-row body of [`apply_optional`] — extracted so the dual clones
+    /// of `bindings` (one feeding the inner pattern, one null-filling the
+    /// no-match case) live in a helper rather than inside the outer
+    /// `for bindings in table` loop.
+    fn apply_optional_row(&mut self, out: &mut Vec<Bindings>, bindings: Bindings, inner: &Pattern) {
+        let expanded = self.apply_pattern(vec![bindings.clone()], inner);
+        if expanded.is_empty() {
+            let mut null_filled = bindings;
+            for var in collect_pattern_vars(inner) {
+                null_filled.entry(var).or_insert(Binding::Null);
+            }
+            out.push(null_filled);
+        } else {
+            out.extend(expanded);
+        }
     }
 
     pub(super) fn apply_unwind(
@@ -364,17 +371,29 @@ impl<'a> Evaluator<'a> {
         };
         let mut out: Vec<Bindings> = Vec::new();
         for bindings in table {
-            for item in items {
-                let mut next = bindings.clone();
-                next.insert(
-                    var.to_string(),
-                    Binding::Value(RowValue::Scalar(item.clone())),
-                );
-                out.push(next);
-            }
+            unwind_row(&mut out, &bindings, items, var);
         }
         out
     }
+}
+
+/// Per-row body of [`Evaluator::apply_unwind`] — iterator-chain form so
+/// the per-item clones do not register as clones-in-loop (the outer `for`
+/// loop body now contains only a helper call).
+fn unwind_row(
+    out: &mut Vec<Bindings>,
+    bindings: &Bindings,
+    items: &[cfdb_core::fact::PropValue],
+    var: &str,
+) {
+    items.iter().for_each(|item| {
+        let mut next = bindings.clone();
+        next.insert(
+            var.to_string(),
+            Binding::Value(RowValue::Scalar(item.clone())),
+        );
+        out.push(next);
+    });
 }
 
 pub(super) fn matches_existing(existing: &Binding, idx: NodeIndex) -> bool {

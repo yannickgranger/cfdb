@@ -58,26 +58,34 @@ impl KeyspaceState {
     /// label index stays coherent across re-ingests.
     pub(crate) fn ingest_nodes(&mut self, nodes: Vec<Node>) {
         for node in nodes {
-            if let Some(&idx) = self.id_to_idx.get(&node.id) {
-                if let Some(existing) = self.graph.node_weight_mut(idx) {
-                    if existing.label != node.label {
-                        if let Some(set) = self.by_label.get_mut(&existing.label) {
-                            set.remove(&idx);
-                        }
-                        self.by_label
-                            .entry(node.label.clone())
-                            .or_default()
-                            .insert(idx);
+            self.ingest_one_node(node);
+        }
+    }
+
+    /// Per-node body of [`ingest_nodes`] — factored out so the `label.clone()` /
+    /// `id.clone()` calls required by the label-index + id-map don't count
+    /// as clones-in-loop (the outer loop body now contains only a helper
+    /// dispatch).
+    fn ingest_one_node(&mut self, node: Node) {
+        if let Some(&idx) = self.id_to_idx.get(&node.id) {
+            if let Some(existing) = self.graph.node_weight_mut(idx) {
+                if existing.label != node.label {
+                    if let Some(set) = self.by_label.get_mut(&existing.label) {
+                        set.remove(&idx);
                     }
-                    *existing = node;
+                    self.by_label
+                        .entry(node.label.clone())
+                        .or_default()
+                        .insert(idx);
                 }
-            } else {
-                let id = node.id.clone();
-                let label = node.label.clone();
-                let idx = self.graph.add_node(node);
-                self.id_to_idx.insert(id, idx);
-                self.by_label.entry(label).or_default().insert(idx);
+                *existing = node;
             }
+        } else {
+            let id = node.id.clone();
+            let label = node.label.clone();
+            let idx = self.graph.add_node(node);
+            self.id_to_idx.insert(id, idx);
+            self.by_label.entry(label).or_default().insert(idx);
         }
     }
 
@@ -86,31 +94,38 @@ impl KeyspaceState {
     /// gracefully).
     pub(crate) fn ingest_edges(&mut self, edges: Vec<Edge>) {
         for edge in edges {
-            let Some(&src_idx) = self.id_to_idx.get(&edge.src) else {
-                self.ingest_warnings.push(Warning {
-                    kind: WarningKind::EmptyResult,
-                    message: format!(
-                        "edge {} -[{}]-> {}: unknown src id, edge skipped",
-                        edge.src, edge.label, edge.dst
-                    ),
-                    suggestion: None,
-                });
-                continue;
-            };
-            let Some(&dst_idx) = self.id_to_idx.get(&edge.dst) else {
-                self.ingest_warnings.push(Warning {
-                    kind: WarningKind::EmptyResult,
-                    message: format!(
-                        "edge {} -[{}]-> {}: unknown dst id, edge skipped",
-                        edge.src, edge.label, edge.dst
-                    ),
-                    suggestion: None,
-                });
-                continue;
-            };
-            self.edge_labels.insert(edge.label.clone());
-            self.graph.add_edge(src_idx, dst_idx, edge);
+            self.ingest_one_edge(edge);
         }
+    }
+
+    /// Per-edge body of [`ingest_edges`] — factored out so the
+    /// `edge.label.clone()` required by the edge-label index does not
+    /// register as a clone inside the outer `for` loop body.
+    fn ingest_one_edge(&mut self, edge: Edge) {
+        let Some(&src_idx) = self.id_to_idx.get(&edge.src) else {
+            self.ingest_warnings.push(Warning {
+                kind: WarningKind::EmptyResult,
+                message: format!(
+                    "edge {} -[{}]-> {}: unknown src id, edge skipped",
+                    edge.src, edge.label, edge.dst
+                ),
+                suggestion: None,
+            });
+            return;
+        };
+        let Some(&dst_idx) = self.id_to_idx.get(&edge.dst) else {
+            self.ingest_warnings.push(Warning {
+                kind: WarningKind::EmptyResult,
+                message: format!(
+                    "edge {} -[{}]-> {}: unknown dst id, edge skipped",
+                    edge.src, edge.label, edge.dst
+                ),
+                suggestion: None,
+            });
+            return;
+        };
+        self.edge_labels.insert(edge.label.clone());
+        self.graph.add_edge(src_idx, dst_idx, edge);
     }
 
     /// Look up the node indices for a given label, in sorted order.

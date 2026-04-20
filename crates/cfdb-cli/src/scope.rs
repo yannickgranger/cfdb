@@ -71,11 +71,19 @@ pub fn scope(
     }
 
     let (store, ks) = compose::load_store(db, &ks_name)?;
+    validate_context(&store, &ks, context)?;
+    let inventory = build_scope_inventory(&store, &ks, context, &ks_name)?;
+    emit_scope_output(&inventory, output)
+}
 
-    // 1) Validate the context by enumerating `:Context{name}` nodes in the
-    //    keyspace. cfdb-extractor emits one :Context per unique
-    //    bounded_context at extract time (post-#3727 schema bump).
-    let known_contexts = query_known_contexts(&store, &ks)?;
+/// Validate that `context` is one of the `:Context` nodes in the keyspace.
+/// Pulled out of [`scope`] to flatten the outer function's branch count.
+fn validate_context(
+    store: &cfdb_petgraph::PetgraphStore,
+    ks: &cfdb_core::schema::Keyspace,
+    context: &str,
+) -> Result<(), crate::CfdbCliError> {
+    let known_contexts = query_known_contexts(store, ks)?;
     if !known_contexts.iter().any(|c| c == context) {
         return Err(format!(
             "unknown context `{context}`; known contexts: [{}]",
@@ -83,15 +91,42 @@ pub fn scope(
         )
         .into());
     }
+    Ok(())
+}
 
-    // 2) Pull every :Item in the bounded context. Reuse the typed composer
-    //    from #3728 (pattern + no-kinds + no-grouping) and filter in Rust on
-    //    `bounded_context` since the composer signature is name-pattern +
-    //    kinds only. The keyspace-wide scan is acceptable in v0.1 — the
-    //    composer returns flat rows with the 7 AC columns and we project
-    //    Finding directly from them.
+/// Assemble the full `ScopeInventory` for the requested context — items,
+/// canonical candidates, warnings. Pulled out of [`scope`] so the sequence
+/// of "query → filter → attach warnings" lives in a dedicated body with
+/// its own complexity budget.
+fn build_scope_inventory(
+    store: &cfdb_petgraph::PetgraphStore,
+    ks: &cfdb_core::schema::Keyspace,
+    context: &str,
+    ks_name: &str,
+) -> Result<ScopeInventory, crate::CfdbCliError> {
+    let (findings_in_context, loc_per_crate) = query_findings_in_context(store, ks, context)?;
+
+    let mut inventory = ScopeInventory::new(context, ks_name);
+    inventory.loc_per_crate = loc_per_crate;
+    let _ = findings_in_context; // reserved for future inventory population — see §A3.3
+
+    inventory.canonical_candidates = query_canonical_candidates(store, ks, context)?;
+    inventory.canonical_candidates.sort();
+
+    attach_scope_warnings(&mut inventory);
+    Ok(inventory)
+}
+
+/// Pull the context-filtered inventory rows + derive the per-crate LOC
+/// approximation. Factored out of [`build_scope_inventory`] to keep each
+/// helper under the cognitive-complexity ceiling.
+fn query_findings_in_context(
+    store: &cfdb_petgraph::PetgraphStore,
+    ks: &cfdb_core::schema::Keyspace,
+    context: &str,
+) -> Result<(Vec<Finding>, std::collections::BTreeMap<String, u64>), crate::CfdbCliError> {
     let inventory_query = compose_list_items_matching(".*", None, false);
-    let inventory_result = store.execute(&ks, &inventory_query)?;
+    let inventory_result = store.execute(ks, &inventory_query)?;
     let mut findings_in_context: Vec<Finding> = Vec::with_capacity(inventory_result.rows.len());
     let mut loc_per_crate: std::collections::BTreeMap<String, u64> =
         std::collections::BTreeMap::new();
@@ -106,44 +141,42 @@ pub fn scope(
         }
     }
     findings_in_context.sort();
+    Ok((findings_in_context, loc_per_crate))
+}
 
-    // 3) Assemble the envelope. `keyspace_sha` is the keyspace name for
-    //    now — the extract pipeline uses the keyspace name as its SHA
-    //    anchor (sha is populated by Phase B snapshot wiring).
-    let mut inventory = ScopeInventory::new(context, &ks_name);
-    inventory.loc_per_crate = loc_per_crate;
-
-    // 4) canonical_candidates from hsb-by-name rule, filtered to the
-    //    requested bounded context (the rule itself is context-agnostic —
-    //    we inspect each row's crates and include the candidate only if
-    //    at least one crate belongs to the current context by cross-
-    //    referencing the keyspace inventory).
+/// Run the embedded `hsb-by-name` rule and project each matching row into
+/// a canonical candidate if at least one crate belongs to the context.
+fn query_canonical_candidates(
+    store: &cfdb_petgraph::PetgraphStore,
+    ks: &cfdb_core::schema::Keyspace,
+    context: &str,
+) -> Result<Vec<CanonicalCandidate>, crate::CfdbCliError> {
     let hsb_parsed = parse(HSB_BY_NAME_CYPHER)
         .map_err(|e| format!("parse error in embedded hsb-by-name template: {e}"))?;
-    let hsb_result = store.execute(&ks, &hsb_parsed)?;
-    let crates_in_context = crates_for_context(&store, &ks, context)?;
-    for row in &hsb_result.rows {
-        if let Some(candidate) = canonical_candidate_from_row(row, &crates_in_context) {
-            inventory.canonical_candidates.push(candidate);
-        }
-    }
-    inventory.canonical_candidates.sort();
+    let hsb_result = store.execute(ks, &hsb_parsed)?;
+    let crates_in_context = crates_for_context(store, ks, context)?;
+    Ok(hsb_result
+        .rows
+        .iter()
+        .filter_map(|row| canonical_candidate_from_row(row, &crates_in_context))
+        .collect())
+}
 
-    // 5) Emit per-class warnings for every bucket whose v0.1 classifier
-    //    is unavailable. Order mirrors DebtClass::variants() for G1
-    //    determinism.
-    for class in DebtClass::variants() {
-        let note = class_v01_unavailable_note(*class);
-        if let Some(message) = note {
+/// Attach the full warning set for a `cfdb scope` inventory — per-class
+/// unavailability notes, the reachability-map HIR caveat, and the
+/// loc-per-crate approximation note. Split out of [`build_scope_inventory`]
+/// to keep the assembly body flat.
+fn attach_scope_warnings(inventory: &mut ScopeInventory) {
+    DebtClass::variants()
+        .iter()
+        .filter_map(|class| class_v01_unavailable_note(*class))
+        .for_each(|message| {
             inventory.warnings.push(Warning {
                 kind: WarningKind::EmptyResult,
                 message,
                 suggestion: None,
             });
-        }
-    }
-
-    // 6) reachability_map HIR degradation warning.
+        });
     inventory.warnings.push(Warning {
         kind: WarningKind::EmptyResult,
         message: "`reachability_map` is `null` in v0.1 — CALLS / :CallSite edges \
@@ -151,10 +184,6 @@ pub fn scope(
             .to_string(),
         suggestion: None,
     });
-
-    // 7) loc_per_crate approximation warning — only emit when we actually
-    //    populated counts (silence when the context has no items, which is
-    //    already signalled via empty-class warnings).
     if !inventory.loc_per_crate.is_empty() {
         inventory.warnings.push(Warning {
             kind: WarningKind::EmptyResult,
@@ -164,8 +193,14 @@ pub fn scope(
             suggestion: None,
         });
     }
+}
 
-    let json = serde_json::to_string_pretty(&inventory)?;
+/// Serialise the inventory and write it to `output` (or stdout if `None`).
+fn emit_scope_output(
+    inventory: &ScopeInventory,
+    output: Option<&Path>,
+) -> Result<(), crate::CfdbCliError> {
+    let json = serde_json::to_string_pretty(inventory)?;
     match output {
         Some(path) => {
             if let Some(parent) = path.parent() {

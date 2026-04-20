@@ -3,7 +3,7 @@
 //! Ordering defaults to row-sort-key when no `ORDER BY` is given; this is the
 //! deterministic output contract the Gate 3 spike relied on.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use cfdb_core::fact::PropValue;
 use cfdb_core::query::{Expr, ProjectionValue, ReturnClause};
@@ -28,26 +28,7 @@ impl<'a> Evaluator<'a> {
         } else {
             table
                 .iter()
-                .map(|b| {
-                    let mut row: Row = BTreeMap::new();
-                    for proj in &ret.projections {
-                        let alias = projection_alias(proj);
-                        if let ProjectionValue::Expr(e) = &proj.value {
-                            // Bare `Var` references with `RowValue::List` bindings
-                            // (produced by a prior WITH `collect()` aggregation) must
-                            // be surfaced unchanged — `eval_expr` only returns scalars.
-                            if let Expr::Var(name) = e {
-                                if let Some(Binding::Value(v @ RowValue::List(_))) = b.get(name) {
-                                    row.insert(alias, v.clone());
-                                    continue;
-                                }
-                            }
-                            let value = self.eval_expr(e, b).unwrap_or(PropValue::Null);
-                            row.insert(alias, RowValue::Scalar(value));
-                        }
-                    }
-                    row
-                })
+                .map(|b| self.expr_row_for_bindings(b, &ret.projections))
                 .collect()
         };
 
@@ -92,23 +73,64 @@ impl<'a> Evaluator<'a> {
 
         rows
     }
+
+    /// Build one row by evaluating each projection expression against the
+    /// given bindings. Extracted from the `map(|b| ...)` closure in
+    /// [`apply_return`] so the per-projection `v.clone()` does not sit
+    /// inside a `for proj in projections` loop (clones-in-loops gate).
+    fn expr_row_for_bindings(
+        &self,
+        b: &Bindings,
+        projections: &[cfdb_core::query::Projection],
+    ) -> Row {
+        projections
+            .iter()
+            .filter_map(|proj| self.project_expr_for_row(b, proj))
+            .collect()
+    }
+
+    /// Evaluate a single `Expr`-shaped projection for [`expr_row_for_bindings`].
+    /// Returns `None` for aggregation projections (the caller routes those
+    /// through [`apply_return`]'s group-and-aggregate branch).
+    fn project_expr_for_row(
+        &self,
+        b: &Bindings,
+        proj: &cfdb_core::query::Projection,
+    ) -> Option<(String, RowValue)> {
+        let alias = projection_alias(proj);
+        let ProjectionValue::Expr(e) = &proj.value else {
+            return None;
+        };
+        // Bare `Var` references with `RowValue::List` bindings (produced
+        // by a prior WITH `collect()` aggregation) must be surfaced
+        // unchanged — `eval_expr` only returns scalars.
+        if let Expr::Var(name) = e {
+            if let Some(Binding::Value(v @ RowValue::List(_))) = b.get(name) {
+                return Some((alias, v.clone()));
+            }
+        }
+        let value = self.eval_expr(e, b).unwrap_or(PropValue::Null);
+        Some((alias, RowValue::Scalar(value)))
+    }
 }
 
 fn bindings_to_row(bindings: &Bindings, projections: &[cfdb_core::query::Projection]) -> Row {
-    let mut row: Row = BTreeMap::new();
-    for proj in projections {
-        let alias = projection_alias(proj);
-        match bindings.get(&alias) {
-            Some(Binding::Value(v)) => {
-                row.insert(alias, v.clone());
-            }
-            Some(Binding::NodeRef(_)) => {
-                row.insert(alias, RowValue::Scalar(PropValue::Null));
-            }
-            Some(Binding::Null) | None => {
-                row.insert(alias, RowValue::Scalar(PropValue::Null));
-            }
-        }
+    projections
+        .iter()
+        .map(|proj| {
+            let alias = projection_alias(proj);
+            let value = row_value_for_binding(bindings.get(&alias));
+            (alias, value)
+        })
+        .collect()
+}
+
+/// Project one [`Binding`] into its serialised [`RowValue`]. Extracted
+/// from the projection loop in [`bindings_to_row`] so the scalar clone
+/// lands in a helper call rather than inside a `for` body.
+fn row_value_for_binding(binding: Option<&Binding>) -> RowValue {
+    match binding {
+        Some(Binding::Value(v)) => v.clone(),
+        _ => RowValue::Scalar(PropValue::Null),
     }
-    row
 }

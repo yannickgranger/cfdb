@@ -141,8 +141,11 @@ fn walk_file<DB>(
 ) where
     DB: HirDatabase + Sized,
 {
-    for descendant in source_file.syntax().descendants() {
-        if let Some(method_call) = ast::MethodCallExpr::cast(descendant.clone()) {
+    source_file
+        .syntax()
+        .descendants()
+        .filter_map(ast::MethodCallExpr::cast)
+        .for_each(|method_call| {
             if let Some(callee_fn) = sema.resolve_method_call(&method_call) {
                 emit_resolved_call(
                     sema,
@@ -154,8 +157,7 @@ fn walk_file<DB>(
                     edges,
                 );
             }
-        }
-    }
+        });
 }
 
 /// Emit the three facts for one resolved method call.
@@ -237,13 +239,9 @@ fn enclosing_fn_qname<DB>(sema: &Semantics<'_, DB>, node: &SyntaxNode) -> Option
 where
     DB: HirDatabase + Sized,
 {
-    for ancestor in node.ancestors() {
-        if let Some(fn_ast) = ast::Fn::cast(ancestor.clone()) {
-            let fn_def = sema.to_def(&fn_ast)?;
-            return Some(function_qname(sema, fn_def));
-        }
-    }
-    None
+    let fn_ast = node.ancestors().find_map(ast::Fn::cast)?;
+    let fn_def = sema.to_def(&fn_ast)?;
+    Some(function_qname(sema, fn_def))
 }
 
 /// Derive an `item:<qname>`-compatible qname for a `hir::Function`

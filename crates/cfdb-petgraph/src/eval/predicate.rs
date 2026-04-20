@@ -110,61 +110,61 @@ impl<'a> Evaluator<'a> {
 
     fn eval_call(&self, name: &str, args: &[Expr], bindings: &Bindings) -> Option<PropValue> {
         match name {
-            "regexp_extract" => {
-                let s = self.eval_expr(args.first()?, bindings)?;
-                let pat = self.eval_expr(args.get(1)?, bindings)?;
-                match (s, pat) {
-                    (PropValue::Str(text), PropValue::Str(pattern)) => {
-                        Regex::new(&pattern).ok().and_then(|re| {
-                            re.find(&text)
-                                .map(|m| PropValue::Str(m.as_str().to_string()))
-                        })
-                    }
-                    _ => None,
-                }
-            }
-            "size" => {
-                let v = self.eval_expr(args.first()?, bindings)?;
-                match v {
-                    PropValue::Str(s) => Some(PropValue::Int(s.chars().count() as i64)),
-                    _ => None,
-                }
-            }
-            "starts_with" => {
-                let s = self.eval_expr(args.first()?, bindings)?;
-                let prefix = self.eval_expr(args.get(1)?, bindings)?;
-                match (s, prefix) {
-                    (PropValue::Str(text), PropValue::Str(p)) => {
-                        Some(PropValue::Bool(text.starts_with(&p)))
-                    }
-                    _ => None,
-                }
-            }
-            "ends_with" => {
-                let s = self.eval_expr(args.first()?, bindings)?;
-                let suffix = self.eval_expr(args.get(1)?, bindings)?;
-                match (s, suffix) {
-                    (PropValue::Str(text), PropValue::Str(p)) => {
-                        Some(PropValue::Bool(text.ends_with(&p)))
-                    }
-                    _ => None,
-                }
-            }
-            "last_segment" => {
-                let s = self.eval_expr(args.first()?, bindings)?;
-                match s {
-                    PropValue::Str(text) => {
-                        let seg = match text.rfind(':') {
-                            Some(i) => text[i + 1..].to_string(),
-                            None => text,
-                        };
-                        Some(PropValue::Str(seg))
-                    }
-                    _ => None,
-                }
-            }
+            "regexp_extract" => self.call_regexp_extract(args, bindings),
+            "size" => self.call_size(args, bindings),
+            "starts_with" => self.call_starts_with(args, bindings),
+            "ends_with" => self.call_ends_with(args, bindings),
+            "last_segment" => self.call_last_segment(args, bindings),
             _ => None,
         }
+    }
+
+    fn call_regexp_extract(&self, args: &[Expr], bindings: &Bindings) -> Option<PropValue> {
+        let s = self.eval_expr(args.first()?, bindings)?;
+        let pat = self.eval_expr(args.get(1)?, bindings)?;
+        let (PropValue::Str(text), PropValue::Str(pattern)) = (s, pat) else {
+            return None;
+        };
+        Regex::new(&pattern).ok().and_then(|re| {
+            re.find(&text)
+                .map(|m| PropValue::Str(m.as_str().to_string()))
+        })
+    }
+
+    fn call_size(&self, args: &[Expr], bindings: &Bindings) -> Option<PropValue> {
+        let PropValue::Str(s) = self.eval_expr(args.first()?, bindings)? else {
+            return None;
+        };
+        Some(PropValue::Int(s.chars().count() as i64))
+    }
+
+    fn call_starts_with(&self, args: &[Expr], bindings: &Bindings) -> Option<PropValue> {
+        let s = self.eval_expr(args.first()?, bindings)?;
+        let prefix = self.eval_expr(args.get(1)?, bindings)?;
+        let (PropValue::Str(text), PropValue::Str(p)) = (s, prefix) else {
+            return None;
+        };
+        Some(PropValue::Bool(text.starts_with(&p)))
+    }
+
+    fn call_ends_with(&self, args: &[Expr], bindings: &Bindings) -> Option<PropValue> {
+        let s = self.eval_expr(args.first()?, bindings)?;
+        let suffix = self.eval_expr(args.get(1)?, bindings)?;
+        let (PropValue::Str(text), PropValue::Str(p)) = (s, suffix) else {
+            return None;
+        };
+        Some(PropValue::Bool(text.ends_with(&p)))
+    }
+
+    fn call_last_segment(&self, args: &[Expr], bindings: &Bindings) -> Option<PropValue> {
+        let PropValue::Str(text) = self.eval_expr(args.first()?, bindings)? else {
+            return None;
+        };
+        let seg = match text.rfind(':') {
+            Some(i) => text[i + 1..].to_string(),
+            None => text,
+        };
+        Some(PropValue::Str(seg))
     }
 }
 
