@@ -444,19 +444,13 @@ fn run(cli: Cli) -> Result<(), CfdbCliError> {
             format,
         } => export(db, keyspace, &format)?,
         Command::ListKeyspaces { db } => list_keyspaces(db)?,
-        Command::EnrichGitHistory { db, keyspace } => enrich(db, keyspace, EnrichVerb::GitHistory)?,
-        Command::EnrichRfcDocs { db, keyspace } => enrich(db, keyspace, EnrichVerb::RfcDocs)?,
-        Command::EnrichDeprecation { db, keyspace } => {
-            enrich(db, keyspace, EnrichVerb::Deprecation)?
-        }
-        Command::EnrichBoundedContext { db, keyspace } => {
-            enrich(db, keyspace, EnrichVerb::BoundedContext)?
-        }
-        Command::EnrichConcepts { db, keyspace } => enrich(db, keyspace, EnrichVerb::Concepts)?,
-        Command::EnrichReachability { db, keyspace } => {
-            enrich(db, keyspace, EnrichVerb::Reachability)?
-        }
-        Command::EnrichMetrics { db, keyspace } => enrich(db, keyspace, EnrichVerb::Metrics)?,
+        cmd @ (Command::EnrichGitHistory { .. }
+        | Command::EnrichRfcDocs { .. }
+        | Command::EnrichDeprecation { .. }
+        | Command::EnrichBoundedContext { .. }
+        | Command::EnrichConcepts { .. }
+        | Command::EnrichReachability { .. }
+        | Command::EnrichMetrics { .. }) => dispatch_enrich(cmd)?,
         Command::FindCanonical {
             db,
             keyspace,
@@ -506,4 +500,29 @@ fn run(cli: Cli) -> Result<(), CfdbCliError> {
         Command::SchemaDescribe => schema_describe_cmd()?,
     }
     Ok(())
+}
+
+/// Dispatch helper for the seven `Command::Enrich*` variants. Pulled out of
+/// [`run`] so each new enrichment verb does not balloon `run`'s cyclomatic
+/// complexity — the top-level match collapses all seven arms to a single
+/// alternation arm that delegates here.
+fn dispatch_enrich(cmd: Command) -> Result<(), CfdbCliError> {
+    let (db, keyspace, verb) = match cmd {
+        Command::EnrichGitHistory { db, keyspace } => (db, keyspace, EnrichVerb::GitHistory),
+        Command::EnrichRfcDocs { db, keyspace } => (db, keyspace, EnrichVerb::RfcDocs),
+        Command::EnrichDeprecation { db, keyspace } => (db, keyspace, EnrichVerb::Deprecation),
+        Command::EnrichBoundedContext { db, keyspace } => {
+            (db, keyspace, EnrichVerb::BoundedContext)
+        }
+        Command::EnrichConcepts { db, keyspace } => (db, keyspace, EnrichVerb::Concepts),
+        Command::EnrichReachability { db, keyspace } => (db, keyspace, EnrichVerb::Reachability),
+        Command::EnrichMetrics { db, keyspace } => (db, keyspace, EnrichVerb::Metrics),
+        other => {
+            // Unreachable — the caller pattern-matches on the seven enrich
+            // variants before calling us. An unexpected command here is a
+            // dispatch-site bug, not an end-user error.
+            unreachable!("dispatch_enrich called with non-enrich command: {other:?}")
+        }
+    };
+    enrich(db, keyspace, verb)
 }
