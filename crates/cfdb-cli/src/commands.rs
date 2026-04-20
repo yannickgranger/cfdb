@@ -4,6 +4,7 @@
 //! surface preserved: every item here is re-exported from the crate root.
 
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use cfdb_core::schema::Keyspace;
 use cfdb_core::store::StoreBackend;
@@ -27,18 +28,28 @@ pub fn extract(
     db: PathBuf,
     keyspace: Option<String>,
     hir: bool,
+    rev: Option<String>,
 ) -> Result<(), crate::CfdbCliError> {
-    let ks_name = keyspace.unwrap_or_else(|| {
-        workspace
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or("default")
-            .to_string()
-    });
+    match rev {
+        None => extract_at_path(&workspace, &db, keyspace, hir),
+        Some(rev) => extract_at_rev(&workspace, &rev, &db, keyspace, hir),
+    }
+}
+
+/// Extract the current working tree at `workspace` into a keyspace on
+/// disk. This is the v0.1 behaviour preserved verbatim — `extract`
+/// dispatches here when `--rev` is absent.
+fn extract_at_path(
+    workspace: &Path,
+    db: &Path,
+    keyspace: Option<String>,
+    hir: bool,
+) -> Result<(), crate::CfdbCliError> {
+    let ks_name = keyspace.unwrap_or_else(|| workspace_basename(workspace));
     let ks = Keyspace::new(&ks_name);
 
     eprintln!("extract: walking {}", workspace.display());
-    let (nodes, edges) = cfdb_extractor::extract_workspace(&workspace)?;
+    let (nodes, edges) = cfdb_extractor::extract_workspace(workspace)?;
     eprintln!("extract: {} nodes, {} edges", nodes.len(), edges.len());
 
     let mut store = compose::empty_store();
@@ -46,12 +57,174 @@ pub fn extract(
     store.ingest_edges(&ks, edges)?;
 
     if hir {
-        extract_hir(&mut store, &ks, &workspace)?;
+        extract_hir(&mut store, &ks, workspace)?;
     }
 
-    let path = compose::save_store(&store, &ks, &db)?;
+    let path = compose::save_store(&store, &ks, db)?;
     eprintln!("extract: saved keyspace `{ks_name}` to {}", path.display());
     Ok(())
+}
+
+/// Extract against a specific git revision (commit SHA / tag / branch).
+/// `repo` MUST be a git repository root; a temporary detached worktree
+/// is created at `<rev>`, extraction runs against that tmp path, and
+/// the worktree is removed afterwards.
+///
+/// Default keyspace when none is explicitly provided is the short (12-
+/// char) `<rev>` — keeps "extract --rev abc123 --rev def456" producing
+/// distinct keyspaces that a later `cfdb diff --a <ks-a> --b <ks-b>`
+/// can consume.
+fn extract_at_rev(
+    repo: &Path,
+    rev: &str,
+    db: &Path,
+    keyspace: Option<String>,
+    hir: bool,
+) -> Result<(), crate::CfdbCliError> {
+    if !repo.join(".git").exists() && !repo.join(".git").is_file() {
+        return Err(crate::CfdbCliError::Usage(format!(
+            "--rev requires --workspace to point at a git repository root (no .git found under {})",
+            repo.display()
+        )));
+    }
+    let ks_name = keyspace.unwrap_or_else(|| short_rev(rev));
+    let tmp = tempfile::tempdir()?;
+    // `git worktree add` creates the target dir; pass a sub-path so the
+    // tempdir itself stays empty and can be dropped cleanly.
+    let worktree_path = tmp.path().join("worktree");
+    let worktree_guard = GitWorktree::add(repo, &worktree_path, rev)?;
+
+    eprintln!(
+        "extract --rev {rev}: walking worktree {}",
+        worktree_guard.path().display()
+    );
+
+    // Run the normal extract against the temp worktree. If it fails, the
+    // guard's Drop still removes the worktree.
+    let result = extract_at_path(worktree_guard.path(), db, Some(ks_name), hir);
+
+    // Explicit remove so we surface removal errors rather than swallowing
+    // them in Drop. If removal fails, we still return the extract result —
+    // leaked worktrees are recoverable (`git worktree prune`).
+    worktree_guard.remove_soft_log(repo);
+    result
+}
+
+/// Compute the default keyspace name when `--rev` is given without
+/// `--keyspace`. Short SHAs are truncated to 12 chars so keyspace files
+/// land with a stable short name; non-SHA revs (tags/branches) are used
+/// verbatim after path-unsafe char stripping.
+fn short_rev(rev: &str) -> String {
+    if rev.len() > 12 && rev.chars().all(|c| c.is_ascii_hexdigit()) {
+        rev[..12].to_string()
+    } else {
+        rev.replace(['/', ' ', '\t'], "_")
+    }
+}
+
+/// Default keyspace name from `--workspace` basename. Extracted so the
+/// `--rev` + `--workspace` paths share nothing but can both call this when
+/// a keyspace default is needed.
+fn workspace_basename(workspace: &Path) -> String {
+    workspace
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("default")
+        .to_string()
+}
+
+/// RAII guard around `git worktree add ... <path> <rev>`. The `Drop` impl
+/// best-effort-removes the worktree so panics during extraction still
+/// clean up. Successful returns call `remove_soft_log` explicitly so
+/// removal errors surface.
+struct GitWorktree {
+    path: PathBuf,
+    removed: bool,
+}
+
+impl GitWorktree {
+    fn add(repo: &Path, path: &Path, rev: &str) -> Result<Self, crate::CfdbCliError> {
+        let status = Command::new("git")
+            .current_dir(repo)
+            .args(["worktree", "add", "--detach", "--quiet"])
+            .arg(path)
+            .arg(rev)
+            .status()?;
+        if !status.success() {
+            return Err(crate::CfdbCliError::Usage(format!(
+                "git worktree add --detach {} {}: exit {status}",
+                path.display(),
+                rev
+            )));
+        }
+        Ok(GitWorktree {
+            path: path.to_path_buf(),
+            removed: false,
+        })
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Remove the worktree via `git worktree remove --force`. Logs on
+    /// failure but never panics; the tempdir-based parent will clean up
+    /// the orphan files even if git's internal state is off.
+    fn remove_soft_log(mut self, repo: &Path) {
+        if !self.removed {
+            let _ = Command::new("git")
+                .current_dir(repo)
+                .args(["worktree", "remove", "--force"])
+                .arg(&self.path)
+                .status();
+            self.removed = true;
+        }
+    }
+}
+
+impl Drop for GitWorktree {
+    fn drop(&mut self) {
+        if !self.removed {
+            // Best-effort cleanup — do not panic from Drop.
+            let _ = Command::new("git")
+                .args(["worktree", "remove", "--force"])
+                .arg(&self.path)
+                .status();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn short_rev_truncates_long_sha() {
+        assert_eq!(
+            short_rev("abcdef0123456789abcdef0123456789abcdef01"),
+            "abcdef012345"
+        );
+    }
+
+    #[test]
+    fn short_rev_preserves_short_sha_or_branch_name() {
+        assert_eq!(short_rev("abc123"), "abc123");
+        assert_eq!(short_rev("main"), "main");
+        assert_eq!(short_rev("v0.2.3"), "v0.2.3");
+    }
+
+    #[test]
+    fn short_rev_sanitises_path_unsafe_chars() {
+        assert_eq!(short_rev("feature/new-thing"), "feature_new-thing");
+        assert_eq!(short_rev("release candidate"), "release_candidate");
+    }
+
+    #[test]
+    fn short_rev_keeps_non_hex_long_names_verbatim() {
+        // A tag like `v0.1.0-beta2` is longer than 12 chars but not
+        // hex-only — should be kept as-is (not truncated).
+        assert_eq!(short_rev("v0.1.0-beta2"), "v0.1.0-beta2");
+    }
 }
 
 /// Run the HIR pipeline when the `hir` feature is compiled in. The

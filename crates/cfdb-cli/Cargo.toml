@@ -21,6 +21,11 @@ cfdb-extractor = { path = "../cfdb-extractor" }
 clap.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+# `cfdb extract --rev <sha>` (issue #37 / slice `--rev`) creates a
+# temporary git worktree to extract against an arbitrary commit.
+# `tempfile` is stdlib-adjacent and already pulled in via `dev-dependencies`
+# of neighbouring crates; promoting to a runtime dep here costs nothing.
+tempfile.workspace = true
 
 # Optional HIR pipeline (Issue #86 / slice 4). Gated behind the
 # `hir` feature so default builds do NOT pay the 90-150s `ra-ap-*`
@@ -40,5 +45,4 @@ hir = ["dep:cfdb-hir-extractor", "dep:cfdb-hir-petgraph-adapter"]
 git-enrich = ["cfdb-petgraph/git-enrich"]
 
 [dev-dependencies]
-tempfile.workspace = true
 assert_cmd = "2"
