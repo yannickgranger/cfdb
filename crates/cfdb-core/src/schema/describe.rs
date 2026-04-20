@@ -3,7 +3,7 @@
 //! RFC §6A.1 / PLAN-v1 §6.1. Deterministic and byte-stable per build (G1).
 
 use super::descriptors::{
-    attr, EdgeLabelDescriptor, NodeLabelDescriptor, Provenance, SchemaDescribe,
+    attr, AttributeDescriptor, EdgeLabelDescriptor, NodeLabelDescriptor, Provenance, SchemaDescribe,
 };
 use super::labels::{EdgeLabel, Label, SchemaVersion};
 
@@ -115,39 +115,74 @@ fn file_node_descriptor() -> NodeLabelDescriptor {
 }
 
 fn item_node_descriptor() -> NodeLabelDescriptor {
-    use Provenance::{EnrichGitHistory, EnrichMetrics, EnrichReachability, Extractor};
+    let mut attributes = item_attrs_extractor();
+    attributes.extend(item_attrs_enrich_metrics());
+    attributes.extend(item_attrs_enrich_git_history());
+    attributes.extend(item_attrs_enrich_reachability());
+    attributes.sort_by(|a, b| a.name.cmp(&b.name));
     NodeLabelDescriptor {
         label: Label::new(Label::ITEM),
         description: "A top-level `pub`/`pub(crate)` item — struct, enum, trait, impl, fn, const, static, or type alias.".into(),
-        attributes: vec![
-            attr("bounded_context", "string", "Bounded context the containing crate belongs to — derived at extraction time from the crate-prefix heuristic with optional `.cfdb/concepts/<name>.toml` overrides (council-cfdb-wiring §B.1.2).", Extractor),
-            attr("crate", "string", "Containing crate name.", Extractor),
-            attr("cyclomatic", "int", "Cyclomatic complexity (fn items only).", EnrichMetrics),
-            attr("deprecation_since", "string?", "Version string from `#[deprecated(since = \"X.Y.Z\")]`; `None` when the attribute is bare or absent. Extractor-time per RFC addendum §A2.2 row 3 (`#[deprecated]` is a syntactic fact and the AST walker already visits attributes). Populated by slice 43-C (issue #106). Reserved in slice 43-A; descriptor lands before any data writes.", Extractor),
-            attr("doc_text", "string?", "Raw rustdoc comment text attached to the item.", Extractor),
-            attr("dup_cluster_id", "string?", "Structural-duplicate cluster id (only set when enrich_metrics has clustered this item).", EnrichMetrics),
-            attr("file", "string", "Source file path relative to workspace root.", Extractor),
-            attr("git_commit_count", "int?", "Number of git commits touching the defining file. Written by `enrich_git_history()` (RFC addendum §A2.2 row 1). Populated by slice 43-B (issue #105) behind the `git-enrich` feature flag; reserved in slice 43-A.", EnrichGitHistory),
-            attr("git_last_author", "string?", "Committer email of the most recent commit touching the defining file. Written by `enrich_git_history()`. Populated by slice 43-B.", EnrichGitHistory),
-            attr("git_last_commit_unix_ts", "int?", "Unix epoch seconds (i64) of the most recent commit touching the defining file. Stored as an absolute timestamp rather than a calendar-relative age — clean-arch B2: `git_age_days` computed at enrichment time would violate G1 byte-stability across calendar days. The Stage-2 classifier Cypher computes `age_delta` from this timestamp at query time.", EnrichGitHistory),
-            attr("impl_target", "string?", "Normalised target type of an impl block (e.g. `Vec` for `impl<T> Foo for Vec<T>`). Only emitted on `:Item { kind: \"impl_block\" }` nodes — absent on all other item kinds. SchemaVersion V0_2_2+ (#42).", Extractor),
-            attr("impl_trait", "string?", "Rendered trait path for a trait-impl block (e.g. `Display`, `cfdb_core::StoreBackend`). Only emitted on `:Item { kind: \"impl_block\" }` nodes AND only when the impl has a trait (inherent `impl Foo {}` emits no `impl_trait` prop). The `IMPLEMENTS` edge encodes the same information structurally when the trait :Item is resolvable within the walked workspace; cross-crate re-exports that syn cannot follow emit the prop but drop the edge (HIR-based resolution is a follow-up slice). SchemaVersion V0_2_2+ (#42).", Extractor),
-            attr("is_deprecated", "bool", "True when the item carries a `#[deprecated]` attribute (any form — bare, `note =`, or `since =`). Extractor-time per RFC addendum §A2.2 row 3. Populated by slice 43-C (issue #106); reserved in slice 43-A.", Extractor),
-            attr("is_test", "bool", "True when the item is under a `#[cfg(test)]` module or directly annotated `#[test]` (fn items only) (council-cfdb-wiring §B.1.1).", Extractor),
-            attr("kind", "enum", "Item kind: `Struct`, `Enum`, `Trait`, `Impl`, `Fn`, `Const`, `TypeAlias`.", Extractor),
-            attr("line", "int", "1-based line number of the item's first token.", Extractor),
-            attr("module_qpath", "string", "Fully-qualified path of the enclosing module.", Extractor),
-            attr("name", "string", "Unqualified item name.", Extractor),
-            attr("qname", "string", "Fully-qualified name (`crate::module::Item`).", Extractor),
-            attr("reachable_entry_count", "int?", "Number of distinct `:EntryPoint` nodes reaching this item via `CALLS*` edges. Written by `enrich_reachability()` (RFC addendum §A2.2 row 5). `0` for items not reached from any entry point. Populated by slice 43-G (issue #110) — consumes `:EntryPoint` nodes from `cfdb-hir-extractor`. Reserved in slice 43-A.", EnrichReachability),
-            attr("reachable_from_entry", "bool?", "True when at least one `:EntryPoint` reaches this item via `CALLS*`. Written by `enrich_reachability()`. When the keyspace has zero `:EntryPoint` nodes the pass returns `ran: false` rather than silently marking all items unreachable (clean-arch B3 degraded path). Populated by slice 43-G.", EnrichReachability),
-            attr("cfg_gate", "string?", "Feature-only `#[cfg(...)]` expression captured on the item: `feature = \"x\"`, `all(...)`, `any(...)`, `not(...)`. Absent when the item has no `cfg(feature = ...)` or carries a non-feature cfg predicate. SchemaVersion v0.1.2+ only.", Extractor),
-            attr("signature_hash", "string", "Stable hash of the item's normalized signature.", Extractor),
-            attr("test_coverage", "float", "Covered-line ratio in [0.0, 1.0] (fn items only).", EnrichMetrics),
-            attr("unwrap_count", "int", "Count of panic-on-None / panic-on-Err method calls (unwrap / expect) inside the item body.", EnrichMetrics),
-            attr("visibility", "enum", "Rust visibility: `pub`, `pub(crate)`, `pub(super)`, `private`, or `pub(in <path>)`. SchemaVersion v0.1.1+ only — legacy V0_1_0 graphs do not carry this attribute.", Extractor),
-        ],
+        attributes,
     }
+}
+
+/// Extractor-provenance attributes on `:Item` — syntactic facts the
+/// AST walker populates directly.
+fn item_attrs_extractor() -> Vec<AttributeDescriptor> {
+    use Provenance::Extractor;
+    vec![
+        attr("bounded_context", "string", "Bounded context the containing crate belongs to — derived at extraction time from the crate-prefix heuristic with optional `.cfdb/concepts/<name>.toml` overrides (council-cfdb-wiring §B.1.2).", Extractor),
+        attr("cfg_gate", "string?", "Feature-only `#[cfg(...)]` expression captured on the item: `feature = \"x\"`, `all(...)`, `any(...)`, `not(...)`. Absent when the item has no `cfg(feature = ...)` or carries a non-feature cfg predicate. SchemaVersion v0.1.2+ only.", Extractor),
+        attr("crate", "string", "Containing crate name.", Extractor),
+        attr("deprecation_since", "string?", "Version string from `#[deprecated(since = \"X.Y.Z\")]`; `None` when the attribute is bare or absent. Extractor-time per RFC addendum §A2.2 row 3 (`#[deprecated]` is a syntactic fact and the AST walker already visits attributes). Populated by slice 43-C (issue #106). Reserved in slice 43-A; descriptor lands before any data writes.", Extractor),
+        attr("doc_text", "string?", "Raw rustdoc comment text attached to the item.", Extractor),
+        attr("file", "string", "Source file path relative to workspace root.", Extractor),
+        attr("impl_target", "string?", "Normalised target type of an impl block (e.g. `Vec` for `impl<T> Foo for Vec<T>`). Only emitted on `:Item { kind: \"impl_block\" }` nodes — absent on all other item kinds. SchemaVersion V0_2_2+ (#42).", Extractor),
+        attr("impl_trait", "string?", "Rendered trait path for a trait-impl block (e.g. `Display`, `cfdb_core::StoreBackend`). Only emitted on `:Item { kind: \"impl_block\" }` nodes AND only when the impl has a trait (inherent `impl Foo {}` emits no `impl_trait` prop). The `IMPLEMENTS` edge encodes the same information structurally when the trait :Item is resolvable within the walked workspace; cross-crate re-exports that syn cannot follow emit the prop but drop the edge (HIR-based resolution is a follow-up slice). SchemaVersion V0_2_2+ (#42).", Extractor),
+        attr("is_deprecated", "bool", "True when the item carries a `#[deprecated]` attribute (any form — bare, `note =`, or `since =`). Extractor-time per RFC addendum §A2.2 row 3. Populated by slice 43-C (issue #106); reserved in slice 43-A.", Extractor),
+        attr("is_test", "bool", "True when the item is under a `#[cfg(test)]` module or directly annotated `#[test]` (fn items only) (council-cfdb-wiring §B.1.1).", Extractor),
+        attr("kind", "enum", "Item kind: `Struct`, `Enum`, `Trait`, `Impl`, `Fn`, `Const`, `TypeAlias`.", Extractor),
+        attr("line", "int", "1-based line number of the item's first token.", Extractor),
+        attr("module_qpath", "string", "Fully-qualified path of the enclosing module.", Extractor),
+        attr("name", "string", "Unqualified item name.", Extractor),
+        attr("qname", "string", "Fully-qualified name (`crate::module::Item`).", Extractor),
+        attr("signature_hash", "string", "Stable hash of the item's normalized signature.", Extractor),
+        attr("visibility", "enum", "Rust visibility: `pub`, `pub(crate)`, `pub(super)`, `private`, or `pub(in <path>)`. SchemaVersion v0.1.1+ only — legacy V0_1_0 graphs do not carry this attribute.", Extractor),
+    ]
+}
+
+/// `enrich_metrics`-provenance attributes on `:Item` — deferred pass per
+/// RFC addendum §A2.2; descriptors remain reserved.
+fn item_attrs_enrich_metrics() -> Vec<AttributeDescriptor> {
+    use Provenance::EnrichMetrics;
+    vec![
+        attr("cyclomatic", "int", "Cyclomatic complexity (fn items only).", EnrichMetrics),
+        attr("dup_cluster_id", "string?", "Structural-duplicate cluster id (only set when enrich_metrics has clustered this item).", EnrichMetrics),
+        attr("test_coverage", "float", "Covered-line ratio in [0.0, 1.0] (fn items only).", EnrichMetrics),
+        attr("unwrap_count", "int", "Count of panic-on-None / panic-on-Err method calls (unwrap / expect) inside the item body.", EnrichMetrics),
+    ]
+}
+
+/// `enrich_git_history`-provenance attributes on `:Item` — populated by
+/// slice 43-B (issue #105) behind the `git-enrich` feature flag.
+fn item_attrs_enrich_git_history() -> Vec<AttributeDescriptor> {
+    use Provenance::EnrichGitHistory;
+    vec![
+        attr("git_commit_count", "int?", "Number of git commits touching the defining file. Written by `enrich_git_history()` (RFC addendum §A2.2 row 1). Populated by slice 43-B (issue #105) behind the `git-enrich` feature flag; reserved in slice 43-A.", EnrichGitHistory),
+        attr("git_last_author", "string?", "Committer email of the most recent commit touching the defining file. Written by `enrich_git_history()`. Populated by slice 43-B.", EnrichGitHistory),
+        attr("git_last_commit_unix_ts", "int?", "Unix epoch seconds (i64) of the most recent commit touching the defining file. Stored as an absolute timestamp rather than a calendar-relative age — clean-arch B2: `git_age_days` computed at enrichment time would violate G1 byte-stability across calendar days. The Stage-2 classifier Cypher computes `age_delta` from this timestamp at query time.", EnrichGitHistory),
+    ]
+}
+
+/// `enrich_reachability`-provenance attributes on `:Item` — populated by
+/// slice 43-G (issue #110).
+fn item_attrs_enrich_reachability() -> Vec<AttributeDescriptor> {
+    use Provenance::EnrichReachability;
+    vec![
+        attr("reachable_entry_count", "int?", "Number of distinct `:EntryPoint` nodes reaching this item via `CALLS*` edges. Written by `enrich_reachability()` (RFC addendum §A2.2 row 5). `0` for items not reached from any entry point. Populated by slice 43-G (issue #110) — consumes `:EntryPoint` nodes from `cfdb-hir-extractor`. Reserved in slice 43-A.", EnrichReachability),
+        attr("reachable_from_entry", "bool?", "True when at least one `:EntryPoint` reaches this item via `CALLS*`. Written by `enrich_reachability()`. When the keyspace has zero `:EntryPoint` nodes the pass returns `ran: false` rather than silently marking all items unreachable (clean-arch B3 degraded path). Populated by slice 43-G.", EnrichReachability),
+    ]
 }
 
 fn field_node_descriptor() -> NodeLabelDescriptor {
