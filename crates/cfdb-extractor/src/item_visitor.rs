@@ -20,7 +20,7 @@ use crate::attrs::{
 };
 use crate::call_visitor::walk_call_sites_with_test_flag;
 use crate::file_walker::PendingExternalMod;
-use crate::type_render::{render_path, render_type_string};
+use crate::type_render::{render_fn_signature, render_path, render_type_string};
 use crate::Emitter;
 
 pub(crate) struct ItemVisitor<'e> {
@@ -85,12 +85,21 @@ impl ItemVisitor<'_> {
         vis: &syn::Visibility,
         attrs: &[syn::Attribute],
     ) -> String {
-        self.emit_item_with_flags(name, kind, line, self.is_in_test_mod(), vis, attrs)
+        self.emit_item_with_flags(name, kind, line, self.is_in_test_mod(), vis, attrs, None)
     }
 
     /// Like [`emit_item`] but the caller supplies the `is_test` flag
     /// explicitly. Used by the fn-item visit path so a bare `#[test]` fn
     /// outside a `#[cfg(test)]` module is still tagged `is_test=true`.
+    ///
+    /// `signature` is the canonical fn signature string
+    /// (`fn(i32) -> bool`) produced by
+    /// [`crate::type_render::render_fn_signature`]. Pass `Some(sig)` on
+    /// fn / method kinds so `:Item.signature` lands in the graph —
+    /// required by the `signature_divergent` UDF (#47). Non-fn kinds
+    /// (struct, enum, trait, const, …) pass `None` and the prop is
+    /// omitted.
+    #[allow(clippy::too_many_arguments)] // 8 args — fn/method :Item shape is wide (name/kind/line/is_test/vis/attrs/signature); a struct would add boilerplate without reducing cognitive load
     fn emit_item_with_flags(
         &mut self,
         name: &str,
@@ -99,6 +108,7 @@ impl ItemVisitor<'_> {
         is_test: bool,
         vis: &syn::Visibility,
         attrs: &[syn::Attribute],
+        signature: Option<&str>,
     ) -> String {
         let qname = self.qname(name);
         let id = item_node_id(&qname);
@@ -134,6 +144,13 @@ impl ItemVisitor<'_> {
         props.insert("is_deprecated".into(), PropValue::Bool(is_deprecated));
         if let Some(since) = deprecation_since {
             props.insert("deprecation_since".into(), PropValue::Str(since));
+        }
+        // `:Item.signature` — canonical fn signature string (#47). Only
+        // emitted on fn / method kinds. Non-fn kinds pass `None` and the
+        // prop is absent, which queries can distinguish from the empty
+        // string via `IS NULL`.
+        if let Some(sig) = signature {
+            props.insert("signature".into(), PropValue::Str(sig.to_string()));
         }
         self.emitter.emit_node(Node {
             id: id.clone(),
@@ -330,6 +347,7 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
     fn visit_item_fn(&mut self, node: &'ast syn::ItemFn) {
         let name = node.sig.ident.to_string();
         let is_test = self.fn_is_test(&node.attrs);
+        let signature = render_fn_signature(&node.sig);
         let id = self.emit_item_with_flags(
             &name,
             "fn",
@@ -337,6 +355,7 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
             is_test,
             &node.vis,
             &node.attrs,
+            Some(&signature),
         );
         let caller_qname = qname_from_node_id(&id).to_string();
         walk_call_sites_with_test_flag(
@@ -419,6 +438,14 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
         if let Some(since) = deprecation_since {
             props.insert("deprecation_since".into(), PropValue::Str(since));
         }
+        // `:Item.signature` (#47) — impl-method path mirrors `emit_item_with_flags`.
+        // Every `method`-kind Item carries a canonical signature string so
+        // the `signature_divergent(a, b)` UDF can compare two items with
+        // same last-segment qname across bounded contexts.
+        props.insert(
+            "signature".into(),
+            PropValue::Str(render_fn_signature(&node.sig)),
+        );
         self.emitter.emit_node(Node {
             id: id.clone(),
             label: Label::new(Label::ITEM),
