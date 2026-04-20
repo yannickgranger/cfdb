@@ -100,12 +100,20 @@ enum Command {
         /// to opt in (Issue #86 / slice 4).
         #[arg(long)]
         hir: bool,
-        /// Extract against a specific git revision (commit SHA, tag,
-        /// or branch name) instead of the working tree. Shells out to
-        /// `git worktree add --detach <tmp> <rev>` in `--workspace`,
-        /// extracts from the tmp tree, then removes the worktree.
-        /// `--workspace` MUST be a git repository root when `--rev`
-        /// is passed. Issue #37 / Addendum §A1.6.
+        /// Extract against a specific git revision. Accepts two forms:
+        ///
+        ///   1. `<sha|tag|branch>` — same-repo: requires `--workspace`
+        ///      to point at a git repository root; shells out to
+        ///      `git worktree add --detach <tmp> <rev>` and extracts
+        ///      from the tmp tree. (Issue #37 / RFC-032 §A1.6.)
+        ///
+        ///   2. `<url>@<sha>` — remote: clones `<url>` into a persistent
+        ///      cache at `$CFDB_CACHE_DIR` (or `$XDG_CACHE_HOME/cfdb/extract`
+        ///      or `$HOME/.cache/cfdb/extract`), checks out `<sha>`, and
+        ///      extracts. Auth inherits ambient git credentials. Accepted
+        ///      URL schemes: `http://`, `https://`, `ssh://`, `file://`.
+        ///      (Issue #96 / RFC-cfdb-v0.2-addendum §A1.7, Option W
+        ///      bilateral drift-lock.)
         #[arg(long)]
         rev: Option<String>,
     },

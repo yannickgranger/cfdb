@@ -46,6 +46,10 @@ indexmap = "2"
 tempfile = "3"
 assert_cmd = "2"
 
+# URL → cache-key hashing for `cfdb extract --rev <url>@<sha>` (Option W,
+# issue #96 / RFC-032 §A1.7). Pure-Rust, small footprint, zero system deps.
+sha2 = "0.10"
+
 # HIR extractor (cfdb-hir-extractor, v0.2+ — RFC-029 §A1.2 / Issue #84).
 #
 # All `ra-ap-*` entries use `=0.0.N` EXACT pins. This is load-bearing:
