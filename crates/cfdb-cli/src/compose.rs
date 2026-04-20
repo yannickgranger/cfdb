@@ -59,9 +59,26 @@ pub(crate) fn load_store(
     db: &Path,
     keyspace: &str,
 ) -> Result<(PetgraphStore, Keyspace), CfdbCliError> {
+    load_store_with_workspace(db, keyspace, None)
+}
+
+/// Variant that also attaches a workspace root to the store. Used by
+/// enrichment verbs that read workspace files (`enrich_git_history` —
+/// slice 43-B; future `enrich_rfc_docs`, `enrich_concepts`). `None` ⇒
+/// identical behaviour to [`load_store`]. Separate function (not a default
+/// arg on `load_store`) so the 20+ existing call sites stay signature-stable
+/// — clean-arch B4 resolution from `council/43/clean-arch.md`.
+pub(crate) fn load_store_with_workspace(
+    db: &Path,
+    keyspace: &str,
+    workspace_root: Option<PathBuf>,
+) -> Result<(PetgraphStore, Keyspace), CfdbCliError> {
     let ks = Keyspace::new(keyspace);
     let path = keyspace_path(db, keyspace);
-    let mut store = empty_store();
+    let mut store = match workspace_root {
+        Some(root) => PetgraphStore::new().with_workspace(root),
+        None => empty_store(),
+    };
     persist::load(&mut store, &ks, &path)?;
     Ok((store, ks))
 }

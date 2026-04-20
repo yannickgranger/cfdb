@@ -34,6 +34,10 @@ cfdb-hir-petgraph-adapter = { path = "../cfdb-hir-petgraph-adapter", optional = 
 default = []
 # Enables `cfdb extract --hir` — pulls HIR pipeline crates.
 hir = ["dep:cfdb-hir-extractor", "dep:cfdb-hir-petgraph-adapter"]
+# Enables `cfdb enrich-git-history` real implementation — pulls libgit2 via
+# `git2`. Default builds (`cargo build -p cfdb-cli`) MUST have zero `git2`
+# in their dep tree (issue #105 / slice 43-B / rust-systems Q1).
+git-enrich = ["cfdb-petgraph/git-enrich"]
 
 [dev-dependencies]
 tempfile.workspace = true

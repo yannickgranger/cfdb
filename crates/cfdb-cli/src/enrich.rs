@@ -39,8 +39,13 @@ pub enum EnrichVerb {
     Metrics,
 }
 
-pub fn enrich(db: PathBuf, keyspace: String, verb: EnrichVerb) -> Result<(), crate::CfdbCliError> {
-    let (mut store, ks) = compose::load_store(&db, &keyspace)?;
+pub fn enrich(
+    db: PathBuf,
+    keyspace: String,
+    verb: EnrichVerb,
+    workspace: Option<PathBuf>,
+) -> Result<(), crate::CfdbCliError> {
+    let (mut store, ks) = compose::load_store_with_workspace(&db, &keyspace, workspace)?;
 
     let report: EnrichReport = match verb {
         EnrichVerb::GitHistory => store.enrich_git_history(&ks)?,

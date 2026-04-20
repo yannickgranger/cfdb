@@ -13,6 +13,7 @@
 //! to `cfdb-query::shape_lint` — callers run the lint at parse time and
 //! decide whether to call `execute`. The evaluator does not re-run the lint.
 
+mod enrich;
 mod eval;
 mod graph;
 pub mod persist;
@@ -204,6 +205,67 @@ impl EnrichBackend for PetgraphStore {
             ],
         })
     }
+
+    fn enrich_git_history(
+        &mut self,
+        keyspace: &cfdb_core::schema::Keyspace,
+    ) -> Result<cfdb_core::enrich::EnrichReport, StoreError> {
+        if !self.keyspaces.contains_key(keyspace) {
+            return Err(StoreError::UnknownKeyspace(keyspace.clone()));
+        }
+        Ok(enrich_git_history_dispatch(self, keyspace))
+    }
+}
+
+/// Feature-off path — the real pass is gated on `git-enrich` to keep libgit2
+/// out of default builds (rust-systems Q1 / Q6). Without the feature the verb
+/// still exists and dispatches here, returning a `ran: false` report whose
+/// warning names the feature flag (AC-1 / issue #105).
+#[cfg(not(feature = "git-enrich"))]
+fn enrich_git_history_dispatch(
+    _store: &mut PetgraphStore,
+    _keyspace: &cfdb_core::schema::Keyspace,
+) -> cfdb_core::enrich::EnrichReport {
+    cfdb_core::enrich::EnrichReport {
+        verb: "enrich_git_history".into(),
+        ran: false,
+        facts_scanned: 0,
+        attrs_written: 0,
+        edges_written: 0,
+        warnings: vec![
+            "enrich_git_history: built without `git-enrich` feature — recompile `cfdb-cli` with `--features git-enrich` to populate git-history facts (RFC addendum §A2.2 row 1 / issue #105)"
+                .into(),
+        ],
+    }
+}
+
+/// Feature-on path — requires a `workspace_root` on the store. If the store
+/// was built without one (most test sites and tool-free callers), return a
+/// `ran: false` degraded report so the caller sees the configuration gap
+/// rather than silent Nulls.
+#[cfg(feature = "git-enrich")]
+fn enrich_git_history_dispatch(
+    store: &mut PetgraphStore,
+    keyspace: &cfdb_core::schema::Keyspace,
+) -> cfdb_core::enrich::EnrichReport {
+    let Some(root) = store.workspace_root.clone() else {
+        return cfdb_core::enrich::EnrichReport {
+            verb: "enrich_git_history".into(),
+            ran: false,
+            facts_scanned: 0,
+            attrs_written: 0,
+            edges_written: 0,
+            warnings: vec![
+                "enrich_git_history: no workspace_root attached to PetgraphStore — construct via `PetgraphStore::new().with_workspace(root)` so the pass can open a git repository"
+                    .into(),
+            ],
+        };
+    };
+    let state = store
+        .keyspaces
+        .get_mut(keyspace)
+        .expect("keyspace presence checked by caller");
+    crate::enrich::git_history::run(state, &root)
 }
 
 /// Produce the canonical sorted-JSONL dump of a keyspace per RFC §12.1.

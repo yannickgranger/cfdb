@@ -1,0 +1,60 @@
+   Compiling cfdb-petgraph v0.0.1 (/var/mnt/workspaces/cfdb/.claude/worktrees/105-enrich-git-history/crates/cfdb-petgraph)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.38s
+     Running unittests src/lib.rs (target/debug/deps/cfdb_petgraph-3d630c72357f11c6)
+
+running 28 tests
+test enrich::git_history::tests::no_workspace_root_returns_degraded_report ... ok
+test enrich::git_history::tests::workspace_not_a_git_repo_writes_nulls_with_warning ... ok
+test tests::canonical_dump_byte_identity_across_two_calls ... ok
+test tests::canonical_dump_field_order_is_alphabetical ... ok
+test tests::canonical_dump_edge_sort_fallback_when_src_qname_absent ... ok
+test tests::canonical_dump_edge_sort_uses_label_then_src_qname_then_dst_qname ... ok
+test enrich::git_history::tests::unknown_keyspace_returns_err ... ok
+test tests::canonical_dump_kind_discriminator_present ... ok
+test tests::canonical_dump_lines_are_pure_jsonl ... ok
+test tests::count_star_aggregation ... ok
+test tests::canonical_dump_node_sort_uses_label_then_qname ... ok
+test tests::canonical_dump_lf_separated_no_trailing_newline ... ok
+test tests::order_by_and_limit_are_applied ... ok
+test tests::optional_match_null_fills_unmatched_bindings ... ok
+test tests::unresolved_edge_endpoint_warns_but_does_not_error ... ok
+test tests::unknown_label_emits_warning_with_suggestion ... ok
+test tests::unknown_keyspace_returns_error ... ok
+test tests::unwind_list_param_cross_joins ... ok
+test tests::ingest_round_trip_via_canonical_dump ... ok
+test tests::with_collect_then_return_var_preserves_list_binding_3675 ... ok
+test tests::canonical_dump_is_deterministic ... ok
+test enrich::git_history::tests::empty_keyspace_returns_ran_true_with_zero_counters ... ok
+test tests::f2_variable_length_matches_spike_count ... ok
+test tests::f1b_aggregation_matches_spike_count ... ok
+test enrich::git_history::tests::ac3_untracked_file_gets_null_attrs ... ok
+test enrich::git_history::tests::ac2_two_commit_fixture_writes_correct_attrs ... ok
+test enrich::git_history::tests::ac6_two_runs_produce_identical_canonical_dumps ... ok
+test tests::f3_regex_filter_matches_spike_count ... ok
+
+test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/architecture_dep_rule.rs (target/debug/deps/architecture_dep_rule-19dde58383aacb7d)
+
+running 3 tests
+test cfdb_petgraph_dependencies_are_all_whitelisted ... ok
+test cfdb_petgraph_depends_on_cfdb_core_and_petgraph ... ok
+test cfdb_petgraph_has_no_forbidden_dependencies ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/persist_round_trip.rs (target/debug/deps/persist_round_trip-eef50aa74cc80725)
+
+running 3 tests
+test load_rejects_incompatible_schema_version ... ok
+test save_is_byte_identical_across_two_calls ... ok
+test save_then_load_preserves_canonical_dump ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests cfdb_petgraph
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
