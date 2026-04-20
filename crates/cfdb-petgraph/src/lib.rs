@@ -296,6 +296,22 @@ impl EnrichBackend for PetgraphStore {
             .expect("keyspace presence checked above");
         Ok(crate::enrich::concepts::run(state, &root))
     }
+
+    fn enrich_reachability(
+        &mut self,
+        keyspace: &cfdb_core::schema::Keyspace,
+    ) -> Result<cfdb_core::enrich::EnrichReport, StoreError> {
+        if !self.keyspaces.contains_key(keyspace) {
+            return Err(StoreError::UnknownKeyspace(keyspace.clone()));
+        }
+        // Reachability is purely graph-internal — no filesystem access, so
+        // no `workspace_root` check (unlike the TOML/git/rfc-scanning passes).
+        let state = self
+            .keyspaces
+            .get_mut(keyspace)
+            .expect("keyspace presence checked above");
+        Ok(crate::enrich::reachability::run(state))
+    }
 }
 
 /// Feature-off path — the real pass is gated on `git-enrich` to keep libgit2
