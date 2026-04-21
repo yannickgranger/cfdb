@@ -1,8 +1,0 @@
-=== Self-dogfood — :Crate.published_language baseline on cfdb's own tree ===
-HEAD: 6e873f83ff87179ee022abceb212c28b4a4ad05f
-
-cfdb does NOT ship a .cfdb/published-language-crates.toml (deliberate).
-Expected: every :Crate node carries published_language=false.
-
-Result: 10/10 :Crate nodes have published_language=false.
-Workspace crate count matches (10 = number of workspace members).

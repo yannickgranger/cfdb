@@ -1,2 +1,0 @@
-EntryPoint kinds: {'cli_command': 25, 'mcp_tool': 76}
-sample http_route rows:
