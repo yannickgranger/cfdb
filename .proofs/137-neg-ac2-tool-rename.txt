@@ -1,0 +1,4 @@
+missing in code: TriggerOutcome (specs/tools/check-prelude-triggers.md:17)
+missing in specs: TriggerOutcomeX (tools/check-prelude-triggers/src/triggers/mod.rs:16)
+2 violation(s) found.
+===neg_exit=1===

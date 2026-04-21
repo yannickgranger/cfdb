@@ -107,7 +107,12 @@ jobs:
       - name: Graph-specs check (RFC-030 §3.1 anti-drift gate)
         run: |
           cd repo
-          graph-specs check --specs specs/concepts/ --code crates/
+          # Two passes over disjoint spec subtrees — graph-specs' --code is
+          # single-value, so crates/ and tools/ are gated independently.
+          # Widened in #137 to onboard tools/check-prelude-triggers/.
+          # spikes/ stays structurally excluded (not walked by either pass).
+          graph-specs check --specs specs/concepts/ --code crates/ \
+            && graph-specs check --specs specs/tools/ --code tools/
 
       - name: Clippy
         run: |
