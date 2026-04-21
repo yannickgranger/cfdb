@@ -98,7 +98,8 @@ fn run(cli: Cli) -> Result<(), CfdbCliError> {
         | Command::ListCallers { .. }
         | Command::ListBypasses { .. }
         | Command::ListItemsMatching { .. }
-        | Command::Scope { .. }) => dispatch_typed(cmd)?,
+        | Command::Scope { .. }
+        | Command::CheckPredicate { .. }) => dispatch_typed(cmd)?,
         cmd @ (Command::Snapshots { .. } | Command::Diff { .. } | Command::Drop { .. }) => {
             dispatch_snapshot(cmd)?
         }

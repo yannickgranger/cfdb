@@ -10,6 +10,7 @@
 //! public API surface is unchanged.
 
 mod check;
+mod check_predicate;
 mod commands;
 mod compose;
 mod enrich;
@@ -21,6 +22,7 @@ mod scope;
 mod stubs;
 
 pub use check::{check, TriggerId, UnknownTriggerId};
+pub use check_predicate::{check_predicate, PredicateRow, PredicateRunReport};
 pub use commands::{
     dump, export, extract, keyspace_path, list_callers, list_keyspaces, query, violations,
 };
