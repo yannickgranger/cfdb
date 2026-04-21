@@ -202,8 +202,7 @@ fn extract_deprecated_attr_note_only_form() {
 
 #[test]
 fn extract_deprecated_attr_since_and_note_form() {
-    let attrs =
-        parse_attrs(r#"#[deprecated(since = "2.0.0", note = "legacy path; see #123")]"#);
+    let attrs = parse_attrs(r#"#[deprecated(since = "2.0.0", note = "legacy path; see #123")]"#);
     assert_eq!(
         extract_deprecated_attr(&attrs),
         (true, Some("2.0.0".to_string()))

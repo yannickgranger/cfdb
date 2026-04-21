@@ -9,9 +9,7 @@ use cfdb_core::fact::{Edge, Node, PropValue};
 use cfdb_core::qname::{item_node_id, item_qname, module_qpath};
 use cfdb_core::schema::{EdgeLabel, Label};
 
-use crate::attrs::{
-    attrs_contain_hash_test, extract_cfg_feature_gate, extract_deprecated_attr,
-};
+use crate::attrs::{attrs_contain_hash_test, extract_cfg_feature_gate, extract_deprecated_attr};
 
 use super::{
     impl_block_name, impl_block_qname, parse_syn_visibility, resolve_target_qname, ItemVisitor,
