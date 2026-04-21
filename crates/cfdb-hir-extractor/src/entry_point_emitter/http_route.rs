@@ -186,7 +186,10 @@ fn string_literal_value(expr: &ast::Expr) -> Option<String> {
 ///
 /// Closures and unresolved paths return `None` — those do not emit an
 /// `:EntryPoint` per AC-5.
-pub(super) fn resolve_handler_qname<DB>(sema: &Semantics<'_, DB>, expr: &ast::Expr) -> Option<String>
+pub(super) fn resolve_handler_qname<DB>(
+    sema: &Semantics<'_, DB>,
+    expr: &ast::Expr,
+) -> Option<String>
 where
     DB: HirDatabase + Sized,
 {
