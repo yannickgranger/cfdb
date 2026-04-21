@@ -373,8 +373,56 @@ pub fn violations(
 ) -> Result<usize, crate::CfdbCliError> {
     let cypher = std::fs::read_to_string(&rule)
         .map_err(|e| format!("read rule file {}: {e}", rule.display()))?;
+    let rule_tag = rule.display().to_string();
+    run_cypher_rule(&db, &keyspace, &cypher, &rule_tag, count_only)
+}
 
-    let parsed = parse(&cypher).map_err(|e| format!("parse error in {}: {e}", rule.display()))?;
+/// Shared cypher-rule plumbing — parse, shape-lint, execute, and print
+/// rows. Used by both the file-based `violations` verb and the embedded-
+/// rule `check --trigger` verb so the `parse → execute → print → rows` pipeline
+/// lives in exactly one place (EXTEND decision per `.prescriptions/101.md`).
+///
+/// `rule_tag` appears in the stderr summary line: for file-based rules
+/// callers pass the file path; for embedded-rule triggers callers pass
+/// e.g. `"trigger T1"` so the summary reads `violations: N (rule: trigger T1)`.
+pub(crate) fn run_cypher_rule(
+    db: &Path,
+    keyspace: &str,
+    cypher: &str,
+    rule_tag: &str,
+    count_only: bool,
+) -> Result<usize, crate::CfdbCliError> {
+    let result = parse_and_execute(db, keyspace, cypher, rule_tag)?;
+    let row_count = result.rows.len();
+    eprintln!("violations: {row_count} (rule: {rule_tag})");
+
+    if count_only {
+        println!("{row_count}");
+    } else {
+        let as_json = serde_json::to_string_pretty(&result)?;
+        println!("{as_json}");
+    }
+
+    Ok(row_count)
+}
+
+/// Parse a cypher string, run shape-lint (logging any warnings to
+/// stderr), load the keyspace, and execute. Returns the raw
+/// [`cfdb_core::result::QueryResult`] so callers that need to merge
+/// multiple rule results before printing — e.g. the `cfdb check
+/// --trigger T1` verb — can do so without going through
+/// [`run_cypher_rule`]'s print path.
+///
+/// `rule_tag` appears in the parse-error message so a malformed
+/// embedded trigger rule identifies itself the same way a file-path
+/// rule does.
+pub(crate) fn parse_and_execute(
+    db: &Path,
+    keyspace: &str,
+    cypher: &str,
+    rule_tag: &str,
+) -> Result<cfdb_core::result::QueryResult, crate::CfdbCliError> {
+    let parsed = parse(cypher).map_err(|e| format!("parse error in {rule_tag}: {e}"))?;
     let lints = lint_shape(&parsed);
     for lint in &lints {
         match lint {
@@ -389,20 +437,9 @@ pub fn violations(
         }
     }
 
-    let (store, ks) = compose::load_store(&db, &keyspace)?;
+    let (store, ks) = compose::load_store(db, keyspace)?;
     let result = store.execute(&ks, &parsed)?;
-
-    let row_count = result.rows.len();
-    eprintln!("violations: {row_count} (rule: {})", rule.display());
-
-    if count_only {
-        println!("{row_count}");
-    } else {
-        let as_json = serde_json::to_string_pretty(&result)?;
-        println!("{as_json}");
-    }
-
-    Ok(row_count)
+    Ok(result)
 }
 
 pub fn dump(db: PathBuf, keyspace: String) -> Result<(), crate::CfdbCliError> {

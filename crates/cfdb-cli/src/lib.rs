@@ -9,6 +9,7 @@
 //! hygiene (#3751); every item is re-exported at the crate root so the
 //! public API surface is unchanged.
 
+mod check;
 mod commands;
 mod compose;
 mod enrich;
@@ -18,6 +19,7 @@ mod hir;
 mod scope;
 mod stubs;
 
+pub use check::{check, TriggerId, UnknownTriggerId};
 pub use commands::{
     dump, export, extract, keyspace_path, list_callers, list_keyspaces, query, violations,
 };

@@ -50,9 +50,9 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use cfdb_cli::{
-    diff, drop_keyspace_cmd, dump, enrich, export, extract, list_callers, list_items_matching,
-    list_keyspaces, query, schema_describe_cmd, scope, snapshots, typed_stub, violations,
-    CfdbCliError, EnrichVerb,
+    check, diff, drop_keyspace_cmd, dump, enrich, export, extract, list_callers,
+    list_items_matching, list_keyspaces, query, schema_describe_cmd, scope, snapshots, typed_stub,
+    violations, CfdbCliError, EnrichVerb, TriggerId, UnknownTriggerId,
 };
 use cfdb_core::{ItemKind, UnknownItemKind};
 use clap::{Parser, Subcommand};
@@ -63,6 +63,14 @@ use clap::{Parser, Subcommand};
 /// parser errors).
 fn parse_item_kind(s: &str) -> Result<ItemKind, UnknownItemKind> {
     s.parse::<ItemKind>()
+}
+
+/// clap value parser for `--trigger`. Delegates to
+/// [`TriggerId::from_str`] so the valid-values enumeration in the
+/// error message is derived from the domain enum itself — no
+/// hardcoded string list (global CLAUDE.md §7 MCP/CLI boundary fix AC).
+fn parse_trigger_id(s: &str) -> Result<TriggerId, UnknownTriggerId> {
+    s.parse::<TriggerId>()
 }
 
 #[derive(Debug, Parser)]
@@ -415,6 +423,36 @@ enum Command {
         count_only: bool,
     },
 
+    /// Run a cfdb editorial-drift trigger and exit 1 if any findings
+    /// fire. Issue #101 ships `T1` (concept-declared-in-TOML-but-
+    /// missing-in-code, three sub-verdicts: CONCEPT_UNWIRED,
+    /// MISSING_CANONICAL_CRATE, STALE_RFC_REFERENCE). T3 is reserved
+    /// for issue #102.
+    ///
+    /// Unlike `violations --rule <file>` which runs arbitrary cypher,
+    /// `check --trigger <ID>` dispatches to a closed registry of
+    /// embedded rules keyed by trigger id — so consumer skills can
+    /// bind to `--trigger T1` as a stable contract rather than a
+    /// filesystem path.
+    Check {
+        /// Directory containing per-keyspace JSON files.
+        #[arg(long)]
+        db: PathBuf,
+        /// Keyspace to query.
+        #[arg(long)]
+        keyspace: String,
+        /// Trigger identifier — e.g. `T1`. Valid values are derived
+        /// from [`TriggerId::variants`]; unknown values fail with a
+        /// message enumerating the known set.
+        #[arg(long, value_parser = parse_trigger_id)]
+        trigger: TriggerId,
+        /// Always exit 0, even when findings are reported. Matches
+        /// the `violations --no-fail` idiom for CI scripts that want
+        /// to inventory without failing.
+        #[arg(long)]
+        no_fail: bool,
+    },
+
     /// Print the canonical sorted dump of a keyspace.
     Dump {
         #[arg(long)]
@@ -448,6 +486,7 @@ fn run(cli: Cli) -> Result<(), CfdbCliError> {
         cmd @ (Command::Extract { .. }
         | Command::Query { .. }
         | Command::Violations { .. }
+        | Command::Check { .. }
         | Command::Dump { .. }
         | Command::Export { .. }
         | Command::ListKeyspaces { .. }) => dispatch_core(cmd)?,
@@ -502,6 +541,18 @@ fn dispatch_core(cmd: Command) -> Result<(), CfdbCliError> {
             count_only,
         } => {
             let rows_found = violations(db, keyspace, rule, count_only)?;
+            if rows_found > 0 && !no_fail {
+                std::process::exit(1);
+            }
+            Ok(())
+        }
+        Command::Check {
+            db,
+            keyspace,
+            trigger,
+            no_fail,
+        } => {
+            let rows_found = check(&db, &keyspace, trigger)?;
             if rows_found > 0 && !no_fail {
                 std::process::exit(1);
             }
