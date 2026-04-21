@@ -45,11 +45,13 @@
 //! nightly toolchain before invoking `cargo test -p cfdb-recall`. This is
 //! an explicit constraint of the chosen ground-truth source.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
 use cfdb_recall::{
     adapters::{extractor, ground_truth},
-    compute_recall, AuditList, DEFAULT_THRESHOLD,
+    compute_recall, AuditList, PublicItem, DEFAULT_THRESHOLD,
 };
 
 /// Resolve the cfdb workspace root from this test crate's location.
@@ -66,6 +68,47 @@ fn cfdb_workspace_root() -> PathBuf {
 
 fn cfdb_core_manifest() -> PathBuf {
     cfdb_workspace_root().join("crates/cfdb-core/Cargo.toml")
+}
+
+// ── Shared pipeline outputs ──────────────────────────────────────────
+//
+// All three scenarios build the SAME rustdoc-json + public-api snapshot
+// of cfdb-core and run cfdb-extractor over the SAME workspace. `cargo
+// test` runs these three functions in parallel by default, and the
+// underlying `rustdoc_json::Builder::default().build()` writes to the
+// shared `target/doc/cfdb_core.json` path — so N parallel invocations
+// race on the file, yielding truncated JSON on readers that catch the
+// file mid-write ("EOF while parsing an object" / JsonParse panics).
+//
+// `OnceLock::get_or_init` serialises this naturally: the first thread
+// runs the rustdoc build + extractor once, the other threads block on
+// the same cell until the single result is committed, then read it.
+// Single rustdoc invocation per test binary, deterministic outcome,
+// 3× faster than the racey parallel version.
+
+fn cached_public_set() -> &'static BTreeSet<PublicItem> {
+    static CACHE: OnceLock<BTreeSet<PublicItem>> = OnceLock::new();
+    CACHE.get_or_init(|| {
+        let manifest = cfdb_core_manifest();
+        ground_truth::build_public_api_for_manifest(&manifest)
+            .expect("rustdoc-json + public-api succeed on cfdb-core")
+    })
+}
+
+fn cached_extracted_by_crate() -> &'static BTreeMap<String, BTreeSet<PublicItem>> {
+    static CACHE: OnceLock<BTreeMap<String, BTreeSet<PublicItem>>> = OnceLock::new();
+    CACHE.get_or_init(|| {
+        let workspace = cfdb_workspace_root();
+        extractor::extract_and_project(&workspace)
+            .expect("cfdb-extractor succeeds on cfdb workspace")
+    })
+}
+
+fn cached_cfdb_core_extracted() -> BTreeSet<PublicItem> {
+    cached_extracted_by_crate()
+        .get("cfdb-core")
+        .cloned()
+        .unwrap_or_default()
 }
 
 // ── Scenario 1: end-to-end pipeline against cfdb-core ────────────────
@@ -85,25 +128,16 @@ fn cfdb_core_manifest() -> PathBuf {
 /// caught regardless of where cfdb-core's real recall lands.
 #[test]
 fn full_pipeline_against_cfdb_core() {
-    let workspace = cfdb_workspace_root();
-    let manifest = cfdb_core_manifest();
-
-    // Real extractor run.
-    let extracted_by_crate = extractor::extract_and_project(&workspace)
-        .expect("cfdb-extractor succeeds on cfdb workspace");
-    let extracted = extracted_by_crate
-        .get("cfdb-core") // extractor keys by raw package name (hyphens preserved)
-        .cloned()
-        .unwrap_or_default();
-
-    // Real rustdoc + public-api ground truth.
-    let public = ground_truth::build_public_api_for_manifest(&manifest)
-        .expect("rustdoc-json + public-api succeed on cfdb-core");
+    // Cached across the three parallel tests — see "Shared pipeline
+    // outputs" note at the top of this file. `extracted` is cloned
+    // from the shared cache because each test may want a local mut copy.
+    let extracted = cached_cfdb_core_extracted();
+    let public = cached_public_set();
 
     // Compute recall with the default threshold and an empty audit list.
     let report = compute_recall(
         "cfdb-core",
-        &public,
+        public,
         &extracted,
         &AuditList::new(),
         DEFAULT_THRESHOLD,
@@ -182,22 +216,14 @@ fn full_pipeline_against_cfdb_core() {
 /// real data + one controlled perturbation = deterministic failure.
 #[test]
 fn gate_fails_cleanly_when_extracted_set_has_a_synthetic_gap() {
-    let workspace = cfdb_workspace_root();
-    let manifest = cfdb_core_manifest();
-
-    let extracted_by_crate =
-        extractor::extract_and_project(&workspace).expect("cfdb-extractor succeeds");
-    let mut extracted = extracted_by_crate
-        .get("cfdb-core")
-        .cloned()
-        .unwrap_or_default();
-    let public = ground_truth::build_public_api_for_manifest(&manifest)
-        .expect("rustdoc-json + rustdoc-types succeed");
+    // Cached — see "Shared pipeline outputs" note at the top of this file.
+    let mut extracted = cached_cfdb_core_extracted();
+    let public = cached_public_set();
 
     // Pick the first item that appears in BOTH sets — that is the one
     // whose removal from `extracted` is guaranteed to create a real
     // "missing" entry, rather than silently doing nothing.
-    let victim: cfdb_recall::PublicItem = extracted
+    let victim: PublicItem = extracted
         .iter()
         .find(|it| public.contains(*it))
         .expect("extracted ∩ public is non-empty in the baseline pipeline run")
@@ -208,7 +234,7 @@ fn gate_fails_cleanly_when_extracted_set_has_a_synthetic_gap() {
     );
 
     // Threshold 1.0 — any missing item fails the gate.
-    let report = compute_recall("cfdb-core", &public, &extracted, &AuditList::new(), 1.0);
+    let report = compute_recall("cfdb-core", public, &extracted, &AuditList::new(), 1.0);
 
     assert!(
         !report.passes(),
@@ -241,19 +267,11 @@ fn gate_fails_cleanly_when_extracted_set_has_a_synthetic_gap() {
 /// not just in the synthetic two-item setups of the unit tests.
 #[test]
 fn audit_list_carves_synthetic_gap_end_to_end() {
-    let workspace = cfdb_workspace_root();
-    let manifest = cfdb_core_manifest();
+    // Cached — see "Shared pipeline outputs" note at the top of this file.
+    let mut extracted = cached_cfdb_core_extracted();
+    let public = cached_public_set();
 
-    let extracted_by_crate =
-        extractor::extract_and_project(&workspace).expect("cfdb-extractor succeeds");
-    let mut extracted = extracted_by_crate
-        .get("cfdb-core")
-        .cloned()
-        .unwrap_or_default();
-    let public = ground_truth::build_public_api_for_manifest(&manifest)
-        .expect("rustdoc-json + rustdoc-types succeed");
-
-    let victim: cfdb_recall::PublicItem = extracted
+    let victim: PublicItem = extracted
         .iter()
         .find(|it| public.contains(*it))
         .expect("extracted ∩ public is non-empty")
@@ -263,7 +281,7 @@ fn audit_list_carves_synthetic_gap_end_to_end() {
     // Audit list carves the victim.
     let audit = AuditList::from_items([victim.clone()]);
 
-    let audited = compute_recall("cfdb-core", &public, &extracted, &audit, 1.0);
+    let audited = compute_recall("cfdb-core", public, &extracted, &audit, 1.0);
 
     assert!(
         audited.passes(),
@@ -281,7 +299,7 @@ fn audit_list_carves_synthetic_gap_end_to_end() {
         "the audited list must be exactly the carved-out victim"
     );
     // Denominator shrinks by one compared to a no-audit baseline.
-    let baseline = compute_recall("cfdb-core", &public, &extracted, &AuditList::new(), 1.0);
+    let baseline = compute_recall("cfdb-core", public, &extracted, &AuditList::new(), 1.0);
     assert_eq!(
         audited.adjusted_denominator,
         baseline.adjusted_denominator - 1,
