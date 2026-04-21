@@ -18,4 +18,4 @@ pub use extract::{extract, keyspace_path};
 pub use query::{list_callers, query};
 pub use rules::violations;
 
-pub(crate) use rules::{parse_and_execute, run_cypher_rule};
+pub(crate) use rules::parse_and_execute;

@@ -9,14 +9,14 @@ use cfdb_core::store::StoreBackend;
 
 use crate::compose;
 
-pub(super) fn dump(db: PathBuf, keyspace: String) -> Result<(), crate::CfdbCliError> {
+pub fn dump(db: PathBuf, keyspace: String) -> Result<(), crate::CfdbCliError> {
     let (store, ks) = compose::load_store(&db, &keyspace)?;
     let dump = store.canonical_dump(&ks)?;
     println!("{dump}");
     Ok(())
 }
 
-pub(super) fn list_keyspaces(db: PathBuf) -> Result<(), crate::CfdbCliError> {
+pub fn list_keyspaces(db: PathBuf) -> Result<(), crate::CfdbCliError> {
     if !db.exists() {
         return Ok(());
     }
@@ -40,7 +40,7 @@ pub(super) fn list_keyspaces(db: PathBuf) -> Result<(), crate::CfdbCliError> {
 
 /// `cfdb export` — alias of `cfdb dump` with a `--format` flag for forward
 /// compatibility. v0.1 only supports `sorted-jsonl` (the canonical dump).
-pub(super) fn export(db: PathBuf, keyspace: String, format: &str) -> Result<(), crate::CfdbCliError> {
+pub fn export(db: PathBuf, keyspace: String, format: &str) -> Result<(), crate::CfdbCliError> {
     if format != "sorted-jsonl" {
         return Err(format!("unsupported --format `{format}`. v0.1 supports: sorted-jsonl").into());
     }

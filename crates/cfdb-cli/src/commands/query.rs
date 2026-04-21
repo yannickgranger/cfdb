@@ -19,7 +19,7 @@ use super::extract::keyspace_path;
 /// the template automatically.
 const LIST_CALLERS_CYPHER: &str = include_str!("../../../../examples/queries/list-callers.cypher");
 
-pub(super) fn query(
+pub fn query(
     db: PathBuf,
     keyspace: String,
     cypher: String,
@@ -120,7 +120,7 @@ fn bind_single_param(
 /// produce byte-identical output for the same `$qname` input — that is
 /// the genericity contract the typed verbs are meant to satisfy (one
 /// query, many targets, sugar over the raw path).
-pub(super) fn list_callers(
+pub fn list_callers(
     db: PathBuf,
     keyspace: String,
     qname: String,

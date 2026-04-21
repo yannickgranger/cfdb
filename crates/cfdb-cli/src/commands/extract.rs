@@ -11,11 +11,11 @@ use cfdb_core::store::StoreBackend;
 
 use crate::compose;
 
-pub(super) fn keyspace_path(db: &Path, keyspace: &str) -> PathBuf {
+pub fn keyspace_path(db: &Path, keyspace: &str) -> PathBuf {
     db.join(format!("{keyspace}.json"))
 }
 
-pub(super) fn extract(
+pub fn extract(
     workspace: PathBuf,
     db: PathBuf,
     keyspace: Option<String>,
@@ -231,7 +231,7 @@ fn clone_and_checkout(url: &str, sha: &str, cache_dir: &Path) -> Result<(), crat
 /// `--keyspace`. Short SHAs are truncated to 12 chars so keyspace files
 /// land with a stable short name; non-SHA revs (tags/branches) are used
 /// verbatim after path-unsafe char stripping.
-pub(super) fn short_rev(rev: &str) -> String {
+pub fn short_rev(rev: &str) -> String {
     if rev.len() > 12 && rev.chars().all(|c| c.is_ascii_hexdigit()) {
         rev[..12].to_string()
     } else {
@@ -261,7 +261,7 @@ fn workspace_basename(workspace: &Path) -> String {
 /// accepted in v1 — use the explicit `ssh://…` form instead.
 /// `file://` is accepted both for hermetic integration tests and for
 /// the self-dogfood case `file://$(pwd)/.git@$(git rev-parse HEAD)`.
-pub(super) fn parse_url_at_sha(s: &str) -> Option<(&str, &str)> {
+pub fn parse_url_at_sha(s: &str) -> Option<(&str, &str)> {
     let idx = s.rfind('@')?;
     let (url, at_sha) = s.split_at(idx);
     let sha = &at_sha[1..]; // skip the '@'
@@ -277,7 +277,7 @@ pub(super) fn parse_url_at_sha(s: &str) -> Option<(&str, &str)> {
 /// Predicate wrapper around [`parse_url_at_sha`] — the single resolution
 /// point for URL@SHA discrimination in the `extract` dispatcher. See the
 /// match guard in [`extract`]; no other call site may re-check the form.
-pub(super) fn is_url_at_sha(s: &str) -> bool {
+pub fn is_url_at_sha(s: &str) -> bool {
     parse_url_at_sha(s).is_some()
 }
 
@@ -302,11 +302,11 @@ fn url_has_scheme(url: &str) -> bool {
 /// resistance for ~100s of tracked URLs, keeps paths short.
 /// Per-SHA subdir: full `<sha>` (not [`short_rev`]) — two SHAs sharing a
 /// 12-char prefix must remain distinct on disk.
-pub(super) fn cache_dir_for(url: &str, sha: &str) -> PathBuf {
+pub fn cache_dir_for(url: &str, sha: &str) -> PathBuf {
     cache_base_dir().join(url_hash_hex16(url)).join(sha)
 }
 
-pub(super) fn cache_base_dir() -> PathBuf {
+pub fn cache_base_dir() -> PathBuf {
     if let Some(v) = std::env::var_os("CFDB_CACHE_DIR") {
         if !v.is_empty() {
             return PathBuf::from(v);
@@ -324,7 +324,7 @@ pub(super) fn cache_base_dir() -> PathBuf {
     std::env::temp_dir().join("cfdb").join("extract")
 }
 
-pub(super) fn url_hash_hex16(url: &str) -> String {
+pub fn url_hash_hex16(url: &str) -> String {
     use sha2::{Digest, Sha256};
     let digest = Sha256::digest(url.as_bytes());
     digest

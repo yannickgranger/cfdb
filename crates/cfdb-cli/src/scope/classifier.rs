@@ -1,3 +1,4 @@
+use cfdb_core::store::StoreBackend;
 use cfdb_core::{Param, PropValue};
 use cfdb_query::{
     list_items_matching as compose_list_items_matching, parse, CanonicalCandidate, DebtClass,

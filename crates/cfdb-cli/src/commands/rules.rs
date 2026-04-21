@@ -26,7 +26,7 @@ use crate::compose;
 ///   in CI scripts like `ci/cross-dogfood.sh` (RFC-033 §3.2). The
 ///   JSON payload is suppressed in this mode — the caller already
 ///   knows the rule file path and wants only the terse count.
-pub(super) fn violations(
+pub fn violations(
     db: PathBuf,
     keyspace: String,
     rule: PathBuf,
@@ -46,7 +46,7 @@ pub(super) fn violations(
 /// `rule_tag` appears in the stderr summary line: for file-based rules
 /// callers pass the file path; for embedded-rule triggers callers pass
 /// e.g. `"trigger T1"` so the summary reads `violations: N (rule: trigger T1)`.
-pub(crate) fn run_cypher_rule(
+fn run_cypher_rule(
     db: &Path,
     keyspace: &str,
     cypher: &str,
