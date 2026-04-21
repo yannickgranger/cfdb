@@ -4,7 +4,8 @@ name: Mirror to GitHub
 # Gitea is canonical write + CI. GitHub is public read mirror for OSS visibility.
 #
 # Secret required (Gitea repo settings):
-#   GITHUB_MIRROR_PAT — GitHub Personal Access Token for yannickgranger with `repo` scope.
+#   MIRROR_PAT — GitHub Personal Access Token for yannickgranger with `repo` scope.
+#   (Secret names with GITHUB_ or GITEA_ prefix are reserved by Gitea Actions.)
 #
 # Scope: develop + main + tags only. Internal branches (work/*, fix/*, chore/*) stay private.
 
@@ -30,7 +31,7 @@ jobs:
       - name: Clone from Gitea + push to GitHub
         env:
           GITEA_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_PAT: ${{ secrets.GITHUB_MIRROR_PAT }}
+          GH_PAT: ${{ secrets.MIRROR_PAT }}
           GH_REPO: yannickgranger/cfdb
         run: |
           set -euo pipefail
