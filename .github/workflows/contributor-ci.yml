@@ -1,0 +1,55 @@
+name: Contributor CI
+
+# Public OSS contributor-feedback CI — runs on PRs filed against github.com/yannickgranger/cfdb.
+# Canonical CI (dogfood, cross-dogfood, audit, cfdb gates) remains on Gitea per RFC-034 §3.2.
+# A green run here does NOT authorize merge — maintainer re-pushes to Gitea for the authoritative gate.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fmt:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.93"
+          components: rustfmt
+      - run: cargo fmt --check --all
+
+  clippy:
+    name: Clippy (strict)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.93"
+          components: clippy
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.93"
+      - run: cargo build --workspace
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.93"
+      - run: cargo test --workspace

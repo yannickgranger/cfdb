@@ -1,0 +1,54 @@
+name: Mirror to GitHub
+
+# Gitea→GitHub one-way mirror per RFC-034 §3.2 (companion to graph-specs-rust RFC-003).
+# Gitea is canonical write + CI. GitHub is public read mirror for OSS visibility.
+#
+# Secret required (Gitea repo settings):
+#   GITHUB_MIRROR_PAT — GitHub Personal Access Token for yannickgranger with `repo` scope.
+#
+# Scope: develop + main + tags only. Internal branches (work/*, fix/*, chore/*) stay private.
+
+on:
+  push:
+    branches: [main, develop]
+    tags: ['v*']
+
+env:
+  GIT_SSL_NO_VERIFY: true
+
+jobs:
+  mirror:
+    name: Push to github.com/yannickgranger/cfdb
+    runs-on: rust
+    container:
+      image: docker.io/library/alpine:3
+    steps:
+      - name: Install deps
+        run: |
+          apk add --no-cache git bash curl ca-certificates
+
+      - name: Clone from Gitea + push to GitHub
+        env:
+          GITEA_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_PAT: ${{ secrets.GITHUB_MIRROR_PAT }}
+          GH_REPO: yannickgranger/cfdb
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory '*'
+          git config --global http.sslVerify false
+          git config --global url."https://oauth2:${GITEA_TOKEN}@${GITHUB_SERVER_URL#https://}/".insteadOf "${GITHUB_SERVER_URL}/"
+
+          git clone --bare "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" repo.git
+          cd repo.git
+          git fetch --tags origin
+
+          # Configure GitHub remote with PAT auth (inline in URL — token never persists on disk)
+          git remote add github "https://${GH_PAT}@github.com/${GH_REPO}.git"
+
+          # Scoped push: develop + main + tags only. Uses --force to accept Gitea as canonical.
+          git push github --force refs/heads/develop:refs/heads/develop
+          git push github --force refs/heads/main:refs/heads/main
+          git push github --force --tags
+
+          echo ""
+          echo "Mirrored to https://github.com/${GH_REPO}"
