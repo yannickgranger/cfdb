@@ -16,10 +16,12 @@
 //! RAW (1):
 //! - `cfdb query --db <path> --keyspace <name> <cypher> [--params <json>] [--input <yaml>]`
 //!
-//! TYPED (6):
+//! TYPED (8):
 //! - `cfdb find-canonical --db <path> --keyspace <name> --concept <c>` (Phase A stub)
 //! - `cfdb list-callers --db <path> --keyspace <name> --qname <regex>` (wired — #3633)
 //! - `cfdb violations --db <path> --keyspace <name> --rule <file.cypher>`
+//! - `cfdb check --db <path> --keyspace <name> --trigger <T1|T3> [--no-fail]` (editorial-drift triggers — #101/#102)
+//! - `cfdb check-predicate --db <path> --keyspace <name> --workspace-root <path> --name <predicate> [--param <name>:<form>:<value> ...] [--format text|json] [--no-fail]` (named-predicate library — RFC-034)
 //! - `cfdb list-bypasses --db <path> --keyspace <name> --concept <c>`  (Phase A stub)
 //! - `cfdb list-items-matching --db <path> --keyspace <name> --name-pattern <r> [--kinds <list>] [--group-by-context]`
 //! - `cfdb scope --db <path> --context <name> [--workspace <path>] [--format json|table] [--output <path>] [--keyspace <name>]`

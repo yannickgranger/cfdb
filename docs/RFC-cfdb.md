@@ -633,6 +633,7 @@ cfdb is consumed, not consuming. Every integration below is a Cypher composition
 | Rust unit tests in qbot-core | Rust lib | `query` | Replace handwritten architecture tests with declarative queries (Patterns D, E) |
 | Weekly audit cron | CLI | `query`, `diff` | Batch markdown reports over HEAD snapshot |
 | Drift gate at PR time | CLI | `diff` | PR comment listing new drift introduced by this branch |
+| **`check-prelude-consistency` skill (qbot-core)** | CLI | `check-predicate` | Non-negotiable predicate library at `.cfdb/predicates/*.cypher` — one file per Non-negotiable, deterministic binary exit per predicate. Added by RFC-034 (Slices 1–5, issues #145–#149). See [`docs/query-dsl.md`](./query-dsl.md) for the user guide. |
 
 **Key insight:** the architecture-rfc-enforcement CI gate (#3578) and the in-repo Rust architecture tests are both consumers, not features. cfdb does not "ship CI integration"; cfdb ships the API, and the CI wraps it. This is the orthogonality test — if the user can wire a new consumer in their own code without touching cfdb, the API is right.
 
