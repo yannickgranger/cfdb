@@ -72,7 +72,15 @@ Issue numbers will be allocated at filing time; sub-issue map updated in this fi
 
 ## Filed sub-issues
 
-_(populated in a follow-up commit after forge_create_issue for each slice)_
+| Slice | Issue | Title | Blocked-by |
+|---|---|---|---|
+| 1 | **#145** | feat(cfdb-cli): param_resolver module — TOML-backed --param forms | — (can ship in parallel with #146) |
+| 2 | **#146** | feat(.cfdb): predicates/ seed library + schema-ref static check | — (can ship in parallel with #145) |
+| 3 | **#147** | feat(cfdb-cli): check-predicate verb — dispatch named predicate with resolved params | #145, #146 |
+| 4 | **#148** | feat(ci): predicate-library dogfood + determinism checks | #147 |
+| 5 | **#149** | docs: query-dsl.md user guide + Predicate homonym note | #148 |
+
+Each issue body links back to `docs/RFC-034-query-dsl.md` §7 and carries the prescribed `Tests:` block verbatim per project CLAUDE.md §2.4.
 
 ## Shutdown
 
