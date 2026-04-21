@@ -1,6 +1,6 @@
 # RFC-034 — Query DSL for machine-checkable predicates
 
-**Status:** R1 REVISED — awaiting R2 confirmation from rust-systems + solid-architect
+**Status:** RATIFIED (2026-04-21) — `council/49/RATIFIED.md` seals all 4 lens verdicts
 **Date:** 2026-04-21
 **Tracking issue:** #49
 **Parent:** #34 (EPIC — cfdb v0.2)
