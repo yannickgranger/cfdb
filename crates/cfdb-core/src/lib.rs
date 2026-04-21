@@ -11,27 +11,31 @@
 //! - [`query`]: Query AST, Pattern, Predicate, Aggregation, Param — the
 //!   interchange format between parser and evaluator.
 //! - [`result`]: QueryResult, Row, Warning — the shape returned to callers.
-//! - [`enrich`]: EnrichReport — return shape for the four `enrich_*` verbs
-//!   (Phase A stubs in v0.1, full implementations in v0.2 / Phase D).
-//! - [`store`]: StoreBackend trait — the single evaluation entry point.
+//! - [`enrich`]: EnrichBackend trait and EnrichReport — the four `enrich_*`
+//!   verbs live here, split from StoreBackend per RFC-031 §2 (Phase A stubs
+//!   in v0.1, full implementations in v0.2 / Phase D).
+//! - [`store`]: StoreBackend trait — storage, query evaluation, and lifecycle.
 //!
 //! Determinism invariants G1–G5 (RFC §6) are enforced at the trait level where
 //! possible and documented where they must be respected by implementors.
 
+pub mod cfg_gate;
 pub mod enrich;
 pub mod fact;
+pub mod qname;
 pub mod query;
 pub mod result;
 pub mod schema;
 pub mod store;
+pub mod visibility;
 
-pub use enrich::EnrichReport;
+pub use cfg_gate::CfgGate;
+pub use enrich::{EnrichBackend, EnrichReport};
 pub use fact::{Edge, Node, PropValue, Props};
 pub use query::{
-    list_items_matching, Aggregation, CanonicalCandidate, CompareOp, DebtClass, Direction,
-    EdgePattern, Expr, Finding, ItemKind, NodePattern, OrderBy, Param, PathPattern, Pattern,
-    Predicate, Projection, ProjectionValue, Query, ReachabilityEntry, ReturnClause, ScopeInventory,
-    UnknownDebtClass, UnknownItemKind, WithClause,
+    Aggregation, CompareOp, Direction, EdgePattern, Expr, ItemKind, NodePattern, OrderBy, Param,
+    PathPattern, Pattern, Predicate, Projection, ProjectionValue, Query, ReturnClause,
+    UnknownItemKind, WithClause,
 };
 pub use result::{QueryResult, Row, RowValue, Warning, WarningKind};
 pub use schema::{
@@ -39,3 +43,4 @@ pub use schema::{
     NodeLabelDescriptor, Provenance, SchemaDescribe, SchemaVersion,
 };
 pub use store::{StoreBackend, StoreError};
+pub use visibility::Visibility;

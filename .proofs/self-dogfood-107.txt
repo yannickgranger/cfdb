@@ -1,0 +1,61 @@
+   Compiling smallvec v1.15.1
+   Compiling object v0.37.3
+   Compiling regex-automata v0.4.14
+   Compiling syn v2.0.117
+   Compiling serde_json v1.0.149
+   Compiling petgraph v0.8.3
+   Compiling tempfile v3.27.0
+   Compiling regex v1.12.3
+   Compiling bstr v1.12.1
+   Compiling ar_archive_writer v0.5.1
+   Compiling synstructure v0.13.2
+   Compiling zerovec-derive v0.11.3
+   Compiling displaydoc v0.2.5
+   Compiling serde_derive v1.0.228
+   Compiling thiserror-impl v2.0.18
+   Compiling clap_derive v4.6.1
+   Compiling assert_cmd v2.2.1
+   Compiling psm v0.1.30
+   Compiling zerofrom-derive v0.1.7
+   Compiling yoke-derive v0.8.2
+   Compiling thiserror v2.0.18
+   Compiling zerofrom v0.1.7
+   Compiling yoke v0.8.2
+   Compiling clap v4.6.1
+   Compiling stacker v0.1.23
+   Compiling zerovec v0.11.6
+   Compiling zerotrie v0.2.4
+   Compiling chumsky v0.10.1
+   Compiling tinystr v0.8.3
+   Compiling potential_utf v0.1.5
+   Compiling serde v1.0.228
+   Compiling icu_collections v2.2.0
+   Compiling icu_locale_core v2.2.0
+   Compiling icu_provider v2.2.0
+   Compiling icu_properties v2.2.0
+   Compiling icu_normalizer v2.2.0
+   Compiling toml_datetime v0.6.11
+   Compiling serde_spanned v0.6.9
+   Compiling serde-value v0.7.0
+   Compiling cfdb-core v0.0.1 (/var/mnt/workspaces/cfdb/.claude/worktrees/107-enrich-rfc-docs/crates/cfdb-core)
+   Compiling idna_adapter v1.2.1
+   Compiling toml_edit v0.22.27
+   Compiling idna v1.1.0
+   Compiling url v2.5.8
+   Compiling cfdb-query v0.0.1 (/var/mnt/workspaces/cfdb/.claude/worktrees/107-enrich-rfc-docs/crates/cfdb-query)
+   Compiling cfdb-petgraph v0.0.1 (/var/mnt/workspaces/cfdb/.claude/worktrees/107-enrich-rfc-docs/crates/cfdb-petgraph)
+   Compiling toml v0.8.23
+   Compiling cargo-util-schemas v0.8.2
+   Compiling cfdb-concepts v0.0.1 (/var/mnt/workspaces/cfdb/.claude/worktrees/107-enrich-rfc-docs/crates/cfdb-concepts)
+   Compiling cargo_metadata v0.22.0
+   Compiling cfdb-extractor v0.0.1 (/var/mnt/workspaces/cfdb/.claude/worktrees/107-enrich-rfc-docs/crates/cfdb-extractor)
+   Compiling cfdb-cli v0.0.1 (/var/mnt/workspaces/cfdb/.claude/worktrees/107-enrich-rfc-docs/crates/cfdb-cli)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.39s
+     Running tests/self_dogfood_enrich_rfc_docs.rs (target/debug/deps/self_dogfood_enrich_rfc_docs-64c512cf3b009098)
+
+running 1 test
+self-dogfood: facts_scanned=9 edges_written=608 rfc_nodes≈3
+test ac3_ac4_self_dogfood_enrich_backend_references_rfc_031 ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.77s
+

@@ -1,0 +1,27 @@
+extract: walking /var/mnt/workspaces/qbot-core
+extract: 148345 nodes, 150120 edges
+extract: saved keyspace `qbot` to /tmp/qbot-core-db/qbot.json
+{
+  "rows": [
+    {
+      "i.impl_target": "PostgresSlippageRepository",
+      "i.impl_trait": "SlippageTrackingPort",
+      "i.qname": "qbot_postgres_trading::slippage_repository::PostgresSlippageRepository::impl_SlippageTrackingPort"
+    }
+  ]
+}
+    {
+      "impl_block_count": 2429
+    }
+  ]
+}
+    {
+      "implements_for_count": 2206
+    }
+  ]
+}
+    {
+      "implements_count": 142
+    }
+  ]
+}

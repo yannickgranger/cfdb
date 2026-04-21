@@ -56,9 +56,11 @@
 //! changing recall.
 
 use std::collections::BTreeSet;
+#[cfg(feature = "runner")]
 use std::path::Path;
 
 use rustdoc_types::{Crate, ItemKind};
+#[cfg(feature = "runner")]
 use thiserror::Error;
 
 use crate::PublicItem;
@@ -101,10 +103,16 @@ pub fn project_rustdoc_paths(crate_data: &Crate) -> BTreeSet<PublicItem> {
 }
 
 // ── I/O wrapper: build rustdoc JSON + parse it ─────────────────────
+//
+// Everything from here to the end of the `runner`-gated section is only
+// compiled when the `runner` feature is on. Library consumers that only
+// want to call `project_rustdoc_paths` on a `Crate` they already parsed
+// do not need rustdoc-json's cargo-driver transitive closure.
 
 /// Error returned by [`build_public_api_for_manifest`]. Kept separate from
 /// the extractor's error type because the two failure modes are distinct
 /// and callers surface them differently in their reports.
+#[cfg(feature = "runner")]
 #[derive(Debug, Error)]
 pub enum GroundTruthError {
     #[error("rustdoc-json build failed for {manifest}: {source}")]
@@ -137,6 +145,10 @@ pub enum GroundTruthError {
 /// target crate. Typical cost is 5-30 seconds depending on crate size and
 /// whether the build cache is warm. Integration tests that call this must
 /// plan for that cost.
+///
+/// **Requires the `runner` feature.** Library consumers that only need
+/// the pure [`project_rustdoc_paths`] function do not pay its cost.
+#[cfg(feature = "runner")]
 pub fn build_public_api_for_manifest(
     manifest_path: &Path,
 ) -> Result<BTreeSet<PublicItem>, GroundTruthError> {

@@ -42,11 +42,12 @@ impl ItemKind {
     /// Map a council-named kind to the string the cfdb syn extractor emits
     /// as `:Item.kind`. The extractor's vocabulary is lowercase and diverges
     /// from the council names in two spots: `TypeAlias → "type_alias"` and
-    /// `ImplBlock → <unemitted>` (the extractor does NOT emit an Item node
-    /// for impl blocks in v0.1; only their nested methods are emitted as
-    /// `kind="method"`). `ImplBlock` returns a sentinel that never matches a
-    /// real :Item.kind value — `list_items_matching` uses this to surface a
-    /// warning that v0.1 keyspaces contain zero `ImplBlock` items.
+    /// `ImplBlock → "impl_block"` (issue #42 / SchemaVersion V0_2_2).
+    /// `cfdb-extractor` now emits one `:Item { kind: "impl_block" }` per
+    /// `impl ... {}` block alongside `IMPLEMENTS` + `IMPLEMENTS_FOR` edges.
+    /// Pre-V0_2_2 keyspaces have zero `impl_block` items — consumers
+    /// that query across schema versions should treat absence as
+    /// "the keyspace is older than #42", not as "the code has no impls".
     pub fn to_extractor_str(self) -> &'static str {
         match self {
             ItemKind::Struct => "struct",
@@ -55,7 +56,7 @@ impl ItemKind {
             ItemKind::Const => "const",
             ItemKind::TypeAlias => "type_alias",
             ItemKind::Trait => "trait",
-            ItemKind::ImplBlock => "<unemitted:impl_block>",
+            ItemKind::ImplBlock => "impl_block",
         }
     }
 
@@ -163,17 +164,17 @@ mod tests {
     #[test]
     fn item_kind_to_extractor_str_maps_every_variant() {
         // Pins the AC vocabulary → extractor vocabulary mapping table.
-        // ImplBlock is council-named but unemitted by the v0.1 syn extractor —
-        // the sentinel value ensures the `Predicate::In` filter matches no rows.
+        // Every variant emits a concrete `kind` string that appears on
+        // real `:Item` nodes. `ImplBlock` mapped to `"<unemitted:impl_block>"`
+        // pre-#42 because the extractor did not walk impl blocks;
+        // post-#42 (SchemaVersion V0_2_2) every `impl ... {}` emits
+        // `kind = "impl_block"` so the sentinel is no longer needed.
         assert_eq!(ItemKind::Struct.to_extractor_str(), "struct");
         assert_eq!(ItemKind::Enum.to_extractor_str(), "enum");
         assert_eq!(ItemKind::Fn.to_extractor_str(), "fn");
         assert_eq!(ItemKind::Const.to_extractor_str(), "const");
         assert_eq!(ItemKind::TypeAlias.to_extractor_str(), "type_alias");
         assert_eq!(ItemKind::Trait.to_extractor_str(), "trait");
-        assert_eq!(
-            ItemKind::ImplBlock.to_extractor_str(),
-            "<unemitted:impl_block>"
-        );
+        assert_eq!(ItemKind::ImplBlock.to_extractor_str(), "impl_block");
     }
 }

@@ -80,5 +80,34 @@ if [ "$A_SHA" != "$B_SHA" ]; then
   exit 1
 fi
 
-echo "G1 OK: $A_SHA  ($WORKSPACE)"
+# ── enrich-git-history determinism (issue #105 / slice 43-B) ──────────
+#
+# Loads the extracted keyspace from each db and runs `enrich-git-history`,
+# comparing the JSON report byte-for-byte. The pass is deterministic (sorted
+# BTreeMap, reverse-chronological revwalk, no wall-clock) so two consecutive
+# invocations on the same workspace MUST produce identical reports. Holds
+# whether or not the binary was compiled with `--features git-enrich`:
+#
+#   - feature off → both runs emit the same "feature disabled" stub report
+#   - feature on + git workspace → both runs emit the same real report
+#   - feature on + non-git workspace → both runs emit the same "not a git
+#     repo" degraded report
+#
+# In-memory-dump determinism (two enriched stores produce identical canonical
+# dumps) is proved by the unit test
+# `ac6_two_runs_produce_identical_canonical_dumps` in
+# `cfdb-petgraph/src/enrich/git_history.rs`. This script proves the CLI path
+# is equally deterministic.
+A_ENRICH="$("$CFDB_BIN" enrich-git-history --db "$DB_A" --keyspace "$KS" --workspace "$WORKSPACE")"
+B_ENRICH="$("$CFDB_BIN" enrich-git-history --db "$DB_B" --keyspace "$KS" --workspace "$WORKSPACE")"
+
+if [ "$A_ENRICH" != "$B_ENRICH" ]; then
+  echo "G1 VIOLATION: two runs of enrich-git-history produced different reports" >&2
+  echo "  workspace: $WORKSPACE" >&2
+  printf 'run A:\n%s\n' "$A_ENRICH" >&2
+  printf 'run B:\n%s\n' "$B_ENRICH" >&2
+  exit 1
+fi
+
+echo "G1 OK: extract=$A_SHA  enrich-git-history=deterministic  ($WORKSPACE)"
 exit 0

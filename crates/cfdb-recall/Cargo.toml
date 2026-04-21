@@ -12,6 +12,15 @@ path = "src/lib.rs"
 [[bin]]
 name = "cfdb-recall"
 path = "src/bin/cfdb-recall.rs"
+required-features = ["runner"]
+
+[features]
+# Pull in the CLI binary and the rustdoc-json ground-truth builder.
+# Off by default so library consumers (e.g. future lint rules that want to
+# read `RecallReport` / `AuditList` without shelling out to cargo+rustup)
+# do not pay the compile cost of clap and rustdoc-json (~20 transitive
+# crates, ~1s cold compile on a warm cache).
+runner = ["dep:clap", "dep:rustdoc-json"]
 
 [dependencies]
 cfdb-core = { path = "../cfdb-core" }
@@ -19,9 +28,15 @@ cfdb-extractor = { path = "../cfdb-extractor" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-clap.workspace = true
+# Parsed ground-truth data model; kept ungated because the pure
+# projection function `project_rustdoc_paths` is part of the library API
+# surface and callers need the `Crate` / `ItemKind` types in their
+# signatures.
 rustdoc-types = "0.56"
-rustdoc-json = "0.9"
+# Gated behind `runner` — only the binary and the rustdoc-json-invoking
+# adapter path use them.
+clap = { workspace = true, optional = true }
+rustdoc-json = { version = "0.9", optional = true }
 
 [dev-dependencies]
 tempfile.workspace = true

@@ -1,0 +1,23 @@
+[package]
+name = "cfdb-hir-petgraph-adapter"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Orphan-rule bridge (RFC-032 §3 lines 229–242): implements
+# `cfdb_hir_extractor::emit::CallSiteEmitter` for
+# `cfdb_petgraph::PetgraphStore`. This crate owns neither the trait
+# source nor the target type — it depends on both, which is exactly
+# what the orphan rule requires of third-party impls.
+#
+# NEVER add `cfdb-hir-petgraph-adapter` as a dep of `cfdb-cli` or
+# `cfdb-petgraph`. The 90–150s cold-compile cost of the `ra-ap-*`
+# bundle (transitively pulled via `cfdb-hir-extractor`) stays quarantined
+# behind the `cfdb-cli --features hir` flag added in Issue #86 / slice 4.
+
+[dependencies]
+cfdb-core = { path = "../cfdb-core" }
+cfdb-hir-extractor = { path = "../cfdb-hir-extractor" }
+cfdb-petgraph = { path = "../cfdb-petgraph" }

@@ -1,0 +1,41 @@
+=== GATE 1: rust-systems ===
+--- cargo tree -p cfdb-cli | grep -i ra_ap (should be empty) ---
+(empty = PASS)
+--- rg 'dyn HirDatabase' crates/cfdb-hir-extractor/src/ live code (excluding my new lines)
+crates/cfdb-hir-extractor/src/entry_point_emitter.rs:390:    let db: &dyn HirDatabase = _sema.db;
+crates/cfdb-hir-extractor/src/lib.rs:29://! HirDatabase + Sized`. `dyn HirDatabase` is forbidden and will fail
+crates/cfdb-hir-extractor/src/hir_db.rs:6://! — not `dyn HirDatabase`. `ra_ap_hir::db::HirDatabase` is a salsa
+(only pre-existing baseline match at build_item_qname — unchanged by PR)
+--- rg 'ra_ap_' crates/cfdb-core/src/ (should be empty) ---
+(empty = PASS)
+
+=== GATE 2: clean-arch ===
+--- new Label::*/EdgeLabel::* constants introduced? ---
+(empty = PASS — no new constants)
+--- scan_file untouched as sole dispatcher? (should live in entry_point_emitter.rs only) ---
+crates/cfdb-hir-extractor/src/entry_point_emitter.rs
+--- kind literals confined to entry_point_emitter.rs ---
+crates/cfdb-hir-extractor/src/entry_point_emitter.rs:        "cron_job",
+crates/cfdb-hir-extractor/src/entry_point_emitter.rs:    emit(nodes, edges, qname, name, "websocket", file_path, None);
+
+=== GATE 3: ddd-specialist ===
+--- handler qname formula for cron_job/websocket uses build_item_qname → cfdb_core::item_qname ---
+61:use cfdb_core::qname::{item_node_id, item_qname};
+207:    let qname = build_item_qname(sema, def.module(sema.db), def.krate(sema.db), &name);
+217:    let qname = build_item_qname(sema, def.module(sema.db), def.krate(sema.db), &name);
+227:    let qname = build_item_qname(sema, def.module(sema.db), def.krate(sema.db), &name);
+359:    let qname = build_item_qname(sema, func.module(sema.db), func.krate(sema.db), &name);
+379:/// `cfdb_core::qname::item_qname`. Shared by all kinds so cross-kind
+381:fn build_item_qname<DB>(
+408:    item_qname(&stack, item_name)
+--- cron_expr prop name: literal count (should be exactly 1 emit site + 1 test read) ---
+crates/cfdb-hir-extractor/tests/entry_point.rs:64:fn cron_expr_of(n: &Node) -> Option<&str> {
+crates/cfdb-hir-extractor/tests/entry_point.rs:65:    n.props.get("cron_expr").and_then(PropValue::as_str)
+crates/cfdb-hir-extractor/tests/entry_point.rs:212:        cron_expr_of(ep),
+crates/cfdb-hir-extractor/tests/entry_point.rs:214:        "cron_expr prop must carry the literal schedule string"
+crates/cfdb-hir-extractor/tests/entry_point.rs:264:    assert_eq!(cron_expr_of(eps[0]), Some("@daily"));
+crates/cfdb-hir-extractor/tests/entry_point.rs:312:    assert_eq!(cron_expr_of(eps[0]), Some("*/5 * * * * *"));
+crates/cfdb-hir-extractor/src/entry_point_emitter.rs:27://!   detected automatically. The `cron_expr` property carries the
+crates/cfdb-hir-extractor/src/entry_point_emitter.rs:276:    let Some(cron_expr) = extract_string_literal(&args[0]) else {
+crates/cfdb-hir-extractor/src/entry_point_emitter.rs:284:    extra.insert("cron_expr".into(), PropValue::Str(cron_expr));
+crates/cfdb-hir-extractor/src/entry_point_emitter.rs:412:/// `extra_props` map is merged into the node props (e.g. `cron_expr`

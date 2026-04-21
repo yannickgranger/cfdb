@@ -166,6 +166,106 @@ In addition to v0.1 items 1–6 (§13), v0.2 gates on:
 
 **Still deferred to v0.3+:** entry-point annotations, LLM enrichment, cross-project queries, embedding clustering, density-based thresholds (LoC instrumentation ships in v0.2 as §A3.2 telemetry).
 
+### A1.7 `cfdb extract --rev <url>@<sha>` — bilateral cross-repo drift-lock (Option W)
+
+**Issue:** #96 (builds on #37 / PR #123).
+
+**Problem.** qbot-core EPIC #4047 Phase 2 needs a cross-repo drift-lock against `yg/qbot-strategies`. The comparator consumes two fact sets (one per repo), extracted at specific SHAs, and asserts invariants across them. Without URL extraction, the user must maintain two local checkouts and orchestrate `cfdb extract --rev <sha>` separately against each — fragile, easy to misalign. Option W (qbot-core council-4046 tools-devops R2.2) is the chosen mechanism over Option Y (third `qbot-specs` repo).
+
+**Scope.**
+
+- `cfdb extract --rev <url>@<sha>` clones `<url>` once per `(url, sha)` pair into a persistent cache and extracts at `<sha>`.
+- `<url>` carries one of `http://` / `https://` / `ssh://` / `file://` schemes. SSH shorthand (`git@host:path`) is NOT accepted in v1 — use the explicit `ssh://…` form. `file://` is supported both for hermetic integration tests and for the self-dogfood case `cfdb extract --rev file://$(pwd)/.git@$(git rev-parse HEAD)`.
+- The cache base directory is, in precedence order:
+  1. `$CFDB_CACHE_DIR` (explicit override; used by tests for hermeticity).
+  2. `$XDG_CACHE_HOME/cfdb/extract`.
+  3. `$HOME/.cache/cfdb/extract`.
+  4. `std::env::temp_dir()/cfdb/extract` (last resort; non-persistent; emits `eprintln!` warning).
+- Cache layout: `<base>/<sha256_hex_first_16(url)>/<full-sha>/`. Full SHA (not `short_rev`) so 12-char prefix collisions remain distinct on disk.
+- A sentinel file `.cfdb-extract-ok` inside the cache dir signals a successful clone+checkout; second runs gate off the sentinel and skip the clone (AC-3).
+- Auth (AC-2): subprocess `git clone` / `fetch` / `checkout` inherit ambient git credentials — SSH agent, `~/.config/git/credentials`, `GIT_ASKPASS`, `credential.helper`. No new plumbing.
+
+**Design.**
+
+- The `extract` dispatcher in `cfdb-cli/src/commands.rs` discriminates URL@SHA vs. plain SHA at a single match guard — `Some(rev) if is_url_at_sha(rev) => extract_at_url_rev(rev, …)`. The same-repo `extract_at_rev` (PR #123) and its `GitWorktree` RAII guard are UNCHANGED; URL form is a new sibling branch, not a modification.
+- `parse_url_at_sha(&str) -> Option<(&str, &str)>` splits on the RIGHTMOST `@` so `ssh://user@host/r@deadbeef` parses correctly. The SHA side must be all-hex and ≥ 7 chars; the URL side must carry a recognised scheme.
+- `git clone <url> <cache_dir>` fetches the default branch only; the arbitrary `<sha>` is explicitly fetched next (`git fetch --quiet origin <sha>`) then checked out. Gitea has `uploadpack.allowReachableSHA1InWant=true` by default, which makes this work; other servers may need the setting enabled. The CLI error names this config when fetch fails for that reason.
+
+**Invariants.**
+
+- **Subprocess contract preserved.** `git2` stays behind the `git-enrich` feature gate — default `cfdb-cli` builds still ship zero `git2` in their dep tree (issue #105). `sha2 = "0.10"` is the only new workspace dep (pure-Rust, small, for URL → cache-key hashing).
+- **Single resolution point.** URL-vs-SHA discrimination lives ONLY in the `extract` match guard. `extract_at_rev` and `extract_at_url_rev` trust the dispatch — neither re-checks the form.
+- **Determinism.** Same `(url, sha)` produces byte-identical canonical dumps on repeat extract (same guarantee as `extract --rev <sha>` today; the extraction pipeline is unchanged).
+- **No `SchemaVersion` bump.** The emitted facts are identical to what the same-repo path emits; only the input-source path changes.
+
+**Non-goals.**
+
+- No new `--cache-dir` flag in this issue (env-var override is sufficient; flag may be added in a follow-up if a real need materialises).
+- No `git2` library path for the URL clone — subprocess is the contract, matching §2 "Group B" convention.
+- No HTTPS auth plumbing new to cfdb — ambient git credentials are the contract (AC-2). A future issue can add `--token` / `CFDB_GITEA_TOKEN` support if manual token injection becomes ergonomic.
+- No `url` / `dirs` / `reqwest` crates — env-var path + scheme-prefix string split is sufficient.
+
+**Tests (per CLAUDE.md §2.5).**
+
+- **Unit:** `parse_url_at_sha` / `is_url_at_sha` / `url_hash_hex16` / `cache_base_dir` env-var precedence — covered in `crates/cfdb-cli/src/commands.rs` `#[cfg(test)] mod tests`.
+- **Integration:** `crates/cfdb-cli/tests/extract_rev_url.rs` — 5 scenarios: URL form honours the SHA (AC-1), cache reuse (AC-3), unreachable URL surfaces git error (AC-2 shape; real Gitea auth is dogfood), malformed URL@SHA falls through to same-repo path, default keyspace = `short_rev(sha)`. All tests use `file://` URLs against local bare repos — zero network access.
+- **Self-dogfood:** `cfdb extract --rev file://$(pwd)/.git@$(git rev-parse HEAD)` produces a keyspace on the cfdb tree.
+- **Target-dogfood (manual, PR body):** `cfdb extract --rev https://agency.lab:3000/yg/qbot-core@<pinned-sha>` and the same for `yg/qbot-strategies` — per issue AC-4, reported as manual evidence in the ship PR body.
+
+### A1.8 `.cfdb/published-language-crates.toml` — Published Language marker (Issue #100)
+
+**Issue:** #100 (feeds §A2.1 class 2 Context Homonym classifier).
+
+**Problem.** The six-class taxonomy (§A2.1) distinguishes `Context Homonym` (same name, different bounded contexts, semantically divergent) from a **Published Language** (intentional cross-context consumer — DDD pattern). Without a marker file, the classifier cannot tell a legitimately-shared type like `qbot-prelude::Symbol` from a divergent homonym — both present as "same name across contexts" at the graph level. Issue #48 classifier consumes the marker; the marker itself is what #100 lands.
+
+**Scope.**
+
+- New single-file config at `.cfdb/published-language-crates.toml` (sibling of the directory-based `.cfdb/concepts/*.toml`). Optional — missing file is not an error, and the baseline behaviour is "every `:Crate` emits `published_language: false`".
+- On-disk shape:
+
+  ```toml
+  [[crate]]
+  name = "qbot-prelude"
+  language = "prelude"
+  owning_context = "core"
+  consumers = ["trading", "portfolio", "strategy"]
+
+  [[crate]]
+  name = "qbot-types"
+  language = "types"
+  owning_context = "core"
+  consumers = ["*"]
+  ```
+
+- Loader shape: `load_published_language_crates(workspace_root: &Path) -> Result<PublishedLanguageCrates, LoadError>` in `cfdb-concepts` (canonical home per PR #103 / issue #3). Reuses the existing `LoadError` enum — `Io` + `Toml` variants cover every failure mode. Duplicate `name` entries in the TOML array are rejected via `LoadError::Io { ErrorKind::InvalidData }` (silent last-wins is forbidden).
+- Public API per issue AC-2: `is_published_language(&str) -> bool`, `owning_context(&str) -> Option<&str>`, `allowed_consumers(&str) -> Option<&[String]>`. The loader does NOT interpret the `"*"` wildcard — it passes consumer strings through verbatim; wildcard semantics are the classifier's job (issue #48).
+- `:Crate` nodes gain a `published_language: bool` prop materialised at extraction time in `cfdb-extractor::emit_crate_and_walk_targets`. Every `:Crate` carries the prop (no `Option`); missing file ⇒ every crate emits `false`.
+
+**Design — extract-time only, not re-enrichment.**
+
+`enrich_bounded_context` (PR #119) earns its re-enrichment machinery because users routinely edit context-map TOMLs between extractions and want to patch `:Item.bounded_context` without re-walking the workspace. Published Language is a rarely-edited marker (DDD policy-level decision), so the simpler extract-time emission is chosen for the first landing. If the #48 classifier later needs post-extract patching, a follow-up issue can add `crates/cfdb-petgraph/src/enrich/published_language.rs` mirroring the `enrich_bounded_context` pattern; the current extract-time wiring is a clean prerequisite.
+
+**Invariants.**
+
+- **No `SchemaVersion` bump.** `published_language: bool` is additive on an already-declared `:Crate` node shape; `PropValue::Bool` is already in the wire format. No lockstep `graph-specs-rust` fixture bump required (RFC-033 §4 I2: adding an optional prop does not break the schema contract).
+- **Single resolution point.** `load_published_language_crates` is canonical at `crates/cfdb-concepts/src/published_language.rs`; `:Crate.published_language` is written at exactly one site (`emit_crate_and_walk_targets`). A second writer would split-brain the prop.
+- **`LoadError` reused.** No parallel `PublishedLanguageLoadError` — the canonical enum covers every failure mode.
+
+**Non-goals.**
+
+- No classifier logic in the loader (that's #48).
+- No validation that declared `consumers` actually import the crate at compile time (static TOML check only).
+- No wildcard expansion at the loader layer — `"*"` passes through.
+- No CLI flag — loader is library-only, invoked by `extract_workspace`.
+- No sample `.cfdb/published-language-crates.toml` in the cfdb repo itself — cfdb does not currently publish a language; the self-dogfood baseline is "file absent → `published_language=false` on every crate".
+
+**Tests (per CLAUDE.md §2.5).**
+
+- **Unit (8 tests, `crates/cfdb-concepts/src/published_language.rs::tests`):** missing file, empty file, single crate, multiple crates, wildcard consumers, malformed TOML, determinism, duplicate-name rejection.
+- **Integration (3 tests, `crates/cfdb-concepts/tests/published_language.rs`):** full-pipeline 3-entry fixture exercising all three public methods; missing `.cfdb/` baseline; `.cfdb/` without PL file baseline.
+- **Self-dogfood (2 tests, `crates/cfdb-extractor/tests/published_language_dogfood.rs`):** synthetic 2-crate workspace fixture — one declared, one not; asserts prop value matches per crate. No-PL-file baseline asserts `false` on every `:Crate`.
+- **Cross-dogfood:** `ci/cross-dogfood.sh` unchanged (no `SchemaVersion` bump, no new ban rule).
+
 ---
 
 ## A2. Debt-cause taxonomy (new §A2 to RFC)
@@ -193,15 +293,28 @@ Every cfdb finding (from Pattern A, B, or C rules) is labeled with exactly one c
 
 **Architectural correction (council BLOCK-1, clean-arch).** The classifier cannot be a standalone `.cypher` rule. The signals it joins on require filesystem and subprocess I/O (git log, file reads of `.concept-graph/*.md`, deprecation attribute extraction) that Cypher traversal cannot perform atomically. The classifier is a **two-stage pipeline**: enrichment passes materialize signals into the graph as new edges/attributes, THEN a Cypher query joins on the enriched graph.
 
-**Stage 1 — enrichment passes** (each is an extractor-layer operation that mutates the graph):
+**Stage 1 — enrichment passes** (each is an extractor-layer operation that mutates the graph). The table below was revised by the #43 council round 1 synthesis (2026-04-20): six passes (not five) per DDD Q4 finding; `:Concept` node materialization is a distinct sixth pass that #101 and #102 block on. `enrich_metrics` is explicitly deferred out of this pipeline:
 
-| Pass | Input | Output edges / attributes | Layer |
-|---|---|---|---|
-| `enrich_git_history` | git log for each `:Item`'s defining file | `:Item.git_age_days`, `:Item.git_last_author`, `:Item.git_commit_count` | extractor (uses `git2` crate to avoid subprocess overhead) |
-| `enrich_rfc_docs` | `.concept-graph/` + `docs/rfc/*.md` keyword match against concept names | `(:Item)-[:REFERENCED_BY]->(:RfcDoc)` edges | extractor (reads RFC files once at ingestion) |
-| `enrich_deprecation` | `#[deprecated]` attribute extraction from syn AST | `:Item.is_deprecated`, `:Item.deprecation_since` | extractor (no new I/O; reuses existing AST walk) |
-| `enrich_bounded_context` | crate-prefix convention + optional `.cfdb/concepts/*.toml` overrides | `:Item.bounded_context` + `(:Crate)-[:BELONGS_TO]->(:Context)` edges | extractor (deterministic, declarative) |
-| `enrich_reachability` | BFS from `:EntryPoint` over `CALLS*` | `:Item.reachable_from_entry = bool`, `:Item.reachable_entry_count` | enricher (runs after Pattern A/B extraction completes) |
+| # | Pass | Slice | Input | Output edges / attributes | Layer |
+|---|---|---|---|---|---|
+| 1 | `enrich_git_history` | 43-B (#105) | git log for each `:Item`'s defining file | `:Item.git_last_commit_unix_ts` (i64 epoch, **not** `git_age_days` — see G1 note), `:Item.git_last_author`, `:Item.git_commit_count` | extractor crate (uses `git2` crate behind `git-enrich` feature flag) |
+| 2 | `enrich_rfc_docs` | 43-D (#107) | `docs/rfc/*.md` + `.concept-graph/*.md` keyword match against concept names (scope narrowed — see scope-narrowing note) | `(:Item)-[:REFERENCED_BY]->(:RfcDoc {path, title})` edges + nodes | petgraph impl (reads RFC files once at pass time via workspace path stored on `PetgraphStore`) |
+| 3 | `enrich_deprecation` | 43-C (#106) | `#[deprecated]` attribute extraction from syn AST | `:Item.is_deprecated`, `:Item.deprecation_since` | **extractor (extractor-time — not a Phase D enrichment)** — the attribute is syntactic and the AST walker already visits attributes (see deprecation provenance note) |
+| 4 | `enrich_bounded_context` | 43-E (#108) | crate-prefix convention + `.cfdb/concepts/*.toml` overrides | `:Item.bounded_context` (re-enrichment of extractor-time output when TOML changes) | petgraph impl (re-enrichment only — extractor already populates `bounded_context` + `BELONGS_TO`) |
+| 5 | `enrich_concepts` | 43-F (#109) | `.cfdb/concepts/<name>.toml` declarations | `:Concept {name, assigned_by}` nodes + `(:Item)-[:LABELED_AS]->(:Concept)` + `(:Item)-[:CANONICAL_FOR]->(:Concept)` — **DDD Q4 sixth pass; unblocks #101 + #102** | petgraph impl (reads TOML via `cfdb-concepts::ConceptOverrides`) |
+| 6 | `enrich_reachability` | 43-G (#110) | BFS from `:EntryPoint` over `CALLS*` | `:Item.reachable_from_entry = bool`, `:Item.reachable_entry_count` | petgraph impl (runs after HIR extraction; degraded path with `ran: false` + warning when no `:EntryPoint` nodes present) |
+
+**G1 determinism note — timestamps, not ages.** `enrich_git_history` stores `git_last_commit_unix_ts` (i64 epoch seconds), not `git_age_days`. Days-since-now computed at enrichment time violates G1 byte-stability across calendar days (clean-arch verdict B2, council/43/clean-arch.md). The Stage-2 classifier Cypher below computes `age_delta = abs(a.git_last_commit_unix_ts - b.git_last_commit_unix_ts) / 86400` at query time instead of reading a pre-baked `git_age_days` value.
+
+**`enrich_metrics` — deferred out of #43 scope.** The quality-metrics pass (`unwrap_count`, `cyclomatic`, `dup_cluster_id`, `test_coverage`) is orthogonal to the debt-cause classifier pipeline: the six classes in §A2.1 do not consume these signals. The Phase A stub is retained on `EnrichBackend` and in `Provenance::EnrichMetrics` so the surface is stable; a future RFC can resuscitate the pass without a breaking rename.
+
+**Scope narrowing of `enrich_rfc_docs`.** Renamed from the v0.1 `enrich_docs` stub and scope-narrowed to RFC-file keyword matching only. The broader rustdoc rendering implied by the former Phase A stub doc comment is an **explicit non-goal for v0.2** — no #43 slice implements it. Full rustdoc enrichment is deferred beyond v0.2 and may land behind its own RFC and Provenance variant.
+
+**Deprecation provenance — `Provenance::Extractor`, not an enrichment tag.** The RFC's original wording ("reuses existing AST walk") is now explicit: `#[deprecated]` is extracted at extraction time and tagged `Provenance::Extractor`. The `EnrichBackend::enrich_deprecation` method exists for surface symmetry but its `PetgraphStore` impl is a `ran: true, attrs_written: 0` no-op naming the extractor as the real source. This prevents the provenance split-brain DDD Q4 flagged.
+
+**Invariant I6 (v0.2-9 load-bearing gate).** The Stage-2 classifier (issue #48) MUST NOT be deployed until `enrich_bounded_context` (slice 43-E) hits the v0.2-9 ≥95% accuracy gate on the ground-truth crates (`domain-strategy`, `ports-trading`, `qbot-mcp`). Below 95% accuracy the `cross_context` boolean produces enough false positives to misroute mechanical dedup into expensive council deliberations and (worse) false negatives that misroute homonyms into `/sweep-epic --consolidate` — which deletes bounded-context distinctions (DDD Q3 analysis, council/43/ddd.md).
+
+**SchemaVersion bump policy.** Per-slice patch bumps — **not** a batched single bump. Each slice that writes new attributes or labels into the graph bumps the version (V0_2_1, V0_2_2, …) with its own lockstep `graph-specs-rust` cross-fixture PR per cfdb CLAUDE.md §3. Slice 43-A ships schema reservations (`:RfcDoc` label, `REFERENCED_BY` edge, new `Provenance` variants) without bumping the version — stubs write nothing, so no wire-format consumer sees a change. The first real bump lands with whichever of 43-B/43-D/43-G reaches ship first.
 
 **Stage 2 — classifier Cypher query** (reads only enriched facts, no I/O):
 
@@ -212,7 +325,7 @@ WHERE <pattern A/B/C match conditions>
   AND a.bounded_context IS NOT NULL
   AND b.bounded_context IS NOT NULL
 WITH a, b,
-     abs(a.git_age_days - b.git_age_days) AS age_delta,
+     abs(a.git_last_commit_unix_ts - b.git_last_commit_unix_ts) / 86400 AS age_delta,
      (a.bounded_context <> b.bounded_context) AS cross_context,
      exists { (a)-[:REFERENCED_BY]->(:RfcDoc) } AS has_rfc_ref,
      a.is_deprecated OR b.is_deprecated AS has_deprecation,

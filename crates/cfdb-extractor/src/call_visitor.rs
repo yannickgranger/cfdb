@@ -9,6 +9,7 @@
 use std::collections::BTreeMap;
 
 use cfdb_core::fact::{Edge, Node, PropValue};
+use cfdb_core::qname::item_node_id;
 use cfdb_core::schema::{EdgeLabel, Label};
 use syn::visit::Visit;
 
@@ -184,6 +185,9 @@ impl CallSiteVisitor<'_, '_> {
         props.insert("file".into(), PropValue::Str(self.file_path.to_string()));
         props.insert("line".into(), PropValue::Int(0));
         props.insert("is_test".into(), PropValue::Bool(self.is_test));
+        // SchemaVersion v0.1.3+ discriminator (Label::CALL_SITE doc, #83).
+        props.insert("resolver".into(), PropValue::Str("syn".to_string()));
+        props.insert("callee_resolved".into(), PropValue::Bool(false));
 
         self.emitter.emit_node(Node {
             id: cs_id.clone(),
@@ -191,7 +195,7 @@ impl CallSiteVisitor<'_, '_> {
             props,
         });
         self.emitter.emit_edge(Edge {
-            src: format!("item:{}", self.caller_qname),
+            src: item_node_id(self.caller_qname),
             dst: cs_id,
             label: EdgeLabel::new(EdgeLabel::INVOKES_AT),
             props: BTreeMap::new(),

@@ -102,6 +102,28 @@ fn emits_call_sites_and_methods() {
         invokes_at_count, call_site_count,
         "every CallSite should have exactly one INVOKES_AT edge"
     );
+
+    // SchemaVersion v0.1.3+ self-dogfood (issue #83, RFC-029 §A1.2):
+    // every :CallSite emitted while extracting cfdb's own source tree
+    // carries `resolver="syn"` + `callee_resolved=false`. No exceptions.
+    // The syn extractor must never claim HIR resolution.
+    for cs in nodes
+        .iter()
+        .filter(|n| n.label.as_str() == Label::CALL_SITE)
+    {
+        assert_eq!(
+            cs.props.get("resolver").and_then(PropValue::as_str),
+            Some("syn"),
+            "{}: self-dogfood must see `resolver=\"syn\"` on every :CallSite",
+            cs.id,
+        );
+        assert_eq!(
+            cs.props.get("callee_resolved"),
+            Some(&PropValue::Bool(false)),
+            "{}: self-dogfood must see `callee_resolved=false` on every :CallSite",
+            cs.id,
+        );
+    }
 }
 
 #[test]

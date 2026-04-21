@@ -1,0 +1,10 @@
+[package]
+name = "trading_port"
+version = "0.0.1"
+edition = "2021"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]

@@ -1,0 +1,30 @@
+      "commits": 10,
+      "qname": "qbot_adapter_market_structure::trend_context_adapter::DefaultTrendContextComputer::new"
+    },
+    {
+      "author": "yg@agency.lab",
+      "commits": 10,
+      "qname": "qbot_adapter_market_structure::trend_context_adapter::tests::candle"
+    },
+    {
+      "author": "yg@agency.lab",
+      "commits": 10,
+      "qname": "qbot_adapter_market_structure::trend_context_adapter::tests::default_config"
+    },
+    {
+      "author": "yg@agency.lab",
+      "commits": 10,
+      "qname": "qbot_adapter_market_structure::trend_context_adapter::tests::deterministic_same_input_same_output"
+    },
+    {
+      "author": "yg@agency.lab",
+      "commits": 10,
+      "qname": "qbot_adapter_market_structure::trend_context_adapter::tests::downtrend_candles_produce_bear_lt"
+    },
+    {
+      "author": "yg@agency.lab",
+      "commits": 10,
+      "qname": "qbot_adapter_market_structure::trend_context_adapter::tests::empty_candles_return_flat"
+    }
+  ]
+}

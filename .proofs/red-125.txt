@@ -1,0 +1,241 @@
+   Compiling proc-macro2 v1.0.106
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.45
+   Compiling serde_core v1.0.228
+   Compiling libc v0.2.185
+   Compiling once_cell v1.21.4
+   Compiling crossbeam-utils v0.8.21
+   Compiling pin-project-lite v0.2.17
+   Compiling cfg-if v1.0.4
+   Compiling equivalent v1.0.2
+   Compiling smallvec v1.15.1
+   Compiling rustc-hash v2.1.2
+   Compiling either v1.15.0
+   Compiling hashbrown v0.17.0
+   Compiling scopeguard v1.2.0
+   Compiling camino v1.2.2
+   Compiling memchr v2.8.0
+   Compiling autocfg v1.5.0
+   Compiling rayon-core v1.13.0
+   Compiling tracing-core v0.1.36
+   Compiling lock_api v0.4.14
+   Compiling parking_lot_core v0.9.12
+   Compiling bitflags v2.11.1
+   Compiling itertools v0.14.0
+   Compiling jod-thread v1.0.0
+   Compiling text-size v1.1.1
+   Compiling unicode-xid v0.2.6
+   Compiling allocator-api2 v0.2.21
+   Compiling unicode-properties v0.1.4
+   Compiling hashbrown v0.14.5
+   Compiling fst v0.4.7
+   Compiling memoffset v0.9.1
+   Compiling thin-vec v0.2.16
+   Compiling crossbeam-epoch v0.9.18
+   Compiling crossbeam-channel v0.5.15
+   Compiling foldhash v0.1.5
+   Compiling winnow v0.7.15
+   Compiling nohash-hasher v0.2.0
+   Compiling portable-atomic v1.13.1
+   Compiling arrayvec v0.7.6
+   Compiling rustc-hash v1.1.0
+   Compiling ra-ap-rustc_lexer v0.143.0
+   Compiling drop_bomb v0.1.5
+   Compiling triomphe v0.1.15
+   Compiling rustc-literal-escaper v0.0.4
+   Compiling hashbrown v0.15.5
+   Compiling ra_ap_edition v0.0.328
+   Compiling countme v3.0.1
+   Compiling intrusive-collections v0.9.7
+   Compiling crossbeam-deque v0.8.6
+   Compiling parking_lot v0.12.5
+   Compiling crossbeam-queue v0.3.12
+   Compiling salsa-macro-rules v0.25.2
+   Compiling boxcar v0.2.14
+   Compiling smol_str v0.3.6
+   Compiling inventory v0.3.24
+   Compiling dashmap v6.1.0
+   Compiling la-arena v0.3.1
+   Compiling rowan v0.15.18
+   Compiling log v0.4.29
+   Compiling itoa v1.0.18
+   Compiling serde v1.0.228
+   Compiling zmij v1.0.21
+   Compiling hashlink v0.10.0
+   Compiling rustc-stable-hash v0.1.2
+   Compiling thiserror v2.0.18
+   Compiling serde_json v1.0.149
+   Compiling rustc_apfloat v0.2.3+llvm-462a31f5a5ab
+   Compiling powerfmt v0.2.0
+   Compiling cov-mark v2.2.0
+   Compiling time-core v0.1.8
+   Compiling num-conv v0.2.1
+   Compiling syn v2.0.117
+   Compiling semver v1.0.28
+   Compiling lazy_static v1.5.0
+   Compiling ena v0.14.4
+   Compiling num_threads v0.1.7
+   Compiling tracing-log v0.2.0
+   Compiling rayon v1.12.0
+   Compiling ra-ap-rustc_hashes v0.143.0
+   Compiling perf-event-open-sys v4.0.0
+   Compiling deranged v0.5.8
+   Compiling sharded-slab v0.1.7
+   Compiling thread_local v1.1.9
+   Compiling rustc-literal-escaper v0.0.5
+   Compiling ra-ap-rustc_ast_ir v0.143.0
+   Compiling byteorder v1.5.0
+   Compiling nu-ansi-term v0.50.3
+   Compiling fixedbitset v0.5.7
+   Compiling spin v0.9.8
+   Compiling inotify-sys v0.1.5
+   Compiling rustc_version v0.4.1
+   Compiling ra-ap-rustc_parse_format v0.143.0
+   Compiling oorandom v11.1.5
+   Compiling stable_deref_trait v1.2.1
+   Compiling perf-event v0.4.8
+   Compiling hash32 v0.2.1
+   Compiling winnow v1.0.1
+   Compiling anyhow v1.0.102
+   Compiling same-file v1.0.6
+   Compiling typed-arena v2.0.2
+   Compiling dissimilar v1.0.11
+   Compiling time v0.3.47
+   Compiling inotify v0.11.1
+   Compiling ra_ap_intern v0.0.328
+   Compiling heapless v0.7.17
+   Compiling tracing-attributes v0.1.31
+   Compiling synstructure v0.13.2
+   Compiling serde_derive v1.0.228
+   Compiling ra-ap-rustc_index_macros v0.143.0
+   Compiling ra_ap_query-group-macro v0.0.328
+   Compiling thiserror-impl v2.0.18
+   Compiling derive-where v1.6.1
+   Compiling ra_ap_profile v0.0.328
+   Compiling walkdir v2.5.0
+   Compiling toml_parser v1.1.2+spec-1.1.0
+   Compiling ra-ap-rustc_index_macros v0.161.0
+   Compiling mio v1.2.0
+   Compiling notify-types v2.1.0
+   Compiling ra-ap-rustc_index v0.143.0
+   Compiling home v0.5.12
+   Compiling toml_writer v1.1.1+spec-1.1.0
+   Compiling indexmap v2.14.0
+   Compiling tracing v0.1.44
+   Compiling tracing-subscriber v0.3.23
+   Compiling serde_spanned v1.1.1
+   Compiling salsa-macros v0.25.2
+   Compiling ra-ap-rustc_type_ir_macros v0.143.0
+   Compiling ra_ap_macros v0.0.328
+   Compiling toml_datetime v0.7.5+spec-1.1.0
+   Compiling cargo-platform v0.3.3
+   Compiling ra-ap-rustc_index v0.161.0
+   Compiling notify v8.2.0
+   Compiling ra_ap_stdx v0.0.328
+   Compiling ra_ap_parser v0.0.328
+   Compiling ra-ap-rustc_abi v0.143.0
+   Compiling tracing-tree v0.4.1
+   Compiling ra-ap-rustc_pattern_analysis v0.143.0
+   Compiling cobs v0.3.0
+   Compiling ra-ap-rustc_hashes v0.161.0
+   Compiling line-index v0.1.2
+   Compiling getrandom v0.4.2
+   Compiling rustix v1.1.4
+   Compiling salsa v0.25.2
+   Compiling ra_ap_paths v0.0.328
+   Compiling ra-ap-rustc_type_ir v0.143.0
+   Compiling ra_ap_syntax v0.0.328
+   Compiling petgraph v0.8.3
+   Compiling toml v0.9.12+spec-1.1.0
+   Compiling ra_ap_toolchain v0.0.328
+   Compiling temp-dir v0.1.16
+   Compiling ra-ap-rustc_type_ir_macros v0.161.0
+   Compiling linux-raw-sys v0.12.1
+   Compiling ra-ap-rustc_ast_ir v0.161.0
+   Compiling ra-ap-rustc_abi v0.161.0
+   Compiling fastrand v2.4.1
+   Compiling cargo_metadata v0.23.1
+   Compiling cfdb-core v0.0.1 (/var/mnt/workspaces/cfdb/.claude/worktrees/125-cron-ws/crates/cfdb-core)
+   Compiling ra_ap_vfs v0.0.328
+   Compiling ra_ap_test_utils v0.0.328
+   Compiling ra-ap-rustc_type_ir v0.161.0
+   Compiling tempfile v3.27.0
+   Compiling postcard v1.1.3
+   Compiling ra_ap_vfs-notify v0.0.328
+   Compiling ra_ap_span v0.0.328
+   Compiling ra-ap-rustc_next_trait_solver v0.143.0
+   Compiling ra_ap_tt v0.0.328
+   Compiling ra_ap_cfg v0.0.328
+   Compiling ra_ap_syntax-bridge v0.0.328
+   Compiling ra_ap_proc_macro_api v0.0.328
+   Compiling ra_ap_mbe v0.0.328
+   Compiling ra_ap_base_db v0.0.328
+   Compiling ra_ap_hir_expand v0.0.328
+   Compiling ra_ap_project_model v0.0.328
+   Compiling ra_ap_hir_def v0.0.328
+   Compiling ra_ap_test_fixture v0.0.328
+   Compiling ra_ap_hir_ty v0.0.328
+   Compiling ra_ap_hir v0.0.328
+   Compiling ra_ap_ide_db v0.0.328
+   Compiling ra_ap_load-cargo v0.0.328
+   Compiling cfdb-hir-extractor v0.0.1 (/var/mnt/workspaces/cfdb/.claude/worktrees/125-cron-ws/crates/cfdb-hir-extractor)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 11s
+     Running tests/entry_point.rs (target/debug/deps/entry_point-75898fece8c33f9c)
+
+running 6 tests
+test cron_job_detects_job_new_synchronous_variant ... FAILED
+test cron_job_detects_scheduler_add_registration_path ... FAILED
+test websocket_detects_on_upgrade_with_inline_closure ... FAILED
+test websocket_detects_on_upgrade_with_named_handler_fn ... FAILED
+test cron_job_detects_job_new_async_with_named_registration_fn ... FAILED
+test attribute_based_entry_point_detection_covers_cli_and_mcp ... ok
+
+failures:
+
+---- cron_job_detects_job_new_synchronous_variant stdout ----
+
+thread 'cron_job_detects_job_new_synchronous_variant' (2987976) panicked at crates/cfdb-hir-extractor/tests/entry_point.rs:263:5:
+assertion `left == right` failed: expected 1 cron_job via Job::new
+  left: 0
+ right: 1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- cron_job_detects_scheduler_add_registration_path stdout ----
+
+thread 'cron_job_detects_scheduler_add_registration_path' (2987977) panicked at crates/cfdb-hir-extractor/tests/entry_point.rs:307:5:
+assertion `left == right` failed: expected 1 cron_job when wrapped in JobScheduler::add
+  left: 0
+ right: 1
+
+---- websocket_detects_on_upgrade_with_inline_closure stdout ----
+
+thread 'websocket_detects_on_upgrade_with_inline_closure' (2987978) panicked at crates/cfdb-hir-extractor/tests/entry_point.rs:426:5:
+assertion `left == right` failed: expected 1 websocket :EntryPoint for closure
+  left: 0
+ right: 1
+
+---- websocket_detects_on_upgrade_with_named_handler_fn stdout ----
+
+thread 'websocket_detects_on_upgrade_with_named_handler_fn' (2987979) panicked at crates/cfdb-hir-extractor/tests/entry_point.rs:366:5:
+assertion `left == right` failed: expected 1 websocket :EntryPoint from on_upgrade(named_fn)
+  left: 0
+ right: 1
+
+---- cron_job_detects_job_new_async_with_named_registration_fn stdout ----
+
+thread 'cron_job_detects_job_new_async_with_named_registration_fn' (2987975) panicked at crates/cfdb-hir-extractor/tests/entry_point.rs:202:5:
+assertion `left == right` failed: expected exactly 1 cron_job :EntryPoint; got 0: []
+  left: 0
+ right: 1
+
+
+failures:
+    cron_job_detects_job_new_async_with_named_registration_fn
+    cron_job_detects_job_new_synchronous_variant
+    cron_job_detects_scheduler_add_registration_path
+    websocket_detects_on_upgrade_with_inline_closure
+    websocket_detects_on_upgrade_with_named_handler_fn
+
+test result: FAILED. 1 passed; 5 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+
+error: test failed, to rerun pass `-p cfdb-hir-extractor --test entry_point`

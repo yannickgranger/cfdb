@@ -1,0 +1,10 @@
+{
+  "verb": "enrich_reachability",
+  "ran": false,
+  "facts_scanned": 0,
+  "attrs_written": 0,
+  "edges_written": 0,
+  "warnings": [
+    "enrich_reachability: no :EntryPoint nodes in keyspace — run `cfdb extract --features hir` first to populate entry points before reachability enrichment"
+  ]
+}

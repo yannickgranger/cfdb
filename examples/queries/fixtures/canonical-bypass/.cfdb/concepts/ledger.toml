@@ -1,0 +1,14 @@
+# Concepts TOML for the canonical-bypass fixture.
+#
+# Declares the `ledger` concept and names `ledger` as the canonical crate.
+# `enrich_concepts` will emit:
+#   (:Concept {name: "ledger"})
+#   (:Item)-[:LABELED_AS]->(:Concept {name: "ledger"})   for every :Item in `ledger`
+#   (:Item)-[:CANONICAL_FOR]->(:Concept {name: "ledger"}) for every :Item in `ledger`
+#
+# The Pattern C rule queries for callers that resolve the concept via a
+# non-canonical wire-level name (`append` instead of `append_idempotent`).
+
+name = "ledger"
+canonical_crate = "ledger"
+crates = ["ledger", "cli"]

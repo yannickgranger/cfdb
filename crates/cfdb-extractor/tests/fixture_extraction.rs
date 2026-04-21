@@ -696,3 +696,275 @@ owning_rfc = "RFC-007"
     assert_eq!(belongs.len(), 1);
     assert_eq!(belongs[0].dst, "context:portfolio");
 }
+
+/// SchemaVersion v0.1.3+ — every `:CallSite` node carries the
+/// `resolver` and `callee_resolved` discriminator properties (issue #83,
+/// RFC-029 §A1.2 homonym mitigation). The syn-based extractor ALWAYS
+/// emits `resolver="syn"` + `callee_resolved=false`; never any other
+/// value. This fixture exercises all four call-site kinds that emit
+/// `:CallSite` (`call`, `fn_ptr`, `method`, `serde_default`) in one
+/// workspace so the assertion covers both emit_call_site and
+/// emit_attr_call_site paths with a single extraction.
+#[test]
+fn every_syn_call_site_carries_resolver_and_callee_resolved_discriminators() {
+    let fixture = tempdir().expect("tempdir");
+    let root = fixture.path();
+
+    write_fixture_file(
+        root,
+        "Cargo.toml",
+        r#"[workspace]
+resolver = "2"
+members = ["discfixture"]
+"#,
+    );
+    write_fixture_file(
+        root,
+        "discfixture/Cargo.toml",
+        r#"[package]
+name = "discfixture"
+version = "0.0.1"
+edition = "2021"
+"#,
+    );
+    // All four CallSite kinds exercised in one crate:
+    //   - `call`          (ExprCall)
+    //   - `fn_ptr`        (path-as-arg to a fn-pointer parameter)
+    //   - `method`        (MethodCall)
+    //   - `serde_default` (#[serde(default = "…")] on a struct field)
+    write_fixture_file(
+        root,
+        "discfixture/src/lib.rs",
+        r#"
+pub fn greet() -> String { String::from("hi") }
+
+pub fn register(_f: fn() -> String) {}
+
+pub struct Counter(pub u32);
+impl Counter {
+    pub fn tick(&mut self) { self.0 += 1; }
+}
+
+pub fn default_answer() -> u32 { 42 }
+
+#[derive(Debug)]
+pub struct Config {
+    #[serde(default = "default_answer")]
+    pub answer: u32,
+}
+
+pub fn demo() {
+    let _ = greet();           // call
+    register(greet);           // fn_ptr
+    let mut c = Counter(0);
+    c.tick();                  // method
+}
+"#,
+    );
+
+    let (nodes, _edges) = extract_workspace(root).expect("extract discfixture");
+
+    let call_sites: Vec<_> = nodes
+        .iter()
+        .filter(|n| n.label.as_str() == Label::CALL_SITE)
+        .collect();
+
+    // Guard: the fixture must actually produce :CallSite nodes — else
+    // the discriminator assertion below vacuously passes.
+    assert!(
+        call_sites.len() >= 3,
+        "discfixture should emit ≥3 :CallSite nodes; got {}",
+        call_sites.len(),
+    );
+
+    // Per-kind coverage — both emission paths are exercised:
+    //   * emit_call_site (call_visitor.rs) → `call`, `fn_ptr`, `method`
+    //   * emit_attr_call_site (item_visitor.rs) → `serde_default`
+    let observed_kinds: std::collections::BTreeSet<_> = call_sites
+        .iter()
+        .filter_map(|n| n.props.get("kind").and_then(PropValue::as_str))
+        .map(str::to_string)
+        .collect();
+    for expected_kind in ["call", "fn_ptr", "method", "serde_default"] {
+        assert!(
+            observed_kinds.contains(expected_kind),
+            "fixture must emit a :CallSite of kind={expected_kind} to exercise the discriminator \
+             on both emit paths; observed kinds: {observed_kinds:?}",
+        );
+    }
+
+    // The core assertion: every emitted :CallSite carries the v0.1.3
+    // discriminator properties — `resolver="syn"` and
+    // `callee_resolved=false`. No syn-extracted :CallSite ever claims
+    // `resolver="hir"` or `callee_resolved=true`; those values are
+    // reserved for cfdb-hir-extractor (v0.2+).
+    for cs in &call_sites {
+        let id = &cs.id;
+        let resolver = cs
+            .props
+            .get("resolver")
+            .and_then(PropValue::as_str)
+            .unwrap_or_else(|| {
+                panic!("{id}: :CallSite missing `resolver` prop (v0.1.3+ contract)")
+            });
+        assert_eq!(
+            resolver, "syn",
+            "{id}: cfdb-extractor must emit `resolver=\"syn\"`, got {resolver:?}"
+        );
+        let callee_resolved = cs.props.get("callee_resolved").unwrap_or_else(|| {
+            panic!("{id}: :CallSite missing `callee_resolved` prop (v0.1.3+ contract)")
+        });
+        match callee_resolved {
+            PropValue::Bool(false) => {}
+            PropValue::Bool(true) => {
+                panic!(
+                    "{id}: syn-based extractor must never emit `callee_resolved=true`; \
+                     that value is reserved for cfdb-hir-extractor (v0.2+)"
+                );
+            }
+            other => panic!("{id}: `callee_resolved` must be a Bool prop, got {other:?}",),
+        }
+    }
+}
+
+/// #42 — `impl Trait for Type` blocks emit:
+///   (a) a `:Item { kind: "impl_block" }` node for the impl itself
+///   (b) `IMPLEMENTS` edge from impl-block → trait Item
+///   (c) `IMPLEMENTS_FOR` edge from impl-block → target type Item
+///
+/// Inherent `impl Type {}` blocks emit (a) + (c) but not (b) — IMPLEMENTS
+/// requires a trait. The test fixture carries both shapes so the
+/// assertion catches either emission accidentally firing on the wrong
+/// one.
+#[test]
+fn impl_blocks_emit_implements_and_implements_for_edges() {
+    let fixture = tempdir().expect("tempdir");
+    let root = fixture.path();
+
+    write_fixture_file(
+        root,
+        "Cargo.toml",
+        r#"[workspace]
+resolver = "2"
+members = ["impls"]
+"#,
+    );
+    write_fixture_file(
+        root,
+        "impls/Cargo.toml",
+        r#"[package]
+name = "impls"
+version = "0.0.1"
+edition = "2021"
+"#,
+    );
+    write_fixture_file(
+        root,
+        "impls/src/lib.rs",
+        r#"
+pub trait Greeter {
+    fn hello(&self) -> &str;
+}
+
+pub struct Polite;
+
+// Trait impl — should emit IMPLEMENTS (impl_block -> Greeter)
+// plus IMPLEMENTS_FOR (impl_block -> Polite).
+impl Greeter for Polite {
+    fn hello(&self) -> &str {
+        "hi"
+    }
+}
+
+// Inherent impl — should emit IMPLEMENTS_FOR only (no trait to target).
+impl Polite {
+    pub fn new() -> Self {
+        Polite
+    }
+}
+"#,
+    );
+
+    let (nodes, edges) = extract_workspace(root).expect("extract succeeds");
+
+    // (a) impl-block Item nodes — two of them, one per impl block.
+    let impl_blocks: Vec<&cfdb_core::fact::Node> = nodes
+        .iter()
+        .filter(|n| n.label.as_str() == Label::ITEM)
+        .filter(|n| {
+            matches!(
+                n.props.get("kind"),
+                Some(PropValue::Str(k)) if k == "impl_block"
+            )
+        })
+        .collect();
+    assert_eq!(
+        impl_blocks.len(),
+        2,
+        "expected 2 impl_block :Item nodes (trait impl + inherent), got {}:\n{:#?}",
+        impl_blocks.len(),
+        impl_blocks
+            .iter()
+            .map(|n| n.id.as_str())
+            .collect::<Vec<_>>(),
+    );
+
+    // (b) IMPLEMENTS edge — exactly one, from the trait-impl block to Greeter.
+    let implements_edges: Vec<&cfdb_core::fact::Edge> = edges
+        .iter()
+        .filter(|e| e.label.as_str() == EdgeLabel::IMPLEMENTS)
+        .collect();
+    assert_eq!(
+        implements_edges.len(),
+        1,
+        "expected exactly 1 IMPLEMENTS edge (trait impl only), got {}:\n{:#?}",
+        implements_edges.len(),
+        implements_edges
+            .iter()
+            .map(|e| (e.src.as_str(), e.dst.as_str()))
+            .collect::<Vec<_>>(),
+    );
+    let implements = implements_edges[0];
+    assert!(
+        implements.dst.contains("Greeter"),
+        "IMPLEMENTS edge dst should reference the Greeter trait, got {:?}",
+        implements.dst
+    );
+    assert!(
+        impl_blocks.iter().any(|n| n.id == implements.src),
+        "IMPLEMENTS edge src ({}) should be one of the emitted impl_block :Item ids: {:?}",
+        implements.src,
+        impl_blocks
+            .iter()
+            .map(|n| n.id.as_str())
+            .collect::<Vec<_>>(),
+    );
+
+    // (c) IMPLEMENTS_FOR edges — exactly two, both targeting Polite.
+    let implements_for_edges: Vec<&cfdb_core::fact::Edge> = edges
+        .iter()
+        .filter(|e| e.label.as_str() == EdgeLabel::IMPLEMENTS_FOR)
+        .collect();
+    assert_eq!(
+        implements_for_edges.len(),
+        2,
+        "expected 2 IMPLEMENTS_FOR edges (one per impl block), got {}:\n{:#?}",
+        implements_for_edges.len(),
+        implements_for_edges
+            .iter()
+            .map(|e| (e.src.as_str(), e.dst.as_str()))
+            .collect::<Vec<_>>(),
+    );
+    for e in &implements_for_edges {
+        assert!(
+            e.dst.contains("Polite"),
+            "IMPLEMENTS_FOR edge dst should reference Polite, got {:?}",
+            e.dst
+        );
+        assert!(
+            impl_blocks.iter().any(|n| n.id == e.src),
+            "IMPLEMENTS_FOR edge src ({}) must be an emitted impl_block :Item",
+            e.src
+        );
+    }
+}

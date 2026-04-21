@@ -1,0 +1,13 @@
+[package]
+name = "trading_cli"
+version = "0.0.1"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "trading_cli"
+path = "src/main.rs"
+
+[dependencies]
+trading_domain_a = { path = "../trading_domain_a" }
+clap = { version = "4", features = ["derive"] }

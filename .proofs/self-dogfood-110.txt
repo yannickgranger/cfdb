@@ -1,0 +1,20 @@
+{
+  "verb": "enrich_reachability",
+  "ran": true,
+  "facts_scanned": 3,
+  "attrs_written": 1806,
+  "edges_written": 0,
+  "warnings": []
+}
+  "rows": [
+    {
+      "reachable": 1
+    }
+  ]
+}
+  "rows": [
+    {
+      "unreachable": 902
+    }
+  ]
+}

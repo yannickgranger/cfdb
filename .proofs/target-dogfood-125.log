@@ -1,0 +1,7 @@
+extract: walking /var/home/yg/workspaces/qbot-core
+extract: 148347 nodes, 150122 edges
+extract --hir: loading HIR database for /var/home/yg/workspaces/qbot-core
+extract --hir: resolving call sites
+extract --hir: scanning entry points
+extract --hir: 137091 :CallSite, 137091 CALLS, 137091 INVOKES_AT, 101 :EntryPoint, 101 EXPOSES
+extract: saved keyspace `qbot-core` to .cfdb/db-qbot/qbot-core.json

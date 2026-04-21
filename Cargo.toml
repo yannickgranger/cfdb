@@ -2,17 +2,21 @@
 resolver = "2"
 members = [
     "crates/cfdb-core",
+    "crates/cfdb-concepts",
     "crates/cfdb-query",
     "crates/cfdb-petgraph",
     "crates/cfdb-extractor",
+    "crates/cfdb-hir-extractor",
+    "crates/cfdb-hir-petgraph-adapter",
     "crates/cfdb-cli",
     "crates/cfdb-recall",
+    "tools/check-prelude-triggers",
 ]
 
 [workspace.package]
-version = "0.0.1"
+version = "0.1.0"
 edition = "2021"
-rust-version = "1.75"
+rust-version = "1.85"
 license = "MIT OR Apache-2.0"
 publish = false
 
@@ -41,3 +45,43 @@ regex = "1"
 indexmap = "2"
 tempfile = "3"
 assert_cmd = "2"
+
+# URL → cache-key hashing for `cfdb extract --rev <url>@<sha>` (Option W,
+# issue #96 / RFC-032 §A1.7). Pure-Rust, small footprint, zero system deps.
+sha2 = "0.10"
+
+# HIR extractor (cfdb-hir-extractor, v0.2+ — RFC-029 §A1.2 / Issue #84).
+#
+# All `ra-ap-*` entries use `=0.0.N` EXACT pins. This is load-bearing:
+# - Cargo does not resolve across patches at build time (determinism).
+# - Upgrades are a reviewed, single-purpose `chore/ra-ap-upgrade-<N>` PR
+#   per `docs/ra-ap-upgrade-protocol.md` (Issue #39).
+#
+# `ra-ap-rustc_type_ir` follows its own 2-3×/week cadence (separate from
+# the `ra-ap-hir` 0.0.N bundle — rust-systems C1 / RFC-029 §A1.2 line
+# 105) and is pinned independently. All other entries MUST move together
+# in a single chore upgrade.
+#
+# Scope: consumed exclusively by `cfdb-hir-extractor` and downstream
+# adapters. NEVER added as a direct or transitive dep of `cfdb-cli`
+# (RFC-032 §3 lines 221–227 — the 90–150s cold compile cost must NOT
+# land on every CLI build). The `cfdb-hir-petgraph-adapter` crate
+# (slice 3 / #85) will isolate this containment.
+ra_ap_hir = "=0.0.328"
+ra_ap_hir_def = "=0.0.328"
+ra_ap_hir_ty = "=0.0.328"
+ra_ap_hir_expand = "=0.0.328"
+ra_ap_base_db = "=0.0.328"
+ra_ap_ide_db = "=0.0.328"
+ra_ap_syntax = "=0.0.328"
+ra_ap_vfs = "=0.0.328"
+ra_ap_project_model = "=0.0.328"
+ra_ap_proc_macro_api = "=0.0.328"
+# Workspace loader (used by build_hir_database in #85c — produces a
+# RootDatabase from a Cargo workspace root).
+ra_ap_load-cargo = "=0.0.328"
+# Edition enum — referenced by hir::Name::display + canonical qname
+# derivation. Published separately at =0.0.N cadence alongside the
+# bundle.
+ra_ap_edition = "=0.0.328"
+ra-ap-rustc_type_ir = "=0.161.0"

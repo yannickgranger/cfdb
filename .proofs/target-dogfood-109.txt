@@ -1,0 +1,8 @@
+{
+  "verb": "enrich_concepts",
+  "ran": true,
+  "facts_scanned": 0,
+  "attrs_written": 0,
+  "edges_written": 0,
+  "warnings": []
+}

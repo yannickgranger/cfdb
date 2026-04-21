@@ -1,22 +1,30 @@
 # Bounded context declaration — `cfdb` sub-workspace
 #
-# council-cfdb-wiring §B.1.2 — the six cfdb crates form a single bounded
-# context ("cfdb"). The crate-prefix heuristic would otherwise map each
-# crate to its own context (`cfdb-core`, `cfdb-extractor`, ...) because
-# none of them starts with a well-known prefix. This override declares
-# the single canonical grouping.
+# council-cfdb-wiring §B.1.2 — the eight cfdb crates form a single
+# bounded context ("cfdb"). The crate-prefix heuristic would otherwise
+# map each crate to its own context (`cfdb-core`, `cfdb-extractor`, ...)
+# because none of them starts with a well-known prefix. This override
+# declares the single canonical grouping.
 #
-# Used by `cfdb_extractor::context::load_concept_overrides` at extraction
-# time (issue #3727, syn-level, NOT post-extraction enrichment).
+# Used by `cfdb_concepts::load_concept_overrides` (shared crate, Issue #3)
+# at extraction time (issue #3727, syn-level, NOT post-extraction enrichment).
 
 name = "cfdb"
 canonical_crate = "cfdb-core"
 owning_rfc = "RFC-029"
 crates = [
     "cfdb-core",
+    "cfdb-concepts",
     "cfdb-query",
     "cfdb-petgraph",
     "cfdb-extractor",
+    "cfdb-hir-extractor",
+    "cfdb-hir-petgraph-adapter",
     "cfdb-cli",
     "cfdb-recall",
+    # RFC-034 v3.3 Tier-1 binary — lives at `tools/check-prelude-triggers/`
+    # and has zero `cfdb-*` code deps (clean-arch boundary), but is owned
+    # + shipped by the cfdb team and belongs to the `cfdb` bounded context
+    # for ownership / concept-registry purposes (issue #127).
+    "check-prelude-triggers",
 ]

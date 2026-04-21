@@ -1,0 +1,18 @@
+   Compiling cfdb-petgraph v0.0.1 (/var/mnt/workspaces/cfdb/.claude/worktrees/109-enrich-concepts/crates/cfdb-petgraph)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.18s
+     Running unittests src/lib.rs (target/debug/deps/cfdb_petgraph-092133be6c0e5513)
+
+running 10 tests
+test enrich::concepts::tests::no_concepts_dir_is_graceful_noop ... ok
+test enrich::concepts::tests::ac2_empty_concepts_dir_is_graceful_noop ... ok
+test enrich::concepts::tests::no_workspace_root_returns_degraded_report ... ok
+test enrich::concepts::tests::unknown_keyspace_returns_err ... ok
+test enrich::concepts::tests::ac3_malformed_toml_returns_ran_false_with_warning ... ok
+test enrich::concepts::tests::items_without_crate_prop_are_ignored ... ok
+test enrich::concepts::tests::concept_nodes_have_assigned_by_manual ... ok
+test enrich::concepts::tests::ac1_toml_emits_concept_plus_labeled_as_plus_canonical_for ... ok
+test enrich::concepts::tests::ac7_three_toml_files_emit_three_concept_nodes ... ok
+test enrich::concepts::tests::ac5_two_runs_produce_identical_canonical_dumps ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 39 filtered out; finished in 0.00s
+

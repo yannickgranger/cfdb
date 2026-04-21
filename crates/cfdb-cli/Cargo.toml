@@ -15,13 +15,45 @@ path = "src/main.rs"
 
 [dependencies]
 cfdb-core = { path = "../cfdb-core" }
+cfdb-concepts = { path = "../cfdb-concepts" }
 cfdb-query = { path = "../cfdb-query" }
 cfdb-petgraph = { path = "../cfdb-petgraph" }
 cfdb-extractor = { path = "../cfdb-extractor" }
 clap.workspace = true
+# `check_predicate::{PredicateRunReport, PredicateRow}` derive Serialize for
+# `--format json` output. RFC-034 §3.1 Slice 3 / #147.
+serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+# `param_resolver::ParamResolveError::Toml` carries `Box<toml::de::Error>`
+# per RFC-034 §3.1 mirror-of-cfdb_concepts-shape. Slice 1 / #145.
+toml.workspace = true
+# `cfdb extract --rev <sha>` (issue #37 / slice `--rev`) creates a
+# temporary git worktree to extract against an arbitrary commit.
+# `tempfile` is stdlib-adjacent and already pulled in via `dev-dependencies`
+# of neighbouring crates; promoting to a runtime dep here costs nothing.
+tempfile.workspace = true
+# `cfdb extract --rev <url>@<sha>` (issue #96 / RFC-032 §A1.7) hashes
+# the URL into a stable 16-hex cache-key under `$CFDB_CACHE_DIR` (or
+# `$XDG_CACHE_HOME/cfdb/extract` / `$HOME/.cache/cfdb/extract`).
+sha2.workspace = true
+
+# Optional HIR pipeline (Issue #86 / slice 4). Gated behind the
+# `hir` feature so default builds do NOT pay the 90-150s `ra-ap-*`
+# cold compile cost (RFC-032 §3 lines 221–227). `cargo build -p
+# cfdb-cli` default-features MUST have zero ra-ap-* in its dep
+# tree. `cargo build -p cfdb-cli --features hir` opts in.
+cfdb-hir-extractor = { path = "../cfdb-hir-extractor", optional = true }
+cfdb-hir-petgraph-adapter = { path = "../cfdb-hir-petgraph-adapter", optional = true }
+
+[features]
+default = []
+# Enables `cfdb extract --hir` — pulls HIR pipeline crates.
+hir = ["dep:cfdb-hir-extractor", "dep:cfdb-hir-petgraph-adapter"]
+# Enables `cfdb enrich-git-history` real implementation — pulls libgit2 via
+# `git2`. Default builds (`cargo build -p cfdb-cli`) MUST have zero `git2`
+# in their dep tree (issue #105 / slice 43-B / rust-systems Q1).
+git-enrich = ["cfdb-petgraph/git-enrich"]
 
 [dev-dependencies]
-tempfile.workspace = true
 assert_cmd = "2"

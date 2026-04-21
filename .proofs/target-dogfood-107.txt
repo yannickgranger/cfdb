@@ -1,0 +1,76 @@
+=== Target dogfood: qbot-core (148k extracted nodes) ===
+
+Ran cfdb enrich-rfc-docs --workspace /var/mnt/workspaces/qbot-core:
+  facts_scanned:   176       (*.md files under docs/** + .concept-graph/)
+  attrs_written:   350       (174 :RfcDoc nodes × ≈2 props — path always, title optional)
+  edges_written:   174183    (:Item)-[:REFERENCED_BY]->(:RfcDoc) pairs
+  ran:             true
+  warnings:        []
+
+=== Top 10 :RfcDoc by inbound reference count ===
+{
+  "rows": [
+    {
+      "refs": 2210,
+      "rfc": "docs/rfc/007-observability-error-handling.md"
+    },
+    {
+      "refs": 2120,
+      "rfc": "docs/rfc/011-ledger-portfolio-accounting.md"
+    },
+    {
+      "refs": 1994,
+      "rfc": "docs/rfc/003-risk-system-redesign.md"
+    },
+    {
+      "refs": 1967,
+      "rfc": "docs/rfc/017-cross-cutting-read-models-for-qbot-dashboard.md"
+    },
+    {
+      "refs": 1924,
+      "rfc": "docs/rfc/018-postgres-test-pattern.md"
+    },
+    {
+      "refs": 1906,
+      "rfc": "docs/human/domain/data-collection/pipeline-architecture.md"
+    },
+    {
+      "refs": 1880,
+      "rfc": "docs/rfc/015-agent-security-framework.md"
+    },
+    {
+      "refs": 1859,
+      "rfc": "docs/rfc/011-ledger-portfolio-accounting-v2.md"
+    },
+    {
+      "refs": 1839,
+      "rfc": "docs/rfc/011-amendment-v3.1.md"
+    },
+    {
+      "refs": 1838,
+      "rfc": "docs/dev/concept-graph-precursor/README.md"
+    }
+  ]
+}
+
+=== Sample: EnrichBackend-style spot check — which RFCs reference `BuyAndHold`? ===
+{
+  "rows": [],
+  "warnings": [
+    {
+      "kind": "EmptyResult",
+      "message": "query matched no rows"
+    }
+  ]
+}
+
+=== Caveat ===
+
+Whole-word matching cannot distinguish between code identifiers and prose
+words. An item named `run` or `new` will match every markdown file that
+uses those words in prose — spurious but cheap. The classifier's use of
+this data is a boolean "has_rfc_ref" signal, so edge-count precision
+matters less than recall on the classic "does code item X appear in any
+RFC?" question. Downstream quality filters (prefer qname matches over
+name matches, ignore items with name length < 4, etc.) are out of scope
+for slice 43-D and can be layered on later.

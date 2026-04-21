@@ -1,6 +1,14 @@
 //! Integration test — dogfood cfdb-recall on `cfdb-core` against real
 //! `rustdoc-json` + `public-api` ground truth.
 //!
+//! **Requires the `runner` feature.** The entire file is gated because
+//! every scenario calls [`ground_truth::build_public_api_for_manifest`],
+//! which is itself gated behind `runner` to keep rustdoc-json out of the
+//! slim-library compile path. Run with
+//! `cargo test -p cfdb-recall --features runner` (or `--all-features`).
+#![cfg(feature = "runner")]
+
+//!
 //! This is the BDD layer for RFC-029 §13 acceptance gate Item 2. Unlike
 //! the library unit tests in `src/lib.rs` and `src/adapters/*.rs`, this
 //! test executes the ENTIRE pipeline: it runs `cargo +nightly rustdoc

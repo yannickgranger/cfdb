@@ -1,0 +1,31 @@
+[workspace]
+resolver = "2"
+members = [
+    "mcp_fx",
+    "cli_fx",
+    "http_fx",
+    "cron_fx",
+    "ws_fx",
+]
+
+# Fixture workspace for `tests/v02_1_coverage.rs` (Issue #126, RFC-029
+# §A1.5 v0.2-1 coverage gate). Each member crate exercises one
+# `:EntryPoint` kind with ≥2 shapes so a regression in a single shape
+# fails its own recall assertion rather than hiding in a cross-kind
+# aggregate.
+#
+# NO REAL FRAMEWORK DEPS. Every member declares a stand-in `pub struct`
+# / `pub trait` set inside its own `src/lib.rs` — the extractor's scan
+# is syntactic (method-name + attribute-text + literal-arg) so the real
+# `axum` / `actix-web` / `clap` / `rmcp` / `tokio_cron_scheduler` crates
+# are never needed. This matches the pattern in
+# `tests/entry_point.rs` and `tests/http_route.rs`.
+#
+# This nested workspace is NOT a member of the parent cfdb workspace —
+# the root `Cargo.toml` uses an explicit member list, and cargo treats
+# this `[workspace]` root as independent.
+
+[workspace.package]
+version = "0.0.1"
+edition = "2021"
+publish = false

@@ -1,0 +1,16 @@
+extract: walking .
+extract: 10227 nodes, 10249 edges
+extract --hir: loading HIR database for .
+extract --hir: resolving call sites
+extract --hir: scanning entry points
+extract --hir: 64821 :CallSite, 64821 CALLS, 64821 INVOKES_AT, 5 :EntryPoint, 5 EXPOSES
+extract: saved keyspace `cfdb-self` to /tmp/cfdb-126-self.db/cfdb-self.json
+EntryPoint kinds on cfdb workspace:
+  cli_command: 5
+
+Names:
+  cli_command  cfdb::Cli
+  cli_command  cfdb::Command
+  cli_command  cfdb_recall::Cli
+  cli_command  check_prelude_triggers::Cli
+  cli_command  check_prelude_triggers::Command

@@ -70,51 +70,85 @@ impl<'a> Evaluator<'a> {
         let mut order: Vec<String> = Vec::new();
 
         for bindings in table {
-            let key: Vec<PropValue> = key_projections
-                .iter()
-                .map(|p| {
-                    if let ProjectionValue::Expr(e) = &p.value {
-                        self.eval_expr(e, bindings).unwrap_or(PropValue::Null)
-                    } else {
-                        PropValue::Null
-                    }
-                })
-                .collect();
-            let key_str: String = key
-                .iter()
-                .map(propvalue_sort_key)
-                .collect::<Vec<_>>()
-                .join("\u{001f}");
-            if !groups.contains_key(&key_str) {
-                order.push(key_str.clone());
-            }
-            groups
-                .entry(key_str)
-                .or_insert_with(|| (key.clone(), Vec::new()))
-                .1
-                .push(bindings);
+            self.accumulate_group_row(&mut groups, &mut order, bindings, &key_projections);
         }
 
         let mut out: Vec<Bindings> = Vec::with_capacity(groups.len());
         for key_str in order {
-            let Some((key_values, group_rows)) = groups.get(&key_str) else {
-                continue;
-            };
-            let mut row: Bindings = BTreeMap::new();
-            for (proj, key_val) in key_projections.iter().zip(key_values.iter()) {
-                let alias = projection_alias(proj);
-                row.insert(alias, Binding::Value(RowValue::Scalar(key_val.clone())));
+            if let Some(row) =
+                self.materialise_group_row(&groups, &key_str, &key_projections, &agg_projections)
+            {
+                out.push(row);
             }
-            for proj in &agg_projections {
-                if let ProjectionValue::Aggregation(agg) = &proj.value {
-                    let alias = projection_alias(proj);
-                    let value = self.eval_aggregation(agg, group_rows);
-                    row.insert(alias, Binding::Value(value));
-                }
-            }
-            out.push(row);
         }
         out
+    }
+
+    /// Per-row accumulator for the group-and-aggregate body of
+    /// [`apply_with`]. Compute the key vector, derive its digest, and
+    /// route the bindings into the matching group. Extracted from the
+    /// `for bindings in table` loop so the `key_str.clone()` and
+    /// `key.clone()` live in a helper rather than the outer loop body.
+    fn accumulate_group_row<'t>(
+        &self,
+        groups: &mut BTreeMap<String, (Vec<PropValue>, Vec<&'t Bindings>)>,
+        order: &mut Vec<String>,
+        bindings: &'t Bindings,
+        key_projections: &[&Projection],
+    ) {
+        let key: Vec<PropValue> = key_projections
+            .iter()
+            .map(|p| {
+                if let ProjectionValue::Expr(e) = &p.value {
+                    self.eval_expr(e, bindings).unwrap_or(PropValue::Null)
+                } else {
+                    PropValue::Null
+                }
+            })
+            .collect();
+        let key_str: String = key
+            .iter()
+            .map(propvalue_sort_key)
+            .collect::<Vec<_>>()
+            .join("\u{001f}");
+        if !groups.contains_key(&key_str) {
+            order.push(key_str.clone());
+        }
+        groups
+            .entry(key_str)
+            .or_insert_with(|| (key, Vec::new()))
+            .1
+            .push(bindings);
+    }
+
+    /// Per-group emission body for the output loop of [`apply_with`].
+    /// Returns the assembled [`Bindings`] or `None` when the group key
+    /// has vanished (defensively — shouldn't happen for keys sourced
+    /// from the same map).
+    fn materialise_group_row(
+        &self,
+        groups: &BTreeMap<String, (Vec<PropValue>, Vec<&Bindings>)>,
+        key_str: &str,
+        key_projections: &[&Projection],
+        agg_projections: &[&Projection],
+    ) -> Option<Bindings> {
+        let (key_values, group_rows) = groups.get(key_str)?;
+        let mut row: Bindings = BTreeMap::new();
+        key_projections
+            .iter()
+            .zip(key_values.iter())
+            .for_each(|(proj, key_val)| {
+                let alias = projection_alias(proj);
+                row.insert(alias, Binding::Value(RowValue::Scalar(key_val.clone())));
+            });
+        agg_projections.iter().for_each(|proj| {
+            if let ProjectionValue::Aggregation(agg) = &proj.value {
+                let alias = projection_alias(proj);
+                let value = self.eval_aggregation(agg, group_rows);
+                row.insert(alias, Binding::Value(value));
+            }
+        });
+        Some(row)
     }
 
     fn eval_aggregation(&self, agg: &Aggregation, group: &[&Bindings]) -> RowValue {

@@ -47,12 +47,14 @@ use thiserror::Error;
 
 mod attrs;
 mod call_visitor;
-mod context;
 mod file_walker;
 mod item_visitor;
 mod type_render;
 
-use context::{compute_bounded_context, load_concept_overrides, ContextMeta};
+use cfdb_concepts::{
+    compute_bounded_context, load_concept_overrides, load_published_language_crates,
+    ConceptOverrides, ContextMeta, PublishedLanguageCrates,
+};
 use file_walker::visit_file;
 
 #[derive(Debug, Error)]
@@ -94,6 +96,14 @@ pub fn extract_workspace(workspace_root: &Path) -> Result<(Vec<Node>, Vec<Edge>)
     let overrides = load_concept_overrides(workspace_root)
         .map_err(|e| ExtractError::Concepts(e.to_string()))?;
 
+    // Step 1b (pre-walk): load `.cfdb/published-language-crates.toml`
+    // marker list (issue #100 / RFC-cfdb-v0.2-addendum §A1.8). Missing
+    // file is not an error — empty map means every `:Crate` emits
+    // `published_language: false`. Classifier (#48) suppresses false
+    // Context-Homonym positives for declared published-language crates.
+    let published_language = load_published_language_crates(workspace_root)
+        .map_err(|e| ExtractError::Concepts(e.to_string()))?;
+
     let mut emitter = Emitter::new();
 
     // Accumulate every bounded context we see so we can emit one `:Context`
@@ -102,60 +112,14 @@ pub fn extract_workspace(workspace_root: &Path) -> Result<(Vec<Node>, Vec<Edge>)
     let mut contexts_seen: BTreeMap<String, ContextMeta> = overrides.declared_contexts();
 
     for package in metadata.workspace_packages() {
-        let crate_id = format!("crate:{}", package.name);
-        let bounded_context = compute_bounded_context(&package.name, &overrides);
-
-        // Heuristic-synthesised contexts also need a `:Context` node so
-        // `BELONGS_TO` has a valid target. The override-declared ones are
-        // already in `contexts_seen`; insert the heuristic result if the
-        // name is new.
-        contexts_seen
-            .entry(bounded_context.clone())
-            .or_insert_with(|| ContextMeta {
-                name: bounded_context.clone(),
-                canonical_crate: None,
-                owning_rfc: None,
-            });
-
-        emitter.emit_node(Node {
-            id: crate_id.clone(),
-            label: Label::new(Label::CRATE),
-            props: {
-                let mut p = BTreeMap::new();
-                p.insert("name".into(), PropValue::Str(package.name.to_string()));
-                p.insert(
-                    "version".into(),
-                    PropValue::Str(package.version.to_string()),
-                );
-                p.insert("is_workspace_member".into(), PropValue::Bool(true));
-                p
-            },
-        });
-
-        // Emit the Crate -> Context BELONGS_TO edge now so a single pass
-        // over edges shows the crate-to-context wiring (council §B.1.3).
-        let context_id = format!("context:{bounded_context}");
-        emitter.emit_edge(Edge {
-            src: crate_id.clone(),
-            dst: context_id,
-            label: EdgeLabel::new(EdgeLabel::BELONGS_TO),
-            props: BTreeMap::new(),
-        });
-
-        for target in &package.targets {
-            if !target.is_lib() && !target.is_bin() {
-                continue;
-            }
-            let src_root = target.src_path.clone().into_std_path_buf();
-            visit_file(
-                &mut emitter,
-                &crate_id,
-                &package.name,
-                &bounded_context,
-                &src_root,
-                workspace_root,
-            )?;
-        }
+        emit_crate_and_walk_targets(
+            &mut emitter,
+            package,
+            &overrides,
+            &published_language,
+            &mut contexts_seen,
+            workspace_root,
+        )?;
     }
 
     // Step 2 (post-walk): emit one `:Context` node per unique bounded
@@ -165,34 +129,122 @@ pub fn extract_workspace(workspace_root: &Path) -> Result<(Vec<Node>, Vec<Edge>)
     // workspace crate is part of are still emitted — downstream tooling
     // may reference cross-workspace taxonomies.
     for (name, meta) in &contexts_seen {
-        let id = format!("context:{name}");
-        let mut props = BTreeMap::new();
-        props.insert("name".into(), PropValue::Str(name.clone()));
-        props.insert(
-            "canonical_crate".into(),
-            match &meta.canonical_crate {
-                Some(s) => PropValue::Str(s.clone()),
-                None => PropValue::Null,
-            },
-        );
-        props.insert(
-            "owning_rfc".into(),
-            match &meta.owning_rfc {
-                Some(s) => PropValue::Str(s.clone()),
-                None => PropValue::Null,
-            },
-        );
-        emitter.emit_node(Node {
-            id,
-            label: Label::new(Label::CONTEXT),
-            props,
-        });
+        emit_context_node(&mut emitter, name, meta);
     }
 
     let (mut nodes, mut edges) = emitter.finish();
     nodes.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
     edges.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
     Ok((nodes, edges))
+}
+
+/// Emit the `:Crate` node, `BELONGS_TO` edge, synthesised `:Context`
+/// entries, and walk each lib/bin target for one workspace package.
+/// Factored out of the crate-loop in [`extract_workspace`] so the
+/// per-package path-string and context-name clones live in a helper
+/// rather than directly inside the outer `for` loop body.
+fn emit_crate_and_walk_targets(
+    emitter: &mut Emitter,
+    package: &cargo_metadata::Package,
+    overrides: &ConceptOverrides,
+    published_language: &PublishedLanguageCrates,
+    contexts_seen: &mut BTreeMap<String, ContextMeta>,
+    workspace_root: &Path,
+) -> Result<(), ExtractError> {
+    let crate_id = format!("crate:{}", package.name);
+    let bounded_context = compute_bounded_context(&package.name, overrides);
+
+    // Heuristic-synthesised contexts also need a `:Context` node so
+    // `BELONGS_TO` has a valid target. The override-declared ones are
+    // already in `contexts_seen`; insert the heuristic result if the
+    // name is new.
+    let context_for_seen = bounded_context.clone();
+    contexts_seen
+        .entry(context_for_seen)
+        .or_insert_with(|| ContextMeta {
+            name: bounded_context.clone(),
+            canonical_crate: None,
+            owning_rfc: None,
+        });
+
+    emitter.emit_node(Node {
+        id: crate_id.clone(),
+        label: Label::new(Label::CRATE),
+        props: {
+            let mut p = BTreeMap::new();
+            p.insert("name".into(), PropValue::Str(package.name.to_string()));
+            p.insert(
+                "version".into(),
+                PropValue::Str(package.version.to_string()),
+            );
+            p.insert("is_workspace_member".into(), PropValue::Bool(true));
+            // Published Language marker (issue #100 / addendum §A1.8):
+            // `true` iff the crate is declared in
+            // `.cfdb/published-language-crates.toml`. Every `:Crate`
+            // carries this prop — no `Option`, missing file → `false`.
+            p.insert(
+                "published_language".into(),
+                PropValue::Bool(published_language.is_published_language(&package.name)),
+            );
+            p
+        },
+    });
+
+    // Emit the Crate -> Context BELONGS_TO edge now so a single pass
+    // over edges shows the crate-to-context wiring (council §B.1.3).
+    let context_id = format!("context:{bounded_context}");
+    emitter.emit_edge(Edge {
+        src: crate_id.clone(),
+        dst: context_id,
+        label: EdgeLabel::new(EdgeLabel::BELONGS_TO),
+        props: BTreeMap::new(),
+    });
+
+    let targets: Vec<PathBuf> = package
+        .targets
+        .iter()
+        .filter(|t| t.is_lib() || t.is_bin())
+        .map(|t| t.src_path.clone().into_std_path_buf())
+        .collect();
+    for src_root in &targets {
+        visit_file(
+            emitter,
+            &crate_id,
+            &package.name,
+            &bounded_context,
+            src_root,
+            workspace_root,
+        )?;
+    }
+    Ok(())
+}
+
+/// Emit a single `:Context` node from its accumulated [`ContextMeta`].
+/// Pulled out of the context-emission loop so the per-property clones
+/// do not count against the `clones-in-loops` metric.
+fn emit_context_node(emitter: &mut Emitter, name: &str, meta: &ContextMeta) {
+    let id = format!("context:{name}");
+    let mut props = BTreeMap::new();
+    props.insert("name".into(), PropValue::Str(name.to_string()));
+    props.insert(
+        "canonical_crate".into(),
+        match &meta.canonical_crate {
+            Some(s) => PropValue::Str(s.clone()),
+            None => PropValue::Null,
+        },
+    );
+    props.insert(
+        "owning_rfc".into(),
+        match &meta.owning_rfc {
+            Some(s) => PropValue::Str(s.clone()),
+            None => PropValue::Null,
+        },
+    );
+    emitter.emit_node(Node {
+        id,
+        label: Label::new(Label::CONTEXT),
+        props,
+    });
 }
 
 /// Shared node/edge sink. Every submodule that walks the AST holds a

@@ -1,0 +1,8 @@
+[workspace]
+resolver = "2"
+members = [
+    "trading_domain_a",
+    "trading_domain_b",
+    "portfolio_domain",
+    "trading_cli",
+]

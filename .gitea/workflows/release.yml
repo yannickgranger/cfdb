@@ -1,0 +1,201 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -Dwarnings
+  GIT_SSL_NO_VERIFY: true
+  CARGO_HOME: /cache/cargo
+  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+  SCCACHE_REDIS_ENDPOINT: "redis://192.168.1.107:6380"
+  SCCACHE_REDIS_KEY_PREFIX: "cfdb-1.93-release"
+  SCCACHE_REDIS_EXPIRATION: "604800"
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  release:
+    name: Build & Publish Release
+    runs-on: rust
+    container:
+      image: docker.io/library/rust:1.93
+    steps:
+      - name: Setup
+        run: |
+          set -e
+          rustc --version
+          apt-get clean && apt-get update && apt-get install -y --no-install-recommends \
+            git build-essential libssl-dev pkg-config curl ca-certificates jq
+          git config --global user.email "ci@cfdb"
+          git config --global user.name "cfdb CI"
+          mkdir -p /cache/cargo/registry /cache/cargo/git /cache/cargo/bin /cache/sccache ~/.cargo
+          ln -sf /cache/cargo/registry ~/.cargo/registry
+          ln -sf /cache/cargo/git ~/.cargo/git
+
+          if [ ! -f "/cache/cargo/bin/sccache" ]; then
+            echo "Installing sccache..."
+            SCCACHE_VERSION="v0.8.2"
+            curl -fsSL "https://github.com/mozilla/sccache/releases/download/${SCCACHE_VERSION}/sccache-${SCCACHE_VERSION}-x86_64-unknown-linux-musl.tar.gz" | \
+              tar xzf - --strip-components=1 -C /cache/cargo/bin/ "sccache-${SCCACHE_VERSION}-x86_64-unknown-linux-musl/sccache"
+            chmod +x /cache/cargo/bin/sccache
+          fi
+
+          if /cache/cargo/bin/sccache --start-server 2>/dev/null; then
+            echo "RUSTC_WRAPPER=/cache/cargo/bin/sccache" >> "$GITHUB_ENV"
+            echo "sccache ready"
+          else
+            echo "sccache unavailable — compiling without cache"
+          fi
+
+      - name: Clone
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config --global url."https://oauth2:${GITHUB_TOKEN}@${GITHUB_SERVER_URL#https://}/".insteadOf "${GITHUB_SERVER_URL}/"
+          git clone --depth=50 "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" repo
+          cd repo
+          git fetch --tags
+          git checkout "${GITHUB_REF}"
+          CACHE_KEY=$(sha256sum Cargo.lock | cut -c1-32)
+          mkdir -p /cache/target-cfdb-release/$CACHE_KEY
+          ln -sf /cache/target-cfdb-release/$CACHE_KEY target
+          find /cache/target-cfdb-release -mindepth 1 -maxdepth 1 -type d ! -name "$CACHE_KEY" | xargs -r rm -rf
+
+      - name: Determine version
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          cd repo
+
+          if echo "${GITHUB_REF}" | grep -q '^refs/tags/'; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          else
+            VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+            if [ -z "$VERSION" ]; then
+              echo "FATAL: Could not read version from Cargo.toml"
+              exit 1
+            fi
+            TAG="v${VERSION}"
+            echo "Version from Cargo.toml: $TAG"
+
+            if git tag -l "$TAG" | grep -q "$TAG"; then
+              echo "Tag $TAG already exists — continuing build + release"
+            else
+              git tag -a "$TAG" -m "Release $TAG"
+              git push origin "$TAG"
+              echo "Tag $TAG pushed"
+            fi
+          fi
+
+          if ! echo "$TAG" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "FATAL: Tag '$TAG' is not a valid semver tag (expected vX.Y.Z)"
+            exit 1
+          fi
+
+          echo "Release version: $TAG"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+
+      - name: Build release
+        run: |
+          cd repo
+          cargo build --release -p cfdb-cli --features "hir git-enrich"
+          cargo build --release -p check-prelude-triggers
+
+          echo "=== sccache stats ==="
+          /cache/cargo/bin/sccache --show-stats || true
+
+      - name: Package binaries
+        run: |
+          cd repo
+          BINS="cfdb check-prelude-triggers"
+
+          DIST="cfdb-${TAG}-linux-x86_64"
+          mkdir -p "/tmp/$DIST"
+          for bin in $BINS; do
+            if [ -f "target/release/$bin" ]; then
+              cp "target/release/$bin" "/tmp/$DIST/"
+              echo "  Packaged: $bin ($(du -h "target/release/$bin" | cut -f1))"
+            else
+              echo "  WARNING: $bin not found in target/release/"
+            fi
+          done
+          cd /tmp
+          tar czf "${DIST}.tar.gz" "$DIST"
+          sha256sum "${DIST}.tar.gz" > "${DIST}.tar.gz.sha256"
+
+          echo "DIST=$DIST" >> "$GITHUB_ENV"
+
+          echo "=== package contents ==="
+          tar tzf "${DIST}.tar.gz"
+          cat "${DIST}.tar.gz.sha256"
+
+      - name: Create Gitea release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          API_URL="${GITHUB_SERVER_URL}/api/v1"
+          REPO="${GITHUB_REPOSITORY}"
+
+          TARBALL="/tmp/${DIST}.tar.gz"
+          SHA256="/tmp/${DIST}.tar.gz.sha256"
+          SHA256_CONTENT="$(cat "$SHA256")"
+
+          VERSION="${TAG#v}"
+          awk "/^## \[${VERSION}\]/{found=1; next} /^## \[/{if(found) exit} found" repo/CHANGELOG.md > /tmp/cl.md
+          if [ ! -s /tmp/cl.md ]; then
+            echo "See CHANGELOG.md for details." > /tmp/cl.md
+          fi
+          tr -d '\000-\011\013\014\016-\037' < /tmp/cl.md > /tmp/cl_clean.md && mv /tmp/cl_clean.md /tmp/cl.md
+          printf '\n---\n\nSHA256:\n```\n%s\n```\n' "$SHA256_CONTENT" >> /tmp/cl.md
+
+          jq -n --arg tag "$TAG" --arg name "$TAG" --rawfile body /tmp/cl.md \
+            '{tag_name: $tag, name: $name, body: $body, draft: false, prerelease: false}' \
+            > /tmp/release.json
+          echo "Release JSON: $(wc -c < /tmp/release.json) bytes"
+
+          # Gitea CI runs scripts with `sh` (dash); always use `printf '%s\n'` on response data.
+          RELEASE_RESPONSE=$(curl -sSk -X POST "${API_URL}/repos/${REPO}/releases" \
+            -H "Authorization: token ${GITHUB_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d @/tmp/release.json)
+          RELEASE_ID=$(printf '%s\n' "$RELEASE_RESPONSE" | jq -r '.id')
+          if [ -z "$RELEASE_ID" ] || [ "$RELEASE_ID" = "null" ]; then
+            echo "Create failed — checking if release already exists for tag $TAG"
+            RELEASE_RESPONSE=$(curl -sSk "${API_URL}/repos/${REPO}/releases/tags/${TAG}" \
+              -H "Authorization: token ${GITHUB_TOKEN}")
+            RELEASE_ID=$(printf '%s\n' "$RELEASE_RESPONSE" | jq -r '.id')
+            if [ -z "$RELEASE_ID" ] || [ "$RELEASE_ID" = "null" ]; then
+              echo "FATAL: Failed to create release AND no existing release found"
+              printf '%s\n' "$RELEASE_RESPONSE" | jq .
+              exit 1
+            fi
+            echo "Found existing release ID: $RELEASE_ID — will re-upload assets"
+            EXISTING_ASSETS=$(curl -sSk "${API_URL}/repos/${REPO}/releases/${RELEASE_ID}/assets" \
+              -H "Authorization: token ${GITHUB_TOKEN}" | jq -r '.[].id')
+            for ASSET_ID in $EXISTING_ASSETS; do
+              curl -sSk -X DELETE "${API_URL}/repos/${REPO}/releases/${RELEASE_ID}/assets/${ASSET_ID}" \
+                -H "Authorization: token ${GITHUB_TOKEN}"
+              echo "Deleted old asset: $ASSET_ID"
+            done
+          else
+            echo "Created release ID: $RELEASE_ID"
+          fi
+
+          curl -fsSk -X POST "${API_URL}/repos/${REPO}/releases/${RELEASE_ID}/assets?name=${DIST}.tar.gz" \
+            -H "Authorization: token ${GITHUB_TOKEN}" \
+            -H "Content-Type: application/gzip" \
+            --data-binary @"$TARBALL"
+          echo "Uploaded: ${DIST}.tar.gz"
+
+          curl -fsSk -X POST "${API_URL}/repos/${REPO}/releases/${RELEASE_ID}/assets?name=${DIST}.tar.gz.sha256" \
+            -H "Authorization: token ${GITHUB_TOKEN}" \
+            -H "Content-Type: text/plain" \
+            --data-binary @"$SHA256"
+          echo "Uploaded: ${DIST}.tar.gz.sha256"
+
+          echo ""
+          echo "Release published: ${GITHUB_SERVER_URL}/${REPO}/releases/tag/${TAG}"

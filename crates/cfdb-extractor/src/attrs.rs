@@ -2,6 +2,10 @@
 //! string-shaped piece of information out of a `syn::Attribute` slice.
 //! Each helper is a pure function; none of them touch the `Emitter`.
 
+use cfdb_core::CfgGate;
+use syn::punctuated::Punctuated;
+use syn::Token;
+
 /// Extract the callback path string from `#[serde(default = "Utc::now")]`
 /// or similar serde default-via-function attributes on a field.
 ///
@@ -110,43 +114,165 @@ pub(crate) fn attrs_contain_hash_test(attrs: &[syn::Attribute]) -> bool {
     })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use syn::parse_quote;
-
-    #[test]
-    fn attrs_contain_hash_test_matches_bare_test_attribute() {
-        let item: syn::ItemFn = parse_quote! {
-            #[test]
-            fn bare_test() {}
-        };
-        assert!(attrs_contain_hash_test(&item.attrs));
+/// Extract deprecation state from an item's attribute list (#106 /
+/// RFC addendum §A2.2 row 3).
+///
+/// Returns `(is_deprecated, deprecation_since)`:
+///
+/// - `is_deprecated` is `true` when at least one `#[deprecated]` or
+///   `#[deprecated(...)]` attribute appears on the item. All three
+///   accepted forms trigger a match:
+///   `#[deprecated]`, `#[deprecated(note = "...")]`,
+///   `#[deprecated(since = "X.Y.Z", note = "...")]`.
+/// - `deprecation_since` is `Some(version_string)` when the attribute
+///   carries an explicit `since = "..."` key; `None` otherwise. The
+///   string is the literal author-supplied value — no SemVer parsing.
+///
+/// Only the bare single-segment `deprecated` path is recognised.
+/// Multi-segment paths like `#[serde(deprecated = "true")]` are NOT
+/// treated as Rust stability deprecation (the `#[serde(...)]` namespace
+/// carries unrelated semantics). This matches the discipline used by
+/// [`attrs_contain_hash_test`] for `#[test]` vs `#[tokio::test]`.
+///
+/// Per the #43 council DDD + rust-systems verdicts, this is an
+/// extractor-time fact tagged `Provenance::Extractor` — the AST walker
+/// already visits item attributes, so extraction is the right layer.
+/// The [`cfdb_core::enrich::EnrichBackend::enrich_deprecation`] trait
+/// method exists for surface symmetry; its `PetgraphStore` override
+/// returns a `ran: true, attrs_written: 0` no-op naming the extractor
+/// as the real source.
+pub(crate) fn extract_deprecated_attr(attrs: &[syn::Attribute]) -> (bool, Option<String>) {
+    let mut is_deprecated = false;
+    let mut since: Option<String> = None;
+    for attr in attrs {
+        if !attr.path().is_ident("deprecated") {
+            continue;
+        }
+        is_deprecated = true;
+        // `#[deprecated]` parses as `Meta::Path` — carries no kv args.
+        // `#[deprecated(...)]` parses as `Meta::List` — delegate to a
+        // helper so `extract_deprecated_attr`'s nesting stays flat
+        // (cognitive complexity threshold per cfdb quality gates).
+        if let syn::Meta::List(list) = &attr.meta {
+            if let Some(v) = parse_deprecated_since(list) {
+                since = Some(v);
+            }
+        }
+        // Continue scanning in case multiple `#[deprecated]` attrs
+        // exist (not a standard pattern, but harmless — last `since`
+        // wins, matching Rust's own precedence).
     }
+    (is_deprecated, since)
+}
 
-    #[test]
-    fn attrs_contain_hash_test_rejects_cfg_test() {
-        let item: syn::ItemFn = parse_quote! {
-            #[cfg(test)]
-            fn cfg_test_fn() {}
+/// Pull the `since = "X.Y.Z"` string literal out of a
+/// `#[deprecated(since = "...", note = "...")]` meta list, if present.
+/// Factored out of [`extract_deprecated_attr`] so that the main loop
+/// body stays shallow enough to clear the cognitive-complexity gate.
+/// `note = "..."` is deliberately ignored — the current extractor
+/// surface only needs the version string.
+fn parse_deprecated_since(list: &syn::MetaList) -> Option<String> {
+    let mut since: Option<String> = None;
+    let _ = list.parse_nested_meta(|meta| {
+        if !meta.path.is_ident("since") {
+            return Ok(());
+        }
+        let value = meta.value()?;
+        let lit: syn::LitStr = value.parse()?;
+        since = Some(lit.value());
+        Ok(())
+    });
+    since
+}
+
+/// Extract the feature-only `cfg(...)` gate from the item's attribute list
+/// (Issue #36). Recognises `cfg(feature = "x")`, `cfg(all(...))`,
+/// `cfg(any(...))`, `cfg(not(...))` and nested combinations thereof.
+///
+/// **All-or-nothing policy.** Returns `None` when the item either (a)
+/// has no `#[cfg(...)]` attributes, or (b) carries a cfg expression with
+/// any non-feature leaf (e.g. `cfg(test)`, `cfg(target_os = "…")`,
+/// `cfg(unix)`). A mixed capture would force every consumer to decide
+/// how to interpret a partial tree — the closed vocabulary keeps
+/// downstream queries unambiguous.
+///
+/// **Conjunction across multiple attributes.** Multiple `#[cfg(...)]`
+/// attributes on the same item conjoin (Rust semantics). When an item
+/// carries both `#[cfg(feature = "a")]` and `#[cfg(feature = "b")]`
+/// this helper returns `All(vec![Feature("a"), Feature("b")])`.
+pub(crate) fn extract_cfg_feature_gate(attrs: &[syn::Attribute]) -> Option<CfgGate> {
+    let mut gates: Vec<CfgGate> = Vec::new();
+    for attr in attrs {
+        if !attr.path().is_ident("cfg") {
+            continue;
+        }
+        // `#[cfg(...)]` — parse the parenthesised contents as a Meta.
+        let Ok(inner) = attr.parse_args::<syn::Meta>() else {
+            // Anything that doesn't parse as a Meta (malformed or
+            // macro-generated) is treated as opaque — drop the whole
+            // item's gate rather than guess.
+            return None;
         };
-        assert!(!attrs_contain_hash_test(&item.attrs));
+        let gate = meta_to_feature_gate(&inner)?;
+        gates.push(gate);
     }
-
-    #[test]
-    fn attrs_contain_hash_test_rejects_multi_segment_tokio_test() {
-        let item: syn::ItemFn = parse_quote! {
-            #[tokio::test]
-            fn async_test() {}
-        };
-        assert!(!attrs_contain_hash_test(&item.attrs));
-    }
-
-    #[test]
-    fn attrs_contain_hash_test_rejects_no_attrs() {
-        let item: syn::ItemFn = parse_quote! {
-            fn plain() {}
-        };
-        assert!(!attrs_contain_hash_test(&item.attrs));
+    match gates.len() {
+        0 => None,
+        1 => Some(gates.into_iter().next().expect("len==1 so first() exists")),
+        _ => Some(CfgGate::All(gates)),
     }
 }
+
+/// Translate a single `syn::Meta` node into a `CfgGate`, or `None` if the
+/// tree contains any non-feature predicate.
+fn meta_to_feature_gate(meta: &syn::Meta) -> Option<CfgGate> {
+    match meta {
+        syn::Meta::NameValue(nv) if nv.path.is_ident("feature") => {
+            if let syn::Expr::Lit(syn::ExprLit {
+                lit: syn::Lit::Str(s),
+                ..
+            }) = &nv.value
+            {
+                Some(CfgGate::Feature(s.value()))
+            } else {
+                None
+            }
+        }
+        syn::Meta::List(list) if list.path.is_ident("all") => {
+            let children = parse_meta_list_children(list)?;
+            if children.is_empty() {
+                None
+            } else {
+                Some(CfgGate::All(children))
+            }
+        }
+        syn::Meta::List(list) if list.path.is_ident("any") => {
+            let children = parse_meta_list_children(list)?;
+            if children.is_empty() {
+                None
+            } else {
+                Some(CfgGate::Any(children))
+            }
+        }
+        syn::Meta::List(list) if list.path.is_ident("not") => {
+            let mut children = parse_meta_list_children(list)?;
+            if children.len() != 1 {
+                None
+            } else {
+                Some(CfgGate::Not(Box::new(children.remove(0))))
+            }
+        }
+        // Any other shape (cfg(test), cfg(target_os = "linux"),
+        // cfg(unix), cfg(panic = "unwind"), …) — not a feature gate.
+        _ => None,
+    }
+}
+
+fn parse_meta_list_children(list: &syn::MetaList) -> Option<Vec<CfgGate>> {
+    let metas: Punctuated<syn::Meta, Token![,]> =
+        list.parse_args_with(Punctuated::parse_terminated).ok()?;
+    metas.iter().map(meta_to_feature_gate).collect()
+}
+
+#[cfg(test)]
+mod tests;
