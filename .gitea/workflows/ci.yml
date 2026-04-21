@@ -135,6 +135,17 @@ jobs:
           cargo build --release -p cfdb-cli --bin cfdb
           CFDB_BIN="$(pwd)/target/release/cfdb" bash ci/determinism-check.sh "$(pwd)/spikes/qa5-utc-now"
 
+      - name: Predicate determinism (RFC-034 §4.1)
+        run: |
+          cd repo
+          # RFC-034 Slice 4 / #148 — every shipped `.cfdb/predicates/*.cypher`
+          # MUST produce byte-identical stdout across two consecutive
+          # `cfdb check-predicate` runs on the same keyspace. Zero-tolerance;
+          # no baseline file. The script extracts cfdb's own tree into a
+          # tempdir keyspace, invokes each seed twice with its canonical
+          # param set, and diffs stdout.
+          CFDB_BIN="$(pwd)/target/release/cfdb" bash ci/predicate-determinism.sh "$(pwd)"
+
       - name: cfdb self-audit (RFC-030 §3.2 X-ray gate)
         run: |
           cd repo
