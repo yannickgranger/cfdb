@@ -26,6 +26,10 @@ thiserror.workspace = true
 # `tempfile` is stdlib-adjacent and already pulled in via `dev-dependencies`
 # of neighbouring crates; promoting to a runtime dep here costs nothing.
 tempfile.workspace = true
+# `cfdb extract --rev <url>@<sha>` (issue #96 / RFC-032 §A1.7) hashes
+# the URL into a stable 16-hex cache-key under `$CFDB_CACHE_DIR` (or
+# `$XDG_CACHE_HOME/cfdb/extract` / `$HOME/.cache/cfdb/extract`).
+sha2.workspace = true
 
 # Optional HIR pipeline (Issue #86 / slice 4). Gated behind the
 # `hir` feature so default builds do NOT pay the 90-150s `ra-ap-*`

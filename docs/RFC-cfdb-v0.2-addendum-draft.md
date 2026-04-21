@@ -166,6 +166,52 @@ In addition to v0.1 items 1–6 (§13), v0.2 gates on:
 
 **Still deferred to v0.3+:** entry-point annotations, LLM enrichment, cross-project queries, embedding clustering, density-based thresholds (LoC instrumentation ships in v0.2 as §A3.2 telemetry).
 
+### A1.7 `cfdb extract --rev <url>@<sha>` — bilateral cross-repo drift-lock (Option W)
+
+**Issue:** #96 (builds on #37 / PR #123).
+
+**Problem.** qbot-core EPIC #4047 Phase 2 needs a cross-repo drift-lock against `yg/qbot-strategies`. The comparator consumes two fact sets (one per repo), extracted at specific SHAs, and asserts invariants across them. Without URL extraction, the user must maintain two local checkouts and orchestrate `cfdb extract --rev <sha>` separately against each — fragile, easy to misalign. Option W (qbot-core council-4046 tools-devops R2.2) is the chosen mechanism over Option Y (third `qbot-specs` repo).
+
+**Scope.**
+
+- `cfdb extract --rev <url>@<sha>` clones `<url>` once per `(url, sha)` pair into a persistent cache and extracts at `<sha>`.
+- `<url>` carries one of `http://` / `https://` / `ssh://` / `file://` schemes. SSH shorthand (`git@host:path`) is NOT accepted in v1 — use the explicit `ssh://…` form. `file://` is supported both for hermetic integration tests and for the self-dogfood case `cfdb extract --rev file://$(pwd)/.git@$(git rev-parse HEAD)`.
+- The cache base directory is, in precedence order:
+  1. `$CFDB_CACHE_DIR` (explicit override; used by tests for hermeticity).
+  2. `$XDG_CACHE_HOME/cfdb/extract`.
+  3. `$HOME/.cache/cfdb/extract`.
+  4. `std::env::temp_dir()/cfdb/extract` (last resort; non-persistent; emits `eprintln!` warning).
+- Cache layout: `<base>/<sha256_hex_first_16(url)>/<full-sha>/`. Full SHA (not `short_rev`) so 12-char prefix collisions remain distinct on disk.
+- A sentinel file `.cfdb-extract-ok` inside the cache dir signals a successful clone+checkout; second runs gate off the sentinel and skip the clone (AC-3).
+- Auth (AC-2): subprocess `git clone` / `fetch` / `checkout` inherit ambient git credentials — SSH agent, `~/.config/git/credentials`, `GIT_ASKPASS`, `credential.helper`. No new plumbing.
+
+**Design.**
+
+- The `extract` dispatcher in `cfdb-cli/src/commands.rs` discriminates URL@SHA vs. plain SHA at a single match guard — `Some(rev) if is_url_at_sha(rev) => extract_at_url_rev(rev, …)`. The same-repo `extract_at_rev` (PR #123) and its `GitWorktree` RAII guard are UNCHANGED; URL form is a new sibling branch, not a modification.
+- `parse_url_at_sha(&str) -> Option<(&str, &str)>` splits on the RIGHTMOST `@` so `ssh://user@host/r@deadbeef` parses correctly. The SHA side must be all-hex and ≥ 7 chars; the URL side must carry a recognised scheme.
+- `git clone <url> <cache_dir>` fetches the default branch only; the arbitrary `<sha>` is explicitly fetched next (`git fetch --quiet origin <sha>`) then checked out. Gitea has `uploadpack.allowReachableSHA1InWant=true` by default, which makes this work; other servers may need the setting enabled. The CLI error names this config when fetch fails for that reason.
+
+**Invariants.**
+
+- **Subprocess contract preserved.** `git2` stays behind the `git-enrich` feature gate — default `cfdb-cli` builds still ship zero `git2` in their dep tree (issue #105). `sha2 = "0.10"` is the only new workspace dep (pure-Rust, small, for URL → cache-key hashing).
+- **Single resolution point.** URL-vs-SHA discrimination lives ONLY in the `extract` match guard. `extract_at_rev` and `extract_at_url_rev` trust the dispatch — neither re-checks the form.
+- **Determinism.** Same `(url, sha)` produces byte-identical canonical dumps on repeat extract (same guarantee as `extract --rev <sha>` today; the extraction pipeline is unchanged).
+- **No `SchemaVersion` bump.** The emitted facts are identical to what the same-repo path emits; only the input-source path changes.
+
+**Non-goals.**
+
+- No new `--cache-dir` flag in this issue (env-var override is sufficient; flag may be added in a follow-up if a real need materialises).
+- No `git2` library path for the URL clone — subprocess is the contract, matching §2 "Group B" convention.
+- No HTTPS auth plumbing new to cfdb — ambient git credentials are the contract (AC-2). A future issue can add `--token` / `CFDB_GITEA_TOKEN` support if manual token injection becomes ergonomic.
+- No `url` / `dirs` / `reqwest` crates — env-var path + scheme-prefix string split is sufficient.
+
+**Tests (per CLAUDE.md §2.5).**
+
+- **Unit:** `parse_url_at_sha` / `is_url_at_sha` / `url_hash_hex16` / `cache_base_dir` env-var precedence — covered in `crates/cfdb-cli/src/commands.rs` `#[cfg(test)] mod tests`.
+- **Integration:** `crates/cfdb-cli/tests/extract_rev_url.rs` — 5 scenarios: URL form honours the SHA (AC-1), cache reuse (AC-3), unreachable URL surfaces git error (AC-2 shape; real Gitea auth is dogfood), malformed URL@SHA falls through to same-repo path, default keyspace = `short_rev(sha)`. All tests use `file://` URLs against local bare repos — zero network access.
+- **Self-dogfood:** `cfdb extract --rev file://$(pwd)/.git@$(git rev-parse HEAD)` produces a keyspace on the cfdb tree.
+- **Target-dogfood (manual, PR body):** `cfdb extract --rev https://agency.lab:3000/yg/qbot-core@<pinned-sha>` and the same for `yg/qbot-strategies` — per issue AC-4, reported as manual evidence in the ship PR body.
+
 ### A1.8 `.cfdb/published-language-crates.toml` — Published Language marker (Issue #100)
 
 **Issue:** #100 (feeds §A2.1 class 2 Context Homonym classifier).
