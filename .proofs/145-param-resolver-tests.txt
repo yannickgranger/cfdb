@@ -1,0 +1,21 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running unittests src/lib.rs (target/debug/deps/cfdb_cli-c5c3a5dba3831017)
+
+running 14 tests
+test param_resolver::tests::context_with_missing_concepts_dir_returns_unknown_context ... ok
+test param_resolver::tests::literal_form_resolves_to_scalar_str ... ok
+test param_resolver::tests::list_form_preserves_input_order ... ok
+test param_resolver::tests::regex_form_resolves_to_scalar_str ... ok
+test param_resolver::tests::regex_with_colon_in_pattern_is_preserved ... ok
+test param_resolver::tests::resolve_params_short_circuits_on_first_error ... ok
+test param_resolver::tests::missing_name_or_form_returns_unknown_form ... ok
+test param_resolver::tests::resolve_params_collects_multiple_args_into_btreemap ... ok
+test param_resolver::tests::malformed_toml_returns_toml_variant ... ok
+test param_resolver::tests::self_dogfood_context_cfdb_resolves_to_expected_crates ... ok
+test param_resolver::tests::unknown_context_returns_structured_error ... ok
+test param_resolver::tests::context_form_sorts_crate_names_ascending ... ok
+test param_resolver::tests::unknown_form_returns_structured_error ... ok
+test param_resolver::tests::context_form_is_deterministic_across_two_calls ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.00s
+
