@@ -15,12 +15,16 @@ path = "src/main.rs"
 
 [dependencies]
 cfdb-core = { path = "../cfdb-core" }
+cfdb-concepts = { path = "../cfdb-concepts" }
 cfdb-query = { path = "../cfdb-query" }
 cfdb-petgraph = { path = "../cfdb-petgraph" }
 cfdb-extractor = { path = "../cfdb-extractor" }
 clap.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+# `param_resolver::ParamResolveError::Toml` carries `Box<toml::de::Error>`
+# per RFC-034 §3.1 mirror-of-cfdb_concepts-shape. Slice 1 / #145.
+toml.workspace = true
 # `cfdb extract --rev <sha>` (issue #37 / slice `--rev`) creates a
 # temporary git worktree to extract against an arbitrary commit.
 # `tempfile` is stdlib-adjacent and already pulled in via `dev-dependencies`
