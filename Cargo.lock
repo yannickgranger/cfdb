@@ -278,6 +278,7 @@ dependencies = [
  "cfdb-petgraph",
  "cfdb-query",
  "clap",
+ "serde",
  "serde_json",
  "sha2",
  "tempfile",

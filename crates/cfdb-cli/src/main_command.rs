@@ -393,6 +393,46 @@ pub(crate) enum Command {
         no_fail: bool,
     },
 
+    /// Run a named predicate from `.cfdb/predicates/<name>.cypher` and
+    /// exit 1 if any rows match — RFC-034 Slice 3.
+    ///
+    /// Unlike `violations --rule <path>` (which loads a user-supplied
+    /// `.cypher` file with no param binding) this verb loads a named
+    /// predicate from the shipped library + resolves `--param` CLI args
+    /// via [`crate::param_resolver::resolve_params`] before executing.
+    /// Exit contract matches `violations` / `check`: non-zero iff the
+    /// predicate returns ≥1 row.
+    CheckPredicate {
+        /// Directory containing per-keyspace JSON files.
+        #[arg(long)]
+        db: PathBuf,
+        /// Keyspace to query.
+        #[arg(long)]
+        keyspace: String,
+        /// Workspace root — used to locate `.cfdb/predicates/<name>.cypher`
+        /// AND `.cfdb/concepts/*.toml` for `context:` param resolution.
+        #[arg(long)]
+        workspace_root: PathBuf,
+        /// Predicate basename (without `.cypher`) — e.g. `path-regex`.
+        #[arg(long)]
+        name: String,
+        /// Repeatable `--param <name>:<form>:<value>` CLI arg. Forms:
+        /// `context:<concept-name>` / `regex:<pattern>` /
+        /// `literal:<value>` / `list:<a,b,c>`. See RFC-034 §3.4.
+        #[arg(long = "param")]
+        params: Vec<String>,
+        /// Output format. `text` (default) emits the canonical
+        /// three-column `qname<TAB>line<TAB>reason` per row + a stderr
+        /// summary. `json` emits a pretty-printed
+        /// [`crate::PredicateRunReport`] on stdout.
+        #[arg(long, default_value = "text")]
+        format: String,
+        /// Always exit 0, even when rows are returned. Matches the
+        /// `violations --no-fail` idiom for CI scripts.
+        #[arg(long)]
+        no_fail: bool,
+    },
+
     /// Print the canonical sorted dump of a keyspace.
     Dump {
         #[arg(long)]

@@ -28,13 +28,6 @@
 //! owns failures that neither TOML-loader type models (e.g. unknown form
 //! prefix, unknown context name).
 
-// Slice-1 of RFC-034 ships the module; Slice-3 (#147) wires the `cfdb
-// check-predicate` verb handler that consumes `resolve_params`. Until that
-// slice lands, every `pub(crate)` item here is only exercised by in-crate
-// tests, which does not satisfy clippy's `dead_code` lint on the non-test
-// target. Removing this allow is part of the #147 PR diff.
-#![allow(dead_code)]
-
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 

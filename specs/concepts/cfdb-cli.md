@@ -14,6 +14,14 @@ Selector for the four enrichment subcommands (`enrich-docs`, `enrich-metrics`, `
 
 Error returned by the `hir` feature's `extract_and_ingest_hir` composition (Issue #86 / slice 4). Wraps either a `cfdb_hir_extractor::HirError` or a `cfdb_core::store::StoreError`. Only compiled under `cfdb-cli`'s `hir` Cargo feature; default builds never see this type. Surfaced by `cfdb extract --hir --workspace <path>` and mapped to a `CfdbCliError::Usage` string at the CLI boundary.
 
+## PredicateRow
+
+One row of a `cfdb check-predicate` result — mirrors the canonical three-column `(qname, line, reason)` format emitted by `cfdb violations` so consumer skills can parse both with the same code path (RFC-034 §3.5). `qname` is a fully-qualified name (or a file path, for `:File`-subject predicates); `line` is the 1-based source line number, or `0` for subjects that do not have a line (e.g. `:Crate`, `:File`); `reason` is the human-readable violation description from the predicate's `RETURN … AS reason` clause. Derives `Ord` so `PredicateRunReport::rows` can be sorted ascending by `(qname, line)` before serialization — determinism invariant §4.1. Landed in RFC-034 Slice 3 / #147.
+
+## PredicateRunReport
+
+Report of one `cfdb check-predicate` invocation — carries `predicate_name` (bare CLI name), `predicate_path` (absolute path of the loaded `.cypher` file), `row_count` (scalar used by the dispatch layer's exit-code contract — `> 0` → process exit 1), and `rows: Vec<PredicateRow>` sorted ascending by `(qname, line)`. Serialized to stdout when the caller passes `--format json`; the library-API return type for programmatic consumers (integration tests, future skill adapters) that read `rows` directly without parsing stdout. Landed in RFC-034 Slice 3 / #147.
+
 ## TriggerId
 
 Editorial-drift trigger identifier used by the `cfdb check --trigger <ID>` verb (qbot-core council-4046 Phase 2 naming). A closed enum (currently just `T1`; `T3` reserved for issue #102). `TriggerId::variants()` is the single source of truth for valid values — the `FromStr` impl iterates it and the `UnknownTriggerId::Display` impl enumerates it, so the valid-values list in parse-error strings never diverges from the enum (global `CLAUDE.md` §7 MCP/CLI boundary-fix AC).

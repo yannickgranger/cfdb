@@ -4,7 +4,7 @@
 //! corresponding `cfdb_cli::*` handler.
 
 use cfdb_cli::{
-    check, diff, drop_keyspace_cmd, dump, enrich, export, extract, list_callers,
+    check, check_predicate, diff, drop_keyspace_cmd, dump, enrich, export, extract, list_callers,
     list_items_matching, list_keyspaces, query, scope, snapshots, typed_stub, violations,
     CfdbCliError, EnrichVerb,
 };
@@ -113,7 +113,53 @@ pub(crate) fn dispatch_typed(cmd: Command) -> Result<(), CfdbCliError> {
             output.as_deref(),
             keyspace.as_deref(),
         ),
+        Command::CheckPredicate {
+            db,
+            keyspace,
+            workspace_root,
+            name,
+            params,
+            format,
+            no_fail,
+        } => {
+            let report = check_predicate(&db, &keyspace, &workspace_root, &name, &params)?;
+            emit_check_predicate_report(&report, &format)?;
+            if report.row_count > 0 && !no_fail {
+                std::process::exit(1);
+            }
+            Ok(())
+        }
         other => unreachable!("dispatch_typed called with non-typed command: {other:?}"),
+    }
+}
+
+/// Render a [`cfdb_cli::PredicateRunReport`] to stdout per the `--format`
+/// CLI arg. `text` emits a TSV-shaped `qname\tline\treason` per row plus
+/// a stderr summary (same rhythm as `cfdb violations`); `json` emits a
+/// pretty-printed report. Unknown formats are a [`CfdbCliError::Usage`].
+fn emit_check_predicate_report(
+    report: &cfdb_cli::PredicateRunReport,
+    format: &str,
+) -> Result<(), CfdbCliError> {
+    match format {
+        "text" => {
+            eprintln!(
+                "check-predicate: {} (predicate: {})",
+                report.row_count, report.predicate_name
+            );
+            for row in &report.rows {
+                println!("{}\t{}\t{}", row.qname, row.line, row.reason);
+            }
+            Ok(())
+        }
+        "json" => {
+            let json = serde_json::to_string_pretty(&report)?;
+            println!("{json}");
+            Ok(())
+        }
+        other => Err(CfdbCliError::Usage(format!(
+            "--format `{other}` not supported; expected `text` or `json`"
+        ))),
     }
 }
 
