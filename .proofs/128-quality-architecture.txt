@@ -1,0 +1,17 @@
+--- CHECK: god-files ---
+VIOLATIONS: 4
+  GodFileLines:crates/cfdb-cli/src/check.rs:639 lines
+  GodFileLines:crates/cfdb-cli/src/commands.rs:904 lines
+  GodFileLines:crates/cfdb-cli/src/scope.rs:589 lines
+  GodFileLines:crates/cfdb-hir-extractor/src/entry_point_emitter.rs:784 lines
+VIOLATIONS: 0
+VIOLATIONS: 0
+VIOLATIONS: 0
+VIOLATIONS: 0
+VIOLATIONS: 0
+VIOLATIONS: 0
+VIOLATIONS: 0
+VIOLATIONS: 0
+VIOLATIONS: 0
+VIOLATIONS: 0
+TOTAL_VIOLATIONS: 4
