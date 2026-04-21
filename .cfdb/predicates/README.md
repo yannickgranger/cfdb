@@ -2,6 +2,8 @@
 
 RFC-034 (ratified 2026-04-21 by `council-49-query-dsl`) — cfdb's **Non-negotiable predicate library**. One `.cypher` file per predicate; each is loaded by `cfdb check-predicate --name <basename>` (Slice 3 / #147) and evaluated against a pinned keyspace with CLI-resolved `--param` bindings.
 
+**📖 Full user guide** (canonical examples, param-resolver forms, homonym note, deferred-capability list, invocation recipes): [`docs/query-dsl.md`](../../docs/query-dsl.md). This README is the mechanical runbook; the guide is the reader-friendly narrative.
+
 **Not to be confused with `.cfdb/queries/`** — that directory is for `cfdb violations` self-dogfood **ban rules**. Different consumer, different verb, different change vector.
 
 ## File shape
