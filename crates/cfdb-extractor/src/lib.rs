@@ -52,7 +52,8 @@ mod item_visitor;
 mod type_render;
 
 use cfdb_concepts::{
-    compute_bounded_context, load_concept_overrides, ConceptOverrides, ContextMeta,
+    compute_bounded_context, load_concept_overrides, load_published_language_crates,
+    ConceptOverrides, ContextMeta, PublishedLanguageCrates,
 };
 use file_walker::visit_file;
 
@@ -95,6 +96,14 @@ pub fn extract_workspace(workspace_root: &Path) -> Result<(Vec<Node>, Vec<Edge>)
     let overrides = load_concept_overrides(workspace_root)
         .map_err(|e| ExtractError::Concepts(e.to_string()))?;
 
+    // Step 1b (pre-walk): load `.cfdb/published-language-crates.toml`
+    // marker list (issue #100 / RFC-cfdb-v0.2-addendum §A1.8). Missing
+    // file is not an error — empty map means every `:Crate` emits
+    // `published_language: false`. Classifier (#48) suppresses false
+    // Context-Homonym positives for declared published-language crates.
+    let published_language = load_published_language_crates(workspace_root)
+        .map_err(|e| ExtractError::Concepts(e.to_string()))?;
+
     let mut emitter = Emitter::new();
 
     // Accumulate every bounded context we see so we can emit one `:Context`
@@ -107,6 +116,7 @@ pub fn extract_workspace(workspace_root: &Path) -> Result<(Vec<Node>, Vec<Edge>)
             &mut emitter,
             package,
             &overrides,
+            &published_language,
             &mut contexts_seen,
             workspace_root,
         )?;
@@ -137,6 +147,7 @@ fn emit_crate_and_walk_targets(
     emitter: &mut Emitter,
     package: &cargo_metadata::Package,
     overrides: &ConceptOverrides,
+    published_language: &PublishedLanguageCrates,
     contexts_seen: &mut BTreeMap<String, ContextMeta>,
     workspace_root: &Path,
 ) -> Result<(), ExtractError> {
@@ -167,6 +178,14 @@ fn emit_crate_and_walk_targets(
                 PropValue::Str(package.version.to_string()),
             );
             p.insert("is_workspace_member".into(), PropValue::Bool(true));
+            // Published Language marker (issue #100 / addendum §A1.8):
+            // `true` iff the crate is declared in
+            // `.cfdb/published-language-crates.toml`. Every `:Crate`
+            // carries this prop — no `Option`, missing file → `false`.
+            p.insert(
+                "published_language".into(),
+                PropValue::Bool(published_language.is_published_language(&package.name)),
+            );
             p
         },
     });

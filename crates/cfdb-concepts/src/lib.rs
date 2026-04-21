@@ -35,6 +35,12 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
+mod published_language;
+
+pub use published_language::{
+    load_published_language_crates, PublishedLanguageCrates, PublishedLanguageEntry,
+};
+
 /// Ordered list of crate-name prefixes stripped by the heuristic. Order
 /// matters: `use-cases-` must be checked before the empty string would
 /// fall through. Longest distinctive prefix first is the safest rule of
