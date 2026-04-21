@@ -270,6 +270,7 @@ name = "cfdb-cli"
 version = "0.0.1"
 dependencies = [
  "assert_cmd",
+ "cfdb-concepts",
  "cfdb-core",
  "cfdb-extractor",
  "cfdb-hir-extractor",
@@ -281,6 +282,7 @@ dependencies = [
  "sha2",
  "tempfile",
  "thiserror",
+ "toml 0.8.23",
 ]
 
 [[package]]
