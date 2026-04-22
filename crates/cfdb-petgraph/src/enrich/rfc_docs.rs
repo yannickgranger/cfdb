@@ -271,7 +271,7 @@ fn prop_str(props: &Props, key: &str) -> Option<String> {
 // Reference matching
 // ---------------------------------------------------------------------------
 
-fn find_references<'a>(items: &'a [ItemRow], scanned: &[ScannedFile]) -> References<'a> {
+fn find_references<'a>(items: &'a [ItemRow], scanned: &'a [ScannedFile]) -> References<'a> {
     items
         .iter()
         .flat_map(|item| item_matches(item, scanned))
