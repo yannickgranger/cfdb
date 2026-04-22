@@ -12,9 +12,11 @@ use crate::commands::keyspace_path;
 use crate::compose;
 
 mod classifier;
+mod explain_sink;
 mod helpers;
 
 use classifier::{query_canonical_candidates, query_findings_in_context, run_classifier_rule};
+use explain_sink::ExplainSink;
 use helpers::validate_context;
 
 /// Embedded hsb-by-name rule, used by `cfdb scope` to seed
@@ -67,10 +69,11 @@ const CLASSIFIER_UNWIRED_CYPHER: &str =
 pub fn scope(
     db: &Path,
     context: &str,
-    _workspace: Option<&Path>,
+    workspace: Option<&Path>,
     format: &str,
     output: Option<&Path>,
     keyspace: Option<&str>,
+    explain: bool,
 ) -> Result<(), crate::CfdbCliError> {
     if format != "json" {
         return Err(format!(
@@ -91,9 +94,26 @@ pub fn scope(
         .into());
     }
 
-    let (store, ks) = compose::load_store(db, &ks_name)?;
+    // RFC-035 §3.8: when a workspace is supplied, route through
+    // `load_store_with_workspace` so `.cfdb/indexes.toml` flows into the
+    // store and the slice-5/6 fast paths activate. Without a workspace,
+    // fall back to the index-free loader for backward compat.
+    let (store, ks) = match workspace {
+        Some(ws) => compose::load_store_with_workspace(db, &ks_name, Some(ws.to_path_buf()))?,
+        None => compose::load_store(db, &ks_name)?,
+    };
     validate_context(&store, &ks, context)?;
-    let inventory = build_scope_inventory(&store, &ks, context, &ks_name)?;
+    let sink = if explain {
+        ExplainSink::enabled()
+    } else {
+        ExplainSink::disabled()
+    };
+    let inventory = build_scope_inventory(&store, &ks, context, &ks_name, &sink)?;
+    if explain {
+        for row in sink.drain() {
+            eprintln!("{}", row.format_line());
+        }
+    }
     emit_scope_output(&inventory, output)
 }
 
@@ -106,18 +126,19 @@ fn build_scope_inventory(
     ks: &cfdb_core::schema::Keyspace,
     context: &str,
     ks_name: &str,
+    sink: &ExplainSink,
 ) -> Result<ScopeInventory, crate::CfdbCliError> {
-    let (findings_in_context, loc_per_crate) = query_findings_in_context(store, ks, context)?;
+    let (findings_in_context, loc_per_crate) = query_findings_in_context(store, ks, context, sink)?;
 
     let mut inventory = ScopeInventory::new(context, ks_name);
     inventory.loc_per_crate = loc_per_crate;
     let _ = findings_in_context; // reserved for future inventory population — see §A3.3
 
-    inventory.canonical_candidates = query_canonical_candidates(store, ks, context)?;
+    inventory.canonical_candidates = query_canonical_candidates(store, ks, context, sink)?;
     inventory.canonical_candidates.sort();
 
     // Issue #48 — populate each class bucket via its classifier rule.
-    populate_findings_by_class(store, ks, context, &mut inventory)?;
+    populate_findings_by_class(store, ks, context, &mut inventory, sink)?;
 
     attach_scope_warnings(&mut inventory);
     Ok(inventory)
@@ -135,9 +156,10 @@ fn populate_findings_by_class(
     ks: &cfdb_core::schema::Keyspace,
     context: &str,
     inventory: &mut ScopeInventory,
+    sink: &ExplainSink,
 ) -> Result<(), crate::CfdbCliError> {
     for (class, cypher) in classifier::classifier_rules() {
-        let findings = run_classifier_rule(store, ks, context, cypher)?;
+        let findings = run_classifier_rule(store, ks, context, cypher, sink)?;
         if let Some(bucket) = inventory.findings_by_class.get_mut(&class) {
             bucket.extend(findings);
             bucket.sort();

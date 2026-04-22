@@ -1,11 +1,7 @@
 //! Pattern application — `MATCH`, path traversal, `OPTIONAL MATCH`, `UNWIND`.
-//!
-//! Each `apply_*` method is a streaming iterator adapter. The input
-//! `BindingStream` is consumed one row at a time; for each row we build a
-//! bounded per-row scratch `Vec<Bindings>` carrying that row's join
-//! expansion, then yield those expansions back as an iterator. Peak memory
-//! across a multi-MATCH pipeline is therefore O(per-row fan-out), not
-//! O(cartesian product) — see the memory note in `super::Evaluator`.
+//! Streaming iterator adapters: per incoming binding row we build a bounded
+//! scratch `Vec<Bindings>`, yield it, then drop — peak memory is O(per-row
+//! fan-out), not O(cartesian). Memory note lives in `super::Evaluator`.
 
 use std::collections::{BTreeSet, VecDeque};
 
@@ -16,8 +12,10 @@ use cfdb_core::result::{RowValue, Warning, WarningKind};
 use petgraph::stable_graph::NodeIndex;
 use petgraph::visit::EdgeRef;
 
+use super::explain_fmt::format_node_pattern;
 use super::util::suggest_label;
 use super::{Binding, BindingStream, Bindings, Evaluator, DEFAULT_VAR_LENGTH_MAX};
+use crate::explain::ExplainHit;
 use crate::index::lookup;
 
 impl<'a> Evaluator<'a> {
@@ -136,8 +134,8 @@ impl<'a> Evaluator<'a> {
                 });
                 return Vec::new();
             }
-            // RFC-035 §3.6 fast paths (slices 5+6). `None` ⇒
-            // fall back to `nodes_with_label`.
+            // RFC-035 §3.6 fast paths (slices 5+6). `None` ⇒ fall back
+            // to `nodes_with_label`. Slice 7 logs the decision.
             let bound_var_prop =
                 |var: &str, prop: &str| self.bound_var_index_value(bindings, var, prop);
             if let Some(indexed) = lookup::candidates_from_index(
@@ -147,10 +145,13 @@ impl<'a> Evaluator<'a> {
                 self.params,
                 &bound_var_prop,
             ) {
+                self.record_explain(format_node_pattern(np), ExplainHit::Indexed);
                 return indexed;
             }
+            self.record_explain(format_node_pattern(np), ExplainHit::Fallback);
             self.state.nodes_with_label(label)
         } else {
+            self.record_explain(format_node_pattern(np), ExplainHit::Fallback);
             self.state.all_nodes_sorted()
         }
     }

@@ -46,6 +46,7 @@ use crate::graph::KeyspaceState;
 
 #[cfg(test)]
 mod cross_match_tests;
+mod explain_fmt;
 #[cfg(test)]
 mod fast_path_tests;
 mod pattern;
@@ -94,6 +95,12 @@ pub(crate) struct Evaluator<'a> {
     pub(crate) state: &'a KeyspaceState,
     pub(crate) params: &'a BTreeMap<String, Param>,
     pub(crate) warnings: RefCell<Vec<Warning>>,
+    /// Slice-7 (#186) — explain-trace collector. `None` for the regular
+    /// `execute` path (zero allocation cost); `Some` when the caller
+    /// invoked `execute_explained` to get observability rows for
+    /// `cfdb scope --explain`. Each `candidate_nodes` call pushes one
+    /// [`crate::explain::ExplainRow`] when `Some`.
+    pub(crate) explain: Option<RefCell<Vec<crate::explain::ExplainRow>>>,
 }
 
 impl<'a> Evaluator<'a> {
@@ -102,11 +109,39 @@ impl<'a> Evaluator<'a> {
             state,
             params,
             warnings: RefCell::new(Vec::new()),
+            explain: None,
+        }
+    }
+
+    /// Slice-7 variant: enable explain-trace collection. Caller drains
+    /// rows via [`Self::run_explained`].
+    pub(crate) fn new_with_explain(
+        state: &'a KeyspaceState,
+        params: &'a BTreeMap<String, Param>,
+    ) -> Self {
+        Self {
+            state,
+            params,
+            warnings: RefCell::new(Vec::new()),
+            explain: Some(RefCell::new(Vec::new())),
         }
     }
 
     /// Entry point — drive the streaming pipeline for a top-level query.
     pub(crate) fn run(self, query: &Query) -> QueryResult {
+        let (result, _explain) = self.run_explained(query);
+        result
+    }
+
+    /// Slice-7 sibling of [`Self::run`]. Drives the same pipeline and
+    /// returns the collected [`crate::explain::ExplainRow`] trace
+    /// alongside. When the evaluator was constructed via
+    /// [`Self::new`] (not `new_with_explain`), the returned `Vec` is
+    /// empty.
+    pub(crate) fn run_explained(
+        self,
+        query: &Query,
+    ) -> (QueryResult, Vec<crate::explain::ExplainRow>) {
         let seed: BindingStream<'_> = Box::new(std::iter::once(BTreeMap::new()));
         let mut stage: BindingStream<'_> = seed;
         // RFC-035 §3.6 slice 5: thread the top-level WHERE predicate
@@ -154,7 +189,21 @@ impl<'a> Evaluator<'a> {
 
         let mut result = QueryResult::with_rows(rows);
         result.warnings = self.warnings.into_inner();
-        result
+        let explain_rows = self
+            .explain
+            .map(|cell| cell.into_inner())
+            .unwrap_or_default();
+        (result, explain_rows)
+    }
+
+    /// Push an explain row when collection is enabled. No-op on the
+    /// regular execute path. Helper keeps `apply_node_pattern` ignorant
+    /// of the RefCell plumbing.
+    pub(crate) fn record_explain(&self, pattern: String, hit: crate::explain::ExplainHit) {
+        if let Some(cell) = &self.explain {
+            cell.borrow_mut()
+                .push(crate::explain::ExplainRow { pattern, hit });
+        }
     }
 
     fn apply_pattern<'e>(
