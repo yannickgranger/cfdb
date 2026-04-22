@@ -147,7 +147,11 @@ fn fold_commit(
     let diff = repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), None)?;
 
     let commit_ts = commit.time().seconds();
-    let author_email = commit.author().email().unwrap_or_default();
+    // Bind the Signature to a local so its lifetime covers the delta loop —
+    // `commit.author()` returns a borrowed `Signature<'_>` whose `email()`
+    // slice would otherwise dangle after the statement ended.
+    let author = commit.author();
+    let author_email = author.email().unwrap_or_default();
 
     for delta in diff.deltas() {
         accumulate_delta(&delta, commit_ts, author_email, info);
