@@ -1,6 +1,0 @@
-=== Default build (no feature) ===
-(no git2 matches)
-
-=== With --features git-enrich ===
-│   ├── git2 v0.20.4
-│   │   ├── libgit2-sys v0.18.3+1.9.2

@@ -24,7 +24,7 @@ body = """
 trim = true
 render_always = true
 postprocessors = [
-    { pattern = '#([0-9]+)', replace = "[#${1}](https://agency.lab:3000/yg/cfdb/issues/${1})" },
+    { pattern = '#([0-9]+)', replace = "[#${1}](https://github.com/yannickgranger/cfdb/issues/${1})" },
 ]
 
 [git]

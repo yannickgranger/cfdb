@@ -1,4 +1,0 @@
-cfdb-cli: 19 tests
-cfdb-core: 78 tests
-cfdb-extractor: 40 tests
-cfdb-petgraph: 69 tests

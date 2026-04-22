@@ -1,7 +1,0 @@
-extract: walking .
-extract: 9707 nodes, 9738 edges
-extract --hir: loading HIR database for .
-extract --hir: resolving call sites
-extract --hir: scanning entry points
-extract --hir: 64799 :CallSite, 64799 CALLS, 64799 INVOKES_AT, 3 :EntryPoint, 3 EXPOSES
-extract: saved keyspace `cfdb-self` to .cfdb/db-dogfood/cfdb-self.json

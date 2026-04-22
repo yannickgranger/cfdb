@@ -1,2 +1,0 @@
-    Checking cfdb-cli v0.0.1 (/var/mnt/workspaces/cfdb/.claude/worktrees/147-check-predicate/crates/cfdb-cli)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.21s

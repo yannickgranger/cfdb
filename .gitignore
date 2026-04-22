@@ -3,3 +3,16 @@ target-*/
 .cfdb/db/
 .cfdb/current.sha
 .triggers/_changed-paths-*.txt
+
+# Agent-Zero workflow scratch — /freshness, /discover, /prescribe, gates.
+# Tracked locally for session continuity; excluded from public OSS mirror.
+.claude/
+.context/
+.discovery/
+.prescriptions/
+.proofs/
+.audits/
+.test-results/
+.baseline/
+.transform/
+council/

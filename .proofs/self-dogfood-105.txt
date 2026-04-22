@@ -1,9 +1,0 @@
-   Compiling cfdb-cli v0.0.1 (/var/mnt/workspaces/cfdb/.claude/worktrees/105-enrich-git-history/crates/cfdb-cli)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.39s
-     Running tests/self_dogfood_enrich_git_history.rs (target/debug/deps/self_dogfood_enrich_git_history-f2128d48b628574c)
-
-running 1 test
-test ac4_ac5_self_dogfood_eighty_percent_items_have_git_attrs ... ok
-
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.42s
-

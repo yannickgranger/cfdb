@@ -1,7 +1,0 @@
-extract: walking /var/mnt/workspaces/cfdb/.claude/worktrees/105-enrich-git-history/spikes/qa5-utc-now
-extract: 207 nodes, 204 edges
-extract: saved keyspace `determinism-fixture` to /tmp/tmp.m5C4GIVPwl/determinism-fixture.json
-extract: walking /var/mnt/workspaces/cfdb/.claude/worktrees/105-enrich-git-history/spikes/qa5-utc-now
-extract: 207 nodes, 204 edges
-extract: saved keyspace `determinism-fixture` to /tmp/tmp.jFSzHgm04r/determinism-fixture.json
-G1 OK: extract=b87acfaa958d3405c5a9b7f2841e9c3955b415ca55f18b71c616a0cef2ea3fa4  enrich-git-history=deterministic  (/var/mnt/workspaces/cfdb/.claude/worktrees/105-enrich-git-history/spikes/qa5-utc-now)

@@ -1,8 +1,0 @@
-extract: walking /var/mnt/workspaces/cfdb/.claude/worktrees/148-predicate-dogfood
-extract: 11640 nodes, 11661 edges
-extract: saved keyspace `predicate-determinism` to /tmp/tmp.XBsXetIXwt/predicate-determinism.json
-predicate-determinism: extract ok (/var/mnt/workspaces/cfdb/.claude/worktrees/148-predicate-dogfood) → /tmp/tmp.XBsXetIXwt
-  ✓ path-regex — deterministic
-  ✓ context-homonym-crate-in-multiple-contexts — deterministic
-  ✓ fn-returns-type-in-crate-set — deterministic
-predicate-determinism: all 3 predicates deterministic (§4.1 holds)
