@@ -18,6 +18,7 @@ mod enrich;
 mod enrich_backend;
 mod eval;
 mod graph;
+pub mod index;
 pub mod persist;
 
 use std::collections::BTreeMap;

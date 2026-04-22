@@ -1,0 +1,28 @@
+# .cfdb/indexes.toml — persistent inverted indexes on `:Item` props + computed keys.
+#
+# Consumed by `cfdb_petgraph::index::spec::IndexSpec::from_path` at
+# composition-root wiring (slice 7 / #186); the build pass (slice 2 / #181)
+# populates `KeyspaceState::by_prop` from the entries below at
+# `ingest_nodes` time. See docs/RFC-035-persistent-inverted-indexes.md §3.2.
+#
+# Each `[[index]]` entry carries a REQUIRED `notes` string documenting who
+# consumes the index and why — pattern-match on `.cfdb/skill-routing.toml`
+# (R1 R2 resolution — DDD lens).
+#
+# Slice 1 (#180) only loads this file; entries have no effect on evaluation
+# until slice 5 (#184) and slice 6 (#185) wire the fast paths through.
+
+[[index]]
+label = "Item"
+prop = "qname"
+notes = "Join key for list-callers and find-canonical verbs; high-cardinality, always indexed (RFC-035 §3.2)."
+
+[[index]]
+label = "Item"
+prop = "bounded_context"
+notes = "Scope-verb filter predicate (#169 / RFC-035 §3.6 fast path 2); low-cardinality, small index."
+
+[[index]]
+label = "Item"
+computed = "last_segment(qname)"
+notes = "Homonym-pair join key for context_homonym classifier rule (#48 class 2 / RFC-035 §3.6 cross-MATCH)."
