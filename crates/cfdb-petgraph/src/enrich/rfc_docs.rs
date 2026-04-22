@@ -129,8 +129,9 @@ struct ItemRow {
 
 /// Per-item references → set of RFC file indices (by position in
 /// `scanned`). Using a `BTreeMap<item_node_id, BTreeSet<file_idx>>` keeps
-/// both axes deterministic.
-type References = BTreeMap<String, std::collections::BTreeSet<usize>>;
+/// both axes deterministic. The key borrows from `items` so `node_id` is
+/// cloned at most once per unique item (at insert time), not once per match.
+type References<'a> = BTreeMap<&'a str, std::collections::BTreeSet<usize>>;
 
 // ---------------------------------------------------------------------------
 // File discovery
@@ -270,7 +271,7 @@ fn prop_str(props: &Props, key: &str) -> Option<String> {
 // Reference matching
 // ---------------------------------------------------------------------------
 
-fn find_references(items: &[ItemRow], scanned: &[ScannedFile]) -> References {
+fn find_references<'a>(items: &'a [ItemRow], scanned: &[ScannedFile]) -> References<'a> {
     items
         .iter()
         .flat_map(|item| item_matches(item, scanned))
@@ -280,19 +281,19 @@ fn find_references(items: &[ItemRow], scanned: &[ScannedFile]) -> References {
         })
 }
 
-/// All `(node_id_owned, file_idx)` pairs for one item. Self-reference
+/// All `(node_id_borrowed, file_idx)` pairs for one item. Self-reference
 /// filter (item's defining file IS the RFC path) is applied here. The
-/// `node_id` is cloned once per match inside a `.filter_map(...)`
-/// iterator chain so quality-metrics does not flag a for-loop clone.
+/// `node_id` is borrowed from `item` so it is cloned at most once per
+/// unique item (at `BTreeMap` insert time), not once per (item, file) match.
 fn item_matches<'a>(
     item: &'a ItemRow,
     scanned: &'a [ScannedFile],
-) -> impl Iterator<Item = (String, usize)> + 'a {
+) -> impl Iterator<Item = (&'a str, usize)> + 'a {
     scanned.iter().enumerate().filter_map(move |(idx, file)| {
         if item.file == file.path || !item_is_referenced(item, &file.content) {
             return None;
         }
-        Some((item.node_id.clone(), idx))
+        Some((item.node_id.as_str(), idx))
     })
 }
 
@@ -337,7 +338,7 @@ fn is_word_char(b: u8) -> bool {
 /// Build the sorted `(rfc_nodes, edges)` tuple. Only RFC files that
 /// appear in `references` are emitted as `:RfcDoc` nodes — orphans
 /// (meta docs with no item references) are skipped.
-fn emit_graph(scanned: &[ScannedFile], references: &References) -> (Vec<Node>, Vec<Edge>) {
+fn emit_graph(scanned: &[ScannedFile], references: &References<'_>) -> (Vec<Node>, Vec<Edge>) {
     // Step 1: which file indices are actually referenced?
     let referenced_idx: std::collections::BTreeSet<usize> = references
         .values()
