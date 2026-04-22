@@ -25,7 +25,6 @@
 //! "real zero".
 //!
 //! # Determinism
-//!
 //! - File paths are aggregated into a `BTreeMap<String, GitInfo>` → iteration
 //!   order is sorted by path.
 //! - The revwalk is configured with `TOPOLOGICAL | TIME` sort, which git2
@@ -36,8 +35,7 @@
 //! Two runs on an unchanged tree produce byte-identical canonical dumps (AC-6).
 //!
 //! # Gate
-//!
-//! This module only compiles with the `git-enrich` feature. The feature-off
+//! This module only compiles with the `git-enrich` feature; the feature-off
 //! path is handled in `crate::enrich_git_history_feature_off`.
 
 use std::collections::BTreeMap;

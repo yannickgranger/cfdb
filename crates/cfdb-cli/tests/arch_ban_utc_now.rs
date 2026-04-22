@@ -86,8 +86,8 @@ impl Clock {
 mod tests {
     #[test]
     fn cheat_with_utc_now() {
-        let _cheat = chrono::Utc::now();
-        assert!(true);
+        let cheat = chrono::Utc::now();
+        assert!(cheat.timestamp() > 0);
     }
 }
 "#,
