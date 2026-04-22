@@ -71,6 +71,7 @@ pub(crate) struct KeyspaceState {
 }
 
 impl KeyspaceState {
+    #[cfg(test)]
     pub(crate) fn new() -> Self {
         Self::new_with_spec(IndexSpec::empty())
     }

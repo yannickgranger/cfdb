@@ -1,10 +1,10 @@
-use cfdb_core::store::StoreBackend;
 use cfdb_core::{Param, PropValue};
 use cfdb_query::{
     list_items_matching as compose_list_items_matching, parse, CanonicalCandidate, DebtClass,
     Finding,
 };
 
+use super::explain_sink::ExplainSink;
 use super::helpers::{canonical_candidate_from_row, crates_for_context, finding_from_row};
 use super::{
     CLASSIFIER_CANONICAL_BYPASS_CYPHER, CLASSIFIER_CONTEXT_HOMONYM_CYPHER,
@@ -48,6 +48,7 @@ pub(super) fn run_classifier_rule(
     ks: &cfdb_core::schema::Keyspace,
     context: &str,
     cypher: &str,
+    sink: &ExplainSink,
 ) -> Result<Vec<Finding>, crate::CfdbCliError> {
     let mut parsed =
         parse(cypher).map_err(|e| format!("parse error in embedded classifier rule: {e}"))?;
@@ -59,7 +60,7 @@ pub(super) fn run_classifier_rule(
     // missing props silently return empty rows (parser / evaluator
     // absent-prop semantics), which lets the orchestrator tolerate
     // keyspaces extracted without HIR / concepts / reachability.
-    let result = match store.execute(ks, &parsed) {
+    let result = match sink.run(store, ks, &parsed) {
         Ok(r) => r,
         // A store-level execution error on a classifier rule is a
         // keyspace shape mismatch (e.g. `:EntryPoint` label absent
@@ -105,9 +106,10 @@ pub(super) fn query_findings_in_context(
     store: &cfdb_petgraph::PetgraphStore,
     ks: &cfdb_core::schema::Keyspace,
     context: &str,
+    sink: &ExplainSink,
 ) -> Result<(Vec<Finding>, std::collections::BTreeMap<String, u64>), crate::CfdbCliError> {
     let inventory_query = compose_inventory_query_for_context(context);
-    let inventory_result = store.execute(ks, &inventory_query)?;
+    let inventory_result = sink.run(store, ks, &inventory_query)?;
     let mut findings_in_context: Vec<Finding> = Vec::with_capacity(inventory_result.rows.len());
     let mut loc_per_crate: std::collections::BTreeMap<String, u64> =
         std::collections::BTreeMap::new();
@@ -127,10 +129,11 @@ pub(super) fn query_canonical_candidates(
     store: &cfdb_petgraph::PetgraphStore,
     ks: &cfdb_core::schema::Keyspace,
     context: &str,
+    sink: &ExplainSink,
 ) -> Result<Vec<CanonicalCandidate>, crate::CfdbCliError> {
     let hsb_parsed = parse(HSB_BY_NAME_CYPHER)
         .map_err(|e| format!("parse error in embedded hsb-by-name template: {e}"))?;
-    let hsb_result = store.execute(ks, &hsb_parsed)?;
+    let hsb_result = sink.run(store, ks, &hsb_parsed)?;
     let crates_in_context = crates_for_context(store, ks, context)?;
     Ok(hsb_result
         .rows

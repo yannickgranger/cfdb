@@ -280,6 +280,13 @@ pub(crate) enum Command {
         /// contains exactly one keyspace file; otherwise required).
         #[arg(long)]
         keyspace: Option<String>,
+        /// Emit one `explain: <pattern> → indexed|fallback` line per
+        /// `candidate_nodes` invocation on stderr (RFC-035 slice 7).
+        /// Requires `--workspace` to be set — without a workspace,
+        /// `.cfdb/indexes.toml` is not loaded and every MATCH falls
+        /// back by default.
+        #[arg(long, default_value_t = false)]
+        explain: bool,
     },
 
     /// List snapshots in a database. v0.1 maps each on-disk keyspace to one
