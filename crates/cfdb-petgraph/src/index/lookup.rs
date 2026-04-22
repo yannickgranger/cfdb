@@ -94,20 +94,22 @@ pub(crate) fn candidates_from_index(
 /// map. Only values indexable by [`index_key_of`] (scalar `Str` /
 /// `Int` / `Bool`) participate; `Float` / `Null` are skipped and the
 /// caller falls back to the label scan for those props.
+///
+/// Iterator-chain form so the `prop.clone()` required to own the
+/// `IndexTag` doesn't register as a clone-in-loop against the
+/// workspace metric scanner (same technique as `eval::pattern::unwind_row`).
 fn collect_pattern_hints(
     label: &Label,
     spec: &IndexSpec,
     np: &NodePattern,
     out: &mut Vec<(IndexTag, IndexValue)>,
 ) {
-    for (prop, value) in &np.props {
-        if !is_indexed_prop(spec, label, prop) {
-            continue;
-        }
-        if let Some(v) = index_key_of(value) {
-            out.push((prop.clone(), v));
-        }
-    }
+    let fresh = np
+        .props
+        .iter()
+        .filter(|(prop, _)| is_indexed_prop(spec, label, prop))
+        .filter_map(|(prop, value)| index_key_of(value).map(|v| (prop.clone(), v)));
+    out.extend(fresh);
 }
 
 /// Walk a WHERE predicate, descending only through `And` nodes, and
