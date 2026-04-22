@@ -210,6 +210,16 @@ fn is_indexed_prop(spec: &IndexSpec, label: &Label, prop: &str) -> bool {
 /// node matches); we return `Vec::new()` rather than `None` because
 /// the fast-path short-circuit has already committed to answering
 /// from indexes. `hints` MUST be non-empty — the caller guards this.
+///
+/// # Allocation discipline
+///
+/// Returns a sorted `Vec<NodeIndex>`. The first posting list is
+/// materialised once (iterating the source `BTreeSet` in sorted
+/// order); each subsequent posting list is walked in place via
+/// `Vec::retain` + `BTreeSet::contains` (O(|acc| log |next|), zero
+/// new allocations per hint). This matters at the 21k-node posting-
+/// list scale #167 targets — a naive clone-then-intersect pass
+/// would triple-allocate each conjunct.
 fn intersect(
     state: &KeyspaceState,
     label: &Label,
@@ -222,19 +232,22 @@ fn intersect(
         // preferable to an index panic.
         return Vec::new();
     };
-    let mut acc: BTreeSet<NodeIndex> = lookup_posting(state, label, first_tag, first_value)
-        .cloned()
+    let mut acc: Vec<NodeIndex> = lookup_posting(state, label, first_tag, first_value)
+        .map(|set| set.iter().copied().collect())
         .unwrap_or_default();
     for (tag, value) in iter {
         if acc.is_empty() {
             break;
         }
-        let next = lookup_posting(state, label, tag, value)
-            .cloned()
-            .unwrap_or_default();
-        acc = acc.intersection(&next).copied().collect();
+        match lookup_posting(state, label, tag, value) {
+            Some(set) => acc.retain(|idx| set.contains(idx)),
+            None => {
+                acc.clear();
+                break;
+            }
+        }
     }
-    acc.into_iter().collect()
+    acc
 }
 
 fn lookup_posting<'s>(
