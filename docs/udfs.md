@@ -5,7 +5,7 @@
 user-facing registry — adding a new UDF is an RFC-gated change.
 
 Related:
-- RFC specification: `docs/RFC-cfdb-v0.2-addendum-draft.md` §A1.5
+- RFC specification: `docs/RFC-cfdb.md` §A1.5
 - Implementation: `crates/cfdb-petgraph/src/eval/predicate.rs`
 - Parser: `crates/cfdb-query/src/parser/expression.rs` (`Expr::Call`)
 

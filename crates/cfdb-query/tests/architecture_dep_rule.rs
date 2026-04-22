@@ -27,7 +27,7 @@ const ALLOWED_DEPS: &[&str] = &[
     // Pre-pass comment/keyword scanner state machine.
     "regex",
     // `SkillRoutingTable` parses the external `.cfdb/skill-routing.toml`
-    // policy file (issue #48 / RFC-cfdb-v0.2-addendum §A2.3). Parser-layer
+    // policy file (issue #48 / RFC-cfdb.md Addendum B §A2.3). Parser-layer
     // by construction — text in → typed policy AST out — the same shape as
     // `chumsky`-based Cypher parsing. Load-bearing for the classifier's DIP
     // invariant (council BLOCK-1, solid-architect): class → skill routing

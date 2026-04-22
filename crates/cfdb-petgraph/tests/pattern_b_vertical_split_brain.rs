@@ -2,7 +2,7 @@
 //!
 //! Asserts that `examples/queries/vertical-split-brain.cypher` fires on
 //! the ground-truth shapes enumerated in
-//! `docs/RFC-cfdb-v0.2-addendum-draft.md` §A1.3 — the resolver-fork
+//! `docs/RFC-cfdb.md` §A1.3 — the resolver-fork
 //! failure mode observed in qbot-core #2651, #3522, #3545, #3654.
 //!
 //! ## Test approach — direct fact injection

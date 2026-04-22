@@ -2,7 +2,7 @@
 
 Synthetic Rust crate tree that reproduces the **Pattern B resolver-fork
 vertical split-brain** shape documented in
-`docs/RFC-cfdb-v0.2-addendum-draft.md` §A1.3 and targeted by issue #44.
+`docs/RFC-cfdb.md` §A1.3 and targeted by issue #44.
 
 ## What this fixture reproduces
 
