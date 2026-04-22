@@ -5,9 +5,7 @@ use cfdb_query::{
     Finding,
 };
 
-use super::helpers::{
-    canonical_candidate_from_row, crates_for_context, finding_from_row, scalar_str,
-};
+use super::helpers::{canonical_candidate_from_row, crates_for_context, finding_from_row};
 use super::{
     CLASSIFIER_CANONICAL_BYPASS_CYPHER, CLASSIFIER_CONTEXT_HOMONYM_CYPHER,
     CLASSIFIER_DUPLICATED_FEATURE_CYPHER, CLASSIFIER_RANDOM_SCATTERING_CYPHER,
