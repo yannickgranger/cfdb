@@ -52,7 +52,7 @@ Keep the branch laser-focused: this is pin maintenance, not feature development.
 
 ## 3. Rollback procedure
 
-A pin bump merged that later turns out to break qbot-core rescue runs (or any downstream consumer):
+A pin bump merged that later turns out to break target-workspace rescue runs (or any downstream consumer):
 
 1. Open `chore/ra-ap-rollback-to-<prior-version>`.
 2. Set every pin to the prior-known-good version. Commit with rationale: "Rollback: <new-version> caused <symptom> on <consumer>."

@@ -27,7 +27,7 @@ This RFC is written for review by an **agent team** (`CLAUDE_CODE_EXPERIMENTAL_A
 | **LLM specialist (@anthropic)** | LLM-as-consumer + LLM-as-enrichment | §3.5–§3.7, §11 ad-hoc agents row, §16 v0.3 LLM enrichment, §17 references | "Where does the LLM fit in the loop, and where doesn't it? Can an agent actually compose Cypher against this schema with typical session context? Is the prompt-construction story for /prescribe grounding spelled out?" |
 | **QA tester** | testability, determinism, regression coverage | §12 Determinism, §13 acceptance gate, §15 Risks, §14 Q1/Q7 | "How do you test extractor recall? How does the determinism CI check actually run? What breaks first under schema churn? Are the v0.1 acceptance gate items 1–6 actually verifiable?" |
 
-The 6 roles cover product strategy, two architectural lenses (Clean and SOLID — intentionally adversarial to each other), implementation-language fluency, the LLM-consumer angle (this is a tool LLM-driven skills will use, so an Anthropic-side specialist is load-bearing), and end-to-end testability. **Domain-specific qbot-core knowledge stays with the user**; it does not need its own council seat — the user is in the loop for any backlog-grounded question.
+The 6 roles cover product strategy, two architectural lenses (Clean and SOLID — intentionally adversarial to each other), implementation-language fluency, the LLM-consumer angle (this is a tool LLM-driven skills will use, so an Anthropic-side specialist is load-bearing), and end-to-end testability. **Domain-specific target-workspace knowledge stays with the user**; it does not need its own council seat — the user is in the loop for any backlog-grounded question.
 
 **How to spawn the team:**
 
@@ -60,7 +60,7 @@ cfdb is the deterministic Rust successor to the LLM-based concept graph in `.con
 
 **Core claim:** *one fact base, a small composable API, many downstream consumers.* Every question an agent or skill asks — *"where are the Kalman filters used?"*, *"is the Ledger concept duplicated?"*, *"does this raid plan have hidden callers?"*, *"which adapters call `reqwest::Client::new()` in violation of RFC-027?"* — is a Cypher composition over the same substrate. The tool ships **11 API verbs, 3 wire forms, 5 determinism guarantees, and a fact schema large enough to answer all 9 problem patterns in §3**. Consumers compose; the tool serves.
 
-**Multi-project from day one.** cfdb indexes any Rust workspace, not just qbot-core. A project registry (`.cfdb/projects.toml`) lists the workspaces to ingest; each gets its own keyspace. Cross-project queries are post-v0.1.
+**Multi-project from day one.** cfdb indexes any Rust workspace, not just the target workspace. A project registry (`.cfdb/projects.toml`) lists the workspaces to ingest; each gets its own keyspace. Cross-project queries are post-v0.1.
 
 **No Python carries forward.** `extract.py`, `query.py`, `weekly-audit.py` are archived as v0 reference. cfdb starts fresh in Rust.
 
@@ -68,7 +68,7 @@ cfdb is the deterministic Rust successor to the LLM-based concept graph in `.con
 
 ## 3. Problems cfdb solves (with backlog evidence)
 
-Earlier drafts of this plan listed 4 problems (HSB, VSB, raid, Kalman/Ledger questions). The qbot-core P0/P1 backlog reveals **9 distinct patterns**. Each pattern below is a class of bug that recurs across issues; cfdb expresses each as a Cypher composition over the §7 schema, replacing what is currently handwritten Rust architecture tests, manual grep audits, or "found this in code review" one-offs.
+Earlier drafts of this plan listed 4 problems (HSB, VSB, raid, Kalman/Ledger questions). The the motivating P0/P1 backlog reveals **9 distinct patterns**. Each pattern below is a class of bug that recurs across issues; cfdb expresses each as a Cypher composition over the §7 schema, replacing what is currently handwritten Rust architecture tests, manual grep audits, or "found this in code review" one-offs.
 
 ### 3.1 Pattern A — Horizontal split-brain (HSB)
 
@@ -231,7 +231,7 @@ This is the same composition shape as Pattern D and E — **the schema is rich e
 
 This is the polyvalence claim, evidenced against real backlog: **the API stays at 11 verbs while the use cases scale linearly with the number of `.cypher` files**.
 
-### 3.11 What changes in the qbot-core development loop
+### 3.11 What changes in the consuming workspace development loop
 
 Today, each new RFC ships with:
 1. A handwritten Rust architecture test (e.g. `architecture_test_banning_f64_in_domain.rs`)
@@ -255,7 +255,7 @@ This is not theoretical — issue **#3578** (`feat: architecture-rfc-enforcement
 - **Not language-agnostic.** Rust-only in v1; the schema is general enough to accept a Python or TypeScript extractor later.
 - **Not a replacement for `cargo`, `clippy`, `rust-analyzer`, or `cargo-deny`.** It is additive.
 - **Not a Python project.** No code carries forward from `.concept-graph/extract.py` or `query.py`.
-- **Not tied to qbot-core.** Multi-workspace from day one.
+- **Not tied to the target workspace.** Multi-workspace from day one.
 - **Not an audit reporter.** Returns JSON; consumers format.
 - **Not opinionated about workflows.** Knows nothing about "raids", "/prescribe", "RFCs". Those are consumer-side compositions.
 - **Not a prompt builder.** The query verbs return raw qnames + structured attributes. cfdb never returns pre-formatted prompt fragments, never embeds model-family conventions, never knows what `/prescribe` will do with the result. Prompt construction is the consumer skill's job; cfdb provides the structured facts. (LLM specialist [LLM-Q2] — preserves §4 opinion-agnosticism and G1 determinism by keeping cfdb's output decoupled from any LLM model family.)
@@ -307,7 +307,7 @@ As a developer running a weekly audit,
 
 As an agent analyzing multiple projects (post-v0.1),
   I want to query across cfdb keyspaces for different workspaces
-  to find where a concept is duplicated across qbot-core / orchestrator / dashboard.
+  to find where a concept is duplicated across workspace-A / workspace-B / workspace-C.
 ```
 
 ---
@@ -352,7 +352,7 @@ SCHEMA    schema_version(keyspace)                           -> SemVer
 |---|---|---|
 | **CLI** (`cfdb query …`) | humans, scripts, ad-hoc audits | per-invocation cold start |
 | **HTTP** (`POST /v1/query`) | skills running outside cfdb, latency-sensitive consumers | warm process, sub-second |
-| **Rust lib** (`use cfdb::query;`) | tests, in-process composition, architecture tests in qbot-core | function call |
+| **Rust lib** (`use cfdb::query;`) | tests, in-process composition, architecture tests in a consuming workspace | function call |
 
 **5 determinism guarantees:**
 
@@ -480,10 +480,10 @@ PLAN-v1 §6.1 described the fact schema as a table of labels with attribute list
 
 ### 8.1 Crate layout
 
-cfdb lives under `qbot-core/.concept-graph/cfdb/` as a sub-Cargo-workspace (separate `Cargo.toml`, not part of the main qbot-core workspace). Per Q3 user resolution: in-tree now, extract to a stand-alone `yg/cfdb` repo when a second consumer project arrives.
+cfdb lives under `<consuming-project>/.concept-graph/cfdb/` as a sub-Cargo-workspace (separate `Cargo.toml`, not part of the main target workspace). Per Q3 user resolution: in-tree now, extract to a stand-alone `yg/cfdb` repo when a second consumer project arrives.
 
 ```
-qbot-core/.concept-graph/cfdb/
+<consuming-project>/.concept-graph/cfdb/
 ├── Cargo.toml                 # workspace root
 ├── crates/
 │   ├── cfdb-core/             # 11-verb API (library)
@@ -523,27 +523,27 @@ cfdb indexes multiple Rust workspaces via a **project registry**:
 ```toml
 # .cfdb/projects.toml
 [[project]]
-name = "qbot-core"
-path = "/home/yg/workspaces/qbot-core"
-concept_rules = ".cfdb/concepts/qbot-core.toml"
-arch_rules_dir = ".cfdb/rules/qbot-core/"
+name = "alpha"
+path = "/path/to/alpha"
+concept_rules = ".cfdb/concepts/alpha.toml"
+arch_rules_dir = ".cfdb/rules/alpha/"
 
 [[project]]
-name = "orchestrator"
-path = "/home/yg/workspaces/orchestrator"
-concept_rules = ".cfdb/concepts/orchestrator.toml"
-arch_rules_dir = ".cfdb/rules/orchestrator/"
+name = "beta"
+path = "/path/to/beta"
+concept_rules = ".cfdb/concepts/beta.toml"
+arch_rules_dir = ".cfdb/rules/beta/"
 ```
 
 **Per-project state:**
 
 - **Keyspace naming:** `cfdb_<project>_<sha12>_<schema_major>_<schema_minor>`. Each project's snapshots are independent.
-- **Concept rules** (`concept_rules`): per-project because vocabularies differ (qbot-core has `Ledger`/`Strategy`/`Position`; orchestrator has `Workflow`/`Runner`/`Step`).
-- **Architecture rules** (`arch_rules_dir`): per-project because RFCs are per-project. qbot-core's `arch-ban-utc-now.cypher` lives here; orchestrator has its own bans.
+- **Concept rules** (`concept_rules`): per-project because vocabularies differ (one project may have `Ledger`/`Strategy`/`Position`; another has `Workflow`/`Runner`/`Step`).
+- **Architecture rules** (`arch_rules_dir`): per-project because RFCs are per-project. Each project carries its own ban rules (e.g. `arch-ban-utc-now.cypher`).
 
 **Cross-project queries are post-v0.1.** They require either a join layer (federated query) or a merged keyspace. Both are tractable but out of scope for v1.
 
-> **Clean architect + QA tester council lens:** is the registry too rigid? Clean architect: is the project the right boundary, or should the boundary be the workspace (a project may have multiple workspaces)? QA tester: what happens when the same project lives in two checkouts on the same machine? When two projects share a concept (`Ledger` could exist in both qbot-core and quant-core)? When a project moves on disk between extractions? Each is a corner case that needs a defined behavior or an explicit "undefined" disclaimer.
+> **Clean architect + QA tester council lens:** is the registry too rigid? Clean architect: is the project the right boundary, or should the boundary be the workspace (a project may have multiple workspaces)? QA tester: what happens when the same project lives in two checkouts on the same machine? When two projects share a concept name? When a project moves on disk between extractions? Each is a corner case that needs a defined behavior or an explicit "undefined" disclaimer.
 
 ---
 
@@ -556,16 +556,16 @@ arch_rules_dir = ".cfdb/rules/orchestrator/"
 | AST parsing | `syn` (full feature) | Industry standard; fast; full grammar; unambiguous parse |
 | Cross-crate resolution | `syn` symbol table + `use` resolution for **Q1=(b) Pattern D only**; **`ra-ap-hir` is a Phase B *blocker*** for Patterns B/E/G/H/I, not a fallback | `syn` ceiling per Rust guru: ~70–80% item recall, ~40–60% call-edge recall. Enough to ship arch-ban-utc-now; insufficient for anything that needs method dispatch, macro expansion, or re-export chains |
 | **Graph store** | **LadybugDB** (`lbug` crate, embedded, openCypher, cxx FFI) — *recommended* | **Kuzu was archived 2025-10-13** after Apple acquired Kùzu Inc.; the `kuzu` crate is frozen at v0.11.3. LadybugDB is the credible successor (fork by Kuzu co-founder Arun Sharma), active weekly–biweekly cadence Jan–Apr 2026. See §10.1. |
-| **Canonical fact format** | **JSONL** (blake3-keyed, sorted by `(node_label, qname)` then `(edge_label, src_qname, dst_qname)`) | The graph store is a *cache*, not a fixture. Determinism is asserted on the JSONL dump, not the backend file. Aligns with qbot-core's CLAUDE.md "JSONL interchange" convention. |
+| **Canonical fact format** | **JSONL** (blake3-keyed, sorted by `(node_label, qname)` then `(edge_label, src_qname, dst_qname)`) | The graph store is a *cache*, not a fixture. Determinism is asserted on the JSONL dump, not the backend file. JSONL is portable, diffable, and streamable. |
 | Query language | openCypher (subset both LadybugDB and DuckDB+DuckPGQ accept) | Standard; expressive enough for all 9 patterns in §3 |
 | HTTP serving | `axum` + `tokio` | Standard async HTTP in Rust; minimal deps |
 | CLI | `clap` v4 (derive macro) | Standard |
 | Config | `toml` + `serde` | Project registry, concept rules |
-| Logging / observability | `tracing` with stable target strings (NO Prometheus, NO OpenTelemetry — per qbot-core CLAUDE.md) | Project convention |
+| Logging / observability | `tracing` with stable target strings (NO Prometheus, NO OpenTelemetry) | Project convention |
 | Error handling | `thiserror` for library, `anyhow` for binary | Standard |
 | Testing | `cargo test` + integration tests against a temp LadybugDB file *or* the JSONL canonical dump | No external services needed for tests; fixtures are JSONL (portable, diffable) not backend files |
 | Content addressing | `blake3` for deterministic hashing | Fast, modern, keyed |
-| CI | Gitea Actions on `qbot.lab` | Matches existing personal projects |
+| CI | Self-hosted Gitea Actions | Matches existing personal projects |
 | License | Apache-2.0 (recommended) | Permissive; matches Rust ecosystem default |
 
 ### 10.1 Graph store decision (the load-bearing one) — **revised after council §14 Q2 vote**
@@ -630,7 +630,7 @@ cfdb is consumed, not consuming. Every integration below is a Cypher composition
 | `/boy-scout` skill | CLI | `query` | Local drift near touched files |
 | **architecture-rfc-enforcement CI gate (#3578)** | CLI | `query` (run all rules) | One Cypher per RFC ban rule (Patterns D, E, F) |
 | Ad-hoc agents | HTTP | `query` | Arbitrary compositions: "where is X used?", "is Y duplicated?", "what calls Z?" |
-| Rust unit tests in qbot-core | Rust lib | `query` | Replace handwritten architecture tests with declarative queries (Patterns D, E) |
+| Rust unit tests in the target workspace | Rust lib | `query` | Replace handwritten architecture tests with declarative queries (Patterns D, E) |
 | Weekly audit cron | CLI | `query`, `diff` | Batch markdown reports over HEAD snapshot |
 | Drift gate at PR time | CLI | `diff` | PR comment listing new drift introduced by this branch |
 | **`check-prelude-consistency` skill (qbot-core)** | CLI | `check-predicate` | Non-negotiable predicate library at `.cfdb/predicates/*.cypher` — one file per Non-negotiable, deterministic binary exit per predicate. Added by RFC-034 (Slices 1–5, issues #145–#149). See [`docs/query-dsl.md`](./query-dsl.md) for the user guide. |
@@ -708,8 +708,8 @@ This is non-negotiable because:
 3. **Determinism CI check passes** per the §12.1 recipe: same `(workspace SHA, schema major.minor)` → byte-identical sorted-jsonl dump across two consecutive extractions. The check diffs the JSONL dump, not the LadybugDB backend file.
 4. **The chosen v0.1 consumer integration works end-to-end** against a real question from §3, with a specific observable: a CLI line, a CI line, or a PR comment. "Works end-to-end" without an observable is not a verifiable acceptance criterion.
 5. **`kalman-callers.cypher` returns ≥3 known callers** of `qbot_indicators::kalman::*` against `rg` ground truth (smoke test for the ad-hoc agent path; "non-empty" was unfalsifiable).
-6. **~~`ledger-split-brain.cypher` returns the actual #3525 finding~~** — **REMOVED pending Q7 resolution.** The smoke test depends on `CANONICAL_FOR` edges which are Layer 2 enrichment output, explicitly out-of-scope for v0.1. Q7 in §14 documents the SOLID vs QA disagreement on whether to (a) add a `cfdb-concepts-manual` sub-crate to v0.1 to load `.cfdb/concepts/qbot-core.toml` rules at extract time (SOLID Option 3), or (b) drop the Pattern C smoke test from v0.1 and defer to v0.2 with proper enrichment (QA position). **User must resolve Q7 before v0.1 starts.**
-7. **QA-5 macro-spike contingency on Item 1.** Before v0.1 starts, a pre-flight spike must classify every `Utc::now()` call site in qbot-core into (a) direct call visible to syn, (b) inside macro body, (c) test-only. If category (a) does not cover ≥95% of total, then Risk 1/2 mitigations (`ra-ap-hir` escalation) must land **inside v0.1**, not v0.2 — see §10.1 syn ceiling discussion.
+6. **~~`ledger-split-brain.cypher` returns the actual #3525 finding~~** — **REMOVED pending Q7 resolution.** The smoke test depends on `CANONICAL_FOR` edges which are Layer 2 enrichment output, explicitly out-of-scope for v0.1. Q7 in §14 documents the SOLID vs QA disagreement on whether to (a) add a `cfdb-concepts-manual` sub-crate to v0.1 to load `.cfdb/concepts/<project>.toml` rules at extract time (SOLID Option 3), or (b) drop the Pattern C smoke test from v0.1 and defer to v0.2 with proper enrichment (QA position). **User must resolve Q7 before v0.1 starts.**
+7. **QA-5 macro-spike contingency on Item 1.** Before v0.1 starts, a pre-flight spike must classify every `Utc::now()` call site in the target workspace into (a) direct call visible to syn, (b) inside macro body, (c) test-only. If category (a) does not cover ≥95% of total, then Risk 1/2 mitigations (`ra-ap-hir` escalation) must land **inside v0.1**, not v0.2 — see §10.1 syn ceiling discussion.
 8. **Enriched horizontal split-brain rule** (promoted from example → gate item via issue #3675). `hsb-by-name.cypher` returns, in a single pass, rows of shape `(name, kind, n, crates[], qnames[], files[])` over every `struct` / `enum` / `trait` whose `name` + `kind` is declared in **more than one crate** (`count(DISTINCT a.crate) > 1`), excluding `is_test = true` items. The enriched `collect()` output eliminates the 58-candidate manual-triage loop that the original count-only version imposed — a reader can classify each candidate without running a follow-up query. The rule ships with a **triage note** warning readers that cross-crate candidates may be legitimate `context_homonym`s (routed to `/operate-module`) rather than `duplicated_feature`s (routed to `/sweep-epic`); bounded-context classification is v0.2 work per the RFC-029 v0.2 addendum §A2.2. Determinism validated via §12.1 (stable `ORDER BY n DESC, name ASC`). **Out-of-scope for Item 8:** signature-hash Jaccard clustering for synonym-renamed duplicates (`OrderStatus` vs `OrderState`), classification of each candidate into `duplicated_feature` / `context_homonym`, and visibility-column output (the v0.1 extractor only emits pub-visible items, so visibility is uniform).
 
 > **QA tester + SOLID architect council lens (closed):** the original Item 5 was unverifiable under v0.1 scope. The split is now an explicit Q7 decision for the user to resolve. SOLID's Option 3 unblocks Pattern C in v0.1 by making concept rules a hand-authored Layer 1 input rather than an LLM-derived Layer 2 enrichment; QA's counter-position is that this introduces a bespoke file format and the cleaner move is to drop the smoke test and defer Pattern C entirely to v0.2.
@@ -735,7 +735,7 @@ Each decision below is structured for parallel council deliberation. **Suggested
 - Cashes out the strategic shift from O(reviewer-hours per PR) to O(one-time per RFC)
 - Sidesteps Q7 entirely
 
-**QA-imposed contingency:** vote (b) is contingent on the **QA-5 macro spike** showing ≥95% of `Utc::now()` call sites in qbot-core are direct-syn-visible. If the spike fails, the (b) vote stands but Risk 1/2 mitigations (`ra-ap-hir`) must move from v0.2 into v0.1 — significantly raising Phase A cost. Run the spike before committing.
+**QA-imposed contingency:** vote (b) is contingent on the **QA-5 macro spike** showing ≥95% of `Utc::now()` call sites in the target workspace are direct-syn-visible. If the spike fails, the (b) vote stands but Risk 1/2 mitigations (`ra-ap-hir`) must move from v0.2 into v0.1 — significantly raising Phase A cost. Run the spike before committing.
 
 ### Q2. Graph store: Kuzu or FalkorDB? *(Rust guru coder)* — **COUNCIL VOTE: ABSTAIN both, switch to LadybugDB primary + DuckDB+DuckPGQ plan B**
 
@@ -752,18 +752,18 @@ See §10.1 (revised) for the full decision and rationale.
 
 ### Q3. Repo location *(Clean architect)* — **USER OVERRIDE: in-tree now, extract later**
 
-- **(a) Stand-alone repo on `qbot.lab`** (e.g. `yg/cfdb`) — independent versioning, reusable across projects, can be forked by other users. **Council vote (Clean architect): this option.**
-- **(b) In-tree under `qbot-core/.concept-graph/cfdb/`** as a sub-Cargo-workspace — proximity to first consumer, no separate CI, no separate Cargo workspace setup, lowest friction for v0.1. Extract to `yg/cfdb` cleanly via `git filter-repo` or `git mv` when a second consumer project actually arrives.
-- **(c) In-tree forever** — locks cfdb to qbot-core's release cycle. Rejected — incompatible with the multi-project capability requirement.
+- **(a) Stand-alone repo** (e.g. `yg/cfdb`) — independent versioning, reusable across projects, can be forked by other users. **Council vote (Clean architect): this option.**
+- **(b) In-tree under `<consuming-project>/.concept-graph/cfdb/`** as a sub-Cargo-workspace — proximity to first consumer, no separate CI, no separate Cargo workspace setup, lowest friction for v0.1. Extract to `yg/cfdb` cleanly via `git filter-repo` or `git mv` when a second consumer project actually arrives.
+- **(c) In-tree forever** — locks cfdb to the target workspace's release cycle. Rejected — incompatible with the multi-project capability requirement.
 
-**Resolution (user, post-vote): (b) in-tree now, extract later.** The "must work on multiple Rust projects" requirement is a *capability* (cfdb knows how to index any workspace), not a *repo-layout* requirement at v0.1. v0.1 only consumes qbot-core. Repo extraction is a tax to pay when the second consumer arrives, not on day one. Cargo workspace structure makes future extraction trivial.
+**Resolution (user, post-vote): (b) in-tree now, extract later.** The "must work on multiple Rust projects" requirement is a *capability* (cfdb knows how to index any workspace), not a *repo-layout* requirement at v0.1. v0.1 only consumes the target workspace. Repo extraction is a tax to pay when the second consumer arrives, not on day one. Cargo workspace structure makes future extraction trivial.
 
 **Trigger to revisit (= when to extract to `yg/cfdb`):**
 - A second consumer project (orchestrator, qbot-dashboard, quant-core, ...) needs to depend on cfdb, OR
 - The cfdb crate is published to crates.io, OR
 - An external user wants to fork it.
 
-Until then, cfdb lives in `qbot-core/.concept-graph/cfdb/` as a sub-Cargo-workspace.
+Until then, cfdb lives in `<consuming-project>/.concept-graph/cfdb/` as a sub-Cargo-workspace.
 
 ### Q4. Naming *(CPO; low stakes)*
 
@@ -868,7 +868,7 @@ The roadmap is **optional**; v0.1 must stand alone. Each post-v0.1 version is in
 - **Council mechanism:** Claude Code agent teams docs (`https://code.claude.com/docs/en/agent-teams`) — experimental feature, requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`, requires Claude Code v2.1.32+
 - **Background plan:** `.concept-graph/PLAN-v1-code-facts-database.md` — full architectural plan, schema, build phases (this RFC supersedes it but keeps it as the long-form source)
 - **v0 retrospective:** `.concept-graph/README.md` — LLM-based concept graph lessons
-- **v0 audit:** `.concept-graph/phase3-audit.md` — first-pass findings on qbot-core
+- **v0 audit:** `.concept-graph/phase3-audit.md` — first-pass findings on the target workspace
 - **CLAUDE.md §7** — Param-Effect Canary rule (runtime version of Pattern B)
 - **CLAUDE.md observability rules** — no Prometheus, no OpenTelemetry, `tracing` events with stable target strings
 - **Reference architectures:** Glean (Meta, open source), CodeQL (GitHub) — same shape, different scope
@@ -879,7 +879,7 @@ The roadmap is **optional**; v0.1 must stand alone. Each post-v0.1 version is in
 - **AST Phase B blocker:** rust-analyzer `ra-ap-*` crates — `syn`-only ceiling per council analysis is ~70–80% item recall, ~40–60% call-edge recall. Patterns B/E/G/H/I require `ra-ap-hir` and it ships in v0.2 as a hard dependency, not a fallback.
 - **Council review record:** see `~/.claude/teams/cfdb-council/config.json` and `~/.claude/tasks/cfdb-council/` for the 6 specialist reviews that drove the §10.1 / §12.1 / §13 / §14 revisions.
 
-**Backlog issues referenced in §3 (qbot.lab:3000/yg/qbot-core/issues):**
+**Backlog issue numbers referenced in §3 (internal tracker of the target workspace):**
 
 - **Pattern A:** PR #3616 (closed, fixed)
 - **Pattern B:** #2651

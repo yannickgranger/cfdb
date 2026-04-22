@@ -212,7 +212,7 @@ For a given concept, the expected reading order is:
   with the rule content piped in via `"$(cat <rule>)"` until
   `violations --params` ships.
 
-## Motivating qbot-core backlog
+## Motivating backlog
 
 | Issue | Shape | Verdict in fixture |
 |---|---|---|

@@ -10,16 +10,16 @@ companion: yg/graph-specs-rust RFC-002 (same topic, mirror)
 
 ## §1 — Problem
 
-cfdb and graph-specs-rust are a paired toolchain. cfdb is the **X-ray** (detect existing debt in a Rust workspace); graph-specs is the **vaccine** (block new drift at PR time). Both are being built iteratively to support a concrete rescue mission on `yg/qbot-core`.
+cfdb and graph-specs-rust are a paired toolchain. cfdb is the **X-ray** (detect existing debt in a Rust workspace); graph-specs is the **vaccine** (block new drift at PR time). Both are being built iteratively to support a concrete rescue mission on `<target-workspace>`.
 
-The failure mode this RFC prevents: **"rescue tools that work on a synthetic fixture but drift from what qbot-core actually presents."** Concretely:
+The failure mode this RFC prevents: **"rescue tools that work on a synthetic fixture but drift from what the target workspace actually presents."** Concretely:
 
-1. cfdb adds a new fact type, but graph-specs (which vendors cfdb as a pinned git dep) doesn't know how to consume it. Discovered when a qbot-core PR breaks.
+1. cfdb adds a new fact type, but graph-specs (which vendors cfdb as a pinned git dep) doesn't know how to consume it. Discovered when a target-workspace PR breaks.
 2. graph-specs adds a new equivalence level, but cfdb's self-audit flags it as a false positive on cfdb's own tree. Discovered when cfdb CI flaps.
-3. A new classifier Cypher rule (Phase 3, RFC-032 §4) flags findings on cfdb or graph-specs themselves. Shipped anyway because nobody ran it on the author-repos first — then it carpets qbot-core with false positives and the rescue loses credibility.
+3. A new classifier Cypher rule (Phase 3, RFC-032 §4) flags findings on cfdb or graph-specs themselves. Shipped anyway because nobody ran it on the author-repos first — then it carpets the target workspace with false positives and the rescue loses credibility.
 4. cfdb bumps `SchemaVersion`; downstream graph-specs CI misses the window because the bump wasn't coordinated.
 
-The symmetric truth: both tools ARE Rust workspaces. Both have public surfaces, bounded contexts (however minimal), and the same patterns they're designed to detect in qbot-core. If the tools can't verify they work cleanly on their own authors' trees, they can't be trusted against qbot-core at rescue time.
+The symmetric truth: both tools ARE Rust workspaces. Both have public surfaces, bounded contexts (however minimal), and the same patterns they're designed to detect in the target workspace. If the tools can't verify they work cleanly on their own authors' trees, they can't be trusted against the target workspace at rescue time.
 
 Today each tool dogfoods itself (cfdb's CI runs `cfdb extract` on cfdb's own tree; graph-specs' CI runs `graph-specs check` on its own specs + code). The missing piece is **cross-dogfood**: each tool runs against the sibling tool's tree on every PR.
 
@@ -32,13 +32,13 @@ In scope:
 3. A bump protocol for advancing the pinned SHAs (weekly scheduled, manual on-demand).
 4. A schema-version coordination rule: cfdb's `SchemaVersion` bump PR must include the matching graph-specs fixture bump in the same atomic lockstep.
 5. A "zero-false-positive on siblings" invariant: every new cfdb Cypher rule and every new graph-specs equivalence level must produce zero findings against BOTH repos' own trees before it ships.
-6. Extension to the `Tests:` prescription from CLAUDE.md §2.5: every new-capability issue now requires a cross-dogfood assertion as the second test entry (after unit, before qbot-core target).
+6. Extension to the `Tests:` prescription from CLAUDE.md §2.5: every new-capability issue now requires a cross-dogfood assertion as the second test entry (after unit, before target-workspace target).
 7. A weekly closed-loop housekeeping job (one scheduled CI run per week) that cross-dogfoods at HEAD (not pinned) and opens an issue if either repo has drifted against the other's develop tip.
 
 Out of scope (explicit non-goals in §6):
 
 - Publishing cfdb or graph-specs to crates.io (path dep / pinned git dep model stands).
-- Requiring qbot-core-SHA pins in cfdb CI (qbot-core is the rescue target, not a rescue tool; it's pinned only per-rescue-PR as the `Tests:` target, not workspace-wide).
+- Requiring target-workspace-SHA pins in cfdb CI (the target workspace is the rescue target, not a rescue tool; it's pinned only per-rescue-PR as the `Tests:` target, not workspace-wide).
 - Bidirectional schema invariants beyond `cfdb::SchemaVersion` (graph-specs does not emit a schema versioning cfdb depends on).
 
 ## §3 — Design
@@ -187,7 +187,7 @@ Tests:
   - Unit: <pure-function assertions>
   - Self dogfood (cfdb on cfdb OR graph-specs on graph-specs): <assertion shape>
   - Cross dogfood (cfdb on graph-specs OR graph-specs on cfdb): <assertion shape>
-  - Target dogfood (on qbot-core at pinned SHA): <assertion shape; often
+  - Target dogfood (on the target workspace at pinned SHA): <assertion shape; often
     "reports metric X in PR body for reviewer sanity-check">
 ```
 
@@ -217,7 +217,7 @@ Every change under this RFC must preserve:
 
 - **I1 — Determinism.** Cross-dogfood invocations must be byte-stable given the same pinned SHA + toolchain. No wall-clock or randomised output in the tool's canonical dump; this is the existing cfdb G1 determinism guarantee extended across repos.
 - **I2 — Schema-version monotonic.** `cfdb_core::SchemaVersion` bumps happen in cfdb first; graph-specs' fixture bump follows in minutes, not hours. If a cfdb PR proposes a bump and the cross-dogfood CI step can't find a matching graph-specs fixture PR within the review window, the cfdb PR is not merged.
-- **I3 — Recall doesn't regress.** cfdb-recall against its own `cfdb-core` stays ≥ 95% across cross-dogfood evolution. Adding a new fact kind for qbot-core rescue must not drop recall on cfdb-core.
+- **I3 — Recall doesn't regress.** cfdb-recall against its own `cfdb-core` stays ≥ 95% across cross-dogfood evolution. Adding a new fact kind for target-workspace rescue must not drop recall on cfdb-core.
 - **I4 — No allowlist.** Zero-false-positive invariant (§3.4) has no escape hatch file. The violating PR either fixes, scopes, or doesn't merge.
 - **I5 — Keyspace backward-compat.** When cfdb's SchemaVersion bumps, cross-dogfood CI verifies graph-specs can still read the OLD fixture SHA's keyspace shape until the bump PR merges; post-merge, both sides move to the new shape in lockstep.
 
@@ -260,7 +260,7 @@ Open question resolved: the two SHA universes (Mechanism A `cargo install --bran
 ## §6 — Non-goals
 
 1. Not publishing either tool to crates.io. The pinned-git-dep + cross-fixture model is the release mechanism for this paired toolchain.
-2. Not pinning a qbot-core SHA workspace-wide in cfdb CI. qbot-core is the rescue target, not a rescue tool. Per-rescue-PR `Tests:` prescriptions pin qbot-core SHAs as needed for that PR's assertion.
+2. Not pinning a target-workspace SHA workspace-wide in cfdb CI. the target workspace is the rescue target, not a rescue tool. Per-rescue-PR `Tests:` prescriptions pin target-workspace SHAs as needed for that PR's assertion.
 3. Not introducing bidirectional schema invariants where graph-specs emits a schema that cfdb must consume. The flow is one-directional: cfdb emits facts, graph-specs consumes via `cfdb violations`.
 4. Not gating cfdb's develop branch on graph-specs' CI being green (and vice versa). Each repo's CI is authoritative for its own develop; the cross-dogfood is per-PR, not per-branch.
 5. Not requiring the weekly closed-loop job to auto-remediate. It opens an issue; humans fix.
