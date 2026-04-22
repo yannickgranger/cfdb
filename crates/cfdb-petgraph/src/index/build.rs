@@ -114,7 +114,10 @@ mod tests {
 
     #[test]
     fn index_key_of_accepts_scalar_shapes() {
-        assert_eq!(index_key_of(&PropValue::from("foo")).as_deref(), Some("foo"));
+        assert_eq!(
+            index_key_of(&PropValue::from("foo")).as_deref(),
+            Some("foo")
+        );
         assert_eq!(index_key_of(&PropValue::from(42i64)).as_deref(), Some("42"));
         assert_eq!(
             index_key_of(&PropValue::from(true)).as_deref(),
@@ -124,7 +127,8 @@ mod tests {
 
     #[test]
     fn index_key_of_rejects_float_and_null() {
-        assert_eq!(index_key_of(&PropValue::Float(3.14)), None);
+        // Value chosen to avoid clippy::approx_constant (not 3.14 / 2.71).
+        assert_eq!(index_key_of(&PropValue::Float(1.5_f64)), None);
         assert_eq!(index_key_of(&PropValue::Null), None);
     }
 

@@ -311,7 +311,12 @@ mod index_build_tests {
             .with_prop("bounded_context", ctx)
     }
 
-    fn full_scan(state: &KeyspaceState, label: &str, key: &str, value: &str) -> BTreeSet<NodeIndex> {
+    fn full_scan(
+        state: &KeyspaceState,
+        label: &str,
+        key: &str,
+        value: &str,
+    ) -> BTreeSet<NodeIndex> {
         let target_label = Label::new(label);
         state
             .graph
@@ -342,7 +347,9 @@ mod index_build_tests {
     fn recall_matches_full_scan_on_1000_item_fixture() {
         let contexts = ["context_a", "context_b", "context_c", "context_d"];
         let roots = ["alpha", "beta", "gamma", "delta", "epsilon"];
-        let leaves = ["foo", "bar", "baz", "qux", "quux", "corge", "grault", "xyzzy"];
+        let leaves = [
+            "foo", "bar", "baz", "qux", "quux", "corge", "grault", "xyzzy",
+        ];
 
         let mut nodes = Vec::with_capacity(1000);
         for i in 0..1000 {
@@ -411,11 +418,11 @@ mod index_build_tests {
         // Stale postings: old values lose the idx AND the (now-empty) entries
         // are pruned from the outer map so iteration stays minimal.
         assert!(
-            state.by_prop[&key_qname].get("mod::foo").is_none(),
+            !state.by_prop[&key_qname].contains_key("mod::foo"),
             "stale qname posting list should be pruned, not merely emptied"
         );
-        assert!(state.by_prop[&key_ctx].get("context_a").is_none());
-        assert!(state.by_prop[&key_last].get("foo").is_none());
+        assert!(!state.by_prop[&key_ctx].contains_key("context_a"));
+        assert!(!state.by_prop[&key_last].contains_key("foo"));
 
         // Fresh postings: new values carry the idx.
         assert!(state.by_prop[&key_qname]["mod::bar"].contains(&idx));
@@ -484,6 +491,9 @@ mod index_build_tests {
 
         // All (Item, *) entries for this idx should have been dropped. The
         // CallSite label is not in the spec so no new entries appear.
-        assert!(state.by_prop.get(&key_qname).and_then(|m| m.get("mod::foo")).is_none());
+        assert!(!state
+            .by_prop
+            .get(&key_qname)
+            .is_some_and(|m| m.contains_key("mod::foo")));
     }
 }
