@@ -74,6 +74,32 @@ pub(super) fn run_classifier_rule(
     Ok(result.rows.iter().filter_map(finding_from_row).collect())
 }
 
+/// Build an inventory query pre-filtered to a single bounded context by
+/// embedding `WHERE item.bounded_context = $context` in the Cypher AST.
+/// Pushing the predicate into the evaluator avoids materialising all rows
+/// before the Rust filter — the root cause of the 13 GB OOM in issue #167.
+pub(super) fn compose_inventory_query_for_context(context: &str) -> cfdb_core::query::Query {
+    use cfdb_core::query::{CompareOp, Expr, Predicate};
+    let mut q = compose_list_items_matching(".*", None, false);
+    let context_pred = Predicate::Compare {
+        left: Expr::Property {
+            var: "item".into(),
+            prop: "bounded_context".into(),
+        },
+        op: CompareOp::Eq,
+        right: Expr::Param("context".into()),
+    };
+    q.where_clause = Some(match q.where_clause.take() {
+        Some(existing) => Predicate::And(Box::new(existing), Box::new(context_pred)),
+        None => context_pred,
+    });
+    q.params.insert(
+        "context".into(),
+        Param::Scalar(PropValue::Str(context.into())),
+    );
+    q
+}
+
 /// Pull the context-filtered inventory rows + derive the per-crate LOC
 /// approximation. Factored out of [`build_scope_inventory`] to keep each
 /// helper under the cognitive-complexity ceiling.
@@ -82,16 +108,12 @@ pub(super) fn query_findings_in_context(
     ks: &cfdb_core::schema::Keyspace,
     context: &str,
 ) -> Result<(Vec<Finding>, std::collections::BTreeMap<String, u64>), crate::CfdbCliError> {
-    let inventory_query = compose_list_items_matching(".*", None, false);
+    let inventory_query = compose_inventory_query_for_context(context);
     let inventory_result = store.execute(ks, &inventory_query)?;
     let mut findings_in_context: Vec<Finding> = Vec::with_capacity(inventory_result.rows.len());
     let mut loc_per_crate: std::collections::BTreeMap<String, u64> =
         std::collections::BTreeMap::new();
     for row in &inventory_result.rows {
-        let row_context = scalar_str(row, "bounded_context").unwrap_or("");
-        if row_context != context {
-            continue;
-        }
         if let Some(finding) = finding_from_row(row) {
             *loc_per_crate.entry(finding.crate_name.clone()).or_insert(0) += 1;
             findings_in_context.push(finding);
