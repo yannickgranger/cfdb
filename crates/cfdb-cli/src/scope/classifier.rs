@@ -182,9 +182,8 @@ mod tests_memory_169 {
     }
 
     fn predicate_constrains_bounded_context(p: &Predicate) -> bool {
-        let touches_bc = |e: &Expr| {
-            matches!(e, Expr::Property { prop, .. } if prop == "bounded_context")
-        };
+        let touches_bc =
+            |e: &Expr| matches!(e, Expr::Property { prop, .. } if prop == "bounded_context");
         match p {
             Predicate::Compare {
                 left,
@@ -193,8 +192,7 @@ mod tests_memory_169 {
             } => touches_bc(left) || touches_bc(right),
             Predicate::In { left, .. } => touches_bc(left),
             Predicate::And(a, b) | Predicate::Or(a, b) => {
-                predicate_constrains_bounded_context(a)
-                    || predicate_constrains_bounded_context(b)
+                predicate_constrains_bounded_context(a) || predicate_constrains_bounded_context(b)
             }
             Predicate::Not(inner) => predicate_constrains_bounded_context(inner),
             _ => false,
