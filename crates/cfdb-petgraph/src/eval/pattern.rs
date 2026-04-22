@@ -1,8 +1,11 @@
 //! Pattern application — `MATCH`, path traversal, `OPTIONAL MATCH`, `UNWIND`.
 //!
-//! These methods expand the binding table by joining it against the matches
-//! produced by each pattern. See `super::Evaluator::run` for the pipeline
-//! order.
+//! Each `apply_*` method is a streaming iterator adapter. The input
+//! `BindingStream` is consumed one row at a time; for each row we build a
+//! bounded per-row scratch `Vec<Bindings>` carrying that row's join
+//! expansion, then yield those expansions back as an iterator. Peak memory
+//! across a multi-MATCH pipeline is therefore O(per-row fan-out), not
+//! O(cartesian product) — see the memory note in `super::Evaluator`.
 
 use std::collections::{BTreeSet, VecDeque};
 
@@ -12,20 +15,20 @@ use petgraph::stable_graph::NodeIndex;
 use petgraph::visit::EdgeRef;
 
 use super::util::suggest_label;
-use super::{Binding, Bindings, Evaluator, DEFAULT_VAR_LENGTH_MAX};
+use super::{Binding, BindingStream, Bindings, Evaluator, DEFAULT_VAR_LENGTH_MAX};
 
 impl<'a> Evaluator<'a> {
-    pub(super) fn apply_node_pattern(
-        &mut self,
-        table: Vec<Bindings>,
-        np: &NodePattern,
-    ) -> Vec<Bindings> {
+    pub(super) fn apply_node_pattern<'e>(
+        &'e self,
+        table: BindingStream<'e>,
+        np: &'e NodePattern,
+    ) -> BindingStream<'e> {
         let candidates = self.candidate_nodes(np);
-        let mut out: Vec<Bindings> = Vec::new();
-        for bindings in table {
+        Box::new(table.flat_map(move |bindings| {
+            let mut out: Vec<Bindings> = Vec::new();
             self.emit_node_bindings(&mut out, bindings, &candidates, np);
-        }
-        out
+            out
+        }))
     }
 
     /// Dispatch a single binding row through the three node-pattern cases:
@@ -107,14 +110,14 @@ impl<'a> Evaluator<'a> {
             });
     }
 
-    pub(super) fn candidate_nodes(&mut self, np: &NodePattern) -> Vec<NodeIndex> {
+    pub(super) fn candidate_nodes(&self, np: &NodePattern) -> Vec<NodeIndex> {
         if let Some(label) = &np.label {
             if !self.state.has_label(label) {
                 let suggestion = suggest_label(
                     label.as_str(),
                     self.state.by_label.keys().map(|l| l.as_str()),
                 );
-                self.warnings.push(Warning {
+                self.warnings.borrow_mut().push(Warning {
                     kind: WarningKind::UnknownLabel,
                     message: format!("unknown node label: {}", label),
                     suggestion,
@@ -138,26 +141,25 @@ impl<'a> Evaluator<'a> {
         true
     }
 
-    pub(super) fn apply_path_pattern(
-        &mut self,
-        table: Vec<Bindings>,
-        pp: &PathPattern,
-    ) -> Vec<Bindings> {
+    pub(super) fn apply_path_pattern<'e>(
+        &'e self,
+        table: BindingStream<'e>,
+        pp: &'e PathPattern,
+    ) -> BindingStream<'e> {
         if self.warn_on_unknown_edge_label(pp) {
-            return Vec::new();
+            return Box::new(std::iter::empty());
         }
-
-        let mut out: Vec<Bindings> = Vec::new();
-        for bindings in table {
+        Box::new(table.flat_map(move |bindings| {
+            let mut out: Vec<Bindings> = Vec::new();
             self.emit_path_bindings(&mut out, &bindings, pp);
-        }
-        out
+            out
+        }))
     }
 
     /// Emit the `UnknownEdgeLabel` warning for a path pattern whose declared
     /// edge label is absent from the keyspace. Returns `true` when the caller
     /// should short-circuit (no matches possible).
-    fn warn_on_unknown_edge_label(&mut self, pp: &PathPattern) -> bool {
+    fn warn_on_unknown_edge_label(&self, pp: &PathPattern) -> bool {
         let Some(label) = &pp.edge.label else {
             return false;
         };
@@ -168,7 +170,7 @@ impl<'a> Evaluator<'a> {
             label.as_str(),
             self.state.edge_labels.iter().map(|l| l.as_str()),
         );
-        self.warnings.push(Warning {
+        self.warnings.borrow_mut().push(Warning {
             kind: WarningKind::UnknownEdgeLabel,
             message: format!("unknown edge label: {}", label),
             suggestion,
@@ -182,7 +184,7 @@ impl<'a> Evaluator<'a> {
     /// keep cognitive complexity below the project ceiling (RFC-031 §5 /
     /// issue #26).
     fn emit_path_bindings(
-        &mut self,
+        &self,
         out: &mut Vec<Bindings>,
         bindings: &Bindings,
         pp: &PathPattern,
@@ -237,7 +239,7 @@ impl<'a> Evaluator<'a> {
     /// Resolve the source-side endpoints of a path pattern. If the endpoint
     /// variable is already bound, we must pin to that binding; otherwise we
     /// enumerate candidates via `candidate_nodes`.
-    fn resolve_endpoint(&mut self, bindings: &Bindings, np: &NodePattern) -> Vec<NodeIndex> {
+    fn resolve_endpoint(&self, bindings: &Bindings, np: &NodePattern) -> Vec<NodeIndex> {
         if let Some(var) = &np.var {
             if let Some(Binding::NodeRef(idx)) = bindings.get(var) {
                 return vec![*idx];
@@ -326,24 +328,27 @@ impl<'a> Evaluator<'a> {
         targets
     }
 
-    pub(super) fn apply_optional(
-        &mut self,
-        table: Vec<Bindings>,
-        inner: &Pattern,
-    ) -> Vec<Bindings> {
-        let mut out: Vec<Bindings> = Vec::new();
-        for bindings in table {
+    pub(super) fn apply_optional<'e>(
+        &'e self,
+        table: BindingStream<'e>,
+        inner: &'e Pattern,
+    ) -> BindingStream<'e> {
+        Box::new(table.flat_map(move |bindings| {
+            let mut out: Vec<Bindings> = Vec::new();
             self.apply_optional_row(&mut out, bindings, inner);
-        }
-        out
+            out
+        }))
     }
 
-    /// Per-row body of [`apply_optional`] — extracted so the dual clones
-    /// of `bindings` (one feeding the inner pattern, one null-filling the
-    /// no-match case) live in a helper rather than inside the outer
-    /// `for bindings in table` loop.
-    fn apply_optional_row(&mut self, out: &mut Vec<Bindings>, bindings: Bindings, inner: &Pattern) {
-        let expanded = self.apply_pattern(vec![bindings.clone()], inner);
+    /// Per-row body of [`apply_optional`] — runs the inner pattern with a
+    /// one-row seed, materialises the expansion (needed to decide between
+    /// emission and null-fill), then either extends `out` with the
+    /// expansion or null-fills the carrying bindings. The one-row
+    /// materialisation is bounded by the inner pattern's fan-out for a
+    /// single input row — O(candidate_count), not O(table × candidates).
+    fn apply_optional_row(&self, out: &mut Vec<Bindings>, bindings: Bindings, inner: &Pattern) {
+        let inner_seed: BindingStream<'_> = Box::new(std::iter::once(bindings.clone()));
+        let expanded: Vec<Bindings> = self.apply_pattern(inner_seed, inner).collect();
         if expanded.is_empty() {
             let mut null_filled = bindings;
             for var in collect_pattern_vars(inner) {
@@ -355,25 +360,25 @@ impl<'a> Evaluator<'a> {
         }
     }
 
-    pub(super) fn apply_unwind(
-        &mut self,
-        table: Vec<Bindings>,
-        list_param: &str,
-        var: &str,
-    ) -> Vec<Bindings> {
+    pub(super) fn apply_unwind<'e>(
+        &'e self,
+        table: BindingStream<'e>,
+        list_param: &'e str,
+        var: &'e str,
+    ) -> BindingStream<'e> {
         let Some(Param::List(items)) = self.params.get(list_param) else {
-            self.warnings.push(Warning {
+            self.warnings.borrow_mut().push(Warning {
                 kind: WarningKind::EmptyResult,
                 message: format!("UNWIND ${}: parameter missing or not a list", list_param),
                 suggestion: None,
             });
-            return Vec::new();
+            return Box::new(std::iter::empty());
         };
-        let mut out: Vec<Bindings> = Vec::new();
-        for bindings in table {
+        Box::new(table.flat_map(move |bindings| {
+            let mut out: Vec<Bindings> = Vec::new();
             unwind_row(&mut out, &bindings, items, var);
-        }
-        out
+            out
+        }))
     }
 }
 
