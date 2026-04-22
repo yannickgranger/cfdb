@@ -191,9 +191,25 @@ Four REQUEST-CHANGE items (R1–R4) also resolved: §3.8 composition-root wiring
 
 Detailed lens verdicts are in the local (gitignored) `council/035/` directory at the time of authoring — available to reviewers on the `rfc/035-persistent-inverted-indexes` branch checkout.
 
-### 5.2 R2 — pending
+### 5.2 R2 (2026-04-22) — RATIFIED
 
-Council re-convenes on R2 submission. Expected outcome if all five BLOCKING items are correctly addressed: RATIFY. Otherwise R3.
+All four §2.3 lenses RATIFY. Per §2.3 the RFC is **ratified**; no override recorded, no dissent.
+
+| Lens | Verdict |
+|---|---|
+| clean-arch | RATIFY |
+| ddd-specialist | RATIFY |
+| solid-architect | RATIFY |
+| rust-systems | RATIFY |
+
+**NITs flagged for implementer attention** (non-blocking, to resolve during implementation):
+
+- **solid-architect NIT.** The qname-contract-drift invalidation mechanism (§3.3 invariant 2) is prescribed in principle but not mechanically enforced. Slice 3 implementer should add a `#[cfg(test)] mod qname_contract_sync` test module in `cfdb-core::qname` that asserts `last_segment(module_qpath(stack) + "::" + name) == name` for representative stacks — catches drift between the two helpers automatically.
+- **ddd-specialist NIT.** §7 slice 7 ("composition-root wiring") carries a TBD on the end-to-end observable test path — `cfdb --explain <query>` flag vs a debug counter. Slice 7 implementer should resolve this choice before PR submission. Recommendation: start with the debug counter (less user-facing surface), promote to `--explain` only if index observability becomes a repeated reviewer ask.
+
+### 5.3 Post-ratification
+
+Per §2.4, the §7 Issue decomposition is now the concrete backlog. Each slice is filed as a forge issue with `Refs: docs/RFC-035-persistent-inverted-indexes.md` and the prescribed `Tests:` block, and worked via `/work-issue-lib`. Detailed R1 and R2 lens verdicts remain on disk at `council/035/` (local, gitignored) for implementer reference.
 
 ---
 
