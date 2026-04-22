@@ -195,7 +195,12 @@ fn build_edges(
     let canonical_iter = canonical_by_concept
         .iter()
         .flat_map(|(concept_name, canonical_crate)| {
-            edges_for_crate(items_by_crate, canonical_crate, concept_name, &canonical_for)
+            edges_for_crate(
+                items_by_crate,
+                canonical_crate,
+                concept_name,
+                &canonical_for,
+            )
         });
 
     labeled_iter.chain(canonical_iter).collect()
