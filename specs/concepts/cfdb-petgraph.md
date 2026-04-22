@@ -29,3 +29,11 @@ Error raised when an `indexes.toml` `computed = "…"` string is not in the `Com
 ## IndexSpecLoadError
 
 Error returned by `IndexSpec::from_path` and `IndexSpec::from_toml_str`. Distinguishes filesystem errors (`Io`) from TOML parse failures (`Toml`) including missing required fields, both-set `prop`+`computed`, and unknown computed keys.
+
+## ExplainRow
+
+One observability row emitted by `PetgraphStore::execute_explained` (RFC-035 slice 7 / #186). Carries the rendered `(var:Label)` pattern string and a `hit: ExplainHit` tag naming whether the evaluator's `candidate_nodes` invocation was satisfied through the `by_prop` fast path or fell back to a full label scan. Stable side-band from `QueryResult` — no explain rows leak into the canonical dump or the keyspace wire format, preserving the RFC-035 §4 determinism invariant. The renderer (`format_line`) is the stable contract consumed by `cfdb scope --explain` dogfood tests.
+
+## ExplainHit
+
+The closed two-variant enum tagging one `ExplainRow`. `Indexed` means the slice-5/6 `by_prop` fast path fired; `Fallback` means the evaluator used `nodes_with_label` (or `all_nodes_sorted` for label-less patterns). Dogfood tests grep on the arrow-form rendering (`→ indexed` / `→ fallback`) so both variants are load-bearing test primitives for self-dogfood + target-dogfood hit-rate measurements.
