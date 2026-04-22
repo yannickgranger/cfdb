@@ -245,4 +245,3 @@ fn lookup_posting<'s>(
 ) -> Option<&'s BTreeSet<NodeIndex>> {
     state.by_prop.get(&(label.clone(), tag.clone()))?.get(value)
 }
-

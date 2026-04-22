@@ -143,8 +143,8 @@ fn where_eq_literal_becomes_a_hint() {
     );
     let np = np_item_var_a();
     let pred = where_a_prop_eq_literal("qname", "foo::a");
-    let got = candidates_from_index(&state, &np, Some(&pred), &BTreeMap::new())
-        .expect("indexed path");
+    let got =
+        candidates_from_index(&state, &np, Some(&pred), &BTreeMap::new()).expect("indexed path");
     assert_eq!(got.len(), 1);
 }
 
@@ -184,8 +184,8 @@ fn where_eq_commuted_literal_prop_hits() {
             prop: "qname".into(),
         },
     };
-    let got = candidates_from_index(&state, &np, Some(&pred), &BTreeMap::new())
-        .expect("indexed path");
+    let got =
+        candidates_from_index(&state, &np, Some(&pred), &BTreeMap::new()).expect("indexed path");
     assert_eq!(got.len(), 1);
 }
 
@@ -204,8 +204,8 @@ fn where_and_conjunction_intersects_posting_lists() {
         Box::new(where_a_prop_eq_literal("qname", "foo::a")),
         Box::new(where_a_prop_eq_literal("bounded_context", "ctx1")),
     );
-    let got = candidates_from_index(&state, &np, Some(&pred), &BTreeMap::new())
-        .expect("indexed path");
+    let got =
+        candidates_from_index(&state, &np, Some(&pred), &BTreeMap::new()).expect("indexed path");
     // Only i:1 matches both.
     assert_eq!(got.len(), 1);
 }
