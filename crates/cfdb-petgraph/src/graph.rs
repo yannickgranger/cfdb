@@ -330,7 +330,7 @@ mod index_build_tests {
                     "last_segment(qname)" => {
                         let qname = node.props.get("qname").and_then(PropValue::as_str);
                         qname
-                            .map(|q| crate::index::build::last_segment_of(q) == value)
+                            .map(|q| cfdb_core::qname::last_segment(q) == value)
                             .unwrap_or(false)
                     }
                     other => node
