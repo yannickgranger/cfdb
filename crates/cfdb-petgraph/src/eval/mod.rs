@@ -48,11 +48,11 @@ use crate::graph::KeyspaceState;
 mod cross_match_tests;
 #[cfg(test)]
 mod fast_path_tests;
-#[cfg(test)]
-mod target_dogfood_tests;
 mod pattern;
 mod predicate;
 mod return_clause;
+#[cfg(test)]
+mod target_dogfood_tests;
 mod util;
 mod with_clause;
 

@@ -188,9 +188,7 @@ fn keyspace_path_from_env() -> Option<PathBuf> {
             }
         }
         _ => {
-            eprintln!(
-                "skip: set {ENV_KEYSPACE} to a qbot-core keyspace JSON to run this test"
-            );
+            eprintln!("skip: set {ENV_KEYSPACE} to a qbot-core keyspace JSON to run this test");
             None
         }
     }
@@ -223,10 +221,7 @@ fn target_dogfood_homonym_completes_under_rfc035_wall_budget() {
     let warm_start = Instant::now();
     let warm = store.execute(&ks, &query).expect("warm-up execute");
     let warm_elapsed = warm_start.elapsed();
-    eprintln!(
-        "warm-up wall: {warm_elapsed:?}, rows: {}",
-        warm.rows.len()
-    );
+    eprintln!("warm-up wall: {warm_elapsed:?}, rows: {}", warm.rows.len());
 
     let timed_start = Instant::now();
     let timed = store.execute(&ks, &query).expect("timed execute");
