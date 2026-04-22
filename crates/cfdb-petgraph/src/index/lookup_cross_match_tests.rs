@@ -17,7 +17,7 @@
 
 use std::collections::BTreeMap;
 
-use cfdb_core::fact::{Node, PropValue};
+use cfdb_core::fact::Node;
 use cfdb_core::query::{CompareOp, Expr, NodePattern, Predicate};
 use cfdb_core::schema::Label;
 
