@@ -185,15 +185,14 @@ fn build_edges(
     let canonical_for = EdgeLabel::new(EdgeLabel::CANONICAL_FOR);
     let canonical_by_concept = canonical_crates(overrides);
 
-    let labeled: Vec<Edge> = overrides
+    let labeled_iter = overrides
         .crate_assignments()
         .iter()
         .flat_map(|(crate_name, meta)| {
             edges_for_crate(items_by_crate, crate_name, &meta.name, &labeled_as)
-        })
-        .collect();
+        });
 
-    let canonical: Vec<Edge> = canonical_by_concept
+    let canonical_iter = canonical_by_concept
         .iter()
         .flat_map(|(concept_name, canonical_crate)| {
             edges_for_crate(
@@ -202,12 +201,9 @@ fn build_edges(
                 concept_name,
                 &canonical_for,
             )
-        })
-        .collect();
+        });
 
-    let mut out = labeled;
-    out.extend(canonical);
-    out
+    labeled_iter.chain(canonical_iter).collect()
 }
 
 /// Emit one edge per `:Item` in `crate_name` → `:Concept { name: concept }`.
