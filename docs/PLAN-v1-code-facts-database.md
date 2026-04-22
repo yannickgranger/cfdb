@@ -3,7 +3,7 @@
 **Status:** prospective, pre-RFC. Council fodder.
 **Date:** 2026-04-13.
 **Supersedes:** the v0 LLM-extracted concept graph documented in `.concept-graph/README.md`. v0 carries forward as a labeling overlay; the structural extractor and the schema are replaced. See §2 for what carries vs. what gets rebuilt.
-**Scope:** side project / tooling. Not in the qbot-core RFC track. May spin out to a separate repo if council decides (see §12 question 1).
+**Scope:** side project / tooling. Not in an external RFC track. May spin out to a separate repo if council decides (see §12 question 1).
 **Author:** drafted by Claude in session 2026-04-13, pushed direct to develop as council material.
 
 ---
@@ -14,13 +14,13 @@
 
 ### 0.1 The retrofit constraint
 
-qbot-core **already contains the drift**. 23 crates, multiple bounded contexts, ~10000 pub items, a year of agentic-session-driven accumulation. This is not a greenfield exercise where we pick patterns up front and enforce them from commit #1. Any tool we build must **characterize what exists first**, then help us fix it. Prevention of future drift is a secondary benefit, not the primary job.
+the target workspace **already contains the drift**. 23 crates, multiple bounded contexts, ~10000 pub items, a year of agentic-session-driven accumulation. This is not a greenfield exercise where we pick patterns up front and enforce them from commit #1. Any tool we build must **characterize what exists first**, then help us fix it. Prevention of future drift is a secondary benefit, not the primary job.
 
 This eliminates the class of "write the rules up front, enforce in CI" solutions that work on a new project. We need archaeology tooling, not just gatekeeping.
 
 ### 0.2 The demand surface — the skill system
 
-The consumer of whatever we build is the **qbot-core skill system** (the `/gate-*`, `/quality-*`, `/port-epic`, `/prescribe`, `/ship`, `/work-issue` family defined in the gate pipeline). Skills are the natural demand surface because:
+The consumer of whatever we build is the **the consuming skill system** (the `/gate-*`, `/quality-*`, `/port-epic`, `/prescribe`, `/ship`, `/work-issue` family defined in the gate pipeline). Skills are the natural demand surface because:
 
 - Skills are where decisions get made. `/prescribe` decides REUSE-vs-CREATE; `/port-epic` decides what gets moved; `/verify-issue` decides pass/fail. The fact base's job is to feed those decisions.
 - Skills have measurable latency budgets and freshness tolerances, so *"what should the fact base serve"* becomes a finite question instead of an infinite platform.
@@ -92,7 +92,7 @@ The substrate (FalkorDB on LXC 501, the `:Concept`/`:Symbol`/`:Crate` schema, `q
 
 ## 2. v0 retrospective — what carries forward, what doesn't
 
-**Built (2026-04-12 → 2026-04-13):** a persistent concept graph over `domain-*` and `ports*` crates in qbot-core. ~534 files ingested, ~1648 concepts, ~8198 edges. Extraction by qwen3:14b on vast.ai writing into FalkorDB on LXC 501. Queryable via `query.py` subcommands. PR #3616 fixed 3 of 5 split-brains the first audit flagged, validating the *concept of an indexed surface map* even though the extractor was structurally wrong.
+**Built (2026-04-12 → 2026-04-13):** a persistent concept graph over `domain-*` and `ports*` crates in the target workspace. ~534 files ingested, ~1648 concepts, ~8198 edges. Extraction by qwen3:14b on vast.ai writing into FalkorDB on LXC 501. Queryable via `query.py` subcommands. PR #3616 fixed 3 of 5 split-brains the first audit flagged, validating the *concept of an indexed surface map* even though the extractor was structurally wrong.
 
 **Carries forward (v0 → v1):**
 
@@ -158,7 +158,7 @@ The substrate (FalkorDB on LXC 501, the `:Concept`/`:Symbol`/`:Crate` schema, `q
 
 **Pattern:** architects discover that a module or bounded context has accumulated enough drift that incremental fixes are no longer viable. The right move is a raid — produce a clean blueprint from the existing module, portage the clean parts as-is, rewrite the glue, drop the dirty parts. The failure mode is the blueprint misses a hidden caller, a dangling type reference, or a forgotten internal dependency, and the raid ships broken or leaves orphans behind.
 
-**Concrete shape in qbot-core:** the existing `/port-epic` skill already encodes this pattern — *archaeology first, move not copy, no new abstractions*. The methodology is right; the archaeology step today is a manual grep expedition that scales badly and misses things. The fact base turns archaeology from "several hours of grep + reading" into "one structured query per concern."
+**Concrete shape in the target workspace:** the existing `/port-epic` skill already encodes this pattern — *archaeology first, move not copy, no new abstractions*. The methodology is right; the archaeology step today is a manual grep expedition that scales badly and misses things. The fact base turns archaeology from "several hours of grep + reading" into "one structured query per concern."
 
 **Failure modes a validated plan catches:**
 
@@ -469,7 +469,7 @@ Whichever is picked, **Phase A is not "the whole API surface" or "the whole §6 
 
 ### Phase A — deterministic structural extractor (3 days)
 
-**Goal:** Layer 1 produces the structural subset of the schema (§6.1 nodes + §6.2 structural and entry-point edges, plus call-site discovery) for the entire qbot-core workspace. Verified recall ≥ 95% per crate.
+**Goal:** Layer 1 produces the structural subset of the schema (§6.1 nodes + §6.2 structural and entry-point edges, plus call-site discovery) for the entire target workspace. Verified recall ≥ 95% per crate.
 
 **Deliverables:**
 
@@ -596,7 +596,7 @@ The two original problems are rows 3 and 4. The bounded-context raid (§3.3) is 
 |---|---|---|---|---|
 | **A. Extend v0 (qwen3 + better prompts)** | Iterate the LLM extractor; add embedding clustering on top of LLM output | Reuses existing infra fully | LLM extraction is non-deterministic, low recall, and structurally unfit for call-graph data. Cannot solve VSB at any prompt-engineering effort | ❌ rejected |
 | **B. Code facts database (this proposal)** | Deterministic Rust extractor + FalkorDB + query library | Polyvalent, reproducible, exits the LLM critical path, schema-driven extensibility | Build cost (~10 days of focused work). Initial schema design is load-bearing | ✅ recommended |
-| **C. Adopt CodeQL** | Use GitHub's CodeQL for Rust | Production-grade analysis platform, mature query language | CodeQL Rust support is preview; vendor-locked; doesn't natively know about MCP entry points or qbot-core's domain concepts; query DSL is its own learning curve. Not local-first. Same trap as TrustGraph at a higher quality bar | ❌ heavy and external |
+| **C. Adopt CodeQL** | Use GitHub's CodeQL for Rust | Production-grade analysis platform, mature query language | CodeQL Rust support is preview; vendor-locked; doesn't natively know about MCP entry points or the target workspace's domain concepts; query DSL is its own learning curve. Not local-first. Same trap as TrustGraph at a higher quality bar | ❌ heavy and external |
 | **D. Adopt Glean** | Deploy Meta's open-source Glean | Closest to ideal architecture | Re-runs the TrustGraph mistake at smaller scale: massive infra for a single-project use case. The TrustGraph retrospective in v0 README §1 applies verbatim | ❌ same trap |
 | **E. Use rust-analyzer's database directly** | Query `ra`'s on-disk index via LSP or in-process | Authoritative call graph, semantic, fast | `ra` database isn't designed as a public query surface. The `mcp__ra-query__*` tools are scoped to specific quality queries (unwraps, complexity) and don't expose the full HIR. Would require building a new query layer on top of `ra-ap-*` crates — at which point we've built our own extractor, just with `ra`'s frontend instead of `syn`'s | ⚠️ defer; revisit if `syn` proves insufficient for cross-crate call resolution |
 | **F. Datalog (Soufflé / Crepe)** | Express analyses as Datalog rules over facts | Most powerful query semantics; recursive queries are first-class | Adds a second query language alongside Cypher; FalkorDB doesn't speak Datalog; Cypher is sufficient for everything in §8 | ⚠️ defer; Cypher first |
@@ -647,7 +647,7 @@ The two original problems are rows 3 and 4. The bounded-context raid (§3.3) is 
 
 ## 12. Open questions for council
 
-1. **Is this a side project or in-tree tooling?** The work lives in `.concept-graph/` (in qbot-core) or in a separate repo? Side-project repo enables independent iteration but separates the tool from the codebase it analyzes. In-tree keeps proximity but adds dev-deps to the workspace. **Recommendation:** in-tree under `.concept-graph/` (where v0 lives) until the tool ingests a second repo.
+1. **Is this a side project or in-tree tooling?** The work lives in `.concept-graph/` (under the consuming tree) or in a separate repo? Side-project repo enables independent iteration but separates the tool from the codebase it analyzes. In-tree keeps proximity but adds dev-deps to the workspace. **Recommendation:** in-tree under `.concept-graph/` (where v0 lives) until the tool ingests a second repo.
 
 2. **Who maintains the schema?** This is the API. Schema changes need a versioning policy, a migration story, and a review gate. Should the schema live in a `SCHEMA.md` doc with explicit version bumps, or as a Rust file with `serde` types? **Recommendation:** both. `SCHEMA.md` is human-authoritative and council-reviewed. Rust types are derived from it and enforced by the extractor. Schema bumps are explicit commits with both files updated.
 

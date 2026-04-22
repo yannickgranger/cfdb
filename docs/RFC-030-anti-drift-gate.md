@@ -31,7 +31,7 @@ As of 2026-04-19, cfdb's own workspace lacks:
 2. **Self-audit** — cfdb can run its own violation rules against any
    workspace. It does not run them against itself. The 9 patterns
    documented in RFC-029 §3 apply to cfdb's own codebase just as they
-   apply to qbot-core's.
+   apply to any consuming workspace.
 
 3. **Anti-drift CI gate** — no PR gate currently blocks a contribution
    that introduces a new split-brain, a context homonym, or a canonical
@@ -102,7 +102,7 @@ This RFC does **not** propose:
    are unchanged by this RFC. RFC-030 adds no new verb and no new
    node/edge type.
 
-3. **Specs for consuming workspaces (qbot-core or others).** This RFC
+3. **Specs for consuming workspaces (the target workspace or others).** This RFC
    scopes specs to the cfdb workspace only. Other workspaces that adopt
    cfdb may write their own specs; that is their authors' concern.
 

@@ -100,7 +100,7 @@ Entry-point detection is **heuristic, not annotation-driven** in v0.2 — users 
 |---|---|---|
 | **Compile time** (cfdb-hir-extractor clean build, cold cache) | **+90–150s** | ~18–20 new `ra-ap-*` crates, salsa proc-macros, rustc-internal generics. The original "+30–60s" was sccache-warm inference; cold matters for CI. |
 | **Compile time** (sccache warm, extractor-only change) | ~5–10s | Only the touched crate recompiles |
-| **Runtime peak RSS** (cfdb extract on qbot-core) | 2–4 GB, **plausible but unverified** | HirDatabase for 23-crate workspace; no public benchmark found; v0.2 gate item measures this, see §A1.5 |
+| **Runtime peak RSS** (cfdb extract on the target workspace) | 2–4 GB, **plausible but unverified** | HirDatabase for 23-crate workspace; no public benchmark found; v0.2 gate item measures this, see §A1.5 |
 
 **Maintenance tax — upgraded from "risk" to acknowledged category concern (council B2, rust-systems):** `ra-ap-hir` releases **every 7 days without exception** (9 releases in 9 weeks verified on crates.io). All 10 `ra-ap-*` sub-crates are pinned with `=0.0.N` exact version constraints — every upgrade requires updating 10+ exact-pinned versions in Cargo.toml simultaneously, plus `ra-ap-rustc_type_ir` on independent versioning (2–3×/week). This is not a manageable risk; it is a **weekly maintenance tax** that must be budgeted.
 
@@ -155,7 +155,7 @@ In addition to v0.1 items 1–6 (§13), v0.2 gates on:
 | v0.2-3 | `canonical-bypass.cypher` reproduces #3525 (LedgerService bypass) when parameterized on `append_idempotent` | Expected output ≥ the 2 bypass sites from the commit message |
 | v0.2-4 | `CALLS` edge recall ≥80% against manually-curated ground truth on 3 representative crates | Ground truth crates: `domain-strategy`, `ports-trading`, `qbot-mcp`. **Instrumentation caveat (council W1):** the 80% target assumes hir resolves the dispatch cases syn cannot. v0.2 ships a pre-hir syn baseline measurement first to validate whether the 80% target is achievable and whether hir is actually required for the queries we care about, or whether a narrower resolution layer would suffice. |
 | **v0.2-5a** (compile time) | `cfdb-hir-extractor` clean build (cold cache) ≤ **180s** | `cargo clean && time cargo build -p cfdb-hir-extractor`. Revised from 120s per rust-systems B1 evidence (cold build is +90–150s, not +30–60s). |
-| **v0.2-5b** (runtime) | `cfdb extract --workspace .` on qbot-core completes in ≤ **N min**, peak RSS ≤ **M GB** | Measured during acceptance run with `/usr/bin/time -v`. Initial targets N=5 min, M=4 GB — calibrated after first measurement, not guessed. |
+| **v0.2-5b** (runtime) | `cfdb extract --workspace .` on the target workspace completes in ≤ **N min**, peak RSS ≤ **M GB** | Measured during acceptance run with `/usr/bin/time -v`. Initial targets N=5 min, M=4 GB — calibrated after first measurement, not guessed. |
 | v0.2-5c (maintenance) | `chore/ra-ap-upgrade-<version>` protocol documented and dry-run once before v0.2 ships | Exists as `.concept-graph/cfdb/docs/ra-ap-upgrade-protocol.md` + one proof upgrade recorded |
 | v0.2-6 | Architecture test: no `ra_ap_*` type appears in any `cfdb-core` public signature | Extends RFC §14 Q2 test. **UDF scope clarification (second-pass clean-arch OBS-1):** if Cypher UDFs are used by the classifier (e.g., `signature_divergent`, `canonical_bypass_detected`, `confidence_score`), they MUST be registered inside `cfdb-store-lbug`, not in `cfdb-core`. The architecture test asserts UDF registration points do not cross the core boundary. |
 | v0.2-7 | `cfdb` workspace pins `rust-version = "1.85"` | `grep rust-version cfdb/Cargo.toml` |
@@ -530,7 +530,7 @@ The protocol explicitly requires human + council approval between raid-plan emis
 
 ### A4.1 Project CLAUDE.md §12
 
-A new section `§12 Split-brain Eradication Mission` is added to `/var/mnt/workspaces/qbot-core/CLAUDE.md`. Contents (draft in companion edit):
+A new section `§12 Split-brain Eradication Mission` is added to `/path/to/target-workspace/CLAUDE.md`. Contents (draft in companion edit):
 
 - Triple objective recap (horizontal / vertical / taxonomy)
 - Current phase of the roadmap (Phase 0–5 from the session roadmap)
@@ -690,7 +690,7 @@ Options:
 - **Threshold calibration** — the §A3.2 numbers are initial guesses. Mitigation: v0.2 ships LoC telemetry alongside thresholds so v0.3 can flip to density-based without re-extraction.
 - **Raid plan staleness** — a raid plan emitted on date D may not match repo state on date D+14 if other work lands. Mitigation: raid plans expire after N days, `/operate-module` must be re-run to refresh.
 - **Skill seam between `duplicated_feature` and `canonical_bypass`** (council WARN-1, solid) — both route to `/sweep-epic` in the initial routing table but have different fix procedures (canonical-selection vs pure rewire). Known seam, acknowledged, promote to separate skill when canonical-selection workflow is enriched.
-- **CI memory budget** — `cfdb extract` on qbot-core with HirDatabase loaded consumes 2–4 GB peak RSS (plausible, unverified). If the CI runner cannot accommodate, the extract either streams or extracts per-context. Mitigation: v0.2-5b measures this before committing.
+- **CI memory budget** — `cfdb extract` on the target workspace with HirDatabase loaded consumes 2–4 GB peak RSS (plausible, unverified). If the CI runner cannot accommodate, the extract either streams or extracts per-context. Mitigation: v0.2-5b measures this before committing.
 
 ---
 
@@ -708,7 +708,7 @@ Options:
 
 This addendum is paired with:
 
-1. **`qbot-core/CLAUDE.md` §12 edit** — project doctrine section, drafted in companion edit
+1. **`<consuming-project>/CLAUDE.md` §12 edit** — project doctrine section, drafted in companion edit
 2. **`.concept-graph/RESCUE-STATUS.md` scaffold** — empty-state live inventory file
 3. **Issue drafts:**
    - New child of EPIC #3622: "Promote `hsb-by-name.cypher` to v0.1 gate with enriched collect()"

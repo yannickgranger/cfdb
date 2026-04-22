@@ -59,7 +59,7 @@ Three distinct gates. Order matters when diagnosing a failure:
 
 1. **Self-dogfood.** Tool run against its own tree.
 2. **Cross-dogfood.** Tool run against the **companion** tree at the pinned SHA. Defined by this runbook. Mechanised by `ci/cross-dogfood.sh`.
-3. **Target-dogfood.** Tool run against **qbot-core** (the rescue target) at a per-PR pinned SHA. Prescribed per-issue when the PR claims rescue-payload value. Not workspace-wide.
+3. **Target-dogfood.** Tool run against **the target workspace** (the rescue target) at a per-PR pinned SHA. Prescribed per-issue when the PR claims rescue-payload value. Not workspace-wide.
 
 A rule that passes self-dogfood but fails cross-dogfood is a **rule-shape problem** (too loose). A rule that passes both and fails target-dogfood is **new signal on the rescue target** — that is the payload, not a bug.
 
