@@ -38,12 +38,14 @@
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 
-use cfdb_core::query::{Param, Pattern, Query};
+use cfdb_core::query::{Param, Pattern, Predicate, Query};
 use cfdb_core::result::{QueryResult, RowValue, Warning, WarningKind};
 use petgraph::stable_graph::NodeIndex;
 
 use crate::graph::KeyspaceState;
 
+#[cfg(test)]
+mod fast_path_tests;
 mod pattern;
 mod predicate;
 mod return_clause;
@@ -103,8 +105,15 @@ impl<'a> Evaluator<'a> {
     pub(crate) fn run(self, query: &Query) -> QueryResult {
         let seed: BindingStream<'_> = Box::new(std::iter::once(BTreeMap::new()));
         let mut stage: BindingStream<'_> = seed;
+        // RFC-035 §3.6 slice 5: thread the top-level WHERE predicate
+        // into every pattern stage so `candidate_nodes` can pick up
+        // indexable `a.prop = literal` conjuncts and turn them into a
+        // `by_prop` posting-list lookup. The outer WHERE filter below
+        // still re-applies the full predicate — hints strictly narrow
+        // candidates; they do not replace filtering.
+        let where_ref = query.where_clause.as_ref();
         for pattern in &query.match_clauses {
-            stage = self.apply_pattern(stage, pattern);
+            stage = self.apply_pattern(stage, pattern, where_ref);
         }
 
         // WHERE filter is chained onto the stream, not applied to a
@@ -148,11 +157,12 @@ impl<'a> Evaluator<'a> {
         &'e self,
         table: BindingStream<'e>,
         pattern: &'e Pattern,
+        where_clause: Option<&'e Predicate>,
     ) -> BindingStream<'e> {
         match pattern {
-            Pattern::Node(np) => self.apply_node_pattern(table, np),
-            Pattern::Path(pp) => self.apply_path_pattern(table, pp),
-            Pattern::Optional(inner) => self.apply_optional(table, inner),
+            Pattern::Node(np) => self.apply_node_pattern(table, np, where_clause),
+            Pattern::Path(pp) => self.apply_path_pattern(table, pp, where_clause),
+            Pattern::Optional(inner) => self.apply_optional(table, inner, where_clause),
             Pattern::Unwind { list_param, var } => self.apply_unwind(table, list_param, var),
         }
     }

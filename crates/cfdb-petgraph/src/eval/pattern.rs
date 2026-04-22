@@ -9,21 +9,25 @@
 
 use std::collections::{BTreeSet, VecDeque};
 
-use cfdb_core::query::{Direction, EdgePattern, NodePattern, Param, PathPattern, Pattern};
+use cfdb_core::query::{
+    Direction, EdgePattern, NodePattern, Param, PathPattern, Pattern, Predicate,
+};
 use cfdb_core::result::{RowValue, Warning, WarningKind};
 use petgraph::stable_graph::NodeIndex;
 use petgraph::visit::EdgeRef;
 
 use super::util::suggest_label;
 use super::{Binding, BindingStream, Bindings, Evaluator, DEFAULT_VAR_LENGTH_MAX};
+use crate::index::lookup;
 
 impl<'a> Evaluator<'a> {
     pub(super) fn apply_node_pattern<'e>(
         &'e self,
         table: BindingStream<'e>,
         np: &'e NodePattern,
+        where_clause: Option<&'e Predicate>,
     ) -> BindingStream<'e> {
-        let candidates = self.candidate_nodes(np);
+        let candidates = self.candidate_nodes(np, where_clause);
         Box::new(table.flat_map(move |bindings| {
             let mut out: Vec<Bindings> = Vec::new();
             self.emit_node_bindings(&mut out, bindings, &candidates, np);
@@ -110,7 +114,11 @@ impl<'a> Evaluator<'a> {
             });
     }
 
-    pub(super) fn candidate_nodes(&self, np: &NodePattern) -> Vec<NodeIndex> {
+    pub(super) fn candidate_nodes(
+        &self,
+        np: &NodePattern,
+        where_clause: Option<&Predicate>,
+    ) -> Vec<NodeIndex> {
         if let Some(label) = &np.label {
             if !self.state.has_label(label) {
                 let suggestion = suggest_label(
@@ -123,6 +131,17 @@ impl<'a> Evaluator<'a> {
                     suggestion,
                 });
                 return Vec::new();
+            }
+            // RFC-035 §3.6 fast paths 1 & 2. When no index entry
+            // applies, `candidates_from_index` returns `None` and we
+            // fall back to the full `by_label` scan — preserving the
+            // pre-RFC-035 behaviour for non-indexed props / unlabelled
+            // patterns / predicates that don't reduce to a posting-
+            // list intersection.
+            if let Some(indexed) =
+                lookup::candidates_from_index(self.state, np, where_clause, self.params)
+            {
+                return indexed;
             }
             self.state.nodes_with_label(label)
         } else {
@@ -145,13 +164,14 @@ impl<'a> Evaluator<'a> {
         &'e self,
         table: BindingStream<'e>,
         pp: &'e PathPattern,
+        where_clause: Option<&'e Predicate>,
     ) -> BindingStream<'e> {
         if self.warn_on_unknown_edge_label(pp) {
             return Box::new(std::iter::empty());
         }
         Box::new(table.flat_map(move |bindings| {
             let mut out: Vec<Bindings> = Vec::new();
-            self.emit_path_bindings(&mut out, &bindings, pp);
+            self.emit_path_bindings(&mut out, &bindings, pp, where_clause);
             out
         }))
     }
@@ -183,8 +203,14 @@ impl<'a> Evaluator<'a> {
     /// [`Self::build_path_binding`]. Split out of `apply_path_pattern` to
     /// keep cognitive complexity below the project ceiling (RFC-031 §5 /
     /// issue #26).
-    fn emit_path_bindings(&self, out: &mut Vec<Bindings>, bindings: &Bindings, pp: &PathPattern) {
-        let from_candidates = self.resolve_endpoint(bindings, &pp.from);
+    fn emit_path_bindings(
+        &self,
+        out: &mut Vec<Bindings>,
+        bindings: &Bindings,
+        pp: &PathPattern,
+        where_clause: Option<&Predicate>,
+    ) {
+        let from_candidates = self.resolve_endpoint(bindings, &pp.from, where_clause);
         for src_idx in from_candidates {
             if !self.node_props_match(src_idx, &pp.from) {
                 continue;
@@ -234,13 +260,18 @@ impl<'a> Evaluator<'a> {
     /// Resolve the source-side endpoints of a path pattern. If the endpoint
     /// variable is already bound, we must pin to that binding; otherwise we
     /// enumerate candidates via `candidate_nodes`.
-    fn resolve_endpoint(&self, bindings: &Bindings, np: &NodePattern) -> Vec<NodeIndex> {
+    fn resolve_endpoint(
+        &self,
+        bindings: &Bindings,
+        np: &NodePattern,
+        where_clause: Option<&Predicate>,
+    ) -> Vec<NodeIndex> {
         if let Some(var) = &np.var {
             if let Some(Binding::NodeRef(idx)) = bindings.get(var) {
                 return vec![*idx];
             }
         }
-        self.candidate_nodes(np)
+        self.candidate_nodes(np, where_clause)
     }
 
     /// Label-and-variable membership check for the destination of a path.
@@ -327,10 +358,11 @@ impl<'a> Evaluator<'a> {
         &'e self,
         table: BindingStream<'e>,
         inner: &'e Pattern,
+        where_clause: Option<&'e Predicate>,
     ) -> BindingStream<'e> {
         Box::new(table.flat_map(move |bindings| {
             let mut out: Vec<Bindings> = Vec::new();
-            self.apply_optional_row(&mut out, bindings, inner);
+            self.apply_optional_row(&mut out, bindings, inner, where_clause);
             out
         }))
     }
@@ -341,9 +373,17 @@ impl<'a> Evaluator<'a> {
     /// expansion or null-fills the carrying bindings. The one-row
     /// materialisation is bounded by the inner pattern's fan-out for a
     /// single input row — O(candidate_count), not O(table × candidates).
-    fn apply_optional_row(&self, out: &mut Vec<Bindings>, bindings: Bindings, inner: &Pattern) {
+    fn apply_optional_row(
+        &self,
+        out: &mut Vec<Bindings>,
+        bindings: Bindings,
+        inner: &Pattern,
+        where_clause: Option<&Predicate>,
+    ) {
         let inner_seed: BindingStream<'_> = Box::new(std::iter::once(bindings.clone()));
-        let expanded: Vec<Bindings> = self.apply_pattern(inner_seed, inner).collect();
+        let expanded: Vec<Bindings> = self
+            .apply_pattern(inner_seed, inner, where_clause)
+            .collect();
         if expanded.is_empty() {
             let mut null_filled = bindings;
             for var in collect_pattern_vars(inner) {
