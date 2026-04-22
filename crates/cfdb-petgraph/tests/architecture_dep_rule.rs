@@ -36,6 +36,14 @@ const ALLOWED_DEPS: &[&str] = &[
     // `.cfdb/concepts/*.toml` changed between extractions. Single resolution
     // point — the extract-time path in cfdb-extractor uses the same function.
     "cfdb-concepts",
+    // `.cfdb/indexes.toml` loader for persistent inverted indexes (RFC-035
+    // slice 1 / #180). Backend-layer by design — `IndexSpec`, `ComputedKey`,
+    // and the TOML loader live in `cfdb_petgraph::index::spec`, NOT in
+    // cfdb-core (RFC-035 R1 B1 resolution — clean-arch + solid-architect).
+    // Workspace pin restricts `toml` to `features = ["parse"]` only, so the
+    // backend never serialises TOML; the round-trip test goes through
+    // `serde_json` instead.
+    "toml",
 ];
 
 /// Crates that MUST NEVER appear in cfdb-petgraph's `[dependencies]` section.
