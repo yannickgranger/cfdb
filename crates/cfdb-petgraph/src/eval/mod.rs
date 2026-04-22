@@ -51,6 +51,8 @@ mod fast_path_tests;
 mod pattern;
 mod predicate;
 mod return_clause;
+#[cfg(test)]
+mod target_dogfood_tests;
 mod util;
 mod with_clause;
 
