@@ -27,13 +27,9 @@ impl<'a> Evaluator<'a> {
         np: &'e NodePattern,
         where_clause: Option<&'e Predicate>,
     ) -> BindingStream<'e> {
-        // Per-row candidate lookup — RFC-035 slice 6. The incoming
-        // `bindings` determine the bucket for cross-MATCH computed-key
-        // hints (e.g. `last_segment(a.qname) = last_segment(b.qname)`
-        // where `a` is bound from a previous MATCH stage). For
-        // single-MATCH queries `bindings` is `{}`, the bound-var
-        // resolver returns `None` for every call, and the fast path
-        // collapses to the slice-5 behaviour — no new work.
+        // Per-row candidate_nodes — the incoming row's bindings pick
+        // the cross-MATCH bucket (RFC-035 slice 6). Empty bindings
+        // collapse to slice-5 behaviour.
         Box::new(table.flat_map(move |bindings| {
             let candidates = self.candidate_nodes(np, where_clause, &bindings);
             let mut out: Vec<Bindings> = Vec::new();
@@ -140,19 +136,8 @@ impl<'a> Evaluator<'a> {
                 });
                 return Vec::new();
             }
-            // RFC-035 §3.6 fast paths 1, 2, and cross-MATCH. When no
-            // index entry applies, `candidates_from_index` returns
-            // `None` and we fall back to the full `by_label` scan —
-            // preserving the pre-RFC-035 behaviour for non-indexed
-            // props / unlabelled patterns / predicates that don't
-            // reduce to a posting-list intersection.
-            //
-            // The `bound_var_prop` closure resolves an already-bound
-            // var's prop to its indexable value (for slice-6
-            // cross-MATCH). Returns `None` when the var isn't a
-            // NodeRef, isn't in `bindings`, or the prop isn't
-            // indexable — the lookup walker then skips the cross-ref
-            // hint, not the whole fast path.
+            // RFC-035 §3.6 fast paths (slices 5+6). `None` ⇒
+            // fall back to `nodes_with_label`.
             let bound_var_prop =
                 |var: &str, prop: &str| self.bound_var_index_value(bindings, var, prop);
             if let Some(indexed) = lookup::candidates_from_index(
@@ -170,17 +155,10 @@ impl<'a> Evaluator<'a> {
         }
     }
 
-    /// Resolve `bindings[var].props[prop]` to a borrow-free
-    /// [`IndexValue`] (= `String`) for the cross-MATCH fast path
-    /// (RFC-035 slice 6). Returns `None` when:
-    ///
-    /// - `var` is not in `bindings`, or is bound to `Null` / `Value`
-    ///   (only `NodeRef` bindings carry a graph node to read props
-    ///   from).
-    /// - The node has no `prop` entry.
-    /// - The prop value is not indexable (see
-    ///   [`crate::index::build::index_key_of`] — `Float` / `Null`
-    ///   produce `None`).
+    /// Resolve a `NodeRef` binding's prop to an [`IndexValue`] for
+    /// the cross-MATCH fast path (RFC-035 slice 6). `None` for
+    /// unbound vars, non-`NodeRef` bindings, absent props, and
+    /// non-indexable values (`Float` / `Null` — see `index_key_of`).
     fn bound_var_index_value(
         &self,
         bindings: &Bindings,
@@ -190,8 +168,7 @@ impl<'a> Evaluator<'a> {
         let Some(Binding::NodeRef(idx)) = bindings.get(var) else {
             return None;
         };
-        let node = &self.state.graph[*idx];
-        let pv = node.props.get(prop)?;
+        let pv = self.state.graph[*idx].props.get(prop)?;
         crate::index::build::index_key_of(pv)
     }
 

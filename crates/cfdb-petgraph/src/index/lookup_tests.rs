@@ -327,4 +327,3 @@ fn where_eq_for_unrelated_var_is_ignored() {
     // Pattern literal still narrows to the 1 matching i:1.
     assert_eq!(got.len(), 1);
 }
-
