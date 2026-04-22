@@ -84,10 +84,7 @@ fn loads_cfdb_own_indexes_toml() {
                 (label, notes)
             }
         };
-        assert_eq!(
-            label, "Item",
-            "v0.1 indexes are all on :Item (entry {idx})"
-        );
+        assert_eq!(label, "Item", "v0.1 indexes are all on :Item (entry {idx})");
         assert!(
             !notes.trim().is_empty(),
             "entry {idx} has empty `notes` — every entry MUST document its rationale"

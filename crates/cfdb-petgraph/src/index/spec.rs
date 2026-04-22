@@ -136,7 +136,9 @@ impl<'de> Deserialize<'de> for IndexEntry {
                 notes: raw.notes,
             }),
             (None, Some(name)) => {
-                let computed = name.parse::<ComputedKey>().map_err(serde::de::Error::custom)?;
+                let computed = name
+                    .parse::<ComputedKey>()
+                    .map_err(serde::de::Error::custom)?;
                 Ok(IndexEntry::Computed {
                     label: raw.label,
                     computed,
