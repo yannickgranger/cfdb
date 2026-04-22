@@ -1,4 +1,4 @@
-//! Unit tests for [`crate::index::lookup`] (RFC-035 slice 5 #184).
+//! Unit tests for [`crate::index::lookup`] (RFC-035 slices 5 #184 + 6 #185).
 //!
 //! Lives in a sibling `#[cfg(test)] mod` declared from
 //! `index/mod.rs` so `lookup.rs` stays under the workspace god-file
@@ -15,8 +15,16 @@ use cfdb_core::query::{CompareOp, Expr, NodePattern, Param, Predicate};
 use cfdb_core::schema::Label;
 
 use crate::graph::KeyspaceState;
+use crate::index::build::IndexValue;
 use crate::index::lookup::candidates_from_index;
 use crate::index::spec::{ComputedKey, IndexEntry, IndexSpec};
+
+/// Inert bound-var resolver for slice-5 tests: no cross-MATCH
+/// hints. Slice-6 tests that exercise cross-ref behaviour build a
+/// bespoke closure over a `BTreeMap<(var, prop), IndexValue>`.
+fn no_bound(_var: &str, _prop: &str) -> Option<IndexValue> {
+    None
+}
 
 fn qname_spec() -> IndexSpec {
     IndexSpec {
@@ -86,7 +94,7 @@ fn returns_none_when_spec_is_empty() {
     let state = state_with_nodes(IndexSpec::empty(), vec![item("i:1", "foo::a", "ctx")]);
     let np = np_item_with_qname("foo::a");
     assert!(
-        candidates_from_index(&state, &np, None, &BTreeMap::new()).is_none(),
+        candidates_from_index(&state, &np, None, &BTreeMap::new(), &no_bound).is_none(),
         "empty spec must fall through to the label scan"
     );
 }
@@ -96,7 +104,7 @@ fn returns_none_when_label_missing_on_pattern() {
     let state = state_with_nodes(qname_spec(), vec![item("i:1", "foo::a", "ctx")]);
     let mut np = np_item_with_qname("foo::a");
     np.label = None;
-    assert!(candidates_from_index(&state, &np, None, &BTreeMap::new()).is_none());
+    assert!(candidates_from_index(&state, &np, None, &BTreeMap::new(), &no_bound).is_none());
 }
 
 #[test]
@@ -105,7 +113,7 @@ fn returns_none_when_no_hints_match_spec() {
     // `name` is not an indexed prop.
     let mut np = np_item_var_a();
     np.props.insert("name".into(), PropValue::from("anything"));
-    assert!(candidates_from_index(&state, &np, None, &BTreeMap::new()).is_none());
+    assert!(candidates_from_index(&state, &np, None, &BTreeMap::new(), &no_bound).is_none());
 }
 
 #[test]
@@ -119,7 +127,8 @@ fn pattern_literal_hits_posting_list() {
         ],
     );
     let np = np_item_with_qname("foo::a");
-    let got = candidates_from_index(&state, &np, None, &BTreeMap::new()).expect("indexed path");
+    let got = candidates_from_index(&state, &np, None, &BTreeMap::new(), &no_bound)
+        .expect("indexed path");
     // i:1 and i:3 both have qname "foo::a".
     assert_eq!(got.len(), 2);
 }
@@ -128,7 +137,8 @@ fn pattern_literal_hits_posting_list() {
 fn pattern_literal_miss_returns_empty_vec() {
     let state = state_with_nodes(qname_spec(), vec![item("i:1", "foo::a", "ctx")]);
     let np = np_item_with_qname("does::not::exist");
-    let got = candidates_from_index(&state, &np, None, &BTreeMap::new()).expect("indexed path");
+    let got = candidates_from_index(&state, &np, None, &BTreeMap::new(), &no_bound)
+        .expect("indexed path");
     assert!(
         got.is_empty(),
         "an indexed miss is still an indexed answer, not a fallback"
@@ -143,8 +153,8 @@ fn where_eq_literal_becomes_a_hint() {
     );
     let np = np_item_var_a();
     let pred = where_a_prop_eq_literal("qname", "foo::a");
-    let got =
-        candidates_from_index(&state, &np, Some(&pred), &BTreeMap::new()).expect("indexed path");
+    let got = candidates_from_index(&state, &np, Some(&pred), &BTreeMap::new(), &no_bound)
+        .expect("indexed path");
     assert_eq!(got.len(), 1);
 }
 
@@ -165,7 +175,8 @@ fn where_eq_param_becomes_a_hint() {
     };
     let mut params = BTreeMap::new();
     params.insert("q".to_string(), Param::Scalar(PropValue::from("foo::b")));
-    let got = candidates_from_index(&state, &np, Some(&pred), &params).expect("indexed path");
+    let got =
+        candidates_from_index(&state, &np, Some(&pred), &params, &no_bound).expect("indexed path");
     assert_eq!(got.len(), 1);
 }
 
@@ -184,8 +195,8 @@ fn where_eq_commuted_literal_prop_hits() {
             prop: "qname".into(),
         },
     };
-    let got =
-        candidates_from_index(&state, &np, Some(&pred), &BTreeMap::new()).expect("indexed path");
+    let got = candidates_from_index(&state, &np, Some(&pred), &BTreeMap::new(), &no_bound)
+        .expect("indexed path");
     assert_eq!(got.len(), 1);
 }
 
@@ -204,8 +215,8 @@ fn where_and_conjunction_intersects_posting_lists() {
         Box::new(where_a_prop_eq_literal("qname", "foo::a")),
         Box::new(where_a_prop_eq_literal("bounded_context", "ctx1")),
     );
-    let got =
-        candidates_from_index(&state, &np, Some(&pred), &BTreeMap::new()).expect("indexed path");
+    let got = candidates_from_index(&state, &np, Some(&pred), &BTreeMap::new(), &no_bound)
+        .expect("indexed path");
     // Only i:1 matches both.
     assert_eq!(got.len(), 1);
 }
@@ -228,7 +239,7 @@ fn where_or_alone_contributes_no_hint() {
         Box::new(where_a_prop_eq_literal("qname", "foo::b")),
     );
     assert!(
-        candidates_from_index(&state, &np, Some(&pred), &BTreeMap::new()).is_none(),
+        candidates_from_index(&state, &np, Some(&pred), &BTreeMap::new(), &no_bound).is_none(),
         "Or alone contributes no hint; fallback to label scan"
     );
 }
@@ -238,7 +249,7 @@ fn where_not_alone_contributes_no_hint() {
     let state = state_with_nodes(qname_spec(), vec![item("i:1", "foo::a", "ctx")]);
     let np = np_item_var_a();
     let pred = Predicate::Not(Box::new(where_a_prop_eq_literal("qname", "foo::a")));
-    assert!(candidates_from_index(&state, &np, Some(&pred), &BTreeMap::new()).is_none());
+    assert!(candidates_from_index(&state, &np, Some(&pred), &BTreeMap::new(), &no_bound).is_none());
 }
 
 #[test]
@@ -265,7 +276,7 @@ fn where_or_inside_and_does_not_invalidate_sibling_hint() {
             Box::new(where_a_prop_eq_literal("bounded_context", "y")),
         )),
     );
-    let got = candidates_from_index(&state, &np, Some(&pred), &BTreeMap::new())
+    let got = candidates_from_index(&state, &np, Some(&pred), &BTreeMap::new(), &no_bound)
         .expect("qname hint still valid");
     // i:1 and i:2 share qname foo::a — the Or narrows to i:1
     // post-filter, but candidate_nodes returns both.
@@ -290,7 +301,7 @@ fn where_non_eq_compare_is_ignored_not_fatal() {
         op: CompareOp::Lt,
         right: Expr::Literal(PropValue::from("zzz")),
     };
-    let got = candidates_from_index(&state, &np, Some(&pred), &BTreeMap::new())
+    let got = candidates_from_index(&state, &np, Some(&pred), &BTreeMap::new(), &no_bound)
         .expect("indexed via pattern literal");
     assert_eq!(got.len(), 1);
 }
@@ -311,8 +322,9 @@ fn where_eq_for_unrelated_var_is_ignored() {
         op: CompareOp::Eq,
         right: Expr::Literal(PropValue::from("foo::b")),
     };
-    let got = candidates_from_index(&state, &np, Some(&pred), &BTreeMap::new())
+    let got = candidates_from_index(&state, &np, Some(&pred), &BTreeMap::new(), &no_bound)
         .expect("indexed via pattern literal");
     // Pattern literal still narrows to the 1 matching i:1.
     assert_eq!(got.len(), 1);
 }
+
