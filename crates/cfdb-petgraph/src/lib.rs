@@ -21,6 +21,9 @@ mod graph;
 pub mod index;
 pub mod persist;
 
+#[cfg(test)]
+mod graph_round_trip_tests;
+
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
