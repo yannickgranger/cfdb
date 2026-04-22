@@ -31,8 +31,7 @@
 //! - The revwalk is configured with `TOPOLOGICAL | TIME` sort, which git2
 //!   documents as deterministic for a fixed HEAD.
 //! - "Most recent" per file = first commit seen during the reverse-chronological
-//!   walk (`or_insert_with` preserves first-insert values; subsequent hits only
-//!   bump `commit_count`).
+//!   walk (first-insert wins; subsequent hits only bump `commit_count`).
 //!
 //! Two runs on an unchanged tree produce byte-identical canonical dumps (AC-6).
 //!
@@ -148,10 +147,14 @@ fn fold_commit(
     let diff = repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), None)?;
 
     let commit_ts = commit.time().seconds();
-    let author_email = commit.author().email().unwrap_or_default().to_string();
+    // Bind the Signature to a local so its lifetime covers the delta loop —
+    // `commit.author()` returns a borrowed `Signature<'_>` whose `email()`
+    // slice would otherwise dangle after the statement ended.
+    let author = commit.author();
+    let author_email = author.email().unwrap_or_default();
 
     for delta in diff.deltas() {
-        accumulate_delta(&delta, commit_ts, &author_email, info);
+        accumulate_delta(&delta, commit_ts, author_email, info);
     }
     Ok(())
 }
@@ -168,19 +171,26 @@ fn accumulate_delta(
     let Some(path) = delta.new_file().path().or_else(|| delta.old_file().path()) else {
         return;
     };
-    let path_str = path.to_string_lossy().into_owned();
-    upsert(info, path_str, commit_ts, author_email);
+    let path_str = path.to_string_lossy();
+    upsert(info, &path_str, commit_ts, author_email);
 }
 
-/// `entry().or_insert_with()` upsert — only allocates on first insert;
-/// repeat hits take the `commit_count += 1` branch with zero allocation.
-fn upsert(info: &mut BTreeMap<String, GitInfo>, path: String, commit_ts: i64, author: &str) {
-    let entry = info.entry(path).or_insert_with(|| GitInfo {
-        last_commit_unix_ts: commit_ts,
-        last_author: author.to_string(),
-        commit_count: 0,
-    });
-    entry.commit_count += 1;
+fn upsert(info: &mut BTreeMap<String, GitInfo>, path: &str, commit_ts: i64, author: &str) {
+    match info.get_mut(path) {
+        Some(entry) => {
+            entry.commit_count += 1;
+        }
+        None => {
+            info.insert(
+                path.to_string(),
+                GitInfo {
+                    last_commit_unix_ts: commit_ts,
+                    last_author: author.to_string(),
+                    commit_count: 1,
+                },
+            );
+        }
+    }
 }
 
 /// Write the three git-history attrs to every `:Item` node.
