@@ -28,37 +28,13 @@ pub(super) fn run(db: &Path, keyspace: &str) -> Result<usize, crate::CfdbCliErro
 
     let mut findings: Vec<Finding> = Vec::new();
     for ctx in &contexts {
-        if !item_contexts.contains(&ctx.name) {
-            findings.push(Finding {
-                verdict: "CONCEPT_UNWIRED",
-                context_name: ctx.name.clone(),
-                canonical_crate: ctx.canonical_crate.clone(),
-                owning_rfc: ctx.owning_rfc.clone(),
-                evidence: ctx.name.clone(),
-            });
-        }
-        if let Some(canonical) = ctx.canonical_crate.as_deref() {
-            if !canonical.is_empty() && !crate_names.contains(canonical) {
-                findings.push(Finding {
-                    verdict: "MISSING_CANONICAL_CRATE",
-                    context_name: ctx.name.clone(),
-                    canonical_crate: ctx.canonical_crate.clone(),
-                    owning_rfc: ctx.owning_rfc.clone(),
-                    evidence: canonical.to_string(),
-                });
-            }
-        }
-        if let Some(rfc) = ctx.owning_rfc.as_deref() {
-            if !rfc.is_empty() && !rfc_haystack.iter().any(|hay| hay.contains(rfc)) {
-                findings.push(Finding {
-                    verdict: "STALE_RFC_REFERENCE",
-                    context_name: ctx.name.clone(),
-                    canonical_crate: ctx.canonical_crate.clone(),
-                    owning_rfc: ctx.owning_rfc.clone(),
-                    evidence: rfc.to_string(),
-                });
-            }
-        }
+        collect_findings_for_context(
+            ctx,
+            &item_contexts,
+            &crate_names,
+            &rfc_haystack,
+            &mut findings,
+        );
     }
 
     // Determinism: stable order regardless of the per-context
@@ -96,6 +72,77 @@ pub(super) fn run(db: &Path, keyspace: &str) -> Result<usize, crate::CfdbCliErro
     println!("{as_json}");
 
     Ok(row_count)
+}
+
+/// Per-context check pipeline: probe the three sub-verdicts and push
+/// any matching findings into the accumulator. Extracted from `run`
+/// to keep clones out of the outer iteration body and to keep `run`'s
+/// cognitive complexity below the workspace ceiling.
+fn collect_findings_for_context(
+    ctx: &ContextRow,
+    item_contexts: &BTreeSet<String>,
+    crate_names: &BTreeSet<String>,
+    rfc_haystack: &[String],
+    out: &mut Vec<Finding>,
+) {
+    if let Some(f) = check_concept_unwired(ctx, item_contexts) {
+        out.push(f);
+    }
+    if let Some(f) = check_missing_canonical_crate(ctx, crate_names) {
+        out.push(f);
+    }
+    if let Some(f) = check_stale_rfc_reference(ctx, rfc_haystack) {
+        out.push(f);
+    }
+}
+
+/// CONCEPT_UNWIRED: a `:Context` row exists in the TOML but no `:Item`
+/// carries the matching `bounded_context` prop.
+fn check_concept_unwired(ctx: &ContextRow, item_contexts: &BTreeSet<String>) -> Option<Finding> {
+    if item_contexts.contains(&ctx.name) {
+        return None;
+    }
+    Some(finding_for(ctx, "CONCEPT_UNWIRED", ctx.name.clone()))
+}
+
+/// MISSING_CANONICAL_CRATE: the `:Context.canonical_crate` value names
+/// a crate the workspace does not actually contain.
+fn check_missing_canonical_crate(
+    ctx: &ContextRow,
+    crate_names: &BTreeSet<String>,
+) -> Option<Finding> {
+    let canonical = ctx.canonical_crate.as_deref()?;
+    if canonical.is_empty() || crate_names.contains(canonical) {
+        return None;
+    }
+    Some(finding_for(
+        ctx,
+        "MISSING_CANONICAL_CRATE",
+        canonical.to_string(),
+    ))
+}
+
+/// STALE_RFC_REFERENCE: the `:Context.owning_rfc` tag does not appear
+/// as a substring in any `:RfcDoc.path` or `:RfcDoc.title`.
+fn check_stale_rfc_reference(ctx: &ContextRow, rfc_haystack: &[String]) -> Option<Finding> {
+    let rfc = ctx.owning_rfc.as_deref()?;
+    if rfc.is_empty() || rfc_haystack.iter().any(|hay| hay.contains(rfc)) {
+        return None;
+    }
+    Some(finding_for(ctx, "STALE_RFC_REFERENCE", rfc.to_string()))
+}
+
+/// Construct a `Finding` from `(ctx, verdict, evidence)`. Centralises
+/// the per-finding field copy so the per-context loop body in `run`
+/// holds no `.clone()` calls.
+fn finding_for(ctx: &ContextRow, verdict: &'static str, evidence: String) -> Finding {
+    Finding {
+        verdict,
+        context_name: ctx.name.clone(),
+        canonical_crate: ctx.canonical_crate.clone(),
+        owning_rfc: ctx.owning_rfc.clone(),
+        evidence,
+    }
 }
 
 /// Execute the embedded `:Context` inventory cypher and project each

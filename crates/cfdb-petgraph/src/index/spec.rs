@@ -173,6 +173,26 @@ impl ComputedKey {
             ComputedKey::LastSegment => "last_segment(qname)",
         }
     }
+
+    /// Compile-time dispatch from a computed key to its underlying
+    /// `cfdb-core::qname` helper (RFC-035 §3.3 invariant ownership +
+    /// §3.4 closed-enum compile-time dispatch / R1 B3 + B4).
+    ///
+    /// This is the single dispatch surface for index-build consumers
+    /// and any future evaluator fast-path consumer (slice 5 / #184).
+    /// Inline switching on `ComputedKey` outside this method
+    /// re-introduces the split-brain that §3.3's invariant-owner rule
+    /// is designed to prevent — always route through `evaluate`.
+    ///
+    /// `LastSegment` delegates to [`cfdb_core::qname::last_segment`],
+    /// which is the canonical owner of the `last_segment` formula for
+    /// the entire workspace.
+    #[must_use]
+    pub fn evaluate(self, qname: &str) -> &str {
+        match self {
+            ComputedKey::LastSegment => cfdb_core::qname::last_segment(qname),
+        }
+    }
 }
 
 impl std::fmt::Display for ComputedKey {
@@ -421,5 +441,22 @@ notes = "not in allowlist"
             ComputedKey::LastSegment
         );
         assert!("bogus".parse::<ComputedKey>().is_err());
+    }
+
+    #[test]
+    fn evaluate_dispatches_last_segment_to_cfdb_core_helper() {
+        // The dispatch surface MUST agree byte-for-byte with the
+        // canonical `cfdb_core::qname::last_segment` (RFC-035 §3.3).
+        // This unit test pins the agreement on a representative input
+        // set; the self-dogfood integration test extends it to every
+        // `:Item` in cfdb's own extracted keyspace.
+        let inputs = ["foo::bar::baz", "foo", "", "cfdb_core::qname::last_segment"];
+        for q in inputs {
+            assert_eq!(
+                ComputedKey::LastSegment.evaluate(q),
+                cfdb_core::qname::last_segment(q),
+                "dispatch ≠ canonical helper for input {q:?}",
+            );
+        }
     }
 }

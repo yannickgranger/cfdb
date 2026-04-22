@@ -178,28 +178,12 @@ impl KeyspaceState {
 
         for stale in before_set.difference(&after_set) {
             let (label, tag, value) = *stale;
-            let outer_key = (label.clone(), tag.clone());
-            if let Some(inner) = self.by_prop.get_mut(&outer_key) {
-                if let Some(set) = inner.get_mut(value) {
-                    set.remove(&idx);
-                    if set.is_empty() {
-                        inner.remove(value);
-                    }
-                }
-                if inner.is_empty() {
-                    self.by_prop.remove(&outer_key);
-                }
-            }
+            crate::index::posting::remove_posting(&mut self.by_prop, label, tag, value, idx);
         }
 
         for fresh in after_set.difference(&before_set) {
             let (label, tag, value) = *fresh;
-            self.by_prop
-                .entry((label.clone(), tag.clone()))
-                .or_default()
-                .entry(value.clone())
-                .or_default()
-                .insert(idx);
+            crate::index::posting::insert_posting(&mut self.by_prop, label, tag, value, idx);
         }
     }
 
@@ -330,7 +314,7 @@ mod index_build_tests {
                     "last_segment(qname)" => {
                         let qname = node.props.get("qname").and_then(PropValue::as_str);
                         qname
-                            .map(|q| crate::index::build::last_segment_of(q) == value)
+                            .map(|q| cfdb_core::qname::last_segment(q) == value)
                             .unwrap_or(false)
                     }
                     other => node

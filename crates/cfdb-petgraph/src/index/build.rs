@@ -6,14 +6,15 @@
 //! re-ingest maintenance path share one code path — and lets unit tests
 //! exercise edge cases without wiring a full graph.
 //!
-//! # v0.1 scope and slice 3 interaction
+//! # Computed-key dispatch (RFC-035 §3.3 invariant ownership)
 //!
-//! `ComputedKey::LastSegment` is evaluated inline here via
-//! [`last_segment_of`] — a direct `rsplit_once("::")` split. Slice 3
-//! (#182) moves this split to `cfdb_core::qname::last_segment` and
-//! swaps the call here for the core helper, tightening the invariant
-//! that `cfdb-core::qname` owns qname structure (RFC-035 §3.3 / R1 B3).
-//! Until slice 3 lands, this module is the transient invariant owner.
+//! Computed keys (`IndexEntry::Computed { computed, ... }`) dispatch
+//! through [`ComputedKey::evaluate`](crate::index::spec::ComputedKey::evaluate),
+//! which routes each variant to its canonical `cfdb_core::qname::*`
+//! helper. `LastSegment` calls [`cfdb_core::qname::last_segment`] —
+//! `cfdb-core::qname` is the workspace's invariant owner for qname
+//! structure (RFC-035 §3.3 / R1 B3), and there is no parallel
+//! `last_segment` helper anywhere in `cfdb-petgraph`.
 
 use cfdb_core::fact::{Node, PropValue};
 use cfdb_core::schema::Label;
@@ -46,17 +47,6 @@ pub(crate) fn index_key_of(pv: &PropValue) -> Option<IndexValue> {
         PropValue::Int(n) => Some(n.to_string()),
         PropValue::Bool(b) => Some(b.to_string()),
         PropValue::Float(_) | PropValue::Null => None,
-    }
-}
-
-/// Inline last-segment split — splits the input at the final `::` and
-/// returns the trailing segment, or the whole string when no `::` is
-/// present. Slice 3 (#182) replaces this with a call to the canonical
-/// `cfdb_core::qname::last_segment` helper; see module-level note.
-pub(crate) fn last_segment_of(qname: &str) -> &str {
-    match qname.rsplit_once("::") {
-        Some((_, tail)) => tail,
-        None => qname,
     }
 }
 
@@ -93,9 +83,7 @@ pub(crate) fn entry_value_for_node(
                 ComputedKey::LastSegment => node.props.get("qname")?,
             };
             let source = raw.as_str()?;
-            let derived = match computed {
-                ComputedKey::LastSegment => last_segment_of(source).to_string(),
-            };
+            let derived = computed.evaluate(source).to_string();
             Some((label, computed.as_str().to_string(), derived))
         }
     }
@@ -130,13 +118,6 @@ mod tests {
         // Value chosen to avoid clippy::approx_constant (not 3.14 / 2.71).
         assert_eq!(index_key_of(&PropValue::Float(1.5_f64)), None);
         assert_eq!(index_key_of(&PropValue::Null), None);
-    }
-
-    #[test]
-    fn last_segment_of_matches_qname_grammar() {
-        assert_eq!(last_segment_of("foo::bar::baz"), "baz");
-        assert_eq!(last_segment_of("foo"), "foo");
-        assert_eq!(last_segment_of(""), "");
     }
 
     #[test]
