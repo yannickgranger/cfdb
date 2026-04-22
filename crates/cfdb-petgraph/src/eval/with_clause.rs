@@ -12,7 +12,7 @@ use super::util::{projection_alias, propvalue_sort_key};
 use super::{Binding, Bindings, Evaluator};
 
 impl<'a> Evaluator<'a> {
-    pub(super) fn apply_with(&mut self, table: Vec<Bindings>, with: &WithClause) -> Vec<Bindings> {
+    pub(super) fn apply_with(&self, table: Vec<Bindings>, with: &WithClause) -> Vec<Bindings> {
         let has_aggregation = with
             .projections
             .iter()
