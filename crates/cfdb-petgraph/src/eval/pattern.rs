@@ -183,12 +183,7 @@ impl<'a> Evaluator<'a> {
     /// [`Self::build_path_binding`]. Split out of `apply_path_pattern` to
     /// keep cognitive complexity below the project ceiling (RFC-031 §5 /
     /// issue #26).
-    fn emit_path_bindings(
-        &self,
-        out: &mut Vec<Bindings>,
-        bindings: &Bindings,
-        pp: &PathPattern,
-    ) {
+    fn emit_path_bindings(&self, out: &mut Vec<Bindings>, bindings: &Bindings, pp: &PathPattern) {
         let from_candidates = self.resolve_endpoint(bindings, &pp.from);
         for src_idx in from_candidates {
             if !self.node_props_match(src_idx, &pp.from) {
