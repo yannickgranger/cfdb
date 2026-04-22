@@ -45,6 +45,8 @@ use petgraph::stable_graph::NodeIndex;
 use crate::graph::KeyspaceState;
 
 #[cfg(test)]
+mod cross_match_tests;
+#[cfg(test)]
 mod fast_path_tests;
 mod pattern;
 mod predicate;

@@ -110,7 +110,10 @@ fn final_set(
 ) -> BTreeSet<NodeIndex> {
     let params: BTreeMap<String, Param> = BTreeMap::new();
     let eval = Evaluator::new(state, &params);
-    eval.candidate_nodes(np, where_clause)
+    // Slice-5 surface: no incoming bindings (single-MATCH). Slice-6
+    // cross-MATCH lookups pass the per-row bindings instead.
+    let empty_bindings = crate::eval::Bindings::new();
+    eval.candidate_nodes(np, where_clause, &empty_bindings)
         .into_iter()
         .filter(|idx| eval.node_props_match(*idx, np))
         .collect()
