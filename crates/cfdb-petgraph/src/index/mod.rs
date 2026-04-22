@@ -21,6 +21,8 @@
 
 pub(crate) mod build;
 pub(crate) mod lookup;
+#[cfg(test)]
+mod lookup_tests;
 pub(crate) mod posting;
 pub mod spec;
 
