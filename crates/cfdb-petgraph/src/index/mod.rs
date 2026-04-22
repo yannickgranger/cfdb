@@ -20,6 +20,7 @@
 //! concern).
 
 pub(crate) mod build;
+pub(crate) mod lookup;
 pub(crate) mod posting;
 pub mod spec;
 
