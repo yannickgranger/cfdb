@@ -34,8 +34,9 @@ pub enum EnrichVerb {
     /// `enrich_reachability` — BFS from `:EntryPoint` over `CALLS*`
     /// (slice 43-G).
     Reachability,
-    /// `enrich_metrics` — complexity/unwraps/clones-in-loops (deferred
-    /// out of #43 scope per RFC addendum §A2.2).
+    /// `enrich_metrics` — `unwrap_count` + `cyclomatic` + `test_coverage`
+    /// + `dup_cluster_id` on `:Item{kind:"fn"}` (RFC-036 §3.3 / issue
+    /// #203, producer lands behind the `quality-metrics` feature).
     Metrics,
 }
 
