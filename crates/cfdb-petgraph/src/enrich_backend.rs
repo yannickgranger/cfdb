@@ -148,6 +148,67 @@ impl EnrichBackend for PetgraphStore {
             .expect("keyspace presence checked above");
         Ok(crate::enrich::reachability::run(state))
     }
+
+    fn enrich_metrics(
+        &mut self,
+        keyspace: &cfdb_core::schema::Keyspace,
+    ) -> Result<cfdb_core::enrich::EnrichReport, StoreError> {
+        if !self.keyspaces.contains_key(keyspace) {
+            return Err(StoreError::UnknownKeyspace(keyspace.clone()));
+        }
+        Ok(enrich_metrics_dispatch(self, keyspace))
+    }
+}
+
+/// Feature-off path — `quality-metrics` gates syn (+ sha2) out of default
+/// builds. Without the feature the verb still exists and dispatches here,
+/// returning a `ran: false` report whose warning names the feature flag
+/// (RFC-036 §3.3 / issue #203).
+#[cfg(not(feature = "quality-metrics"))]
+fn enrich_metrics_dispatch(
+    _store: &mut PetgraphStore,
+    _keyspace: &cfdb_core::schema::Keyspace,
+) -> cfdb_core::enrich::EnrichReport {
+    cfdb_core::enrich::EnrichReport {
+        verb: "enrich_metrics".into(),
+        ran: false,
+        facts_scanned: 0,
+        attrs_written: 0,
+        edges_written: 0,
+        warnings: vec![
+            "enrich_metrics: built without `quality-metrics` feature — recompile `cfdb-cli` with `--features quality-metrics` to populate unwrap_count + cyclomatic + dup_cluster_id (and additionally `--features llvm-cov` for test_coverage) per RFC-036 §3.3 / issue #203"
+                .into(),
+        ],
+    }
+}
+
+/// Feature-on path — requires a `workspace_root` on the store so syn can
+/// re-parse source files referenced by `:Item{kind:"Fn"}.file`. If the
+/// store was built without one, return a `ran: false` degraded report
+/// naming the configuration gap (mirrors `enrich_git_history_dispatch`).
+#[cfg(feature = "quality-metrics")]
+fn enrich_metrics_dispatch(
+    store: &mut PetgraphStore,
+    keyspace: &cfdb_core::schema::Keyspace,
+) -> cfdb_core::enrich::EnrichReport {
+    let Some(root) = store.workspace_root.clone() else {
+        return cfdb_core::enrich::EnrichReport {
+            verb: "enrich_metrics".into(),
+            ran: false,
+            facts_scanned: 0,
+            attrs_written: 0,
+            edges_written: 0,
+            warnings: vec![
+                "enrich_metrics: no workspace_root attached to PetgraphStore — construct via `PetgraphStore::new().with_workspace(root)` so the pass can re-parse source files referenced by :Item{kind:Fn}.file"
+                    .into(),
+            ],
+        };
+    };
+    let state = store
+        .keyspaces
+        .get_mut(keyspace)
+        .expect("keyspace presence checked by caller");
+    crate::enrich::metrics::run(state, &root, &crate::enrich::metrics::Config::default())
 }
 
 /// Feature-off path — the real pass is gated on `git-enrich` to keep libgit2

@@ -34,12 +34,35 @@ toml.workspace = true
 # cfdb-cli` default-features MUST have zero `git2` in its dep tree.
 git2 = { version = "0.20", default-features = false, optional = true }
 
+# Optional quality-metrics enrichment (issue #203 / RFC-036 §3.3). Gated
+# behind `quality-metrics` so default builds do NOT pay syn's parse cost
+# for ~150k :Item nodes on large target workspaces. DIP constraint
+# (RFC-036 CP6): `ast_signals.rs` parses syn directly from within
+# cfdb-petgraph. Dep direction `cfdb-petgraph → cfdb-extractor` is
+# forbidden.
+syn = { workspace = true, optional = true }
+# `dup_cluster_id` = sha256 of lex-sorted member qname set (CP5 /
+# RFC-036 §3.3). Same crate already pulled in by cfdb-cli for
+# extract-cache key hashing — net-zero workspace dep.
+sha2 = { workspace = true, optional = true }
+
 [features]
 default = []
 # Enables `PetgraphStore::enrich_git_history` real implementation; pulls
 # git2. Without this feature, the method returns a clear error directing
 # the caller to recompile with `--features git-enrich`.
 git-enrich = ["dep:git2"]
+# Enables `PetgraphStore::enrich_metrics` real implementation
+# (issue #203 / RFC-036 §3.3). Without this feature, the method returns
+# a clear warning directing the caller to recompile with
+# `--features quality-metrics`.
+quality-metrics = ["dep:syn", "dep:sha2"]
+# Sub-feature of `quality-metrics` that additionally populates
+# `:Item.test_coverage` from cargo-llvm-cov JSON output. Off by default
+# so CI runs that do not invoke llvm-cov skip the coverage JSON ingest
+# entirely. Excluded from G1 canonical-dump sha256 per G6 invariant
+# (`SchemaVersion::V0_3_1` doc / RFC-036 §3.3).
+llvm-cov = ["quality-metrics"]
 
 [dev-dependencies]
 serde_json.workspace = true

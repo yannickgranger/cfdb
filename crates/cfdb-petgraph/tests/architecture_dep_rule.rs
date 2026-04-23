@@ -44,6 +44,19 @@ const ALLOWED_DEPS: &[&str] = &[
     // backend never serialises TOML; the round-trip test goes through
     // `serde_json` instead.
     "toml",
+    // Backend-layer enrichment parsing: `enrich_metrics` re-parses source
+    // files with syn to compute `unwrap_count` + `cyclomatic` on
+    // :Item{kind:Fn} nodes (#203 / RFC-036 §3.3 / CP6). Optional; gated
+    // behind the `quality-metrics` feature so default builds stay syn-free.
+    // RFC-036 CP6 explicitly sanctions this dep direction: the alternative
+    // of routing through cfdb-extractor would be a `cfdb-petgraph →
+    // cfdb-extractor` edge, which is FORBIDDEN.
+    "syn",
+    // `dup_cluster_id = sha256(lex_sorted(member_qnames).join("\n"))`
+    // (#203 / RFC-036 §3.3 CP5). Optional; gated behind `quality-metrics`
+    // alongside syn. Already a workspace dep (used by cfdb-cli for the
+    // extract-cache key hash) — net-zero new workspace cost.
+    "sha2",
 ];
 
 /// Crates that MUST NEVER appear in cfdb-petgraph's `[dependencies]` section.
@@ -61,7 +74,12 @@ const FORBIDDEN_DEPS: &[&str] = &[
     "cfdb-cli",
     "cfdb-http",
     // Heavy crates that belong in their respective adapter crates.
-    "syn",
+    //
+    // NB: `syn` moved from FORBIDDEN to ALLOWED as of #203 (RFC-036 §3.3
+    // CP6). The alternative — routing through cfdb-extractor — would be a
+    // `cfdb-petgraph → cfdb-extractor` edge, which violates RFC-029 §8.
+    // `syn` remains optional (feature-gated on `quality-metrics`) so default
+    // builds pay no compile cost.
     "proc-macro2",
     "quote",
     "ra-ap-hir",
