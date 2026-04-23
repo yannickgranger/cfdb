@@ -16,3 +16,7 @@ target-*/
 .baseline/
 .transform/
 council/
+
+# cfdb keyspace staleness tracker (per-worktree)
+.cfdb/current.sha
+.cfdb/db/
