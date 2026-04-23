@@ -1,6 +1,6 @@
 //! Published-language crates loader — `.cfdb/published-language-crates.toml`.
 //!
-//! DDD Published Language marker loader per RFC-cfdb-v0.2-addendum §A1.8
+//! DDD Published Language marker loader per RFC-cfdb.md Addendum B §A1.8
 //! (issue #100). Declares which crates publish a "Published Language"
 //! intentionally consumed across bounded contexts. The `:Finding`
 //! classifier (issue #48) reads the materialised `:Crate.published_language`
@@ -145,23 +145,23 @@ pub fn load_published_language_crates(
             source: Box::new(source),
         })?;
 
+    if let Some(dup) = first_duplicate_name(&parsed.crates) {
+        return Err(LoadError::Io {
+            path,
+            source: std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "duplicate crate name `{dup}` in published-language-crates.toml — \
+                     silent last-wins is forbidden; remove the duplicate entry"
+                ),
+            ),
+        });
+    }
+
     let mut by_crate: BTreeMap<String, PublishedLanguageEntry> = BTreeMap::new();
     for entry in parsed.crates {
-        let name = entry.name;
-        if by_crate.contains_key(&name) {
-            return Err(LoadError::Io {
-                path: path.clone(),
-                source: std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    format!(
-                        "duplicate crate name `{name}` in published-language-crates.toml — \
-                         silent last-wins is forbidden; remove the duplicate entry"
-                    ),
-                ),
-            });
-        }
         by_crate.insert(
-            name,
+            entry.name,
             PublishedLanguageEntry {
                 language: entry.language,
                 owning_context: entry.owning_context,
@@ -171,6 +171,20 @@ pub fn load_published_language_crates(
     }
 
     Ok(PublishedLanguageCrates { by_crate })
+}
+
+/// Single-pass duplicate detection. Returns the first repeated `name`
+/// in TOML order, or `None` when every entry is unique. Hoisted out of
+/// the insertion loop so the per-iteration body of [`load`] holds no
+/// `.clone()` of the file path.
+fn first_duplicate_name(crates: &[PublishedLanguageCrateEntry]) -> Option<&str> {
+    let mut seen: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+    for entry in crates {
+        if !seen.insert(entry.name.as_str()) {
+            return Some(entry.name.as_str());
+        }
+    }
+    None
 }
 
 #[cfg(test)]

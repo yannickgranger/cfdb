@@ -1,5 +1,5 @@
 //! Architecture test — `Finding` MUST NOT carry any skill-related field
-//! (issue #48, council BLOCK-1 from RFC-cfdb-v0.2-addendum-draft.md §A2.2).
+//! (issue #48, council BLOCK-1 from RFC-cfdb.md §A2.2).
 //!
 //! Embedding a `fix_skill` / `skill` / `skill_name` field in `Finding`
 //! couples the classifier (data layer) to the orchestration policy

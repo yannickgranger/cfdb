@@ -27,5 +27,5 @@ output rows: the `valuation` pair MUST surface under
 `signature_divergent`, the `place_order` pair MUST NOT.
 
 See `docs/udfs.md` for the UDF reference and
-`docs/RFC-cfdb-v0.2-addendum-draft.md` §A1.5 v0.2-8 gate for the
+`docs/RFC-cfdb.md` §A1.5 v0.2-8 gate for the
 classifier-level intent.

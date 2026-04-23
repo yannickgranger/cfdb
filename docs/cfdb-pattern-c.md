@@ -1,6 +1,6 @@
 # Pattern C — canonical bypass (generalized)
 
-RFC reference: [`RFC-cfdb-v0.2-addendum-draft.md`](RFC-cfdb-v0.2-addendum-draft.md) §A1.4.
+RFC reference: [`RFC-cfdb.md`](RFC-cfdb.md) §A1.4.
 
 Pattern C identifies wiring bugs in which a canonical resolver for a
 concept exists in the graph (declared via
@@ -212,7 +212,7 @@ For a given concept, the expected reading order is:
   with the rule content piped in via `"$(cat <rule>)"` until
   `violations --params` ships.
 
-## Motivating qbot-core backlog
+## Motivating backlog
 
 | Issue | Shape | Verdict in fixture |
 |---|---|---|

@@ -3,7 +3,7 @@ title: "RFC-032: v0.2 extractor cohort — issues #35–#51 grouped and sequence
 status: Draft
 date: 2026-04-19
 authors: cfdb-architects council (rust-systems lens)
-parent: docs/RFC-cfdb.md (RFC-029 v0.1), docs/RFC-cfdb-v0.2-addendum-draft.md (RFC-029 §A1–§A6), docs/RFC-031-audit-cleanup.md
+parent: docs/RFC-cfdb.md (RFC-029 v0.1), docs/RFC-cfdb.md (RFC-029 §A1–§A6), docs/RFC-031-audit-cleanup.md
 ---
 
 # RFC-032 — v0.2 extractor cohort: issues #35–#51

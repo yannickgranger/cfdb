@@ -146,3 +146,69 @@ fn load_rejects_incompatible_schema_version() {
         err
     );
 }
+
+/// AC3 (RFC-035 slice 4 / #183) — legacy v0.2 keyspaces written
+/// before the index subsystem landed MUST load bit-identically. The
+/// wire format is unchanged (RFC-035 §3.7); the file carries only
+/// `schema_version` + `nodes` + `edges` (no `by_prop`, no
+/// `index_spec`). `persist::load` must accept any version `can_read`
+/// allows — i.e. same-major and `<= CURRENT`.
+///
+/// This test pins a hand-crafted V0_2_2 envelope (one minor below
+/// CURRENT V0_2_3 at slice 4 merge time) with two `:Item` nodes and
+/// asserts: load returns `Ok(())`; the loaded keyspace exposes both
+/// nodes via `export`; `canonical_dump` is non-empty. Regressions
+/// would surface if either (a) the version gate accidentally rejects
+/// a legacy compatible version, or (b) future code adds an
+/// unconditional read of an index-related field that breaks the
+/// legacy shape.
+#[test]
+fn load_accepts_legacy_v0_2_keyspace_with_no_index_fields() {
+    let dir = tempdir().expect("tempdir");
+    let path = dir.path().join("legacy.json");
+    let legacy = r#"{
+      "schema_version": { "major": 0, "minor": 2, "patch": 2 },
+      "nodes": [
+        {
+          "id": "item:legacy_crate::Foo",
+          "label": "Item",
+          "props": {
+            "qname": "legacy_crate::Foo",
+            "kind": "struct",
+            "crate": "legacy-crate"
+          }
+        },
+        {
+          "id": "item:legacy_crate::bar",
+          "label": "Item",
+          "props": {
+            "qname": "legacy_crate::bar",
+            "kind": "fn",
+            "crate": "legacy-crate"
+          }
+        }
+      ],
+      "edges": []
+    }"#;
+    std::fs::write(&path, legacy).expect("tempdir is writable");
+
+    let mut store = PetgraphStore::new();
+    let ks = Keyspace::new("legacy");
+    persist::load(&mut store, &ks, &path).expect("legacy v0.2 keyspace must load");
+
+    let (nodes, edges) = store.export(&ks).expect("export legacy keyspace");
+    assert_eq!(nodes.len(), 2, "both legacy nodes must round-trip");
+    assert_eq!(edges.len(), 0, "no edges in fixture");
+
+    let dump = store
+        .canonical_dump(&ks)
+        .expect("canonical_dump over loaded legacy keyspace");
+    assert!(
+        !dump.is_empty(),
+        "canonical_dump must reflect the loaded legacy state"
+    );
+    assert!(
+        dump.contains("legacy_crate::Foo"),
+        "canonical_dump must include the legacy item qnames"
+    );
+}

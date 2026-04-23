@@ -2,6 +2,72 @@
 
 All notable changes to cfdb will be documented in this file.
 
+## [0.2.0] - 2026-04-23
+
+### 🚀 Features
+
+- *(oss)* Gitea→GitHub one-way mirror + contributor-feedback CI
+- *(index)* IndexSpec + .cfdb/indexes.toml loader ([#180](https://github.com/yannickgranger/cfdb/issues/180))
+- *(index)* By_prop build pass + stale-entry removal ([#181](https://github.com/yannickgranger/cfdb/issues/181))
+- *(qname,index)* Last_segment helper + ComputedKey::evaluate dispatch ([#182](https://github.com/yannickgranger/cfdb/issues/182))
+- *(persist,eval)* Rebuild on load + Cypher last_segment unification ([#183](https://github.com/yannickgranger/cfdb/issues/183))
+- *(eval,index)* Candidate_nodes fast paths via by_prop ([#184](https://github.com/yannickgranger/cfdb/issues/184))
+- *(eval,index)* Cross-MATCH posting-list intersection ([#185](https://github.com/yannickgranger/cfdb/issues/185))
+- *(cli,store)* Composition-root wiring for .cfdb/indexes.toml ([#186](https://github.com/yannickgranger/cfdb/issues/186))
+
+### 🐛 Bug Fixes
+
+- *(oss)* Rename secret GITHUB_MIRROR_PAT → MIRROR_PAT
+- *(cfdb-recall)* Serialise rustdoc-json build across parallel tests
+- *([#169](https://github.com/yannickgranger/cfdb/issues/169))* Push $context filter into Cypher (classifier)
+- *([#169](https://github.com/yannickgranger/cfdb/issues/169))* Drop unused scalar_str import after filter removal
+- *([#170](https://github.com/yannickgranger/cfdb/issues/170))* Borrow node_id through reference accumulator
+- *([#170](https://github.com/yannickgranger/cfdb/issues/170))* Add missing 'a lifetime on find_references scanned arg
+- *([#171](https://github.com/yannickgranger/cfdb/issues/171))* Defer author_email and path clones to first-insert
+- *([#171](https://github.com/yannickgranger/cfdb/issues/171))* Bind commit.author() to a local before borrowing email()
+- *([#172](https://github.com/yannickgranger/cfdb/issues/172))* Chain edge iterators instead of collect+extend
+- *([#168](https://github.com/yannickgranger/cfdb/issues/168))* Stream binding table through MATCH pipeline
+- *(boy-scout [#182](https://github.com/yannickgranger/cfdb/issues/182))* Metrics + architecture quality fixes
+- *(boy-scout [#182](https://github.com/yannickgranger/cfdb/issues/182))* Wire Makefile graph-specs-check target
+
+### 🚜 Refactor
+
+- *(petgraph)* Extract AC1 round-trip test to sibling #[cfg(test)] mod
+- *([#184](https://github.com/yannickgranger/cfdb/issues/184))* Extract lookup tests to sibling file
+
+### 📚 Documentation
+
+- Fill out README, scrub target-workspace leaks
+- *([#195](https://github.com/yannickgranger/cfdb/issues/195))* Trim PLAN-v1 + add PLAN-v2 substrate for next RFC
+- *([#51](https://github.com/yannickgranger/cfdb/issues/51))* Merge RFC-029 v0.2 addendum into parent RFC-cfdb.md
+- *([#199](https://github.com/yannickgranger/cfdb/issues/199))* Ratify RFC-036 — cfdb v2 (HSB/VSB/raid validation)
+
+### ⚡ Performance
+
+- *([#184](https://github.com/yannickgranger/cfdb/issues/184))* Zero-alloc intersection via Vec::retain
+
+### 🎨 Styling
+
+- *([#169](https://github.com/yannickgranger/cfdb/issues/169))* Auto-fmt regression test
+- *([#172](https://github.com/yannickgranger/cfdb/issues/172))* Auto-fmt after iterator chain refactor
+- *([#168](https://github.com/yannickgranger/cfdb/issues/168))* Auto-fmt after streaming rewrite
+- *([#180](https://github.com/yannickgranger/cfdb/issues/180))* Auto-fmt
+- *([#181](https://github.com/yannickgranger/cfdb/issues/181))* Clippy cleanup (approx_constant + unnecessary_get_then_check)
+- *([#184](https://github.com/yannickgranger/cfdb/issues/184))* Iterator-chain form in collect_pattern_hints
+- *([#184](https://github.com/yannickgranger/cfdb/issues/184))* Cargo fmt on extracted lookup_tests.rs
+- *([#185](https://github.com/yannickgranger/cfdb/issues/185))* Compress pattern.rs docs to stay under 500-LoC ceiling
+- *([#185](https://github.com/yannickgranger/cfdb/issues/185))* Drop unused PropValue import in test file
+- *([#185](https://github.com/yannickgranger/cfdb/issues/185))* Cargo fmt on target_dogfood_tests
+
+### 🧪 Testing
+
+- *([#169](https://github.com/yannickgranger/cfdb/issues/169))* Add red regression test for context filter pushdown
+- *([#185](https://github.com/yannickgranger/cfdb/issues/185))* Target-dogfood measurement against qbot-core
+
+### ⚙️ Miscellaneous Tasks
+
+- *(oss)* Remove agent-workflow cruft from tracked tree
+- *(oss)* Scrub private infra refs from root files
 ## [0.1.0] - 2026-04-21
 
 ### 🚀 Features

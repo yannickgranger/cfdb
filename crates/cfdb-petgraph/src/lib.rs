@@ -17,8 +17,15 @@ mod canonical_dump;
 mod enrich;
 mod enrich_backend;
 mod eval;
+pub mod explain;
 mod graph;
+pub mod index;
 pub mod persist;
+
+#[cfg(test)]
+mod graph_round_trip_tests;
+#[cfg(test)]
+mod with_indexes_tests;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -33,6 +40,7 @@ use petgraph::visit::IntoEdgeReferences;
 use crate::canonical_dump::canonical_dump;
 use crate::eval::Evaluator;
 use crate::graph::KeyspaceState;
+use crate::index::spec::IndexSpec;
 
 /// In-memory petgraph-backed store. One `StableDiGraph` per keyspace.
 ///
@@ -54,6 +62,14 @@ pub struct PetgraphStore {
     /// `EnrichBackend` port signature — clean-arch B4 resolution
     /// (`council/43/clean-arch.md`).
     pub(crate) workspace_root: Option<PathBuf>,
+
+    /// Index spec carried at the store level. Each newly-created
+    /// [`KeyspaceState`] is bound to this spec via
+    /// [`KeyspaceState::new_with_spec`] so per-keyspace `by_prop` gets
+    /// populated on ingest (RFC-035 §3.8 — the composition-root ships
+    /// one `IndexSpec` that flows to every keyspace the store owns).
+    /// Empty by default — existing callers get identical behaviour.
+    pub(crate) index_spec: IndexSpec,
 }
 
 impl Default for PetgraphStore {
@@ -72,6 +88,7 @@ impl PetgraphStore {
             keyspaces: BTreeMap::new(),
             schema_version: SchemaVersion::CURRENT,
             workspace_root: None,
+            index_spec: IndexSpec::empty(),
         }
     }
 
@@ -87,6 +104,16 @@ impl PetgraphStore {
         self
     }
 
+    /// Attach an [`IndexSpec`]. Every [`KeyspaceState`] the store creates
+    /// from this point on is bound to `spec`, so `ingest_nodes` /
+    /// `persist::load` populate per-keyspace `by_prop` posting lists.
+    /// Symmetric to [`Self::with_workspace`]; chain after `new` at the
+    /// composition root. RFC-035 §3.8.
+    pub fn with_indexes(mut self, spec: IndexSpec) -> Self {
+        self.index_spec = spec;
+        self
+    }
+
     /// Return the attached workspace root, if any. Slices 43-D and 43-F
     /// will consume this to locate `docs/rfc/*.md` and
     /// `.cfdb/concepts/*.toml` without modifying the `EnrichBackend` port
@@ -95,11 +122,22 @@ impl PetgraphStore {
         self.workspace_root.as_deref()
     }
 
-    /// Return a reference to a keyspace, creating it if missing.
+    /// Return a reference to the store-level [`IndexSpec`]. Mirrors
+    /// [`Self::workspace_root`] — lets the composition root and test
+    /// harnesses inspect what `with_indexes` received without widening
+    /// the mutation surface. RFC-035 §3.8.
+    pub fn index_spec(&self) -> &IndexSpec {
+        &self.index_spec
+    }
+
+    /// Return a reference to a keyspace, creating it if missing. New
+    /// keyspaces inherit the store's [`Self::index_spec`] so on-ingest
+    /// `by_prop` population is active from the first node (RFC-035 §3.8).
     fn keyspace_mut(&mut self, keyspace: &Keyspace) -> &mut KeyspaceState {
         if !self.keyspaces.contains_key(keyspace) {
+            let spec = self.index_spec.clone();
             self.keyspaces
-                .insert(keyspace.clone(), KeyspaceState::new());
+                .insert(keyspace.clone(), KeyspaceState::new_with_spec(spec));
         }
         self.keyspaces
             .get_mut(keyspace)
@@ -120,6 +158,30 @@ impl PetgraphStore {
             .map(|e| e.weight().clone())
             .collect();
         Ok((nodes, edges))
+    }
+
+    /// Slice-7 (#186) concrete sibling of [`StoreBackend::execute`].
+    /// Returns both the `QueryResult` and a trace of
+    /// [`crate::explain::ExplainRow`] describing how each
+    /// `candidate_nodes` invocation was satisfied (indexed fast path vs
+    /// full-scan fallback). NOT on `StoreBackend` — the index
+    /// observability surface stays internal to `cfdb-petgraph` per
+    /// RFC-035 §4 (StoreBackend trait is untouched).
+    pub fn execute_explained(
+        &self,
+        keyspace: &Keyspace,
+        query: &Query,
+    ) -> Result<(QueryResult, Vec<crate::explain::ExplainRow>), StoreError> {
+        let state = self
+            .keyspaces
+            .get(keyspace)
+            .ok_or_else(|| StoreError::UnknownKeyspace(keyspace.clone()))?;
+        let (mut result, explain) =
+            Evaluator::new_with_explain(state, &query.params).run_explained(query);
+        let mut prepended = state.ingest_warnings.clone();
+        prepended.append(&mut result.warnings);
+        result.warnings = prepended;
+        Ok((result, explain))
     }
 }
 

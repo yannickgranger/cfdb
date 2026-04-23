@@ -5,7 +5,7 @@
 // through the call graph and resolve the *same* concept under
 // divergent names. When both are reachable from one user-facing entry
 // point, the system has two resolution paths for one concept — the
-// canonical Pattern B failure mode (RFC-cfdb-v0.2-addendum §A1.3).
+// canonical Pattern B failure mode (RFC-cfdb.md Addendum B §A1.3).
 //
 // # What this MVP detects (v0.2 reduced form)
 //

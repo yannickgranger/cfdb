@@ -125,6 +125,33 @@ pub fn normalize_impl_target(raw: &str) -> String {
     out
 }
 
+/// Trailing segment of a `::`-delimited qname — splits at the **last**
+/// `::` and returns the portion after it. Inputs containing no `::`
+/// (a degenerate-but-valid qname carrying just an item name) are
+/// returned unchanged.
+///
+/// Canonical owner of the `last_segment` formula for the entire
+/// workspace (RFC-035 §3.3 / R1 B3 — `cfdb-core::qname` is cfdb's
+/// invariant owner for qname structure). Every consumer that needs a
+/// `last_segment` value MUST route through this function — including
+/// the `:Item` index-build dispatch in `cfdb-petgraph::index` (called
+/// via [`ComputedKey::evaluate`](../../../cfdb_petgraph/index/spec/enum.ComputedKey.html#method.evaluate),
+/// not directly), and any future consumer.
+///
+/// Round-trips with the qname constructors in this module:
+/// `last_segment(item_qname(stack, name)) == name`,
+/// `last_segment(method_qname(stack, target, method)) == method`. The
+/// `qname_contract_sync` test module asserts this property mechanically
+/// on a sampled set of stacks so a future change to either
+/// [`module_qpath`] or this function fails the build instead of
+/// silently drifting.
+///
+/// Pure: zero allocations, returns a borrowed slice into the input.
+#[must_use]
+pub fn last_segment(qname: &str) -> &str {
+    qname.rsplit_once("::").map_or(qname, |(_, tail)| tail)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -317,5 +344,118 @@ mod tests {
             item_node_id(&q),
             "item:cfdb_extractor::item_visitor::ItemVisitor::emit_item"
         );
+    }
+
+    #[test]
+    fn last_segment_returns_trailing_segment_after_double_colon() {
+        assert_eq!(last_segment("foo::bar::baz"), "baz");
+    }
+
+    #[test]
+    fn last_segment_returns_input_unchanged_when_no_separator() {
+        assert_eq!(last_segment("foo"), "foo");
+    }
+
+    #[test]
+    fn last_segment_handles_empty_input() {
+        assert_eq!(last_segment(""), "");
+    }
+}
+
+/// Mechanical guarantor of the qname-contract-drift invariant
+/// (RFC-035 §3.3 invariant 2 / §5.2 solid-architect NIT).
+///
+/// `last_segment` is the inverse of the trailing-name-append operation
+/// performed by [`item_qname`] and [`method_qname`]. If either side of
+/// that pairing changes shape — for example, if [`module_qpath`] starts
+/// emitting a different separator, or [`item_qname`] alters how it
+/// joins the trailing name — these assertions fail at build time and
+/// catch the drift before any downstream consumer (the index-build
+/// dispatch in `cfdb-petgraph::index`, the Cypher `last_segment()`
+/// UDF, the extractor's `:CallSite.callee_last_segment` prop) sees
+/// silently divergent values.
+///
+/// The fixtures mirror the `module_qpath` / `item_qname` /
+/// `method_qname` test stacks so a future update to those tests
+/// naturally extends here.
+#[cfg(test)]
+mod qname_contract_sync {
+    use super::*;
+
+    fn stack(elements: &[&str]) -> Vec<String> {
+        elements.iter().map(|s| (*s).to_string()).collect()
+    }
+
+    #[test]
+    fn last_segment_recovers_item_name_from_item_qname() {
+        let cases: &[(&[&str], &str)] = &[
+            (&["cfdb_core", "schema", "labels"], "Label"),
+            (&["cfdb_cli", "commands"], "bind_json_params"),
+            (&["cfdb_extractor"], "ItemVisitor"),
+            (&["cfdb_petgraph", "index", "spec"], "ComputedKey"),
+        ];
+        for (s, name) in cases {
+            let q = item_qname(&stack(s), name);
+            assert_eq!(
+                last_segment(&q),
+                *name,
+                "drift: item_qname({s:?}, {name:?}) → {q:?} but last_segment recovered {:?}",
+                last_segment(&q)
+            );
+        }
+    }
+
+    #[test]
+    fn last_segment_recovers_method_name_from_method_qname() {
+        let cases: &[(&[&str], &str, &str)] = &[
+            (&["cfdb_cli", "commands"], "Store", "open"),
+            (
+                &["cfdb_extractor", "item_visitor"],
+                "ItemVisitor",
+                "emit_item",
+            ),
+            (&["cfdb_core", "fact"], "Vec<Node>", "push"),
+            (
+                &["cfdb_petgraph", "index", "spec"],
+                "ComputedKey",
+                "evaluate",
+            ),
+        ];
+        for (s, target, method) in cases {
+            let q = method_qname(&stack(s), target, method);
+            assert_eq!(
+                last_segment(&q),
+                *method,
+                "drift: method_qname({s:?}, {target:?}, {method:?}) → {q:?} but last_segment recovered {:?}",
+                last_segment(&q)
+            );
+        }
+    }
+
+    #[test]
+    fn last_segment_consistent_with_module_qpath_then_append() {
+        // last_segment(module_qpath(stack) + "::" + name) == name — the
+        // exact wording of the RFC §5.2 NIT.
+        let cases: &[(&[&str], &str)] = &[
+            (&["cfdb_core", "schema", "labels"], "Label"),
+            (&["cfdb_cli"], "bind_json_params"),
+        ];
+        for (s, name) in cases {
+            let qpath = module_qpath(&stack(s));
+            let q = format!("{qpath}::{name}");
+            assert_eq!(last_segment(&q), *name);
+        }
+    }
+
+    #[test]
+    fn last_segment_recovers_trailing_token_after_node_id_strip() {
+        // Round-trip: build a node id, strip the prefix, then ask for
+        // the last segment — the stripping is independent of the
+        // splitter, but the whole composition is what production code
+        // does (`qname_from_node_id` followed by `last_segment`).
+        let q = item_qname(&stack(&["cfdb_extractor", "item_visitor"]), "ItemVisitor");
+        let node_id = item_node_id(&q);
+        let bare = qname_from_node_id(&node_id);
+        assert_eq!(last_segment(bare), "ItemVisitor");
     }
 }
