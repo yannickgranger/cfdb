@@ -48,8 +48,9 @@ pub(crate) fn load_from_path(path: &Path, warnings: &mut Vec<String>) -> BTreeMa
 }
 
 /// Parse an `llvm-cov export --format=text` JSON blob into
-/// `qname → coverage_ratio` map (ratio in [0.0, 1.0]).
-pub fn parse_llvm_cov_json(json: &str) -> Result<BTreeMap<String, f64>, String> {
+/// `qname → coverage_ratio` map (ratio in [0.0, 1.0]). `pub(crate)` —
+/// consumed by `load_from_path` + unit tests.
+pub(crate) fn parse_llvm_cov_json(json: &str) -> Result<BTreeMap<String, f64>, String> {
     let doc: LlvmCovDoc = serde_json::from_str(json).map_err(|e| format!("{e}"))?;
     let mut out: BTreeMap<String, f64> = BTreeMap::new();
     for data_entry in &doc.data {

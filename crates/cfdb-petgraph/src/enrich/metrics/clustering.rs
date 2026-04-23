@@ -22,11 +22,12 @@ use super::FnItem;
 
 /// Compute `dup_cluster_id` for every item whose `signature_hash`
 /// matches at least one other item. Returns a `BTreeMap` keyed by
-/// `qname` → cluster id hex string.
+/// `qname` → cluster id hex string. `pub(crate)` — consumed by
+/// `metrics::mod::run` and unit tests.
 ///
 /// Items missing a `signature_hash` prop are excluded — clustering is
 /// undefined for them.
-pub fn compute_dup_cluster_ids(items: &[FnItem]) -> BTreeMap<String, String> {
+pub(crate) fn compute_dup_cluster_ids(items: &[FnItem]) -> BTreeMap<String, String> {
     let mut by_sig: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for item in items {
         let Some(sig) = item.signature_hash.as_deref() else {
@@ -52,8 +53,9 @@ pub fn compute_dup_cluster_ids(items: &[FnItem]) -> BTreeMap<String, String> {
 }
 
 /// `sha256(lex_sorted(members).join("\n"))` → hex. Extracted for unit
-/// testability independent of the grouping loop.
-pub fn hash_cluster(members_unsorted: &[String]) -> String {
+/// testability independent of the grouping loop. `pub(crate)` — not
+/// part of the external API.
+pub(crate) fn hash_cluster(members_unsorted: &[String]) -> String {
     let mut sorted: Vec<&str> = members_unsorted.iter().map(String::as_str).collect();
     sorted.sort_unstable();
     let joined = sorted.join("\n");

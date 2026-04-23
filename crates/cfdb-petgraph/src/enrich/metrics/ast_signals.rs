@@ -78,8 +78,9 @@ fn parse_file(path: &Path) -> Result<syn::File, String> {
 
 /// Find the first `fn` item with matching `ident == name` anywhere in
 /// the file (including nested in `impl` / `mod`) and compute its
-/// signals. Returns `None` if no match.
-pub fn compute_for_item(file: &syn::File, name: &str) -> Option<AstSignals> {
+/// signals. Returns `None` if no match. `pub(crate)` — consumed only
+/// by `scan_workspace` and unit tests.
+pub(crate) fn compute_for_item(file: &syn::File, name: &str) -> Option<AstSignals> {
     let mut finder = FnFinder {
         target: name,
         found: None,
@@ -120,8 +121,8 @@ impl<'ast, 'a> Visit<'ast> for FnFinder<'a> {
 }
 
 /// Compute signals for a single block. Pure function over `syn::Block`.
-/// Exposed for unit tests.
-pub fn compute_for_block(block: &syn::Block) -> AstSignals {
+/// `pub(crate)` — used by `compute_for_item` + unit tests only.
+pub(crate) fn compute_for_block(block: &syn::Block) -> AstSignals {
     let mut v = SignalVisitor::default();
     v.visit_block(block);
     AstSignals {
