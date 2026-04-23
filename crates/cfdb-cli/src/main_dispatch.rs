@@ -218,11 +218,18 @@ pub(crate) fn dispatch_enrich(cmd: Command) -> Result<(), CfdbCliError> {
     {
         return enrich(db, keyspace, EnrichVerb::Concepts, workspace);
     }
+    if let Command::EnrichMetrics {
+        db,
+        keyspace,
+        workspace,
+    } = cmd
+    {
+        return enrich(db, keyspace, EnrichVerb::Metrics, workspace);
+    }
 
     let (db, keyspace, verb) = match cmd {
         Command::EnrichDeprecation { db, keyspace } => (db, keyspace, EnrichVerb::Deprecation),
         Command::EnrichReachability { db, keyspace } => (db, keyspace, EnrichVerb::Reachability),
-        Command::EnrichMetrics { db, keyspace } => (db, keyspace, EnrichVerb::Metrics),
         other => {
             // Unreachable — the caller pattern-matches on the seven enrich
             // variants before calling us. An unexpected command here is a

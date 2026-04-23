@@ -322,11 +322,37 @@ impl SchemaVersion {
         patch: 0,
     };
 
+    /// **v0.3.1 — RFC-036 §3.3 enrich_metrics producer landing (#203).**
+    /// Previously-reserved `EnrichMetrics`-provenance attrs on `:Item`
+    /// (`unwrap_count`, `cyclomatic`, `test_coverage`, `dup_cluster_id`)
+    /// are now populated by `PetgraphStore::enrich_metrics` when the
+    /// `quality-metrics` feature is active. The attrs were described in
+    /// V0_3_0 but not emitted; V0_3_1 keyspaces carry real values.
+    ///
+    /// **Additive and non-breaking within 0.3.x.** V0_3_0 readers
+    /// loading a V0_3_1 keyspace see the previously-reserved attrs
+    /// populated rather than absent and ignore them (per
+    /// `AttributeDescriptor` contract — consumers never rely on absence).
+    ///
+    /// **G6 invariant:** `test_coverage` is toolchain-version-scoped
+    /// (depends on `cargo-llvm-cov` output) and therefore excluded from
+    /// the G1 canonical-dump sha256. Documented in `SchemaDescribe`
+    /// output so downstream consumers know not to G1-compare across
+    /// toolchain bumps.
+    ///
+    /// Paired lockstep `graph-specs-rust` cross-fixture bump per cfdb
+    /// CLAUDE.md §3 / RFC-033 §4 I2.
+    pub const V0_3_1: Self = Self {
+        major: 0,
+        minor: 3,
+        patch: 1,
+    };
+
     /// The schema version this build of cfdb-core writes and reads.
     /// Producers tag every keyspace persist with `CURRENT`. Consumers use
     /// `CURRENT.can_read(&file.schema_version)` to reject forward-
     /// incompatible graphs per G4.
-    pub const CURRENT: Self = Self::V0_3_0;
+    pub const CURRENT: Self = Self::V0_3_1;
 
     pub fn new(major: u16, minor: u16, patch: u16) -> Self {
         Self {

@@ -15,6 +15,7 @@
 //! | `enrich_bounded_context` | [`bounded_context`] | 43-E | #108 | — |
 //! | `enrich_concepts` | [`concepts`] | 43-F | #109 | — |
 //! | `enrich_reachability` | [`reachability`] | 43-G | #110 | — |
+//! | `enrich_metrics` | [`metrics`] | RFC-036 §3.3 | #203 | `quality-metrics` |
 //!
 //! Phase D enrichment set complete. `enrich_deprecation` ships as an
 //! extractor-time fact (slice 43-C / #106) — its EnrichBackend method is a
@@ -49,3 +50,13 @@ pub(crate) mod concepts;
 // Degraded path when keyspace has zero entry points: ran=false + warning
 // (clean-arch B3). Closes the Phase D enrichment set.
 pub(crate) mod reachability;
+
+// Issue #203 / RFC-036 §3.3 — populates previously-reserved
+// `EnrichMetrics`-provenance attrs (`unwrap_count`, `cyclomatic`,
+// `test_coverage`, `dup_cluster_id`) on `:Item{kind:"Fn"}` by re-parsing
+// source files with `syn` (stateless full re-walk). Gated behind
+// `quality-metrics` so default builds avoid syn's parse cost on large
+// target workspaces. DIP constraint (RFC-036 CP6): parses syn directly;
+// dep direction `cfdb-petgraph → cfdb-extractor` is forbidden.
+#[cfg(feature = "quality-metrics")]
+pub(crate) mod metrics;

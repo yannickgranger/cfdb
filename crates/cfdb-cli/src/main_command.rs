@@ -179,16 +179,29 @@ pub(crate) enum Command {
         keyspace: String,
     },
 
-    /// Enrich a keyspace with quality-signal facts (complexity, unwraps,
-    /// clones-in-loops). Phase A stub — **deferred out of #43 scope** per
-    /// RFC amendment §A2.2: orthogonal to the debt-cause classifier
-    /// pipeline. Surface retained so a future RFC can resuscitate it
-    /// without a breaking rename.
+    /// Enrich a keyspace with quality-signal facts
+    /// (`unwrap_count`, `cyclomatic`, `test_coverage`, `dup_cluster_id`)
+    /// on `:Item{kind:"fn"}` nodes. Populated by `PetgraphStore::enrich_metrics`
+    /// (RFC-036 §3.3 / issue #203) when the binary is built with
+    /// `--features quality-metrics`. Without the feature the verb dispatches
+    /// to a `ran: false` report naming the missing feature flag.
+    ///
+    /// `--workspace` is required for the real pass — syn re-parses source
+    /// files referenced by `:Item.file`. A stored keyspace with its own
+    /// `workspace_root` (from a prior `--workspace` extract) overrides an
+    /// omitted `--workspace` here; otherwise the pass returns a degraded
+    /// report.
     EnrichMetrics {
         #[arg(long)]
         db: PathBuf,
         #[arg(long)]
         keyspace: String,
+        /// Workspace-root path handed to the store before dispatching —
+        /// required for the real pass to re-parse source files. Mirrors
+        /// the `--workspace` flag shared by every workspace-scanning
+        /// enrichment verb (#43 slices B/D/E/F).
+        #[arg(long)]
+        workspace: Option<PathBuf>,
     },
 
     /// Typed verb — find the canonical definition of a concept.
