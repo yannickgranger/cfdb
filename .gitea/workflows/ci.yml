@@ -159,6 +159,18 @@ jobs:
             ./target/release/cfdb violations --db .cfdb/db --keyspace cfdb-self --rule "$rule"
           done
 
+      - name: Edge-liveness (RFC-037 §3.7 informational)
+        continue-on-error: true
+        run: |
+          cd repo
+          # Issue #222 — flag declared edge labels with zero instances in
+          # the cfdb-self keyspace. v0.3.0 policy: informational (log the
+          # output, do not block merge). v0.4.0: promote to blocking
+          # ban rule after one release cycle of observation. The step is
+          # marked continue-on-error so a dormant-label finding surfaces
+          # in the CI log but does not fail the job.
+          CFDB_BIN="$(pwd)/target/release/cfdb" bash ci/edge-liveness.sh
+
       - name: Cross-dogfood — cfdb on graph-specs-rust (RFC-033 §3.2)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
