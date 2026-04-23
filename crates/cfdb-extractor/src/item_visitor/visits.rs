@@ -87,6 +87,12 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
                 &type_normalized,
             );
         }
+        // REGISTERS_PARAM for MCP `#[tool]` fns is emitted HIR-side in
+        // `cfdb-hir-extractor::entry_point_emitter` — it owns
+        // `:EntryPoint` node emission and therefore has a valid src id
+        // in the keyspace. Emitting from here would produce dangling
+        // edges that `cfdb-petgraph::ingest_one_edge` drops silently
+        // (graph.rs:204), making the producer invisible in the graph.
         walk_call_sites_with_test_flag(
             self.emitter,
             &caller_qname,

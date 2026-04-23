@@ -327,6 +327,17 @@ impl ItemVisitor<'_> {
             label: Label::new(Label::PARAM),
             props,
         });
+        // Queue TYPE_OF resolution (RFC-037 §3.4, #220). Skip trivial
+        // renderings (`"?"`) that definitely won't resolve; the resolver
+        // tolerates non-resolves silently but skipping saves work. The
+        // source node id (`id`) is captured now because by the time the
+        // post-walk pass runs, `parent_qname` + `index` alone are not
+        // enough to reconstruct it without re-deriving the formula.
+        if type_normalized != "?" {
+            self.emitter
+                .deferred_type_of
+                .push((id.clone(), type_normalized.to_string(), "Param"));
+        }
         self.emitter.emit_edge(Edge {
             src: item_node_id(parent_qname),
             dst: id,
@@ -368,6 +379,16 @@ impl ItemVisitor<'_> {
             label: Label::new(Label::FIELD),
             props,
         });
+        // Queue TYPE_OF resolution (RFC-037 §3.4, #220). Skip trivial
+        // renderings (`"?"`) that definitely won't resolve; the resolver
+        // tolerates non-resolves silently but skipping saves work. The
+        // source node id (`id`) is the `:Field` node id, not the owning
+        // struct/variant — TYPE_OF edges flow Field → Item.
+        if type_normalized != "?" {
+            self.emitter
+                .deferred_type_of
+                .push((id.clone(), type_normalized.to_string(), "Field"));
+        }
         self.emitter.emit_edge(Edge {
             src: src_id.to_string(),
             dst: id,

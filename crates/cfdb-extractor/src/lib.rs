@@ -153,6 +153,20 @@ pub fn extract_workspace(workspace_root: &Path) -> Result<(Vec<Node>, Vec<Edge>)
     // common wrappers is tracked in RFC-037 §6 non-goals.
     resolve_deferred_returns(&mut emitter);
 
+    // Step 4 (post-walk) — TYPE_OF resolution (RFC-037 §3.4, #220).
+    //
+    // Same resolution strategy as RETURNS: exact-match against
+    // `emitted_item_qnames` with a unique-last-segment fallback for
+    // short rendered types (e.g. `"Bar"` → `"mycrate::Bar"`). The
+    // generic-stripping limitation (`render_type_string` renders
+    // `Vec<T>` as `"Vec"`) carries over from RETURNS — wrapper-wrapped
+    // same-crate types silently do not emit a TYPE_OF edge. Source
+    // labels in the deferred queue are restricted to `:Field` and
+    // `:Param`; variant-level TYPE_OF is a follow-up (variant payloads
+    // are already walked as `:Field` nodes which queue their own
+    // TYPE_OF entries).
+    resolve_deferred_type_of(&mut emitter);
+
     let (mut nodes, mut edges) = emitter.finish();
     nodes.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
     edges.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
@@ -330,6 +344,69 @@ fn resolve_deferred_returns(emitter: &mut Emitter) {
     }
 }
 
+/// Post-walk TYPE_OF resolution (RFC-037 §3.4, #220).
+///
+/// Iterates every entry queued in `emitter.deferred_type_of` and emits
+/// a `TYPE_OF` edge from the source `:Field` / `:Param` node id to the
+/// referenced type's `:Item` when the rendered type string resolves to
+/// a qname recorded in `emitter.emitted_item_qnames`. Resolution logic
+/// mirrors [`resolve_deferred_returns`]: exact-match first, then a
+/// unique-last-segment fallback for short rendered types. Ambiguous
+/// last-segments (same short name declared in multiple workspace
+/// crates) emit no edge — the same safer-than-mis-attribution policy
+/// the RETURNS resolver uses.
+///
+/// The third tuple slot (`source_label`) is informational only
+/// (`"Field"` or `"Param"`); the edge's `dst` is always
+/// `item_node_id(target_qname)` and the `src` is the pre-computed
+/// source node id queued at emit time. Variants are not queued from
+/// here — a variant's payload is walked into separate `:Field` nodes
+/// which queue their own TYPE_OF entries. Variant-level TYPE_OF is
+/// a documented follow-up (RFC-037 §3.4 / #220 non-goals).
+///
+/// Determinism (G1): the resulting TYPE_OF edges land in
+/// `emitter.edges` before the final `edges.sort_by(sort_key)` pass
+/// in [`extract_workspace`], so on-disk ordering is independent of
+/// queue iteration order.
+fn resolve_deferred_type_of(emitter: &mut Emitter) {
+    let deferred: Vec<(String, String, &'static str)> =
+        std::mem::take(&mut emitter.deferred_type_of);
+
+    // Build the last-segment index once — same shape as the RETURNS
+    // resolver. Ambiguous last-segments are marked `None` and drop
+    // silently at lookup time.
+    let mut by_last_segment: BTreeMap<&str, Option<&String>> = BTreeMap::new();
+    for qname in &emitter.emitted_item_qnames {
+        let seg = cfdb_core::qname::last_segment(qname);
+        by_last_segment
+            .entry(seg)
+            .and_modify(|v| *v = None) // ambiguous — drop
+            .or_insert(Some(qname));
+    }
+
+    let mut resolved: Vec<(String, String)> = Vec::new();
+    for (src_id, type_string, _label) in &deferred {
+        let target = if emitter.emitted_item_qnames.contains(type_string) {
+            Some(type_string.clone())
+        } else {
+            let seg = cfdb_core::qname::last_segment(type_string);
+            by_last_segment.get(seg).copied().flatten().cloned()
+        };
+        if let Some(target_qname) = target {
+            resolved.push((src_id.clone(), target_qname));
+        }
+    }
+
+    for (src_id, target_qname) in resolved {
+        emitter.emit_edge(Edge {
+            src: src_id,
+            dst: cfdb_core::qname::item_node_id(&target_qname),
+            label: EdgeLabel::new(EdgeLabel::TYPE_OF),
+            props: BTreeMap::new(),
+        });
+    }
+}
+
 /// Shared node/edge sink. Every submodule that walks the AST holds a
 /// `&mut Emitter` and pushes into these vectors; the outer
 /// [`extract_workspace`] owns the instance and calls [`Emitter::finish`]
@@ -364,6 +441,17 @@ pub(crate) struct Emitter {
     /// emitted; if the type string resolves to a qname in
     /// `emitted_item_qnames`, a `RETURNS` edge is pushed.
     pub(crate) deferred_returns: Vec<(String, String)>,
+    /// Deferred TYPE_OF edges — `(source_node_id, rendered_type_string,
+    /// source_label)` where `source_label` is `"Field"` or `"Param"`.
+    /// Walked in [`extract_workspace`]'s Step 4 post-walk pass; emits
+    /// a `TYPE_OF` edge from the source `:Field` / `:Param` node to
+    /// the `:Item` whose qname matches the rendered type (exact or
+    /// unique last-segment fallback), mirroring the RETURNS resolver.
+    /// Variants are not queued from here — a variant's payload is
+    /// walked into separate `:Field` nodes which queue their own
+    /// TYPE_OF entries. Variant-level TYPE_OF is a documented
+    /// follow-up (RFC-037 §3.4 / #220 non-goals).
+    pub(crate) deferred_type_of: Vec<(String, String, &'static str)>,
 }
 
 impl Emitter {
@@ -373,6 +461,7 @@ impl Emitter {
             edges: Vec::new(),
             emitted_item_qnames: std::collections::BTreeSet::new(),
             deferred_returns: Vec::new(),
+            deferred_type_of: Vec::new(),
         }
     }
 
