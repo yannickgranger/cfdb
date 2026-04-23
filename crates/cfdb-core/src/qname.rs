@@ -75,6 +75,19 @@ pub fn item_node_id(qname: &str) -> String {
     format!("item:{qname}")
 }
 
+/// Canonical `:Param` node-id form (#209, RFC-036 §3.1 CP1).
+///
+/// Parameters of the same fn are disambiguated by positional index,
+/// never by name — a fn can legitimately have two params named `_`
+/// (wildcard patterns) and must still get distinct node ids.
+/// Extractors (syn-based today, HIR-based tomorrow) must route
+/// through this function so cross-extractor `HAS_PARAM` /
+/// `REGISTERS_PARAM` edges target the same node id.
+#[must_use]
+pub fn param_node_id(parent_qname: &str, index: usize) -> String {
+    format!("param:{parent_qname}#{index}")
+}
+
 /// Inverse of [`item_node_id`] — strip the `item:` prefix off a node
 /// id to recover the bare qname. Callers sometimes round-trip an Item
 /// node id back to its qname to pass through a helper that expects
@@ -457,5 +470,15 @@ mod qname_contract_sync {
         let node_id = item_node_id(&q);
         let bare = qname_from_node_id(&node_id);
         assert_eq!(last_segment(bare), "ItemVisitor");
+    }
+
+    #[test]
+    fn param_node_id_disambiguates_by_index_not_name() {
+        // A fn with two wildcard params must produce two distinct
+        // node ids — the index is load-bearing, name alone is not.
+        let parent = "crate::module::fn_name";
+        assert_eq!(param_node_id(parent, 0), "param:crate::module::fn_name#0");
+        assert_eq!(param_node_id(parent, 1), "param:crate::module::fn_name#1");
+        assert_ne!(param_node_id(parent, 0), param_node_id(parent, 1));
     }
 }
