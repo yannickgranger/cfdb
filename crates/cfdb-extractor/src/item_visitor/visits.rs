@@ -18,6 +18,39 @@ use crate::type_render::{render_fn_signature, render_path, render_type_string};
 
 use super::{parse_syn_visibility, span_line, ItemVisitor};
 
+/// Extract `(name, is_self, type_path, type_normalized)` for one
+/// `syn::FnArg`. Wildcard patterns (`_`) and non-ident patterns
+/// collapse to an empty `name`. Receiver shape (`&self`, `&mut self`,
+/// `self`) is rendered as `&Self`, `&mut Self`, or `Self` so cross-
+/// extractor consumers see a stable string. §6.4 semantic
+/// normalization is deferred; today `type_path` and `type_normalized`
+/// share the rendered source form (#209 / RFC-036 §3.1).
+fn param_info(arg: &syn::FnArg) -> (String, bool, String, String) {
+    match arg {
+        syn::FnArg::Receiver(r) => {
+            let mut ty = String::new();
+            if r.reference.is_some() {
+                ty.push('&');
+                if r.mutability.is_some() {
+                    ty.push_str("mut ");
+                }
+            } else if r.mutability.is_some() {
+                ty.push_str("mut ");
+            }
+            ty.push_str("Self");
+            ("self".to_string(), true, ty.clone(), ty)
+        }
+        syn::FnArg::Typed(pt) => {
+            let name = match pt.pat.as_ref() {
+                syn::Pat::Ident(pi) => pi.ident.to_string(),
+                _ => String::new(),
+            };
+            let ty = render_type_string(&pt.ty);
+            (name, false, ty.clone(), ty)
+        }
+    }
+}
+
 impl<'ast> Visit<'ast> for ItemVisitor<'_> {
     fn visit_item_fn(&mut self, node: &'ast syn::ItemFn) {
         let name = node.sig.ident.to_string();
@@ -33,6 +66,17 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
             Some(&signature),
         );
         let caller_qname = qname_from_node_id(&id).to_string();
+        for (index, arg) in node.sig.inputs.iter().enumerate() {
+            let (name, is_self, type_path, type_normalized) = param_info(arg);
+            self.emit_param(
+                &caller_qname,
+                index,
+                &name,
+                is_self,
+                &type_path,
+                &type_normalized,
+            );
+        }
         walk_call_sites_with_test_flag(
             self.emitter,
             &caller_qname,
@@ -132,6 +176,10 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
             label: EdgeLabel::new(EdgeLabel::IN_CRATE),
             props: BTreeMap::new(),
         });
+        for (index, arg) in node.sig.inputs.iter().enumerate() {
+            let (name, is_self, type_path, type_normalized) = param_info(arg);
+            self.emit_param(&qname, index, &name, is_self, &type_path, &type_normalized);
+        }
         walk_call_sites_with_test_flag(self.emitter, &qname, &self.file_path, &node.block, is_test);
     }
 

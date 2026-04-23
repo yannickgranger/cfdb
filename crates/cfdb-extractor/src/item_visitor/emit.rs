@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 
 use cfdb_core::fact::{Edge, Node, PropValue};
-use cfdb_core::qname::{item_node_id, item_qname, module_qpath};
+use cfdb_core::qname::{item_node_id, item_qname, module_qpath, param_node_id};
 use cfdb_core::schema::{EdgeLabel, Label};
 
 use crate::attrs::{attrs_contain_hash_test, extract_cfg_feature_gate, extract_deprecated_attr};
@@ -276,6 +276,48 @@ impl ItemVisitor<'_> {
             src: item_node_id(parent_qname),
             dst: cs_id,
             label: EdgeLabel::new(EdgeLabel::INVOKES_AT),
+            props: BTreeMap::new(),
+        });
+    }
+
+    /// Emit one `:Param` node + `HAS_PARAM` edge for a fn/method
+    /// parameter (#209, RFC-036 §3.1). Canonical id formula lives in
+    /// `cfdb-core::qname::param_node_id`; every extractor (syn-based
+    /// today, HIR-based tomorrow) routes through it so
+    /// `REGISTERS_PARAM` edges emitted by the HIR side land on the
+    /// same `:Param` node ids these emit.
+    pub(super) fn emit_param(
+        &mut self,
+        parent_qname: &str,
+        index: usize,
+        name: &str,
+        is_self: bool,
+        type_path: &str,
+        type_normalized: &str,
+    ) {
+        let id = param_node_id(parent_qname, index);
+        let mut props = BTreeMap::new();
+        props.insert("index".into(), PropValue::Int(index as i64));
+        props.insert("is_self".into(), PropValue::Bool(is_self));
+        props.insert("name".into(), PropValue::Str(name.to_string()));
+        props.insert(
+            "parent_qname".into(),
+            PropValue::Str(parent_qname.to_string()),
+        );
+        props.insert(
+            "type_normalized".into(),
+            PropValue::Str(type_normalized.to_string()),
+        );
+        props.insert("type_path".into(), PropValue::Str(type_path.to_string()));
+        self.emitter.emit_node(Node {
+            id: id.clone(),
+            label: Label::new(Label::PARAM),
+            props,
+        });
+        self.emitter.emit_edge(Edge {
+            src: item_node_id(parent_qname),
+            dst: id,
+            label: EdgeLabel::new(EdgeLabel::HAS_PARAM),
             props: BTreeMap::new(),
         });
     }
