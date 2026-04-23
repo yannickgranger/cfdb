@@ -19,7 +19,7 @@ use std::fs;
 use std::path::Path;
 
 use cfdb_core::fact::{Node, PropValue};
-use cfdb_core::qname::item_node_id;
+use cfdb_core::qname::{field_node_id, item_node_id, variant_node_id};
 use cfdb_core::schema::{EdgeLabel, Label};
 use cfdb_hir_extractor::{build_hir_database, extract_entry_points};
 use tempfile::tempdir;
@@ -441,5 +441,200 @@ pub fn mount_ws_inline(upgrade: WebSocketUpgrade) -> Response {
             .iter()
             .any(|e| e.label.as_str() == EdgeLabel::EXPOSES && e.dst == expected),
         "expected EXPOSES edge to {expected}"
+    );
+}
+
+// ---------------------------------------------------------------
+// Issue #219 — REGISTERS_PARAM producer (clap + Subcommand paths)
+// ---------------------------------------------------------------
+//
+// The HIR-side producer owns two rows of the §3.1 crate-ownership
+// table:
+//
+// - `#[derive(Parser)]` struct → one REGISTERS_PARAM edge per
+//   `#[arg(...)]`-carrying named field, pointing at the syn-side
+//   `:Field` node id produced via `field_node_id`.
+// - `#[derive(Subcommand)]` enum → one REGISTERS_PARAM edge per
+//   declared variant (the transitional approximation from §3.1 N1),
+//   pointing at the syn-side `:Variant` node id produced via
+//   `variant_node_id`.
+//
+// The HIR side does NOT emit `:Field` / `:Variant` nodes — only edges.
+// In a full `cfdb extract --features hir` run the syn-side pipeline
+// emits the target nodes; these tests only assert the edge shape
+// because the HIR harness here runs `extract_entry_points` in
+// isolation.
+
+#[test]
+fn clap_parser_struct_emits_one_registers_param_per_arg_field() {
+    // `#[derive(Parser)]` struct with 3 `#[arg]` fields + 1 plain
+    // field (no `#[arg]`). Expect exactly 3 REGISTERS_PARAM edges,
+    // dsts = field_node_id(struct_qname, field_name) for each.
+    let tmp = tempdir().expect("tempdir");
+    let root = tmp.path();
+    write(root, "Cargo.toml", &workspace_cargo_toml(&["clapargs"]));
+    write(root, "clapargs/Cargo.toml", &member_cargo_toml("clapargs"));
+    write(
+        root,
+        "clapargs/src/lib.rs",
+        r#"
+// Stand-in for clap's Parser derive — the producer detects the
+// derive syntactically (via `has_clap_derive`). The `#[arg(...)]`
+// helper attribute is also matched syntactically (last path segment
+// `arg`); ra_ap_syntax parses these helper attrs as plain
+// attributes regardless of whether `Parser` actually declares `arg`
+// as a helper in a real macro definition.
+pub trait Parser {}
+
+#[derive(Parser)]
+pub struct Cli {
+    #[arg(short, long)]
+    pub input: String,
+    #[arg(long)]
+    pub count: u32,
+    #[arg]
+    pub verbose: bool,
+    pub internal_only: String,
+}
+"#,
+    );
+
+    let (db, vfs) = build_hir_database(root).expect("build_hir_database on clapargs");
+    let (_nodes, edges) =
+        extract_entry_points(&db, &vfs).expect("extract_entry_points on clapargs");
+
+    let struct_qname = "clapargs::Cli";
+    let entry_point_id = format!("entrypoint:cli_command:{struct_qname}");
+    let register_edges: Vec<_> = edges
+        .iter()
+        .filter(|e| e.label.as_str() == EdgeLabel::REGISTERS_PARAM && e.src == entry_point_id)
+        .collect();
+    assert_eq!(
+        register_edges.len(),
+        3,
+        "expected 3 REGISTERS_PARAM edges for 3 #[arg] fields; got {}: {:?}",
+        register_edges.len(),
+        register_edges
+            .iter()
+            .map(|e| (&e.src, &e.dst))
+            .collect::<Vec<_>>(),
+    );
+
+    let mut dsts: Vec<&str> = register_edges.iter().map(|e| e.dst.as_str()).collect();
+    dsts.sort();
+    let expected = [
+        field_node_id(struct_qname, "count"),
+        field_node_id(struct_qname, "input"),
+        field_node_id(struct_qname, "verbose"),
+    ];
+    let expected_refs: Vec<&str> = expected.iter().map(String::as_str).collect();
+    assert_eq!(
+        dsts, expected_refs,
+        "REGISTERS_PARAM dsts must equal field_node_id(struct_qname, <arg-field-name>)"
+    );
+}
+
+#[test]
+fn clap_subcommand_enum_emits_one_registers_param_per_variant() {
+    // `#[derive(Subcommand)]` enum with 3 variants — expect 3
+    // REGISTERS_PARAM edges, dsts = variant_node_id(enum_qname, i)
+    // for i ∈ [0, 1, 2] (declaration order). This is the transitional
+    // approximation from §3.1 N1; per-variant-field granularity is a
+    // follow-up RFC.
+    let tmp = tempdir().expect("tempdir");
+    let root = tmp.path();
+    write(root, "Cargo.toml", &workspace_cargo_toml(&["subcmd"]));
+    write(root, "subcmd/Cargo.toml", &member_cargo_toml("subcmd"));
+    write(
+        root,
+        "subcmd/src/lib.rs",
+        r#"
+pub trait Subcommand {}
+
+#[derive(Subcommand)]
+pub enum Command {
+    Run,
+    Stop { force: bool },
+    Status(String),
+}
+"#,
+    );
+
+    let (db, vfs) = build_hir_database(root).expect("build_hir_database on subcmd");
+    let (_nodes, edges) = extract_entry_points(&db, &vfs).expect("extract_entry_points on subcmd");
+
+    let enum_qname = "subcmd::Command";
+    let entry_point_id = format!("entrypoint:cli_command:{enum_qname}");
+    let register_edges: Vec<_> = edges
+        .iter()
+        .filter(|e| e.label.as_str() == EdgeLabel::REGISTERS_PARAM && e.src == entry_point_id)
+        .collect();
+    assert_eq!(
+        register_edges.len(),
+        3,
+        "expected 3 REGISTERS_PARAM edges for 3 variants; got {}: {:?}",
+        register_edges.len(),
+        register_edges
+            .iter()
+            .map(|e| (&e.src, &e.dst))
+            .collect::<Vec<_>>(),
+    );
+
+    let mut dsts: Vec<&str> = register_edges.iter().map(|e| e.dst.as_str()).collect();
+    dsts.sort();
+    let expected = [
+        variant_node_id(enum_qname, 0),
+        variant_node_id(enum_qname, 1),
+        variant_node_id(enum_qname, 2),
+    ];
+    let mut expected_refs: Vec<&str> = expected.iter().map(String::as_str).collect();
+    expected_refs.sort();
+    assert_eq!(
+        dsts, expected_refs,
+        "REGISTERS_PARAM dsts must equal variant_node_id(enum_qname, i) for i ∈ [0, 1, 2]"
+    );
+}
+
+#[test]
+fn clap_parser_struct_with_no_arg_fields_emits_zero_registers_param() {
+    // `#[derive(Parser)]` struct with zero `#[arg]`-annotated fields —
+    // the :EntryPoint still emits (the struct itself is recognised),
+    // but REGISTERS_PARAM count is zero.
+    let tmp = tempdir().expect("tempdir");
+    let root = tmp.path();
+    write(root, "Cargo.toml", &workspace_cargo_toml(&["noargs"]));
+    write(root, "noargs/Cargo.toml", &member_cargo_toml("noargs"));
+    write(
+        root,
+        "noargs/src/lib.rs",
+        r#"
+pub trait Parser {}
+
+#[derive(Parser)]
+pub struct Cli {
+    pub plain: String,
+}
+"#,
+    );
+
+    let (db, vfs) = build_hir_database(root).expect("build_hir_database on noargs");
+    let (nodes, edges) = extract_entry_points(&db, &vfs).expect("extract_entry_points on noargs");
+
+    // Sanity: the :EntryPoint still emits.
+    let eps = entry_points(&nodes);
+    assert_eq!(eps.len(), 1, "Parser struct still emits :EntryPoint");
+
+    // But no REGISTERS_PARAM edges.
+    let register_edges: Vec<_> = edges
+        .iter()
+        .filter(|e| e.label.as_str() == EdgeLabel::REGISTERS_PARAM)
+        .collect();
+    assert!(
+        register_edges.is_empty(),
+        "zero #[arg] fields → zero REGISTERS_PARAM edges; got {:?}",
+        register_edges
+            .iter()
+            .map(|e| (&e.src, &e.dst))
+            .collect::<Vec<_>>(),
     );
 }

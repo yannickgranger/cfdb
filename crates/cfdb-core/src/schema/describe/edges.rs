@@ -132,10 +132,20 @@ pub(super) fn edge_descriptors() -> Vec<EdgeLabelDescriptor> {
         },
         EdgeLabelDescriptor {
             label: EdgeLabel::new(EdgeLabel::REGISTERS_PARAM),
-            description: "An EntryPoint declares a registered parameter.".into(),
+            description: "An EntryPoint declares an entry-point-exposed input — \
+                          an MCP tool fn param (:Param), a clap `#[arg]` struct \
+                          field (:Field), or a clap `Subcommand` variant (:Variant). \
+                          Nodes on the target side keep their structural labels; \
+                          this edge carries the semantic that the target is \
+                          externally-facing."
+                .into(),
             attributes: vec![],
             from: vec![Label::new(Label::ENTRY_POINT)],
-            to: vec![Label::new(Label::PARAM)],
+            to: vec![
+                Label::new(Label::PARAM),
+                Label::new(Label::FIELD),
+                Label::new(Label::VARIANT),
+            ],
         },
         // ---- Concept overlay -------------------------------------------------
         EdgeLabelDescriptor {
