@@ -136,7 +136,11 @@ fn collect_fn_items(state: &KeyspaceState) -> Vec<FnItem> {
         .filter_map(|idx| {
             let node = state.graph.node_weight(idx)?;
             let kind = node.props.get("kind").and_then(PropValue::as_str)?;
-            if kind != "Fn" {
+            // Extractor emits lowercase `"fn"` per
+            // cfdb-extractor::item_visitor::visits.rs:61. The schema
+            // describe doc uses the Rust-camel-case `Fn` in prose but
+            // the on-wire value is lowercase.
+            if kind != "fn" {
                 return None;
             }
             let qname = node.props.get("qname").and_then(PropValue::as_str)?;
