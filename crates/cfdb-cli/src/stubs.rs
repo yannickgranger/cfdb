@@ -148,10 +148,10 @@ pub fn snapshots(db: PathBuf) -> Result<(), crate::CfdbCliError> {
     Ok(())
 }
 
-/// `cfdb diff` — Phase A stub. The snapshot diff verb ships in Phase B
-/// (RFC §6 SNAPSHOT). For now the CLI validates inputs and prints the empty
-/// `{added, removed, changed}` shape so consumers can develop against the
-/// final wire form.
+/// `cfdb diff` — Phase A stub. Real keyspace-to-keyspace diff ships as
+/// #212 (see RFC-cfdb.md §8 architecture diagram). For now the CLI
+/// validates inputs and prints the empty `{added, removed, changed}`
+/// shape so consumers can develop against the final wire form.
 pub fn diff(
     db: PathBuf,
     a: String,
@@ -178,8 +178,8 @@ pub fn diff(
     report.insert(
         "warnings".into(),
         serde_json::Value::Array(vec![serde_json::Value::String(
-            "diff: snapshot diff not implemented in v0.1 (Phase A — ships in Phase B \
-             per EPIC #3622)"
+            "diff: keyspace-to-keyspace diff not yet implemented (Phase A stub — \
+             real diff ships as #212)"
                 .into(),
         )]),
     );

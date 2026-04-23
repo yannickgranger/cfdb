@@ -311,7 +311,7 @@ pub(crate) enum Command {
     },
 
     /// Diff two keyspaces (added / removed / changed facts). Phase A stub —
-    /// the snapshot diff verb ships with the snapshot store in Phase B.
+    /// real keyspace-to-keyspace diff ships as #212.
     Diff {
         #[arg(long)]
         db: PathBuf,
