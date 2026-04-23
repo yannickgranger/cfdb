@@ -49,9 +49,7 @@ fn build_enriched_store() -> (PetgraphStore, Keyspace, usize) {
         .ingest_edges(&ks, edges)
         .expect("ingest extractor edges");
 
-    let report = store
-        .enrich_metrics(&ks)
-        .expect("enrich_metrics dispatch");
+    let report = store.enrich_metrics(&ks).expect("enrich_metrics dispatch");
     assert!(
         report.ran,
         "enrich_metrics must run with `quality-metrics` feature: {:?}",
@@ -105,13 +103,15 @@ fn self_dogfood_every_fn_item_has_unwrap_count_and_cyclomatic() {
     }
 
     assert_eq!(
-        missing_unwrap, 0,
+        missing_unwrap,
+        0,
         "{missing_unwrap} of {} :Item{{kind:Fn}} nodes missing `unwrap_count` — \
          enrich_metrics did not populate the attr on every function",
         fn_items.len()
     );
     assert_eq!(
-        missing_cyc, 0,
+        missing_cyc,
+        0,
         "{missing_cyc} of {} :Item{{kind:Fn}} nodes missing `cyclomatic`",
         fn_items.len()
     );

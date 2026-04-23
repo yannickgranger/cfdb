@@ -194,9 +194,8 @@ mod tests {
 
     #[test]
     fn three_unwraps_counted() {
-        let block = parse_block(
-            "{ let a = x.unwrap(); let b = y.expect(\"m\"); let c = z.unwrap(); }",
-        );
+        let block =
+            parse_block("{ let a = x.unwrap(); let b = y.expect(\"m\"); let c = z.unwrap(); }");
         let s = compute_for_block(&block);
         assert_eq!(s.unwrap_count, 3);
         assert_eq!(s.cyclomatic, 1);
@@ -240,10 +239,9 @@ mod tests {
 
     #[test]
     fn compute_for_item_finds_nested_impl_method() {
-        let file: syn::File = syn::parse_str(
-            "struct S; impl S { fn target(&self) -> i32 { x.unwrap() } }",
-        )
-        .expect("fixture parses");
+        let file: syn::File =
+            syn::parse_str("struct S; impl S { fn target(&self) -> i32 { x.unwrap() } }")
+                .expect("fixture parses");
         let s = compute_for_item(&file, "target").expect("finder locates impl method");
         assert_eq!(s.unwrap_count, 1);
         assert_eq!(s.cyclomatic, 1);

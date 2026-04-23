@@ -83,8 +83,7 @@ pub(crate) fn run(
     }
 
     // ast_signals: parse each distinct source file once, index by qname.
-    let signals_by_qname =
-        ast_signals::scan_workspace(&items, workspace_root, &mut warnings);
+    let signals_by_qname = ast_signals::scan_workspace(&items, workspace_root, &mut warnings);
 
     // Coverage: optional, subfeature-gated at the call site. Absent → empty map.
     let coverage_by_qname = match config.coverage_json.as_deref() {
@@ -193,10 +192,8 @@ fn apply_attrs(
             count = count.saturating_add(1);
         }
         if let Some(cluster_id) = clusters.get(&item.qname) {
-            node.props.insert(
-                "dup_cluster_id".into(),
-                PropValue::Str(cluster_id.clone()),
-            );
+            node.props
+                .insert("dup_cluster_id".into(), PropValue::Str(cluster_id.clone()));
             count = count.saturating_add(1);
         }
     }
