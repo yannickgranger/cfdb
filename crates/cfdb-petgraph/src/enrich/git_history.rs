@@ -14,7 +14,7 @@
 //!   `git rev-list HEAD --full-history -- <file>` semantics (no history
 //!   simplification), which is deliberately broader than `git log -- <file>`
 //!   default — the churn signal used by the downstream classifier
-//!   (`docs/RFC-cfdb-v0.2-addendum-draft.md` §A2.1 class 5 / §A2.2 row 1)
+//!   (`docs/RFC-cfdb.md` §A2.1 class 5 / §A2.2 row 1)
 //!   should count every commit that touched the file, including those on
 //!   branches later squashed out of mainline.
 //!

@@ -203,14 +203,14 @@ Adding a new public type to a cfdb crate requires adding its spec heading in the
 
 ## Status
 
-Under active development. v0.1 (syn extractor + petgraph store + Cypher subset + 10+ example queries + recall gate) is feature-complete on `develop`. v0.2 (HIR extractor, enrichment verbs, concept resolution) lands incrementally — see the `RFC-cfdb-v0.2-addendum-draft.md` in `docs/` for the roadmap.
+Under active development. v0.1 (syn extractor + petgraph store + Cypher subset + 10+ example queries + recall gate) is feature-complete on `develop`. v0.2 (HIR extractor, enrichment verbs, concept resolution) lands incrementally — see the `RFC-cfdb.md` in `docs/` for the roadmap.
 
 The wire schema (`SchemaVersion`) is versioned. Breaking changes bump it and are called out in release notes; non-breaking additions are documented in `SchemaDescribe` output.
 
 ## Documentation
 
 - Core RFC: [`docs/RFC-cfdb.md`](docs/RFC-cfdb.md) — rationale, schema, 9 motivating patterns.
-- v0.2 addendum: [`docs/RFC-cfdb-v0.2-addendum-draft.md`](docs/RFC-cfdb-v0.2-addendum-draft.md) — HIR extractor, enrichment pipeline.
+- v0.2 addendum: [`docs/RFC-cfdb.md`](docs/RFC-cfdb.md) — HIR extractor, enrichment pipeline.
 - Anti-drift gate: [`docs/RFC-030-anti-drift-gate.md`](docs/RFC-030-anti-drift-gate.md) — how cfdb integrates into PR-time gating.
 - Cross-dogfood with graph-specs: [`docs/RFC-033-cross-dogfood.md`](docs/RFC-033-cross-dogfood.md), runbook in [`docs/cross-fixture-bump.md`](docs/cross-fixture-bump.md).
 - Pattern references: [`docs/cfdb-pattern-b.md`](docs/cfdb-pattern-b.md), [`docs/cfdb-pattern-c.md`](docs/cfdb-pattern-c.md).

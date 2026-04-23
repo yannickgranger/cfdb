@@ -3,7 +3,7 @@ title: RFC-030 — Anti-drift gate: adopt graph-specs + cfdb self-dogfood
 status: Draft (revision 1 — 2026-04-19)
 date: 2026-04-19
 authors: cfdb-architects council (clean-arch lens)
-parent: docs/RFC-cfdb.md (RFC-029 v0.1), docs/RFC-cfdb-v0.2-addendum-draft.md (RFC-029 addendum)
+parent: docs/RFC-cfdb.md (RFC-029 v0.1), docs/RFC-cfdb.md (RFC-029 addendum)
 ---
 
 # RFC-030 — Anti-drift gate: adopt graph-specs + cfdb self-dogfood
@@ -549,7 +549,7 @@ Gate G5 is a continuous invariant, not a one-time check.
   9 problem patterns, the 16 API verbs (including `list_items_matching`
   as the 16th per council/RATIFIED.md §A.14), the fact schema, and the
   determinism invariants that the self-audit CI gate must not violate.
-- `docs/RFC-cfdb-v0.2-addendum-draft.md` — RFC-029 addendum, council
+- `docs/RFC-cfdb.md` — RFC-029 addendum, council
   second-pass GREEN 2026-04-14. Defines the six debt-cause classes
   (§A2.1), the CI BLOCK/WARN routing table (§A.8 in council/RATIFIED.md),
   and the no-allowlist rule (§A.9 in council/RATIFIED.md).

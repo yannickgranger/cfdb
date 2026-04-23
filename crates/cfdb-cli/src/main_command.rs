@@ -52,7 +52,7 @@ pub(crate) enum Command {
         ///      or `$HOME/.cache/cfdb/extract`), checks out `<sha>`, and
         ///      extracts. Auth inherits ambient git credentials. Accepted
         ///      URL schemes: `http://`, `https://`, `ssh://`, `file://`.
-        ///      (Issue #96 / RFC-cfdb-v0.2-addendum §A1.7, Option W
+        ///      (Issue #96 / RFC-cfdb.md Addendum B §A1.7, Option W
         ///      bilateral drift-lock.)
         #[arg(long)]
         rev: Option<String>,

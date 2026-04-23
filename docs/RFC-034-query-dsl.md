@@ -448,7 +448,7 @@ Slices 1 and 2 can ship in parallel (no file overlap). Slice 3 blocks on both. S
 - qbot-core RFC Study 003 v2.1 §19 Q8 (promoted blocker) — motivating consumer.
 - `council/RATIFIED.md` §A.14 — `.cfdb/queries/` ownership / scope-verb ratification.
 - `docs/RFC-cfdb.md` §6 (CLI inventory), §11 (wire form), §12.1 (determinism), §14 (error messages).
-- `docs/RFC-cfdb-v0.2-addendum-draft.md` §A1.6 — Study 003 S2 unblock condition.
+- `docs/RFC-cfdb.md` §A1.6 — Study 003 S2 unblock condition.
 - `docs/RFC-030-anti-drift-gate.md` — neighbouring RFC pattern (gate plus predicate; this RFC generalises the template mechanism).
 - `docs/RFC-033-cross-dogfood.md` §3.5 — `Tests:` block convention.
 - `crates/cfdb-query/src/parser/mod.rs` — parser re-use point.

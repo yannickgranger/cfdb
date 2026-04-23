@@ -5,7 +5,7 @@ enrichment-layer work under RFC addendum §A2.2; this doc describes
 what ships today and what the TODOs on the query file gate onto.
 
 Related:
-- RFC specification: `docs/RFC-cfdb-v0.2-addendum-draft.md` §A1.3
+- RFC specification: `docs/RFC-cfdb.md` §A1.3
 - Rule: `examples/queries/vertical-split-brain.cypher`
 - Ground-truth fixture: `examples/queries/fixtures/vertical-split-brain/`
 - Scar tests: `crates/cfdb-petgraph/tests/pattern_b_vertical_split_brain.rs`

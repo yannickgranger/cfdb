@@ -3,7 +3,7 @@
 // Finds pairs of fn / method `:Item`s that share a last-segment qname
 // across distinct bounded contexts but diverge on `:Item.signature`.
 // This is the load-bearing discriminator for the DDD Shared-Kernel-vs-
-// Homonym decision (RFC-cfdb-v0.2-addendum-draft §A1.5 gate v0.2-8,
+// Homonym decision (RFC-cfdb.md Addendum B-draft §A1.5 gate v0.2-8,
 // `council/RATIFIED.md` R1):
 //
 //   - IDENTICAL signature, cross-context → Shared Kernel (intentional

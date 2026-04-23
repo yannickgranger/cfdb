@@ -1,5 +1,5 @@
 //! Debt-class taxonomy and structured scope inventory
-//! (RFC-cfdb-v0.2-addendum-draft.md §A2 / §A3.3).
+//! (RFC-cfdb.md §A2 / §A3.3).
 //!
 //! `DebtClass` is the 6-variant canonical taxonomy used by the `cfdb scope`
 //! verb. `ScopeInventory` is the JSON envelope returned to consumer skills
@@ -9,7 +9,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Canonical debt-class taxonomy for the `cfdb scope` verb
-/// (RFC-cfdb-v0.2-addendum-draft.md §A2.1). The 6 variants are the exact
+/// (RFC-cfdb.md §A2.1). The 6 variants are the exact
 /// classes used by `ScopeInventory::findings_by_class` JSON buckets.
 ///
 /// Serde variant naming is `snake_case` so the JSON keys match the addendum
@@ -143,7 +143,7 @@ pub struct ReachabilityEntry {
 }
 
 /// Structured infection inventory for a bounded context
-/// (RFC-cfdb-v0.2-addendum-draft.md §A3.3). Returned by `cfdb scope
+/// (RFC-cfdb.md §A3.3). Returned by `cfdb scope
 /// --context <name>`. Pure data aggregation — no workflow hints,
 /// no raid-plan formatting; that is the consumer skill's concern
 /// (`/operate-module` per §A3.4).

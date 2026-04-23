@@ -97,7 +97,7 @@ pub fn extract_workspace(workspace_root: &Path) -> Result<(Vec<Node>, Vec<Edge>)
         .map_err(|e| ExtractError::Concepts(e.to_string()))?;
 
     // Step 1b (pre-walk): load `.cfdb/published-language-crates.toml`
-    // marker list (issue #100 / RFC-cfdb-v0.2-addendum §A1.8). Missing
+    // marker list (issue #100 / RFC-cfdb.md Addendum B §A1.8). Missing
     // file is not an error — empty map means every `:Crate` emits
     // `published_language: false`. Classifier (#48) suppresses false
     // Context-Homonym positives for declared published-language crates.

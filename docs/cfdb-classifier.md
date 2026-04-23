@@ -1,7 +1,7 @@
 # cfdb classifier (issue #48) — `:Finding` taxonomy and skill routing
 
 The classifier wires the six-class `DebtClass` taxonomy declared in
-RFC-cfdb-v0.2-addendum-draft.md §A2.1 into the `cfdb scope` verb. Each
+RFC-cfdb.md §A2.1 into the `cfdb scope` verb. Each
 `Finding` row in `ScopeInventory::findings_by_class[<class>]` is emitted
 by a dedicated Cypher rule in `examples/queries/classifier-*.cypher`
 and populated by the CLI orchestrator in `cfdb-cli/src/scope.rs`.

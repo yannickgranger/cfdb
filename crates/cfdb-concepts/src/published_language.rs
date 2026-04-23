@@ -1,6 +1,6 @@
 //! Published-language crates loader — `.cfdb/published-language-crates.toml`.
 //!
-//! DDD Published Language marker loader per RFC-cfdb-v0.2-addendum §A1.8
+//! DDD Published Language marker loader per RFC-cfdb.md Addendum B §A1.8
 //! (issue #100). Declares which crates publish a "Published Language"
 //! intentionally consumed across bounded contexts. The `:Finding`
 //! classifier (issue #48) reads the materialised `:Crate.published_language`
