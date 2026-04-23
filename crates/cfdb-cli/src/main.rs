@@ -102,9 +102,10 @@ fn run(cli: Cli) -> Result<(), CfdbCliError> {
         | Command::ListItemsMatching { .. }
         | Command::Scope { .. }
         | Command::CheckPredicate { .. }) => dispatch_typed(cmd)?,
-        cmd @ (Command::Snapshots { .. } | Command::Diff { .. } | Command::Drop { .. }) => {
-            dispatch_snapshot(cmd)?
-        }
+        cmd @ (Command::Snapshots { .. }
+        | Command::Diff { .. }
+        | Command::Classify { .. }
+        | Command::Drop { .. }) => dispatch_snapshot(cmd)?,
     }
     Ok(())
 }

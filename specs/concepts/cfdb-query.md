@@ -10,6 +10,10 @@ A candidate for the canonical form of a duplicated concept — qname, usage coun
 
 One row of the `DiffEnvelope::changed` list — carries both the `a` (before) and `b` (after) canonical-dump envelopes for a fact whose key exists on both sides but whose envelope JSON differs (typically `props` drift). Consumers diff at whatever granularity they need. Emitted by `cfdb diff` (#212).
 
+## ClassifyEnvelope
+
+The JSON wire envelope emitted by `cfdb classify` (#213) — `{schema_version, inventory: ScopeInventory, diff_source: DiffSourceMeta}`. Composes a classifier-populated `ScopeInventory` (findings restricted to qnames in the upstream diff) with a `DiffSourceMeta` that identifies the source diff. `schema_version` is `CLASSIFY_ENVELOPE_SCHEMA_VERSION` (`"v1"`) — bumped independently of `DiffEnvelope::schema_version` and `cfdb_core::SchemaVersion`. Consumed by qbot-core #3736's per-PR drift gate. Routing from `DebtClass` → skill is external (`.cfdb/skill-routing.toml`) per RFC-cfdb.md §A2.3.
+
 ## DebtClass
 
 The six-variant canonical debt taxonomy used by the `cfdb scope` verb (`DuplicatedFeature`, `ContextHomonym`, `UnfinishedRefactor`, `RandomScattering`, `CanonicalBypass`, `Unwired`). Serde key naming is snake_case to match the RFC-029 addendum §A2.1 JSON schema.
@@ -25,6 +29,10 @@ Error type for `compute_diff` and `KindsFilter::from_str` — `Parse { side, lin
 ## DiffFact
 
 One row of `DiffEnvelope::added` or `removed` — `{kind, envelope}` where `envelope` is the full canonical-dump JSON object (`{id, kind:"node", label, props}` for nodes, `{dst_qname, kind:"edge", label, props, src_qname}` for edges). `kind` is hoisted out of the envelope so consumers can filter without re-parsing.
+
+## DiffSourceMeta
+
+Projection of the upstream `DiffEnvelope`'s identity — `{a, b, restrict_count}`. Carried on every `ClassifyEnvelope` (#213) so consumers can correlate classify output with the specific diff that drove the restriction. `restrict_count` is the cardinality of the qname set derived from the diff's `added` ∪ `changed` facts.
 
 ## Finding
 
