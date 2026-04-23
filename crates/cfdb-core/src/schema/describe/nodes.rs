@@ -155,7 +155,7 @@ pub(super) fn field_node_descriptor() -> NodeLabelDescriptor {
     use Provenance::Extractor;
     NodeLabelDescriptor {
         label: Label::new(Label::FIELD),
-        description: "A struct field or tuple-struct element.".into(),
+        description: "A struct field, tuple-struct element, or enum variant field.".into(),
         attributes: vec![
             attr(
                 "index",
@@ -166,13 +166,13 @@ pub(super) fn field_node_descriptor() -> NodeLabelDescriptor {
             attr(
                 "name",
                 "string",
-                "Field identifier (`_0`, `_1`, ... for tuple structs).",
+                "Field identifier (`_0`, `_1`, ... for tuple structs and tuple variants).",
                 Extractor,
             ),
             attr(
                 "parent_qname",
                 "string",
-                "Qualified name of the struct that owns this field.",
+                "Qualified name of the owning struct or enum variant.",
                 Extractor,
             ),
             attr(

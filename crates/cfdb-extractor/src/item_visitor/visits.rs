@@ -218,26 +218,24 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
             &node.attrs,
         );
         let parent_qname = qname_from_node_id(&id).to_string();
+        // Walk the struct's fields uniformly — `emit_field_list` handles
+        // both `Fields::Named` (record struct) and `Fields::Unnamed`
+        // (tuple struct). `Fields::Unit` is a no-op. #218 / RFC-037 §3.3
+        // step 7.
+        self.emit_field_list(&id, &node.fields, &parent_qname);
+        // Serde `default = "path"` attribute on a named field is a
+        // name-based reference to a callable — syntactically visible
+        // to syn but never exercised as an `ExprCall`, so the
+        // CallSiteVisitor would miss it. Emit a `kind="serde_default"`
+        // CallSite linked from the owning struct Item so ban rules can
+        // catch it. Only applies to record-style fields (has `ident`).
         if let syn::Fields::Named(named) = &node.fields {
-            for (index, f) in named.named.iter().enumerate() {
+            for f in &named.named {
                 if let Some(ident) = &f.ident {
-                    let field_name = ident.to_string();
-                    let ty = render_type_string(&f.ty);
-                    // `type_normalized` and `type_path` receive the same
-                    // string today (both produced by `render_type_string`);
-                    // the split becomes meaningful when `render_type_inner`
-                    // lands per RFC-037 §6 non-goals.
-                    self.emit_field(&parent_qname, index, &field_name, &ty, &ty);
-                    // Serde `default = "path"` attribute on a field is a
-                    // name-based reference to a callable — syntactically
-                    // visible to syn but never exercised as an `ExprCall`,
-                    // so the CallSiteVisitor would miss it. Emit a
-                    // `kind="serde_default"` CallSite linked from the
-                    // owning struct Item so ban rules can catch it.
                     if let Some(callee_path) = extract_serde_default_attr(&f.attrs) {
                         self.emit_attr_call_site(
                             &parent_qname,
-                            &field_name,
+                            &ident.to_string(),
                             &callee_path,
                             "serde_default",
                         );
@@ -249,13 +247,34 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
 
     fn visit_item_enum(&mut self, node: &'ast syn::ItemEnum) {
         let name = node.ident.to_string();
-        self.emit_item(
+        let id = self.emit_item(
             &name,
             "enum",
             span_line(&node.ident),
             &node.vis,
             &node.attrs,
         );
+        let enum_qname = qname_from_node_id(&id).to_string();
+        // Walk every variant — emit the `:Variant` node + `HAS_VARIANT`
+        // edge, then recurse into the variant's payload via
+        // `emit_field_list` (shared with `visit_item_struct`). #218 /
+        // RFC-037 §3.3.
+        for (index, variant) in node.variants.iter().enumerate() {
+            let variant_name = variant.ident.to_string();
+            let payload_kind = match &variant.fields {
+                syn::Fields::Unit => "unit",
+                syn::Fields::Unnamed(_) => "tuple",
+                syn::Fields::Named(_) => "struct",
+            };
+            let (variant_id, variant_qname) =
+                self.emit_variant(&enum_qname, index, &variant_name, payload_kind);
+            // Variant payload fields use the `:Variant` node as the
+            // `HAS_FIELD` edge src (the descriptor's widened `from:`
+            // list). `parent_qname` is `Enum::Variant` so field ids
+            // (`field:Enum::Variant.x`) do not collide with enum- or
+            // struct-field ids on the same graph.
+            self.emit_field_list(&variant_id, &variant.fields, &variant_qname);
+        }
     }
 
     fn visit_item_trait(&mut self, node: &'ast syn::ItemTrait) {
