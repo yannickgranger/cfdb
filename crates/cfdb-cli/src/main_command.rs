@@ -310,6 +310,44 @@ pub(crate) enum Command {
         db: PathBuf,
     },
 
+    /// Route `cfdb diff` findings by `DebtClass`. Consumes a
+    /// `DiffEnvelope` (`--restrict-to-diff`) and emits a
+    /// `ClassifyEnvelope` whose `findings_by_class` buckets cover only
+    /// items whose `qname` appears in the diff's added/changed sets.
+    /// Delegates to the same classifier plumbing as `cfdb scope` per
+    /// RFC-cfdb.md §A2.2. Routing to concrete skills is external —
+    /// `.cfdb/skill-routing.toml` + the consumer gate.
+    Classify {
+        #[arg(long)]
+        db: PathBuf,
+        /// Keyspace name (defaults to the single on-disk keyspace when
+        /// unambiguous). Mirrors `cfdb scope`'s resolution semantics.
+        #[arg(long)]
+        keyspace: Option<String>,
+        /// Bounded-context name — filters classifier findings to items
+        /// where `Item.bounded_context == <name>`. Unknown context →
+        /// exit 1 with `known contexts: ...` message.
+        #[arg(long)]
+        context: String,
+        /// Path to a `DiffEnvelope` JSON (output of `cfdb diff`). The
+        /// classifier restricts its `findings_by_class` buckets to
+        /// items whose `qname` appears in the diff's added/changed
+        /// sets.
+        #[arg(long)]
+        restrict_to_diff: PathBuf,
+        /// Optional workspace path (enables `.cfdb/indexes.toml` per
+        /// RFC-035 slice 7, same as `cfdb scope`).
+        #[arg(long)]
+        workspace: Option<PathBuf>,
+        /// Write to file path; otherwise stdout.
+        #[arg(long)]
+        output: Option<PathBuf>,
+        /// Output format. v0.1 supports only `json`; `sorted-jsonl` is
+        /// deferred to a follow-up.
+        #[arg(long, default_value = "json")]
+        format: String,
+    },
+
     /// Diff two keyspaces — emit the `{added, removed, changed}` delta
     /// over the canonical sorted-JSONL dump (RFC-cfdb.md §12.1). Exit 0
     /// regardless of diff size; the consumer gate decides pass/fail.

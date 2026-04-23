@@ -24,7 +24,8 @@ mod stubs;
 pub use check::{check, TriggerId, UnknownTriggerId};
 pub use check_predicate::{check_predicate, PredicateRow, PredicateRunReport};
 pub use commands::{
-    diff, dump, export, extract, keyspace_path, list_callers, list_keyspaces, query, violations,
+    classify, diff, dump, export, extract, keyspace_path, list_callers, list_keyspaces, query,
+    violations,
 };
 
 pub use enrich::{enrich, EnrichVerb};

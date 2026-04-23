@@ -4,9 +4,9 @@
 //! corresponding `cfdb_cli::*` handler.
 
 use cfdb_cli::{
-    check, check_predicate, diff, drop_keyspace_cmd, dump, enrich, export, extract, list_callers,
-    list_items_matching, list_keyspaces, query, scope, snapshots, typed_stub, violations,
-    CfdbCliError, EnrichVerb,
+    check, check_predicate, classify, diff, drop_keyspace_cmd, dump, enrich, export, extract,
+    list_callers, list_items_matching, list_keyspaces, query, scope, snapshots, typed_stub,
+    violations, CfdbCliError, EnrichVerb,
 };
 
 use crate::main_command::Command;
@@ -177,6 +177,23 @@ pub(crate) fn dispatch_snapshot(cmd: Command) -> Result<(), CfdbCliError> {
             kinds,
             format,
         } => diff(db, a, b, kinds, format),
+        Command::Classify {
+            db,
+            keyspace,
+            context,
+            restrict_to_diff,
+            workspace,
+            output,
+            format,
+        } => classify(
+            db,
+            keyspace,
+            context,
+            restrict_to_diff,
+            output,
+            workspace,
+            format,
+        ),
         Command::Drop { db, keyspace } => drop_keyspace_cmd(db, keyspace),
         other => unreachable!("dispatch_snapshot called with non-snapshot command: {other:?}"),
     }

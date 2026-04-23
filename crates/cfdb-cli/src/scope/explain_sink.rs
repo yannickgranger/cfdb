@@ -19,24 +19,24 @@ use cfdb_petgraph::PetgraphStore;
 
 /// Encapsulates the `--explain` accumulator. `None` inside the cell
 /// means "disabled"; `Some(vec)` means "collecting".
-pub(super) struct ExplainSink {
+pub(crate) struct ExplainSink {
     inner: RefCell<Option<Vec<ExplainRow>>>,
 }
 
 impl ExplainSink {
-    pub(super) fn enabled() -> Self {
+    pub(crate) fn enabled() -> Self {
         Self {
             inner: RefCell::new(Some(Vec::new())),
         }
     }
 
-    pub(super) fn disabled() -> Self {
+    pub(crate) fn disabled() -> Self {
         Self {
             inner: RefCell::new(None),
         }
     }
 
-    pub(super) fn is_enabled(&self) -> bool {
+    pub(crate) fn is_enabled(&self) -> bool {
         self.inner.borrow().is_some()
     }
 
