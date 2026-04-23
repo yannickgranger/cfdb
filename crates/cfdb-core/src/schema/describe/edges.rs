@@ -23,9 +23,9 @@ pub(super) fn edge_descriptors() -> Vec<EdgeLabelDescriptor> {
         },
         EdgeLabelDescriptor {
             label: EdgeLabel::new(EdgeLabel::HAS_FIELD),
-            description: "A struct Item owns a Field.".into(),
+            description: "A struct Item or enum Variant owns a Field.".into(),
             attributes: vec![],
-            from: vec![Label::new(Label::ITEM)],
+            from: vec![Label::new(Label::ITEM), Label::new(Label::VARIANT)],
             to: vec![Label::new(Label::FIELD)],
         },
         EdgeLabelDescriptor {
