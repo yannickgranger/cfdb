@@ -88,13 +88,11 @@ impl EdgeLabel {
     pub const IMPLEMENTS: &'static str = "IMPLEMENTS";
     pub const IMPLEMENTS_FOR: &'static str = "IMPLEMENTS_FOR";
     pub const RETURNS: &'static str = "RETURNS";
-    pub const SUPERTRAIT: &'static str = "SUPERTRAIT";
     pub const BELONGS_TO: &'static str = "BELONGS_TO";
 
     // Call graph
     pub const CALLS: &'static str = "CALLS";
     pub const INVOKES_AT: &'static str = "INVOKES_AT";
-    pub const RECEIVES_ARG: &'static str = "RECEIVES_ARG";
 
     // Entry points
     pub const EXPOSES: &'static str = "EXPOSES";
@@ -293,11 +291,42 @@ impl SchemaVersion {
         patch: 3,
     };
 
+    /// **v0.3.0 — RFC-037 schema-producer alignment epoch.** Captures
+    /// all RFC-037 deltas landed in PRs #224 (#215 qname helpers +
+    /// #216 RETURNS producer + #217 `:Field` attr alignment), #225
+    /// (#218 `:Variant` producer + `HAS_VARIANT` + `emit_field_list` +
+    /// widened `HAS_FIELD` descriptor), #226 (#219 REGISTERS_PARAM
+    /// 3-paths with widened `to: [:Param, :Field, :Variant]` + #220
+    /// TYPE_OF producer), and this slice's vestigial deletions of
+    /// `SUPERTRAIT` + `RECEIVES_ARG` (both declared in v0.1 with no
+    /// producer or consumer; removed per RFC-037 §3.6 cleanup).
+    ///
+    /// **Breaking changes carried by this minor bump:**
+    /// - `:Field.type_qname` prop REMOVED (replaced by `type_normalized` + `type_path`); V0_2_3 readers loading a V0_3_0 keyspace no longer see `type_qname`.
+    /// - `EdgeLabel::SUPERTRAIT` + `EdgeLabel::RECEIVES_ARG` constants REMOVED; no keyspace on disk ever carried these labels but the API surface is reduced.
+    ///
+    /// **Additive facts carried by this bump:**
+    /// - `:Variant` nodes + `HAS_VARIANT` edges (enum variants now walked — previously dormant).
+    /// - `:Field` tuple-struct + tuple-variant + struct-variant fields (previously only `Fields::Named` on structs emitted).
+    /// - `HAS_FIELD.from` widened to `[:Item, :Variant]`.
+    /// - `:Field` attrs gain `index`, `type_normalized`, `type_path`.
+    /// - `RETURNS` edges (producer shipped in #216).
+    /// - `TYPE_OF` edges (producer shipped in #220).
+    /// - `REGISTERS_PARAM.to` widened to `[:Param, :Field, :Variant]`; HIR-side producer emits edges for all three shapes.
+    ///
+    /// Paired lockstep `graph-specs-rust` cross-fixture bump per cfdb
+    /// CLAUDE.md §3 / RFC-033 §4 I2.
+    pub const V0_3_0: Self = Self {
+        major: 0,
+        minor: 3,
+        patch: 0,
+    };
+
     /// The schema version this build of cfdb-core writes and reads.
     /// Producers tag every keyspace persist with `CURRENT`. Consumers use
     /// `CURRENT.can_read(&file.schema_version)` to reject forward-
     /// incompatible graphs per G4.
-    pub const CURRENT: Self = Self::V0_2_3;
+    pub const CURRENT: Self = Self::V0_3_0;
 
     pub fn new(major: u16, minor: u16, patch: u16) -> Self {
         Self {

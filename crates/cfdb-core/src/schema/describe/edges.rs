@@ -76,13 +76,6 @@ pub(super) fn edge_descriptors() -> Vec<EdgeLabelDescriptor> {
             to: vec![Label::new(Label::ITEM)],
         },
         EdgeLabelDescriptor {
-            label: EdgeLabel::new(EdgeLabel::SUPERTRAIT),
-            description: "A trait Item extends another trait Item as a supertrait bound.".into(),
-            attributes: vec![],
-            from: vec![Label::new(Label::ITEM)],
-            to: vec![Label::new(Label::ITEM)],
-        },
-        EdgeLabelDescriptor {
             label: EdgeLabel::new(EdgeLabel::BELONGS_TO),
             description: "A Crate belongs to its bounded Context (council-cfdb-wiring §B.1.3)."
                 .into(),
@@ -109,18 +102,6 @@ pub(super) fn edge_descriptors() -> Vec<EdgeLabelDescriptor> {
             attributes: vec![],
             from: vec![Label::new(Label::CALL_SITE)],
             to: vec![Label::new(Label::ITEM)],
-        },
-        EdgeLabelDescriptor {
-            label: EdgeLabel::new(EdgeLabel::RECEIVES_ARG),
-            description: "A CallSite binds one of its arguments to a callee Param.".into(),
-            attributes: vec![attr(
-                "arg_index",
-                "int",
-                "Position of the argument at the call site (0-based).",
-                Extractor,
-            )],
-            from: vec![Label::new(Label::CALL_SITE)],
-            to: vec![Label::new(Label::PARAM)],
         },
         // ---- Entry points ----------------------------------------------------
         EdgeLabelDescriptor {
