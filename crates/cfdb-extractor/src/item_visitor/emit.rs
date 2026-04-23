@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 
 use cfdb_core::fact::{Edge, Node, PropValue};
-use cfdb_core::qname::{item_node_id, item_qname, module_qpath, param_node_id};
+use cfdb_core::qname::{field_node_id, item_node_id, item_qname, module_qpath, param_node_id};
 use cfdb_core::schema::{EdgeLabel, Label};
 
 use crate::attrs::{attrs_contain_hash_test, extract_cfg_feature_gate, extract_deprecated_attr};
@@ -117,6 +117,11 @@ impl ItemVisitor<'_> {
             label: Label::new(Label::ITEM),
             props,
         });
+        // RETURNS / TYPE_OF post-walk resolution requires the set of
+        // every emitted `:Item` qname (RFC-037 §3.2, #216). The set
+        // lives on the workspace-scoped `Emitter` so the resolution
+        // pass in `extract_workspace` sees items across every file.
+        self.emitter.emitted_item_qnames.insert(qname.clone());
         self.emitter.emit_edge(Edge {
             src: id.clone(),
             dst: self.crate_id.clone(),
@@ -196,6 +201,12 @@ impl ItemVisitor<'_> {
             label: Label::new(Label::ITEM),
             props,
         });
+        // Track impl-block qname for RETURNS / TYPE_OF post-walk
+        // resolution (RFC-037 §3.2, #216). Impl-block qnames don't
+        // typically appear as return types, but we populate the set
+        // consistently for every emitted `:Item` so any future fact
+        // type that resolves on `:Item` qnames is accurate.
+        self.emitter.emitted_item_qnames.insert(impl_qname.clone());
         self.emitter.emit_edge(Edge {
             src: impl_id.clone(),
             dst: self.crate_id.clone(),
@@ -322,15 +333,27 @@ impl ItemVisitor<'_> {
         });
     }
 
-    pub(super) fn emit_field(&mut self, parent_qname: &str, name: &str, ty: &str) {
-        let id = format!("field:{parent_qname}.{name}");
+    pub(super) fn emit_field(
+        &mut self,
+        parent_qname: &str,
+        index: usize,
+        name: &str,
+        type_normalized: &str,
+        type_path: &str,
+    ) {
+        let id = field_node_id(parent_qname, name);
         let mut props = BTreeMap::new();
+        props.insert("index".into(), PropValue::Int(index as i64));
         props.insert("name".into(), PropValue::Str(name.to_string()));
         props.insert(
             "parent_qname".into(),
             PropValue::Str(parent_qname.to_string()),
         );
-        props.insert("type_qname".into(), PropValue::Str(ty.to_string()));
+        props.insert(
+            "type_normalized".into(),
+            PropValue::Str(type_normalized.to_string()),
+        );
+        props.insert("type_path".into(), PropValue::Str(type_path.to_string()));
         self.emitter.emit_node(Node {
             id: id.clone(),
             label: Label::new(Label::FIELD),

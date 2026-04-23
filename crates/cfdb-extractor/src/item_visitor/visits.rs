@@ -66,6 +66,16 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
             Some(&signature),
         );
         let caller_qname = qname_from_node_id(&id).to_string();
+        // RETURNS post-walk queue (RFC-037 §3.2, #216). Defer
+        // resolution to `extract_workspace`'s post-walk pass — the
+        // return type may name an item declared later in this file or
+        // in a file walked later in the same workspace.
+        if let syn::ReturnType::Type(_, ty) = &node.sig.output {
+            let return_type = render_type_string(ty);
+            self.emitter
+                .deferred_returns
+                .push((caller_qname.clone(), return_type));
+        }
         for (index, arg) in node.sig.inputs.iter().enumerate() {
             let (name, is_self, type_path, type_normalized) = param_info(arg);
             self.emit_param(
@@ -170,12 +180,27 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
             label: Label::new(Label::ITEM),
             props,
         });
+        // Track method qname for RETURNS / TYPE_OF post-walk
+        // resolution (RFC-037 §3.2, #216). The impl-method emission
+        // path bypasses `emit_item_with_flags`, so we insert into
+        // the workspace-scoped set explicitly here.
+        self.emitter.emitted_item_qnames.insert(qname.clone());
         self.emitter.emit_edge(Edge {
             src: id,
             dst: self.crate_id.clone(),
             label: EdgeLabel::new(EdgeLabel::IN_CRATE),
             props: BTreeMap::new(),
         });
+        // RETURNS post-walk queue (RFC-037 §3.2, #216). Mirrors the
+        // free-fn path in `visit_item_fn`. The deferred entry uses the
+        // method's full qname (`module::Foo::bar`) so the post-walk
+        // pass produces the correct `item:<method-qname>` src id.
+        if let syn::ReturnType::Type(_, ty) = &node.sig.output {
+            let return_type = render_type_string(ty);
+            self.emitter
+                .deferred_returns
+                .push((qname.clone(), return_type));
+        }
         for (index, arg) in node.sig.inputs.iter().enumerate() {
             let (name, is_self, type_path, type_normalized) = param_info(arg);
             self.emit_param(&qname, index, &name, is_self, &type_path, &type_normalized);
@@ -194,11 +219,15 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
         );
         let parent_qname = qname_from_node_id(&id).to_string();
         if let syn::Fields::Named(named) = &node.fields {
-            for f in &named.named {
+            for (index, f) in named.named.iter().enumerate() {
                 if let Some(ident) = &f.ident {
                     let field_name = ident.to_string();
                     let ty = render_type_string(&f.ty);
-                    self.emit_field(&parent_qname, &field_name, &ty);
+                    // `type_normalized` and `type_path` receive the same
+                    // string today (both produced by `render_type_string`);
+                    // the split becomes meaningful when `render_type_inner`
+                    // lands per RFC-037 §6 non-goals.
+                    self.emit_field(&parent_qname, index, &field_name, &ty, &ty);
                     // Serde `default = "path"` attribute on a field is a
                     // name-based reference to a callable — syntactically
                     // visible to syn but never exercised as an `ExprCall`,
