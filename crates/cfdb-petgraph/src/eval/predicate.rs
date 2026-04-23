@@ -133,7 +133,20 @@ impl<'a> Evaluator<'a> {
     }
 
     fn call_size(&self, args: &[Expr], bindings: &Bindings) -> Option<PropValue> {
-        let PropValue::Str(s) = self.eval_expr(args.first()?, bindings)? else {
+        let arg = args.first()?;
+        // `size(var)` where `var` was bound by a prior WITH `collect(...)`
+        // aggregation resolves to a `RowValue::List` binding — lift the
+        // list's length into an Int directly. `eval_expr` cannot surface
+        // List values (it is scalar-typed), so this path has to read the
+        // binding itself. RFC-036 §3.2 / issue #202: the VSB detector's
+        // `WHERE size(resolvers) > 1` clause depends on this code path.
+        if let Expr::Var(name) = arg {
+            if let Some(Binding::Value(RowValue::List(items))) = bindings.get(name) {
+                return Some(PropValue::Int(items.len() as i64));
+            }
+        }
+        // Fallback — `size(str)` counts Unicode scalar values (chars).
+        let PropValue::Str(s) = self.eval_expr(arg, bindings)? else {
             return None;
         };
         Some(PropValue::Int(s.chars().count() as i64))
