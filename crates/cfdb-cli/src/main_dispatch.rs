@@ -170,7 +170,13 @@ fn emit_check_predicate_report(
 pub(crate) fn dispatch_snapshot(cmd: Command) -> Result<(), CfdbCliError> {
     match cmd {
         Command::Snapshots { db } => snapshots(db),
-        Command::Diff { db, a, b, kinds } => diff(db, a, b, kinds),
+        Command::Diff {
+            db,
+            a,
+            b,
+            kinds,
+            format,
+        } => diff(db, a, b, kinds, format),
         Command::Drop { db, keyspace } => drop_keyspace_cmd(db, keyspace),
         other => unreachable!("dispatch_snapshot called with non-snapshot command: {other:?}"),
     }

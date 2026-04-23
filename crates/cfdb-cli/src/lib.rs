@@ -24,7 +24,7 @@ mod stubs;
 pub use check::{check, TriggerId, UnknownTriggerId};
 pub use check_predicate::{check_predicate, PredicateRow, PredicateRunReport};
 pub use commands::{
-    dump, export, extract, keyspace_path, list_callers, list_keyspaces, query, violations,
+    diff, dump, export, extract, keyspace_path, list_callers, list_keyspaces, query, violations,
 };
 
 pub use enrich::{enrich, EnrichVerb};
@@ -33,5 +33,5 @@ pub use error::CfdbCliError;
 pub use hir::{extract_and_ingest_hir, HirExtractError};
 pub use scope::scope;
 pub use stubs::{
-    diff, drop_keyspace_cmd, list_items_matching, schema_describe_cmd, snapshots, typed_stub,
+    drop_keyspace_cmd, list_items_matching, schema_describe_cmd, snapshots, typed_stub,
 };

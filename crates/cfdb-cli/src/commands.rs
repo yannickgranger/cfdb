@@ -6,6 +6,7 @@
 //! crate root.
 
 mod aux;
+mod diff;
 mod extract;
 mod query;
 mod rules;
@@ -14,6 +15,7 @@ mod rules;
 mod tests;
 
 pub use aux::{dump, export, list_keyspaces};
+pub use diff::diff;
 pub use extract::{extract, keyspace_path};
 pub use query::{list_callers, query};
 pub use rules::violations;

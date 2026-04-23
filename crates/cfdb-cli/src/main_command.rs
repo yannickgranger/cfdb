@@ -310,21 +310,27 @@ pub(crate) enum Command {
         db: PathBuf,
     },
 
-    /// Diff two keyspaces (added / removed / changed facts). Phase A stub —
-    /// real keyspace-to-keyspace diff ships as #212.
+    /// Diff two keyspaces — emit the `{added, removed, changed}` delta
+    /// over the canonical sorted-JSONL dump (RFC-cfdb.md §12.1). Exit 0
+    /// regardless of diff size; the consumer gate decides pass/fail.
     Diff {
         #[arg(long)]
         db: PathBuf,
-        /// First keyspace (the "before" snapshot).
+        /// First keyspace (the "before").
         #[arg(long)]
         a: String,
-        /// Second keyspace (the "after" snapshot).
+        /// Second keyspace (the "after").
         #[arg(long)]
         b: String,
-        /// Optional comma-separated list of fact kinds to diff
-        /// (e.g. `nodes,edges`). Phase A: parsed but not yet wired.
+        /// Optional comma-separated list of dump-line kinds to include
+        /// (`node`, `edge`, or `node,edge`). Default is both.
         #[arg(long)]
         kinds: Option<String>,
+        /// Output format. `json` (default) emits the full `DiffEnvelope`
+        /// as pretty JSON. `sorted-jsonl` emits one line per fact with an
+        /// `op: added|removed|changed` discriminator — line-diff friendly.
+        #[arg(long, default_value = "json")]
+        format: String,
     },
 
     /// Drop a keyspace from the database. The only deletion verb (RFC §6 G5).
