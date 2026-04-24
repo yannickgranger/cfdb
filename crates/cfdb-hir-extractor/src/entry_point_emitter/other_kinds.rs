@@ -69,8 +69,8 @@ pub(super) fn try_emit_cron_job<DB>(
     emit(
         nodes,
         edges,
-        qname,
-        name,
+        &qname,
+        &name,
         "cron_job",
         file_path,
         Some(extra),
@@ -112,7 +112,7 @@ pub(super) fn try_emit_websocket<DB>(
         return;
     };
 
-    emit(nodes, edges, qname, name, "websocket", file_path, None);
+    emit(nodes, edges, &qname, &name, "websocket", file_path, None);
 }
 
 /// Return `(qualifier_last_segment, last_segment)` of a path with at

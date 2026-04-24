@@ -228,7 +228,7 @@ fn render_sorted_jsonl(envelope: &ClassifyEnvelope) -> Result<String, serde_json
     lines.push(serde_json::to_string(&build_sorted_jsonl_header(envelope))?);
 
     for (class, class_findings) in &envelope.inventory.findings_by_class {
-        let mut findings = class_findings.clone();
+        let mut findings: Vec<_> = class_findings.iter().collect();
         findings.sort();
         for finding in &findings {
             let row = serde_json::json!({

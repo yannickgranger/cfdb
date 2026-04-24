@@ -52,14 +52,17 @@ pub(crate) fn load_from_path(path: &Path, warnings: &mut Vec<String>) -> BTreeMa
 /// consumed by `load_from_path` + unit tests.
 pub(crate) fn parse_llvm_cov_json(json: &str) -> Result<BTreeMap<String, f64>, String> {
     let doc: LlvmCovDoc = serde_json::from_str(json).map_err(|e| format!("{e}"))?;
-    let mut out: BTreeMap<String, f64> = BTreeMap::new();
-    for data_entry in &doc.data {
-        for func in &data_entry.functions {
+    // Consume `doc` by value so `func.name: String` moves into the map
+    // without a per-iteration clone.
+    Ok(doc
+        .data
+        .into_iter()
+        .flat_map(|data_entry| data_entry.functions)
+        .map(|func| {
             let ratio = (func.summary.lines.percent / 100.0).clamp(0.0, 1.0);
-            out.insert(func.name.clone(), ratio);
-        }
-    }
-    Ok(out)
+            (func.name, ratio)
+        })
+        .collect())
 }
 
 #[derive(Deserialize)]
