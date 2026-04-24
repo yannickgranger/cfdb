@@ -1,10 +1,11 @@
 # RFC-037 — Schema-Producer Alignment
 
-**Status:** Draft v2 (revised 2026-04-23 per council verdicts in `council/RFC-037-VERDICTS.md`).
-**Blocks:** resumption of #201 (036-1: REGISTERS_PARAM emission).
+**Status:** Shipped (phase closed 2026-04-24 — see §9 Phase Shipped). Published in `cfdb-core::SchemaVersion::V0_3_0` via PRs #224 / #225 / #226 / #228 / #229 / #241 / #249.
+**Draft history:** Draft v2 (revised 2026-04-23 per council verdicts in `council/RFC-037-VERDICTS.md`).
+**Blocks (resolved):** resumption of #201 (036-1: REGISTERS_PARAM emission) — landed via #226.
 **Sibling to:** RFC-036 (cfdb v2). This RFC closes the schema-vs-producer gaps surfaced during #201's `/discover` + `/prescribe` pass.
 **Seed audit:** `.discovery/gap-audit-schema-vs-code.md`.
-**Council verdicts:** `council/RFC-037-VERDICTS.md` (draft v1 REQUEST CHANGES; this revision addresses nine blocking findings B1-B9 and non-blocking N1-N6).
+**Council verdicts:** `council/RFC-037-VERDICTS.md` (draft v1 REQUEST CHANGES; draft v2 addressed nine blocking findings B1-B9 and non-blocking N1-N6); closeout review in `council/RFC-037-CLOSEOUT.md`.
 
 ---
 
@@ -389,9 +390,94 @@ This draft v2 integrates all council blocking findings. No re-council run is req
 
 Issues are filed from §7 once this draft is committed. The edge-liveness shell harness (§3.7) is the mechanical detector that would have caught RFC-037's own motivating gap; informational in v0.3.0, blocking in v0.4.0. From RFC-038 onward the council's pre-check has teeth.
 
+## 9. Phase Shipped (2026-04-24)
+
+Closes #238. Records the disposition of RFC-037 as published in `cfdb-core::SchemaVersion::V0_3_0` and tagged at `v0.3.0` on `main`.
+
+### 9.1 — Slices merged
+
+| Slice | Issue | PR | Merge | Notes |
+|---|---|---|---|---|
+| H — qname canonical helpers | #215 | #224 | `27075ac` | `field_node_id` + `variant_node_id` in `cfdb-core::qname` |
+| A — RETURNS producer (syn post-walk) | #216 | #224 | `27075ac` | Bundled with H/E into one squash |
+| E — `:Field` attribute alignment | #217 | #224 | `27075ac` | `type_qname` removed; 5-attr emission |
+| B — `:Variant` + HAS_VARIANT + `emit_field_list` | #218 | #225 | `a7f2644` | Tuple-struct + variant fields routed through shared helper |
+| C — REGISTERS_PARAM 3-paths | #219 | #226 | `ccac5fb` | HIR-side emission (MCP + Parser + Subcommand) — see 9.4 |
+| D — TYPE_OF producer | #220 | #226 | `ccac5fb` | Shares post-walk infra with RETURNS |
+| I/F — vestigial deletions + SchemaVersion V0_3_0 | #221 | #228 | `4588fba` | `SUPERTRAIT` / `RECEIVES_ARG` removed; lockstep graph-specs-rust PR shipped |
+| G — edge-liveness informational harness | #222 | #229 | `7ea7643` | `ci/edge-liveness.sh`; blocking in v0.4.0 |
+| Follow-up — HIR `fn_name_and_qname` impl target | #227 | #241 | `769a0de` | Unblocks impl-method MCP REGISTERS_PARAM on `:EntryPoint` |
+| Follow-up — `render_type_inner` generic unwrap | #239 | #249 | `bae7598` | §6 non-goal (1) promoted to follow-up and shipped |
+
+Release tag `v0.3.0` captured via PRs #243 (release branch) / #244 (develop→main) / #245 (back-merge).
+
+### 9.2 — Measured acceptance (phase-shipped snapshot, 2026-04-24)
+
+All three dogfood paths exercise the shipped v0.3.0 binary (with `--features hir` for HIR-owned REGISTERS_PARAM).
+
+**Self-dogfood — cfdb on cfdb @ `bae7598`** (proof: `.proofs/self-dogfood-238.txt`)
+
+| Metric | Count | Threshold (issue body) | Result |
+|---|---|---|---|
+| RETURNS | 322 | ≥ 50 (#216) / ≥ 150 post-#239 | ✅ |
+| TYPE_OF | 259 | ≥ 200 (#220) / ≥ 220 post-#239 | ✅ |
+| REGISTERS_PARAM | 13 | non-zero + every `:EntryPoint{kind:cli_command}` has REGISTERS_PARAM count equal to its `#[arg]` field count (#219) | ✅ |
+| HAS_VARIANT / `:Variant` | 179 / 179 | equals hand-computed syn variant count (#218) | ✅ |
+
+**Cross-dogfood — cfdb on graph-specs-rust @ `913f06f`** (proof: `.proofs/cross-dogfood-238.txt`, harness: `ci/cross-dogfood.sh`)
+
+| Metric | Result |
+|---|---|
+| Ban-rule violations (3 rules) | 0 — `arch-ban-f64-in-domain` / `arch-ban-reqwest-client-new` / `arch-ban-utc-now` |
+| `ci/cross-dogfood.sh` exit code | 0 |
+| Companion keyspace edges (RETURNS / TYPE_OF / HAS_VARIANT / REGISTERS_PARAM) | 27 / 55 / 30 / 0 (no MCP/Parser derives in graph-specs-rust — expected) |
+
+**Target-dogfood — cfdb on qbot-core @ `6eb494e`** (proof: `.proofs/target-dogfood-238.txt`)
+
+| Metric | Count | Notes |
+|---|---|---|
+| RETURNS | 5,125 | 4.21× the pre-`render_type_inner` baseline (1,216) |
+| TYPE_OF | 2,950 | 1.33× the pre-`render_type_inner` baseline (2,218); wrapper-class boundary (HashMap / RwLock / Mutex not in closed 9-list) documented in #249 |
+| REGISTERS_PARAM | 79 | Non-zero MCP + non-zero CLI; exact distribution in `.proofs/target-dogfood-238.txt` |
+| HAS_VARIANT / `:Variant` | 2,259 / 2,259 | 102 `:EntryPoint` total |
+
+**Edge-liveness (v0.3.0 informational)** — all four RFC-037 producers emit live edges on both self and target; `ci/edge-liveness.sh` dormant labels on self: `IN_MODULE` (scope-out per §2), `LABELED_AS` / `CANONICAL_FOR` / `EQUIVALENT_TO` / `REFERENCED_BY` (enrichment-path labels — populated by `cfdb classify` / `cfdb enrich`, not by `extract`). No RFC-037 producer is dormant.
+
+### 9.3 — §6 non-goals disposition
+
+Each §6 entry is either (a) filed as its own follow-up issue, or (b) retired with a one-line rationale.
+
+| # | Non-goal | Disposition |
+|---|---|---|
+| 1 | `render_type_inner` generic unwrapping (`Vec<T>` / `Option<T>` / `Arc<T>` / `Result<T,E>`) | **SHIPPED** — filed as #239, merged via PR #249 at `bae7598`. Closed. |
+| 2 | Systemic attribute-contract drift check (descriptor↔emitter mechanical validator) | **TRACKED** — filed as #250 (placeholder for the next anti-drift RFC round). The edge-liveness harness (G) already catches the zero-producer case; attribute-contract drift (wrong attrs on a live edge) is a distinct failure mode awaiting a systemic detector. |
+| 3 | `:Statement` / `:Expression` / finer-grained structural nodes | **RETIRED** — cfdb's vocabulary stays item-granular by design (RFC-036 §1 / RFC-cfdb.md). Sub-item granularity is out of scope for the producer contract. |
+| 4 | HIR-based RETURNS / TYPE_OF for cross-crate resolution | **RETIRED (reopen-able)** — v0.3.0 is syn-level only. Cross-crate precision is a follow-up if a downstream consumer measures unresolved-edge drop as load-bearing. No open issue; #204 (HSB cluster) is the most-likely trigger for the reopen. |
+| 5 | Nested `:EntryPoint{kind:cli_subcommand}` model for Subcommand enums | **RETIRED (reopen-able)** — v0.3.0 uses the pragmatic "one REGISTERS_PARAM per variant" compression (§3.1 transitional note). Long-term model is a follow-up RFC once there is concrete query-side evidence the flattened model loses signal. No open issue. |
+| 6 | Reviving `SUPERTRAIT` / `RECEIVES_ARG` | **RETIRED** — deleted, not reserved (I/F at PR #228). A future RFC can reintroduce with a concrete producer; no reservation cost carried. |
+| 7 | `cfdb-recall` corpus extensions for new cfdb vocabulary | **RETIRED** — rustdoc-json has no ground truth for cfdb-specific labels (`:Variant`, `REGISTERS_PARAM`, etc.); `cfdb-recall` stays scoped to the rustdoc-aligned subset. Orthogonal to RFC-037's surface. |
+
+### 9.4 — Design decisions ratified in flight (not in draft v2)
+
+Two decisions emerged during execution that are captured here for future-RFC traceability:
+
+- **REGISTERS_PARAM emission ownership moved from syn to HIR.** Draft v2 §3.1 prescribed per-path ownership (MCP → syn, clap-struct + Subcommand → HIR). During #219 integration, `cfdb-petgraph::graph::ingest_one_edge` (`src/graph.rs:204`) was found to drop dangling-src edges; `:EntryPoint` is an HIR-owned node, so syn-side REGISTERS_PARAM emission silently disappeared. All three paths were consolidated on the HIR side. Single-lens re-check per §8 happened inline in #226's PR body; no doc amendment issued at ship time.
+- **Last-segment fallback in RETURNS / TYPE_OF resolution.** `render_type_string` produces source-as-written paths (`Foo` or `mymod::Bar`) while `emitted_item_qnames` holds crate-prefixed qnames. The shipped resolver uses exact-match + unique-last-segment fallback; ambiguous last-segments drop silently (parallel to the existing `INVOKES_AT` unresolved-target policy). Documented inline in the extractor source.
+
+### 9.5 — Closeout review
+
+Light 1-round review per the issue body — scope is "is the phase correctly dispositioned?", not re-litigation of the design (already ratified in `council/RFC-037-VERDICTS.md`). Four-lens verdicts recorded in `council/RFC-037-CLOSEOUT.md`; summary:
+
+- **clean-arch** — RATIFY: shipped ownership matches prescribed layering once the HIR-emission adjustment (§9.4) is recorded.
+- **ddd** — RATIFY: `:Variant` + `HAS_VARIANT` vocabulary holds; no homonym bleed into `:Item`.
+- **solid** — RATIFY: `emit_field_list` extraction + canonical-id helpers closed B4/B5/B8 at ship.
+- **rust-systems** — RATIFY: post-walk resolution + `render_type_inner` closed B1/B2 at ship; edge-liveness harness (G) is the mechanical detector that catches this class of drift going forward.
+
+No deviations from the ratified design unresolved at close. RFC-037 transitions from "in-flight" to "shipped, closed" in the catalog.
+
 ---
 
 **Author:** team-lead @ `a0-session:2026-04-23-201-paused-for-gap-audit`.
 **Seed audit:** `.discovery/gap-audit-schema-vs-code.md`.
-**Council verdicts:** `council/RFC-037-VERDICTS.md`.
-**Next action (user):** read revised §3 + §7; confirm readiness to file Issues H, A, E, B, C, D, F, G.
+**Council verdicts:** `council/RFC-037-VERDICTS.md` (draft) + `council/RFC-037-CLOSEOUT.md` (closeout).
+**Closeout session:** `a0-session:2026-04-24-rfc-037-closeout` (via #238).
