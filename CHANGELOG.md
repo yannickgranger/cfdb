@@ -2,6 +2,42 @@
 
 All notable changes to cfdb will be documented in this file.
 
+## [0.3.0] - 2026-04-24
+
+### 🚀 Features
+
+- *(extractor,core)* :Param node + HAS_PARAM edge producer ([#209](https://github.com/yannickgranger/cfdb/issues/209))
+- *(rfc-037)* Qname canonical helpers + RETURNS + :Field attrs
+- *(rfc-037)* HAS_VARIANT + :Variant producer + emit_field_list ([#218](https://github.com/yannickgranger/cfdb/issues/218))
+- *(rfc-037)* REGISTERS_PARAM 3-paths + TYPE_OF producer ([#219](https://github.com/yannickgranger/cfdb/issues/219) + [#220](https://github.com/yannickgranger/cfdb/issues/220))
+- *(rfc-037)* Delete SUPERTRAIT + RECEIVES_ARG; SchemaVersion v0.3.0 ([#221](https://github.com/yannickgranger/cfdb/issues/221))
+- *(ci)* Edge-liveness informational harness ([#222](https://github.com/yannickgranger/cfdb/issues/222))
+- *([#203](https://github.com/yannickgranger/cfdb/issues/203))* SchemaVersion V0_3_0 → V0_3_1 scaffold — enrich_metrics producer landing
+- *([#203](https://github.com/yannickgranger/cfdb/issues/203))* Enrich_metrics producer — ast_signals + coverage + clustering
+- *([#203](https://github.com/yannickgranger/cfdb/issues/203))* Cfdb-cli feature pass-through + self-dogfood assertion
+- *([#203](https://github.com/yannickgranger/cfdb/issues/203))* Cfdb enrich-metrics CLI verb accepts --workspace
+- *([#202](https://github.com/yannickgranger/cfdb/issues/202))* VSB multi-resolver detector + scar corpus (RFC-036 §3.2)
+- *([#204](https://github.com/yannickgranger/cfdb/issues/204))* HSB multi-signal cluster query (RFC-036 §3.4 v2)
+- *([#205](https://github.com/yannickgranger/cfdb/issues/205))* Raid plan validation queries + bucket convention (RFC-036 §3.5)
+- *(cfdb)* Real cfdb diff — keyspace-to-keyspace delta over canonical sorted-JSONL ([#212](https://github.com/yannickgranger/cfdb/issues/212))
+- *(cfdb)* Cfdb classify verb — debt-class routing of diff findings ([#213](https://github.com/yannickgranger/cfdb/issues/213))
+- *(cfdb-cli)* Cfdb classify --format sorted-jsonl ([#236](https://github.com/yannickgranger/cfdb/issues/236))
+
+### 🐛 Bug Fixes
+
+- *([#203](https://github.com/yannickgranger/cfdb/issues/203))* Demote internal metrics fns to pub(crate); prune spec entries
+- *(cfdb-hir-extractor)* Include impl target in fn_name_and_qname ([#227](https://github.com/yannickgranger/cfdb/issues/227))
+
+### 📚 Documentation
+
+- *(specs)* Spec-hygiene amendments for RFC-036 ([#206](https://github.com/yannickgranger/cfdb/issues/206))
+- RFC-037 schema-producer alignment
+- *(cfdb-cli)* Drop stale snapshot/EPIC-[#3622](https://github.com/yannickgranger/cfdb/issues/3622) framing on cfdb diff stub
+
+### 🎨 Styling
+
+- *([#203](https://github.com/yannickgranger/cfdb/issues/203))* Apply cargo fmt canonical form
+- *([#203](https://github.com/yannickgranger/cfdb/issues/203))* Fix clippy::doc_lazy_continuation on EnrichVerb::Metrics doc
 ## [0.2.0] - 2026-04-23
 
 ### 🚀 Features
