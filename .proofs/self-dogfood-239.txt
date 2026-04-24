@@ -1,0 +1,31 @@
+=== self-dogfood #239 (cfdb on cfdb) ===
+
+Worktree tip: 38de416
+Baseline:     346eab1 (develop-tip pre-#239)
+
+-- BEFORE (develop binary + source at 346eab1) --
+  nodes: 16929
+  edges: 17229
+  RETURNS: 131
+  TYPE_OF: 182
+
+-- AFTER (#239 binary + source at worktree tip) --
+extract: 17087 nodes, 17684 edges
+extract: saved keyspace `cfdb` to /tmp/cfdb-239-after-rebuilt/cfdb.json
+  nodes: 17057
+  edges: 17618
+  RETURNS: 320
+  TYPE_OF: 257
+
+-- DELTAS --
+  RETURNS: 131 → 320 (threshold ≥ 250)
+  TYPE_OF: 182 → 257 (threshold ≥ 250)
+
+-- GATE ASSERTION (self_workspace_emits_render_type_inner_deltas) --
+  cargo test -p cfdb-extractor --test self_workspace self_workspace_emits_render_type_inner_deltas
+
+running 1 test
+test self_workspace_emits_render_type_inner_deltas ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.67s
+

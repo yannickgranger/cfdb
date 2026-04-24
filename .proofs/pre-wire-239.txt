@@ -1,0 +1,187 @@
+   Compiling cfdb-extractor v0.3.0 (/var/mnt/workspaces/cfdb/.claude/worktrees/239-render-type-inner/crates/cfdb-extractor)
+warning: constant `WRAPPER_TYPES` is never used
+  --> crates/cfdb-extractor/src/type_render.rs:78:7
+   |
+78 | const WRAPPER_TYPES: &[&str] = &[
+   |       ^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `render_type_inner` is never used
+   --> crates/cfdb-extractor/src/type_render.rs:108:15
+    |
+108 | pub(crate) fn render_type_inner(ty: &syn::Type, depth: u8) -> Vec<String> {
+    |               ^^^^^^^^^^^^^^^^^
+
+warning: `cfdb-extractor` (lib) generated 2 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.33s
+     Running unittests src/lib.rs (target/debug/deps/cfdb_extractor-343c407f0025bc0a)
+
+running 47 tests
+test attrs::tests::attrs_contain_hash_test_matches_bare_test_attribute ... ok
+test attrs::tests::attrs_contain_hash_test_rejects_cfg_test ... ok
+test attrs::tests::attrs_contain_hash_test_rejects_no_attrs ... ok
+test attrs::tests::attrs_contain_hash_test_rejects_multi_segment_tokio_test ... ok
+test attrs::tests::extract_cfg_feature_gate_all_combinator ... ok
+test attrs::tests::extract_cfg_feature_gate_any_combinator ... ok
+test attrs::tests::extract_cfg_feature_gate_mixed_feature_and_non_feature_drops_to_none ... ok
+test attrs::tests::extract_cfg_feature_gate_ignores_non_cfg_attrs ... ok
+test attrs::tests::extract_cfg_feature_gate_multiple_attrs_conjoin ... ok
+test attrs::tests::extract_cfg_feature_gate_none_when_no_attrs ... ok
+test attrs::tests::extract_cfg_feature_gate_nested_combinators ... ok
+test attrs::tests::extract_cfg_feature_gate_not_combinator ... ok
+test attrs::tests::extract_cfg_feature_gate_non_feature_poisons_result ... ok
+test attrs::tests::extract_cfg_feature_gate_simple_feature ... ok
+test attrs::tests::extract_deprecated_attr_none_when_no_attrs ... ok
+test attrs::tests::extract_deprecated_attr_note_only_form ... ok
+test attrs::tests::extract_deprecated_attr_ignores_non_deprecated_attrs ... ok
+test item_visitor::parse_syn_visibility_tests::inherited_is_private ... ok
+test item_visitor::parse_syn_visibility_tests::pub_crate_is_crate_local ... ok
+test attrs::tests::extract_deprecated_attr_rejects_multi_segment_path ... ok
+test item_visitor::parse_syn_visibility_tests::pub_in_path_is_restricted ... ok
+test item_visitor::parse_syn_visibility_tests::pub_is_public ... ok
+test attrs::tests::extract_deprecated_attr_since_and_note_form ... ok
+test item_visitor::parse_syn_visibility_tests::pub_super_and_pub_self_collapse_to_module ... ok
+test type_render::render_fn_signature_tests::bare_fn_no_params_unit_return ... ok
+test attrs::tests::extract_deprecated_attr_bare_form ... ok
+test item_visitor::parse_syn_visibility_tests::pub_in_crate_does_not_collapse_to_crate_local ... ok
+test type_render::render_fn_signature_tests::async_unsafe_const_modifiers_are_prefixed ... ok
+test attrs::tests::extract_deprecated_attr_since_form ... ok
+test type_render::render_fn_signature_tests::mut_reference_receiver_renders_as_mut_ref_self ... ok
+test type_render::render_fn_signature_tests::owned_receiver_renders_as_self ... ok
+test type_render::render_fn_signature_tests::fn_with_params_renders_types_not_names ... ok
+test type_render::render_fn_signature_tests::reference_receiver_renders_as_ref_self ... ok
+test type_render::render_type_inner_tests::bare_generic_t_yields_empty ... ok
+test type_render::render_fn_signature_tests::param_name_does_not_affect_signature ... ok
+test type_render::render_type_inner_tests::depth_zero_returns_empty_synchronously ... ok
+test type_render::render_fn_signature_tests::return_type_divergence_surfaces_in_signature ... ok
+test type_render::render_type_inner_tests::non_path_type_reference_yields_empty ... ok
+test type_render::render_fn_signature_tests::deterministic_byte_stable_across_calls ... ok
+test type_render::render_type_inner_tests::non_path_type_tuple_yields_empty ... ok
+test type_render::render_type_inner_tests::qualified_path_std_vec_vec_yields_foo_at_depth_3 ... ok
+test type_render::render_type_inner_tests::wrapper_types_is_closed_nine_entries ... ok
+test type_render::render_type_inner_tests::user_defined_wrapper_yields_empty ... ok
+test type_render::render_type_inner_tests::result_yields_both_arms_at_depth_3 ... ok
+test type_render::render_type_inner_tests::depth_four_nesting_drops_leaf_foo ... ok
+test type_render::render_type_inner_tests::nested_vec_option_arc_foo_yields_foo_at_depth_3 ... ok
+test type_render::render_type_inner_tests::vec_of_foo_yields_foo_at_depth_3 ... ok
+
+test result: ok. 47 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/architecture_dep_rule.rs (target/debug/deps/architecture_dep_rule-a0c4dc72b2156319)
+
+running 3 tests
+test cfdb_extractor_depends_on_cfdb_core_and_syn ... ok
+test cfdb_extractor_dependencies_are_all_whitelisted ... ok
+test cfdb_extractor_has_no_forbidden_dependencies ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/architecture_determinism.rs (target/debug/deps/architecture_determinism-65675f43d4b2857f)
+
+running 1 test
+test cfdb_extractor_src_has_no_determinism_breaking_patterns ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/field_emission.rs (target/debug/deps/field_emission-d9f4a5b47604979d)
+
+running 5 tests
+test field_index_matches_declaration_order ... ok
+test has_field_edge_points_from_parent_item_to_field_node ... ok
+test field_nodes_carry_descriptor_five_props_only ... ok
+test field_type_normalized_and_type_path_both_populated_with_rendered_type ... ok
+test struct_with_three_named_fields_emits_three_field_nodes_and_has_field_edges ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/fixture_extraction.rs (target/debug/deps/fixture_extraction-2b9b627b9d9694c7)
+
+running 9 tests
+test bounded_context_overridden_by_concepts_toml ... ok
+test serde_default_attribute_emits_call_site ... ok
+test is_test_attribute_extracted_from_hash_test ... ok
+test call_sites_inside_macro_bodies_are_visible ... ok
+test bounded_context_derived_from_crate_prefix ... ok
+test fn_pointer_path_refs_emit_call_sites ... ok
+test path_attribute_remap_preserves_test_flag ... ok
+test impl_blocks_emit_implements_and_implements_for_edges ... ok
+test every_syn_call_site_carries_resolver_and_callee_resolved_discriminators ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/param_emission.rs (target/debug/deps/param_emission-c32722aa08c08daa)
+
+running 6 tests
+test fn_with_zero_params_emits_no_param_nodes ... ok
+test wildcard_pattern_param_emits_param_with_empty_name ... ok
+test method_with_self_and_two_params_emits_three_param_nodes ... ok
+test free_fn_with_three_params_emits_three_param_nodes_and_has_param_edges ... ok
+test has_param_edges_point_from_item_fn_to_param_nodes ... ok
+test param_emission_is_deterministic_across_two_extractions ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/published_language_dogfood.rs (target/debug/deps/published_language_dogfood-0814cf9c63e368a8)
+
+running 2 tests
+test extractor_emits_published_language_prop_on_every_crate_node ... ok
+test extractor_emits_published_language_false_when_pl_file_absent ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/returns_emission.rs (target/debug/deps/returns_emission-1c7eccb635308995)
+
+running 7 tests
+test fn_returning_forward_declared_type_still_emits_returns_edge ... ok
+test fn_returning_wrapped_same_crate_type_emits_no_returns_edge ... ok
+test fn_returning_same_crate_struct_emits_returns_edge ... ok
+test fn_returning_unknown_type_emits_no_returns_edge ... ok
+test fn_with_no_explicit_return_type_emits_no_returns_edge ... ok
+test method_returning_same_crate_struct_emits_returns_edge ... ok
+test returns_edge_emission_is_deterministic_across_two_extractions ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/self_workspace.rs (target/debug/deps/self_workspace-a3542cb49520d407)
+
+running 5 tests
+test extracts_self_workspace ... ok
+test self_workspace_emits_cfdb_context_and_belongs_to_edges ... ok
+test tags_cfg_test_modules_with_is_test ... ok
+test emits_call_sites_and_methods ... ok
+test extractor_is_deterministic_across_two_runs ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.78s
+
+     Running tests/type_of_emission.rs (target/debug/deps/type_of_emission-f6c253a7611c39ed)
+
+running 6 tests
+test field_wrapped_same_crate_type_emits_no_type_of_edge ... ok
+test field_referencing_forward_declared_struct_still_emits_type_of_edge ... ok
+test field_with_primitive_type_emits_no_type_of_edge ... ok
+test param_referencing_same_crate_struct_emits_type_of_edge ... ok
+test field_referencing_same_crate_struct_emits_type_of_edge ... ok
+test type_of_edge_emission_is_deterministic_across_two_extractions ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/variant_emission.rs (target/debug/deps/variant_emission-bb29be9bf1f764e0)
+
+running 7 tests
+test enum_with_variants_emits_has_variant_edges_from_item_to_variant ... ok
+test tuple_variant_payload_emits_indexed_fields_with_underscore_names ... ok
+test unit_variant_emits_no_has_field_edges ... ok
+test variant_node_ids_follow_canonical_formula ... ok
+test tuple_struct_now_emits_field_nodes_with_underscore_names ... ok
+test struct_variant_payload_emits_fields_with_variant_as_has_field_src ... ok
+test unit_tuple_and_struct_variants_all_emit_variant_nodes ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+   Doc-tests cfdb_extractor
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
