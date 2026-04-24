@@ -342,8 +342,9 @@ pub(crate) enum Command {
         /// Write to file path; otherwise stdout.
         #[arg(long)]
         output: Option<PathBuf>,
-        /// Output format. v0.1 supports only `json`; `sorted-jsonl` is
-        /// deferred to a follow-up.
+        /// Output format. `json` (default) emits the full `ClassifyEnvelope`
+        /// as pretty JSON. `sorted-jsonl` emits one line per finding with an
+        /// `op: header|finding|warning` discriminator — line-diff friendly.
         #[arg(long, default_value = "json")]
         format: String,
     },
