@@ -180,7 +180,7 @@ fn classify_rejects_missing_restrict_file() {
 }
 
 #[test]
-fn classify_rejects_sorted_jsonl_format_with_deferred_message() {
+fn classify_emits_sorted_jsonl_header_and_finding_lines() {
     let db = tempdir().expect("tempdir");
     let db_path = db.path();
     let workspace = cfdb_workspace_root();
@@ -207,10 +207,104 @@ fn classify_rejects_sorted_jsonl_format_with_deferred_message() {
         .output()
         .expect("cfdb classify runs");
 
-    assert!(!output.status.success());
-    let stderr = String::from_utf8(output.stderr).expect("stderr utf-8");
     assert!(
-        stderr.contains("sorted-jsonl") || stderr.contains("not supported"),
-        "expected deferred-format error, got: {stderr}"
+        output.status.success(),
+        "classify --format sorted-jsonl should exit 0 on identical-keyspace diff; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
     );
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout utf-8");
+    let mut lines = stdout.lines();
+    let header_line = lines.next().expect("at least a header line");
+    let header: serde_json::Value = serde_json::from_str(header_line).expect("header is JSON");
+    assert_eq!(header["op"], "header");
+    assert_eq!(header["schema_version"], CLASSIFY_ENVELOPE_SCHEMA_VERSION);
+    assert_eq!(header["inventory_context"], "cfdb");
+    assert_eq!(header["diff_source"]["a"], "cfdb-a");
+    assert_eq!(header["diff_source"]["b"], "cfdb-b");
+
+    // Every subsequent line is either a finding or a warning. Identical
+    // keyspaces produce an empty diff → no `op:finding` lines; but
+    // empty-bucket warnings should still emit `op:warning` lines.
+    for line in lines {
+        let v: serde_json::Value = serde_json::from_str(line).expect("JSONL line parses");
+        let op = v["op"].as_str().expect("op is a string");
+        assert!(
+            op == "finding" || op == "warning",
+            "unexpected op `{op}` on line: {line}"
+        );
+    }
+}
+
+#[test]
+fn classify_sorted_jsonl_determinism() {
+    let db = tempdir().expect("tempdir");
+    let db_path = db.path();
+    let workspace = cfdb_workspace_root();
+    extract_two_keyspaces(db_path, &workspace);
+
+    let diff_path = db.path().join("diff.json");
+    run_diff(db_path, "cfdb-a", "cfdb-b", &diff_path);
+
+    let run = || {
+        Command::cargo_bin("cfdb")
+            .expect("cfdb binary built")
+            .args([
+                "classify",
+                "--db",
+                db_path.to_str().unwrap(),
+                "--keyspace",
+                "cfdb-a",
+                "--context",
+                "cfdb",
+                "--restrict-to-diff",
+                diff_path.to_str().unwrap(),
+                "--format",
+                "sorted-jsonl",
+            ])
+            .output()
+            .expect("cfdb classify runs")
+            .stdout
+    };
+
+    assert_eq!(
+        run(),
+        run(),
+        "two back-to-back `classify --format sorted-jsonl` runs must produce byte-identical stdout"
+    );
+}
+
+#[test]
+fn classify_rejects_unknown_format_with_enumerated_values() {
+    let db = tempdir().expect("tempdir");
+    let db_path = db.path();
+    let workspace = cfdb_workspace_root();
+    extract_two_keyspaces(db_path, &workspace);
+
+    let diff_path = db.path().join("diff.json");
+    run_diff(db_path, "cfdb-a", "cfdb-b", &diff_path);
+
+    let output = Command::cargo_bin("cfdb")
+        .expect("cfdb binary built")
+        .args([
+            "classify",
+            "--db",
+            db_path.to_str().unwrap(),
+            "--keyspace",
+            "cfdb-a",
+            "--context",
+            "cfdb",
+            "--restrict-to-diff",
+            diff_path.to_str().unwrap(),
+            "--format",
+            "toml",
+        ])
+        .output()
+        .expect("cfdb classify runs");
+
+    assert!(!output.status.success(), "unknown --format must error");
+    let stderr = String::from_utf8(output.stderr).expect("stderr utf-8");
+    assert!(stderr.contains("not supported"), "got: {stderr}");
+    assert!(stderr.contains("json"), "got: {stderr}");
+    assert!(stderr.contains("sorted-jsonl"), "got: {stderr}");
 }
