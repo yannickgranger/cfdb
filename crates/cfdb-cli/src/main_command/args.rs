@@ -13,51 +13,16 @@ use clap::Subcommand;
 
 use crate::main_parse::{parse_item_kind, parse_trigger_id};
 
+mod extract_args;
+pub(crate) use extract_args::ExtractArgs;
+
 #[derive(Debug, Subcommand)]
 pub(crate) enum Command {
     /// Print cfdb version + schema version.
     Version,
 
     /// Extract facts from a Rust workspace into a keyspace on disk.
-    Extract {
-        /// Root of the target Rust workspace (must contain Cargo.toml).
-        /// When `--rev` is passed, this is the git repository root and
-        /// extraction walks a temporary worktree checked out at `<rev>`
-        /// rather than the live tree.
-        #[arg(long)]
-        workspace: PathBuf,
-        /// Directory to write the per-keyspace JSON files into.
-        #[arg(long)]
-        db: PathBuf,
-        /// Keyspace name. Defaults to the basename of `--workspace`
-        /// (or the short `<rev>` when `--rev` is passed without an
-        /// explicit keyspace).
-        #[arg(long)]
-        keyspace: Option<String>,
-        /// Run the HIR-based extractor after syn to add resolved
-        /// `:CallSite`, `CALLS`, `INVOKES_AT`, `:EntryPoint`, and
-        /// `EXPOSES` facts. Requires the `hir` Cargo feature —
-        /// rebuild with `cargo build -p cfdb-cli --features hir`
-        /// to opt in (Issue #86 / slice 4).
-        #[arg(long)]
-        hir: bool,
-        /// Extract against a specific git revision. Accepts two forms:
-        ///
-        ///   1. `<sha|tag|branch>` — same-repo: requires `--workspace`
-        ///      to point at a git repository root; shells out to
-        ///      `git worktree add --detach <tmp> <rev>` and extracts
-        ///      from the tmp tree. (Issue #37 / RFC-032 §A1.6.)
-        ///
-        ///   2. `<url>@<sha>` — remote: clones `<url>` into a persistent
-        ///      cache at `$CFDB_CACHE_DIR` (or `$XDG_CACHE_HOME/cfdb/extract`
-        ///      or `$HOME/.cache/cfdb/extract`), checks out `<sha>`, and
-        ///      extracts. Auth inherits ambient git credentials. Accepted
-        ///      URL schemes: `http://`, `https://`, `ssh://`, `file://`.
-        ///      (Issue #96 / RFC-cfdb.md Addendum B §A1.7, Option W
-        ///      bilateral drift-lock.)
-        #[arg(long)]
-        rev: Option<String>,
-    },
+    Extract(ExtractArgs),
 
     /// Run a Cypher-subset query against a loaded keyspace.
     Query {

@@ -19,9 +19,10 @@
 //! All functions are pure: values in → values out, zero I/O, zero
 //! allocations beyond the return `String`.
 //!
-//! Per-label node-id formulas are in the [`node_id`] submodule and
-//! re-exported here so callers of `cfdb_core::qname::field_node_id`
-//! (etc.) keep working without modification.
+//! Per-label node-id formulas live in the private `node_id` submodule
+//! and are re-exported here ([`field_node_id`], [`item_node_id`],
+//! [`param_node_id`], [`variant_node_id`]) so callers of
+//! `cfdb_core::qname::field_node_id` (etc.) keep working unchanged.
 
 mod node_id;
 pub use node_id::{field_node_id, item_node_id, param_node_id, variant_node_id};

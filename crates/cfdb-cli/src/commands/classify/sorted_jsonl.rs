@@ -106,7 +106,6 @@ mod tests {
         ClassifyEnvelope, DebtClass, DiffSourceMeta, Finding, ScopeInventory,
         CLASSIFY_ENVELOPE_SCHEMA_VERSION,
     };
-    use serde_json::json;
 
     fn finding(qname: &str, name: &str, crate_name: &str) -> Finding {
         Finding {
