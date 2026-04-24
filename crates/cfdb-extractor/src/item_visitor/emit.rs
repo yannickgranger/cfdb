@@ -299,6 +299,7 @@ impl ItemVisitor<'_> {
     /// today, HIR-based tomorrow) routes through it so
     /// `REGISTERS_PARAM` edges emitted by the HIR side land on the
     /// same `:Param` node ids these emit.
+    #[allow(clippy::too_many_arguments)] // #239: syn_type carries original type for render_type_inner fallback
     pub(super) fn emit_param(
         &mut self,
         parent_qname: &str,
@@ -307,6 +308,7 @@ impl ItemVisitor<'_> {
         is_self: bool,
         type_path: &str,
         type_normalized: &str,
+        syn_type: Option<&syn::Type>,
     ) {
         let id = param_node_id(parent_qname, index);
         let mut props = BTreeMap::new();
@@ -327,16 +329,24 @@ impl ItemVisitor<'_> {
             label: Label::new(Label::PARAM),
             props,
         });
-        // Queue TYPE_OF resolution (RFC-037 §3.4, #220). Skip trivial
-        // renderings (`"?"`) that definitely won't resolve; the resolver
-        // tolerates non-resolves silently but skipping saves work. The
-        // source node id (`id`) is captured now because by the time the
-        // post-walk pass runs, `parent_qname` + `index` alone are not
-        // enough to reconstruct it without re-deriving the formula.
+        // Queue TYPE_OF resolution (RFC-037 §3.4, #220; #239). Skip
+        // trivial renderings (`"?"`) and `self`-receiver params
+        // (`syn_type` is `None` for receivers — they carry `Self`,
+        // never an `:Item` in the workspace). The source node id
+        // (`id`) is captured now because by the time the post-walk
+        // pass runs, `parent_qname` + `index` alone are not enough
+        // to reconstruct it without re-deriving the formula. The
+        // stored `syn::Type` powers the wrapper-unwrap third tier
+        // in `resolve_deferred_type_of`.
         if type_normalized != "?" {
-            self.emitter
-                .deferred_type_of
-                .push((id.clone(), type_normalized.to_string(), "Param"));
+            if let Some(ty) = syn_type {
+                self.emitter.deferred_type_of.push((
+                    id.clone(),
+                    type_normalized.to_string(),
+                    "Param",
+                    ty.clone(),
+                ));
+            }
         }
         self.emitter.emit_edge(Edge {
             src: item_node_id(parent_qname),
@@ -352,6 +362,7 @@ impl ItemVisitor<'_> {
     /// for struct fields, `variant_node_id(enum_qname, i)` for enum-variant
     /// fields (#218, RFC-037 §3.3). Previously hardcoded to
     /// `item_node_id(parent_qname)`, which only worked for structs.
+    #[allow(clippy::too_many_arguments)] // #239: syn_type carries original type for render_type_inner fallback
     pub(super) fn emit_field(
         &mut self,
         src_id: &str,
@@ -360,6 +371,7 @@ impl ItemVisitor<'_> {
         name: &str,
         type_normalized: &str,
         type_path: &str,
+        syn_type: &syn::Type,
     ) {
         let id = field_node_id(parent_qname, name);
         let mut props = BTreeMap::new();
@@ -379,15 +391,19 @@ impl ItemVisitor<'_> {
             label: Label::new(Label::FIELD),
             props,
         });
-        // Queue TYPE_OF resolution (RFC-037 §3.4, #220). Skip trivial
-        // renderings (`"?"`) that definitely won't resolve; the resolver
-        // tolerates non-resolves silently but skipping saves work. The
-        // source node id (`id`) is the `:Field` node id, not the owning
-        // struct/variant — TYPE_OF edges flow Field → Item.
+        // Queue TYPE_OF resolution (RFC-037 §3.4, #220; #239). Skip
+        // trivial renderings (`"?"`) that definitely won't resolve.
+        // The source node id (`id`) is the `:Field` node id, not the
+        // owning struct/variant — TYPE_OF edges flow Field → Item.
+        // The stored `syn::Type` powers the wrapper-unwrap third tier
+        // in `resolve_deferred_type_of`.
         if type_normalized != "?" {
-            self.emitter
-                .deferred_type_of
-                .push((id.clone(), type_normalized.to_string(), "Field"));
+            self.emitter.deferred_type_of.push((
+                id.clone(),
+                type_normalized.to_string(),
+                "Field",
+                syn_type.clone(),
+            ));
         }
         self.emitter.emit_edge(Edge {
             src: src_id.to_string(),
@@ -422,7 +438,7 @@ impl ItemVisitor<'_> {
                     if let Some(ident) = &f.ident {
                         let field_name = ident.to_string();
                         let ty = crate::type_render::render_type_string(&f.ty);
-                        self.emit_field(src_id, parent_qname, index, &field_name, &ty, &ty);
+                        self.emit_field(src_id, parent_qname, index, &field_name, &ty, &ty, &f.ty);
                     }
                 }
             }
@@ -430,7 +446,7 @@ impl ItemVisitor<'_> {
                 for (index, f) in tuple.unnamed.iter().enumerate() {
                     let field_name = format!("_{index}");
                     let ty = crate::type_render::render_type_string(&f.ty);
-                    self.emit_field(src_id, parent_qname, index, &field_name, &ty, &ty);
+                    self.emit_field(src_id, parent_qname, index, &field_name, &ty, &ty, &f.ty);
                 }
             }
             syn::Fields::Unit => {}

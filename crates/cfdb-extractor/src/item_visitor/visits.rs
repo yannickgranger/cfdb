@@ -18,14 +18,18 @@ use crate::type_render::{render_fn_signature, render_path, render_type_string};
 
 use super::{parse_syn_visibility, span_line, ItemVisitor};
 
-/// Extract `(name, is_self, type_path, type_normalized)` for one
-/// `syn::FnArg`. Wildcard patterns (`_`) and non-ident patterns
+/// Extract `(name, is_self, type_path, type_normalized, syn_type)` for
+/// one `syn::FnArg`. Wildcard patterns (`_`) and non-ident patterns
 /// collapse to an empty `name`. Receiver shape (`&self`, `&mut self`,
 /// `self`) is rendered as `&Self`, `&mut Self`, or `Self` so cross-
-/// extractor consumers see a stable string. §6.4 semantic
-/// normalization is deferred; today `type_path` and `type_normalized`
-/// share the rendered source form (#209 / RFC-036 §3.1).
-fn param_info(arg: &syn::FnArg) -> (String, bool, String, String) {
+/// extractor consumers see a stable string; receivers have no
+/// `syn::Type` (they carry `Self`), so `syn_type` is `None` in that
+/// arm. §6.4 semantic normalization is deferred; today `type_path`
+/// and `type_normalized` share the rendered source form (#209 /
+/// RFC-036 §3.1). The `syn_type` slot is consumed downstream by
+/// `emit_param` to power the TYPE_OF third-tier wrapper unwrap
+/// (#239, RFC-037 §6 closeout).
+fn param_info(arg: &syn::FnArg) -> (String, bool, String, String, Option<syn::Type>) {
     match arg {
         syn::FnArg::Receiver(r) => {
             let mut ty = String::new();
@@ -38,7 +42,7 @@ fn param_info(arg: &syn::FnArg) -> (String, bool, String, String) {
                 ty.push_str("mut ");
             }
             ty.push_str("Self");
-            ("self".to_string(), true, ty.clone(), ty)
+            ("self".to_string(), true, ty.clone(), ty, None)
         }
         syn::FnArg::Typed(pt) => {
             let name = match pt.pat.as_ref() {
@@ -46,7 +50,7 @@ fn param_info(arg: &syn::FnArg) -> (String, bool, String, String) {
                 _ => String::new(),
             };
             let ty = render_type_string(&pt.ty);
-            (name, false, ty.clone(), ty)
+            (name, false, ty.clone(), ty, Some((*pt.ty).clone()))
         }
     }
 }
@@ -72,12 +76,15 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
         // in a file walked later in the same workspace.
         if let syn::ReturnType::Type(_, ty) = &node.sig.output {
             let return_type = render_type_string(ty);
+            // Store the original `syn::Type` alongside the rendered
+            // string so `resolve_deferred_returns` can fall back to
+            // `render_type_inner` on wrapper unwrap (#239).
             self.emitter
                 .deferred_returns
-                .push((caller_qname.clone(), return_type));
+                .push((caller_qname.clone(), return_type, (**ty).clone()));
         }
         for (index, arg) in node.sig.inputs.iter().enumerate() {
-            let (name, is_self, type_path, type_normalized) = param_info(arg);
+            let (name, is_self, type_path, type_normalized, syn_type) = param_info(arg);
             self.emit_param(
                 &caller_qname,
                 index,
@@ -85,6 +92,7 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
                 is_self,
                 &type_path,
                 &type_normalized,
+                syn_type.as_ref(),
             );
         }
         // REGISTERS_PARAM for MCP `#[tool]` fns is emitted HIR-side in
@@ -203,13 +211,24 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
         // pass produces the correct `item:<method-qname>` src id.
         if let syn::ReturnType::Type(_, ty) = &node.sig.output {
             let return_type = render_type_string(ty);
+            // Store the original `syn::Type` alongside the rendered
+            // string so `resolve_deferred_returns` can fall back to
+            // `render_type_inner` on wrapper unwrap (#239).
             self.emitter
                 .deferred_returns
-                .push((qname.clone(), return_type));
+                .push((qname.clone(), return_type, (**ty).clone()));
         }
         for (index, arg) in node.sig.inputs.iter().enumerate() {
-            let (name, is_self, type_path, type_normalized) = param_info(arg);
-            self.emit_param(&qname, index, &name, is_self, &type_path, &type_normalized);
+            let (name, is_self, type_path, type_normalized, syn_type) = param_info(arg);
+            self.emit_param(
+                &qname,
+                index,
+                &name,
+                is_self,
+                &type_path,
+                &type_normalized,
+                syn_type.as_ref(),
+            );
         }
         walk_call_sites_with_test_flag(self.emitter, &qname, &self.file_path, &node.block, is_test);
     }

@@ -144,27 +144,26 @@ pub fn extract_workspace(workspace_root: &Path) -> Result<(Vec<Node>, Vec<Edge>)
     // a RETURNS edge: same-walk forward-lookup is unnecessary because
     // the resolution loop runs after every walk has completed.
     //
-    // **Documented limitation (RFC-037 §6 non-goals):**
-    // `crate::type_render::render_type_string` strips generic
-    // arguments — `Vec<T>` renders as `"Vec"`, `Option<T>` as
-    // `"Option"`, `Result<T, E>` as `"Result"`. Wrapper-wrapped
-    // same-crate types therefore silently do not emit RETURNS /
-    // TYPE_OF edges. A follow-up `render_type_inner` that unwraps
-    // common wrappers is tracked in RFC-037 §6 non-goals.
+    // Wrapper-unwrap third tier (#239, RFC-037 §6 closeout): when
+    // exact-match + unique-last-segment miss on the outer rendered
+    // return type, the resolver falls back to `render_type_inner` on
+    // the original `syn::Type` (stored in the queue) with a
+    // depth-3 recursion budget. This catches `fn f() -> Vec<Foo>` /
+    // `Option<Foo>` / `Result<Ok, Err>` / nested combinations —
+    // wrapper-wrapped same-crate types now emit RETURNS. The closed
+    // 9-wrapper list lives in `type_render::WRAPPER_TYPES`.
     resolve_deferred_returns(&mut emitter);
 
     // Step 4 (post-walk) — TYPE_OF resolution (RFC-037 §3.4, #220).
     //
     // Same resolution strategy as RETURNS: exact-match against
-    // `emitted_item_qnames` with a unique-last-segment fallback for
-    // short rendered types (e.g. `"Bar"` → `"mycrate::Bar"`). The
-    // generic-stripping limitation (`render_type_string` renders
-    // `Vec<T>` as `"Vec"`) carries over from RETURNS — wrapper-wrapped
-    // same-crate types silently do not emit a TYPE_OF edge. Source
-    // labels in the deferred queue are restricted to `:Field` and
-    // `:Param`; variant-level TYPE_OF is a follow-up (variant payloads
-    // are already walked as `:Field` nodes which queue their own
-    // TYPE_OF entries).
+    // `emitted_item_qnames` with a unique-last-segment fallback,
+    // plus the `render_type_inner` third tier (#239) on the stored
+    // `syn::Type` when both earlier tiers miss. Source labels in the
+    // deferred queue are restricted to `:Field` and `:Param`;
+    // variant-level TYPE_OF is a follow-up (variant payloads are
+    // already walked as `:Field` nodes which queue their own TYPE_OF
+    // entries).
     resolve_deferred_type_of(&mut emitter);
 
     let (mut nodes, mut edges) = emitter.finish();
@@ -282,26 +281,38 @@ fn emit_context_node(emitter: &mut Emitter, name: &str, meta: &ContextMeta) {
     });
 }
 
-/// Post-walk RETURNS resolution (RFC-037 §3.2, #216).
+/// Post-walk RETURNS resolution (RFC-037 §3.2, #216; extended for #239).
 ///
 /// Iterates every entry queued in `emitter.deferred_returns` and emits
-/// a `RETURNS` edge from the fn's `:Item` to the return-type's `:Item`
-/// when the rendered return-type string resolves to a qname recorded
-/// in `emitter.emitted_item_qnames`. Returns silently when the type
-/// does not resolve — this includes cross-crate types not in the
-/// walked workspace, primitives, generic wrappers (see limitation in
-/// `extract_workspace`), and `impl Trait` returns (rendered as `?`).
+/// a `RETURNS` edge from the fn's `:Item` to the return-type's `:Item`.
+/// Three match tiers in order, stopping at the first hit:
+///
+/// 1. **Exact match** on the rendered return-type string against
+///    `emitter.emitted_item_qnames` (fast path for already-qualified
+///    returns like `mycrate::Foo`).
+/// 2. **Unique last-segment fallback** via the `by_last_segment` index
+///    (matches `"Foo"` to `"mycrate::Foo"`; ambiguous segments drop
+///    silently — safer than mis-attribution).
+/// 3. **Wrapper unwrap** via [`crate::type_render::render_type_inner`]
+///    (#239) on the stored `syn::Type` with a depth-3 budget. Each
+///    inner candidate string runs through the same two tiers above.
+///    A `Result<Ok, Err>` can emit two RETURNS edges (both arms
+///    resolve independently).
+///
+/// Returns silently when all three tiers miss — cross-crate types,
+/// primitives, non-wrapper generics (`T`, `MyBox<_>`), and
+/// `impl Trait` returns (rendered as `?`).
 ///
 /// Determinism (G1): deferred entries are appended in walk order
 /// (per-file syn::Visit order), and the resulting RETURNS edges land
 /// in `emitter.edges` before the final `edges.sort_by(sort_key)` pass
-/// in [`extract_workspace`], so the on-disk ordering is independent
-/// of the queue iteration order regardless.
+/// in [`extract_workspace`], so on-disk ordering is independent of
+/// queue iteration order regardless.
 fn resolve_deferred_returns(emitter: &mut Emitter) {
     // Drain into a local Vec so we don't hold a borrow on `emitter`
     // while calling `emit_edge`. Cloning the qnames keeps the borrow
     // checker quiet without changing the semantics.
-    let deferred: Vec<(String, String)> = std::mem::take(&mut emitter.deferred_returns);
+    let deferred: Vec<(String, String, syn::Type)> = std::mem::take(&mut emitter.deferred_returns);
 
     // Build a last-segment index: `render_type_string` produces paths
     // as-written (`Foo`, `mymod::Bar`), but `emitted_item_qnames` holds
@@ -309,8 +320,7 @@ fn resolve_deferred_returns(emitter: &mut Emitter) {
     // first (fast path for already-qualified returns); fall back to
     // last-segment match when unique. Ambiguous last-segments (e.g.
     // `Error` declared in multiple crates) emit no edge — safer than
-    // mis-attribution; documented as a limitation alongside the
-    // generic-stripping one in `extract_workspace`.
+    // mis-attribution.
     let mut by_last_segment: BTreeMap<&str, Option<&String>> = BTreeMap::new();
     for qname in &emitter.emitted_item_qnames {
         let seg = cfdb_core::qname::last_segment(qname);
@@ -321,16 +331,23 @@ fn resolve_deferred_returns(emitter: &mut Emitter) {
     }
 
     let mut resolved: Vec<(String, String)> = Vec::new();
-    for (fn_qname, return_type) in &deferred {
-        let target = if emitter.emitted_item_qnames.contains(return_type) {
-            Some(return_type.clone())
-        } else {
-            let seg = cfdb_core::qname::last_segment(return_type);
-            // unknown or ambiguous last-segment → drop silently
-            by_last_segment.get(seg).copied().flatten().cloned()
-        };
-        if let Some(target_qname) = target {
+    for (fn_qname, return_type, return_ty) in &deferred {
+        if let Some(target_qname) =
+            resolve_type_string(&emitter.emitted_item_qnames, &by_last_segment, return_type)
+        {
             resolved.push((fn_qname.clone(), target_qname));
+            continue;
+        }
+        // Third tier: wrapper unwrap on the stored `syn::Type`. Runs
+        // only on miss of tiers 1+2. A single queue entry may emit
+        // multiple RETURNS edges when the wrapper is `Result<T, E>`
+        // and both arms resolve.
+        for candidate in crate::type_render::render_type_inner(return_ty, 3) {
+            if let Some(target_qname) =
+                resolve_type_string(&emitter.emitted_item_qnames, &by_last_segment, &candidate)
+            {
+                resolved.push((fn_qname.clone(), target_qname));
+            }
         }
     }
 
@@ -344,17 +361,32 @@ fn resolve_deferred_returns(emitter: &mut Emitter) {
     }
 }
 
-/// Post-walk TYPE_OF resolution (RFC-037 §3.4, #220).
+/// Shared two-tier match (exact + unique last-segment) used by both
+/// post-walk resolvers and by the third-tier inner-candidate loop.
+/// Returns the matched qname (owned) when a tier hits, `None` when
+/// both miss.
+fn resolve_type_string(
+    emitted_item_qnames: &std::collections::BTreeSet<String>,
+    by_last_segment: &BTreeMap<&str, Option<&String>>,
+    type_string: &str,
+) -> Option<String> {
+    if emitted_item_qnames.contains(type_string) {
+        return Some(type_string.to_string());
+    }
+    let seg = cfdb_core::qname::last_segment(type_string);
+    by_last_segment.get(seg).copied().flatten().cloned()
+}
+
+/// Post-walk TYPE_OF resolution (RFC-037 §3.4, #220; extended for #239).
 ///
 /// Iterates every entry queued in `emitter.deferred_type_of` and emits
 /// a `TYPE_OF` edge from the source `:Field` / `:Param` node id to the
-/// referenced type's `:Item` when the rendered type string resolves to
-/// a qname recorded in `emitter.emitted_item_qnames`. Resolution logic
-/// mirrors [`resolve_deferred_returns`]: exact-match first, then a
-/// unique-last-segment fallback for short rendered types. Ambiguous
-/// last-segments (same short name declared in multiple workspace
-/// crates) emit no edge — the same safer-than-mis-attribution policy
-/// the RETURNS resolver uses.
+/// referenced type's `:Item`. Three match tiers mirror
+/// [`resolve_deferred_returns`]: exact-match, unique last-segment,
+/// and `render_type_inner` wrapper unwrap on the stored `syn::Type`.
+/// Ambiguous last-segments (same short name declared in multiple
+/// workspace crates) emit no edge — the same safer-than-mis-attribution
+/// policy.
 ///
 /// The third tuple slot (`source_label`) is informational only
 /// (`"Field"` or `"Param"`); the edge's `dst` is always
@@ -369,7 +401,7 @@ fn resolve_deferred_returns(emitter: &mut Emitter) {
 /// in [`extract_workspace`], so on-disk ordering is independent of
 /// queue iteration order.
 fn resolve_deferred_type_of(emitter: &mut Emitter) {
-    let deferred: Vec<(String, String, &'static str)> =
+    let deferred: Vec<(String, String, &'static str, syn::Type)> =
         std::mem::take(&mut emitter.deferred_type_of);
 
     // Build the last-segment index once — same shape as the RETURNS
@@ -385,15 +417,24 @@ fn resolve_deferred_type_of(emitter: &mut Emitter) {
     }
 
     let mut resolved: Vec<(String, String)> = Vec::new();
-    for (src_id, type_string, _label) in &deferred {
-        let target = if emitter.emitted_item_qnames.contains(type_string) {
-            Some(type_string.clone())
-        } else {
-            let seg = cfdb_core::qname::last_segment(type_string);
-            by_last_segment.get(seg).copied().flatten().cloned()
-        };
-        if let Some(target_qname) = target {
+    for (src_id, type_string, _label, src_ty) in &deferred {
+        if let Some(target_qname) =
+            resolve_type_string(&emitter.emitted_item_qnames, &by_last_segment, type_string)
+        {
             resolved.push((src_id.clone(), target_qname));
+            continue;
+        }
+        // Third tier: wrapper unwrap (#239). Runs only on miss of
+        // tiers 1+2. A single queue entry may emit multiple TYPE_OF
+        // edges when the wrapper is `Result<T, E>` and both arms
+        // resolve — the `:Field` or `:Param` gets two edges out to
+        // the two walked items.
+        for candidate in crate::type_render::render_type_inner(src_ty, 3) {
+            if let Some(target_qname) =
+                resolve_type_string(&emitter.emitted_item_qnames, &by_last_segment, &candidate)
+            {
+                resolved.push((src_id.clone(), target_qname));
+            }
         }
     }
 
@@ -437,21 +478,25 @@ pub(crate) struct Emitter {
     /// [`crate::item_visitor::ItemVisitor::visit_impl_item_fn`].
     pub(crate) emitted_item_qnames: std::collections::BTreeSet<String>,
     /// Deferred RETURNS edges — `(fn_item_qname,
-    /// rendered_return_type_string)`. Walked after all items are
-    /// emitted; if the type string resolves to a qname in
-    /// `emitted_item_qnames`, a `RETURNS` edge is pushed.
-    pub(crate) deferred_returns: Vec<(String, String)>,
+    /// rendered_return_type_string, original_return_syn_type)`.
+    /// Walked after all items are emitted. The rendered string is
+    /// consulted first (exact + unique-last-segment tiers); the
+    /// stored `syn::Type` powers the third-tier wrapper unwrap via
+    /// [`crate::type_render::render_type_inner`] (#239), which runs
+    /// only when the rendered-string tiers miss.
+    pub(crate) deferred_returns: Vec<(String, String, syn::Type)>,
     /// Deferred TYPE_OF edges — `(source_node_id, rendered_type_string,
-    /// source_label)` where `source_label` is `"Field"` or `"Param"`.
-    /// Walked in [`extract_workspace`]'s Step 4 post-walk pass; emits
-    /// a `TYPE_OF` edge from the source `:Field` / `:Param` node to
-    /// the `:Item` whose qname matches the rendered type (exact or
-    /// unique last-segment fallback), mirroring the RETURNS resolver.
-    /// Variants are not queued from here — a variant's payload is
-    /// walked into separate `:Field` nodes which queue their own
-    /// TYPE_OF entries. Variant-level TYPE_OF is a documented
-    /// follow-up (RFC-037 §3.4 / #220 non-goals).
-    pub(crate) deferred_type_of: Vec<(String, String, &'static str)>,
+    /// source_label, original_syn_type)` where `source_label` is
+    /// `"Field"` or `"Param"`. Walked in [`extract_workspace`]'s Step 4
+    /// post-walk pass; emits a `TYPE_OF` edge from the source `:Field`
+    /// / `:Param` node to the `:Item` whose qname matches the rendered
+    /// type (exact, unique-last-segment, or `render_type_inner`
+    /// wrapper unwrap on the stored `syn::Type` — #239), mirroring
+    /// the RETURNS resolver. Variants are not queued from here —
+    /// a variant's payload is walked into separate `:Field` nodes
+    /// which queue their own TYPE_OF entries. Variant-level TYPE_OF
+    /// is a documented follow-up (RFC-037 §3.4 / #220 non-goals).
+    pub(crate) deferred_type_of: Vec<(String, String, &'static str, syn::Type)>,
 }
 
 impl Emitter {

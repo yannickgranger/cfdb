@@ -1,23 +1,17 @@
-//! `TYPE_OF` edge emission tests (#220, RFC-037 §3.4).
+//! `TYPE_OF` edge emission tests (#220, RFC-037 §3.4; #239 closeout).
 //!
 //! After #220, every `:Field` or `:Param` whose rendered type string
 //! resolves to an emitted `:Item` qname in the same workspace produces
 //! one `TYPE_OF` edge from the source `:Field` / `:Param` to the
-//! referenced `:Item`. Resolution is post-walk, so a field whose type
-//! names a struct declared later in the same file still emits the
-//! edge. Resolution shares the RETURNS resolver's exact-match +
-//! unique-last-segment-fallback policy (see
-//! `lib.rs::resolve_deferred_type_of`).
+//! referenced `:Item`. Resolution is post-walk and shares the RETURNS
+//! resolver's three-tier policy: exact-match, unique-last-segment
+//! fallback, and (#239) wrapper unwrap via `render_type_inner` on the
+//! stored `syn::Type` with a depth-3 budget. `struct V(Vec<Foo>)` now
+//! emits a TYPE_OF edge to `Foo`; `struct R { x: Result<Ok, Err> }`
+//! emits two (both arms resolve).
 //!
-//! **Scope limits pinned here (RFC-037 §6 non-goals):**
+//! **Scope limits still pinned here (RFC-037 §6 non-goals):**
 //!
-//! - Generic-stripping: `render_type_string` renders `Vec<T>` as
-//!   `"Vec"`, `Option<T>` as `"Option"` — so wrapper-wrapped same-crate
-//!   types do not emit `TYPE_OF` today. The
-//!   `field_wrapped_same_crate_type_emits_no_type_of_edge` test pins
-//!   this; when a future `render_type_inner` unwrapper lands, the test
-//!   flips and the limitation comment in
-//!   `lib.rs::resolve_deferred_type_of` must be deleted in the same PR.
 //! - Variant-level `TYPE_OF` is out of scope for this slice — variant
 //!   payloads are walked into separate `:Field` nodes that queue their
 //!   own `TYPE_OF` entries, which is sufficient for current queries.
@@ -237,14 +231,14 @@ fn field_with_primitive_type_emits_no_type_of_edge() {
 }
 
 #[test]
-fn field_wrapped_same_crate_type_emits_no_type_of_edge() {
-    // `struct V(Vec<MyType>)`. `render_type_string` strips generic
-    // arguments — rendered string is `"Vec"`, which never matches a
-    // workspace `:Item` qname. This test pins the documented
-    // limitation (RFC-037 §6 non-goals) so the day someone adds a
-    // `render_type_inner` unwrapper, this test FLIPS — at which point
-    // the limitation comment in `lib.rs::resolve_deferred_type_of`
-    // must be deleted in the same PR.
+fn field_wrapped_same_crate_type_emits_type_of_edge() {
+    // `struct V(Vec<MyType>)`. The outer `render_type_string` renders
+    // `"Vec"`, which does not match any workspace `:Item` qname. The
+    // third-tier `render_type_inner` unwrap (#239) then inspects the
+    // stored `syn::Type`, matches `Vec` in `WRAPPER_TYPES`, and yields
+    // the inner candidate `"MyType"` — which resolves to the walked
+    // struct and emits one TYPE_OF edge from the tuple field to
+    // `MyType`'s `:Item`.
     let fixture = tempdir().expect("tempdir");
     write_cargo_workspace(
         fixture.path(),
@@ -254,15 +248,117 @@ fn field_wrapped_same_crate_type_emits_no_type_of_edge() {
 pub struct V(pub Vec<MyType>);
 "#,
     );
-    let (_nodes, edges) = extract_workspace(fixture.path()).expect("extract");
+    let (nodes, edges) = extract_workspace(fixture.path()).expect("extract");
+    let my_type_id = item_id_by_name(&nodes, "struct", "MyType");
     let type_ofs = type_of_edges(&edges);
-    assert!(
-        type_ofs.is_empty(),
-        "documented limitation: render_type_string strips generics, so Vec<MyType> currently \
-         does not emit TYPE_OF (got {} edges; if this fires, the unwrapper has been added — \
-         update the limitation comment in lib.rs::resolve_deferred_type_of)",
+    let to_my_type: Vec<&&cfdb_core::Edge> =
+        type_ofs.iter().filter(|e| e.dst == my_type_id).collect();
+    assert_eq!(
+        to_my_type.len(),
+        1,
+        "expected exactly one TYPE_OF edge from V's tuple field to MyType via render_type_inner unwrap, got {} (all TYPE_OF edges: {:?})",
+        to_my_type.len(),
         type_ofs.len()
     );
+}
+
+#[test]
+fn param_with_wrapped_same_crate_type_emits_type_of_edge() {
+    // `fn handle(x: Option<Foo>)` — outer render `"Option"` misses;
+    // third-tier `render_type_inner` at depth 3 yields `"Foo"`, which
+    // resolves. One TYPE_OF edge from the :Param(0) to :Item(Foo).
+    let fixture = tempdir().expect("tempdir");
+    write_cargo_workspace(
+        fixture.path(),
+        "typeofparamwrapped",
+        r#"pub struct Foo;
+
+pub fn handle(x: Option<Foo>) {
+    let _ = x;
+}
+"#,
+    );
+    let (nodes, edges) = extract_workspace(fixture.path()).expect("extract");
+    let foo_id = item_id_by_name(&nodes, "struct", "Foo");
+    let param_id = param_id_by(&nodes, "typeofparamwrapped::handle", 0);
+    let type_ofs = type_of_edges(&edges);
+    let matching: Vec<&&cfdb_core::Edge> = type_ofs
+        .iter()
+        .filter(|e| e.src == param_id && e.dst == foo_id)
+        .collect();
+    assert_eq!(
+        matching.len(),
+        1,
+        "expected one TYPE_OF edge from :Param(handle#0) to :Item(Foo) via Option unwrap, got {}",
+        matching.len()
+    );
+}
+
+#[test]
+fn field_with_nested_wrappers_at_depth_three_emits_type_of_edge() {
+    // `struct V { inner: Vec<Option<Arc<Foo>>> }` — depth-3 unwrap
+    // terminates at `Foo`. One TYPE_OF edge from the :Field(inner) to
+    // :Item(Foo).
+    let fixture = tempdir().expect("tempdir");
+    write_cargo_workspace(
+        fixture.path(),
+        "typeofnested",
+        r#"use std::sync::Arc;
+
+pub struct Foo;
+
+pub struct V {
+    pub inner: Vec<Option<Arc<Foo>>>,
+}
+"#,
+    );
+    let (nodes, edges) = extract_workspace(fixture.path()).expect("extract");
+    let foo_id = item_id_by_name(&nodes, "struct", "Foo");
+    let field_id = field_id_by(&nodes, "typeofnested::V", "inner");
+    let type_ofs = type_of_edges(&edges);
+    let matching: Vec<&&cfdb_core::Edge> = type_ofs
+        .iter()
+        .filter(|e| e.src == field_id && e.dst == foo_id)
+        .collect();
+    assert_eq!(
+        matching.len(),
+        1,
+        "expected one TYPE_OF edge from :Field(V.inner) to :Item(Foo) via depth-3 unwrap, got {}",
+        matching.len()
+    );
+}
+
+#[test]
+fn field_with_result_wrapper_emits_one_type_of_edge_per_arm() {
+    // `struct R { slot: Result<Ok, Err> }` — Result third-tier unwrap
+    // yields both arms. Two TYPE_OF edges from :Field(slot).
+    let fixture = tempdir().expect("tempdir");
+    write_cargo_workspace(
+        fixture.path(),
+        "typeofresult",
+        r#"pub struct Ok;
+pub struct Err;
+
+pub struct R {
+    pub slot: Result<Ok, Err>,
+}
+"#,
+    );
+    let (nodes, edges) = extract_workspace(fixture.path()).expect("extract");
+    let ok_id = item_id_by_name(&nodes, "struct", "Ok");
+    let err_id = item_id_by_name(&nodes, "struct", "Err");
+    let field_id = field_id_by(&nodes, "typeofresult::R", "slot");
+    let type_ofs = type_of_edges(&edges);
+    let to_ok: Vec<&&cfdb_core::Edge> = type_ofs
+        .iter()
+        .filter(|e| e.src == field_id && e.dst == ok_id)
+        .collect();
+    let to_err: Vec<&&cfdb_core::Edge> = type_ofs
+        .iter()
+        .filter(|e| e.src == field_id && e.dst == err_id)
+        .collect();
+    assert_eq!(to_ok.len(), 1, "expected one TYPE_OF to Ok arm");
+    assert_eq!(to_err.len(), 1, "expected one TYPE_OF to Err arm");
 }
 
 #[test]
