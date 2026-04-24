@@ -9,20 +9,20 @@ use cfdb_cli::{
     violations, CfdbCliError, EnrichVerb,
 };
 
-use crate::main_command::Command;
+use crate::main_command::{Command, ExtractArgs};
 
 /// Dispatch helper for the INGEST + RAW + AUX core verbs. Factored out of
 /// [`crate::run`] to keep the top-level match flat — each group's expansion
 /// of the `cmd @ Command::*` alternation lives in a dedicated helper.
 pub(crate) fn dispatch_core(cmd: Command) -> Result<(), CfdbCliError> {
     match cmd {
-        Command::Extract {
+        Command::Extract(ExtractArgs {
             workspace,
             db,
             keyspace,
             hir,
             rev,
-        } => extract(workspace, db, keyspace, hir, rev),
+        }) => extract(workspace, db, keyspace, hir, rev),
         Command::Query {
             db,
             keyspace,
