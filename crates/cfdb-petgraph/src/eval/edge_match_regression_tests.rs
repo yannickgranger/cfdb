@@ -20,8 +20,6 @@
 //! Per repo `CLAUDE.md §2.5`, the red→green transition in a single
 //! PR IS the bug-fix regression contract.
 
-use std::collections::BTreeMap;
-
 use cfdb_core::fact::{Edge, Node, PropValue};
 use cfdb_core::result::RowValue;
 use cfdb_core::schema::{EdgeLabel, Keyspace, Label};
@@ -57,8 +55,8 @@ fn minimal_fixture() -> (Vec<Node>, Vec<Edge>) {
         Node::new("nA", Label::new("N")).with_prop("qname", "alpha"),
         Node::new("nB", Label::new("N")).with_prop("qname", "beta"),
     ];
-    let edges = vec![Edge::new("nA", "nB", EdgeLabel::new("REL"))
-        .with_prop("weight", PropValue::Int(7))];
+    let edges =
+        vec![Edge::new("nA", "nB", EdgeLabel::new("REL")).with_prop("weight", PropValue::Int(7))];
     (nodes, edges)
 }
 
@@ -207,6 +205,45 @@ fn roundtrip_edge_property_access() {
     assert_eq!(scalar_str(&r.rows[0], "r.label"), "REL");
 }
 
+// ---------- Parallel edges (bag semantics per cfdb_core::fact::Edge) ----------
+
+#[test]
+fn parallel_edges_each_produce_a_row() {
+    // `Edge` has bag semantics — two edges with identical (src, dst, label,
+    // props) are distinct by construction. Single-hop traversal emits one
+    // row per edge so `count(r) == jq '.edges | length'`.
+    let mut store = PetgraphStore::new();
+    let k = ks();
+    store
+        .ingest_nodes(
+            &k,
+            vec![
+                Node::new("a", Label::new("N")),
+                Node::new("b", Label::new("N")),
+            ],
+        )
+        .expect("ingest nodes");
+    store
+        .ingest_edges(
+            &k,
+            vec![
+                Edge::new("a", "b", EdgeLabel::new("REL")),
+                Edge::new("a", "b", EdgeLabel::new("REL")),
+                Edge::new("a", "b", EdgeLabel::new("REL")),
+            ],
+        )
+        .expect("ingest edges");
+
+    let q = parse("MATCH (a)-[r:REL]->(b) RETURN count(r)");
+    let r = store.execute(&k, &q).expect("exec");
+    assert_eq!(
+        scalar_int(&r.rows[0], "count"),
+        3,
+        "3 parallel edges must each produce a row; rows={:?}",
+        r.rows
+    );
+}
+
 // ---------- Invariant: anonymous edges still work (regression guard) ----------
 
 #[test]
@@ -234,10 +271,9 @@ fn unknown_edge_label_still_warns() {
     let q = parse("MATCH (a)-[r:NOSUCH]->(b) RETURN count(r)");
     let r = store.execute(&k, &q).expect("exec");
     assert!(
-        r.warnings.iter().any(|w| matches!(
-            w.kind,
-            cfdb_core::result::WarningKind::UnknownEdgeLabel
-        )),
+        r.warnings
+            .iter()
+            .any(|w| matches!(w.kind, cfdb_core::result::WarningKind::UnknownEdgeLabel)),
         "UnknownEdgeLabel warning must fire for MATCH (a)-[r:NOSUCH]->(b); warnings={:?}",
         r.warnings
     );

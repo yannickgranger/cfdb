@@ -9,7 +9,7 @@ use cfdb_core::query::{
     Direction, EdgePattern, NodePattern, Param, PathPattern, Pattern, Predicate,
 };
 use cfdb_core::result::{RowValue, Warning, WarningKind};
-use petgraph::stable_graph::NodeIndex;
+use petgraph::stable_graph::{EdgeIndex, NodeIndex};
 use petgraph::visit::EdgeRef;
 
 use super::explain_fmt::format_node_pattern;
@@ -240,8 +240,10 @@ impl<'a> Evaluator<'a> {
                 continue;
             }
             let reached = self.traverse(src_idx, &pp.edge);
-            for dst_idx in reached {
-                if let Some(next) = self.build_path_binding(bindings, src_idx, dst_idx, pp) {
+            for (dst_idx, edge_idx) in reached {
+                if let Some(next) =
+                    self.build_path_binding(bindings, src_idx, dst_idx, edge_idx, pp)
+                {
                     out.push(next);
                 }
             }
@@ -250,13 +252,17 @@ impl<'a> Evaluator<'a> {
 
     /// Assemble a single output binding for a `(src_idx, dst_idx)` path. Runs
     /// the destination-side filters, clones the carrying bindings, inserts
-    /// `from.var` / `to.var` (or fails if a pre-bound `to.var` disagrees with
-    /// `dst_idx`). Returns `None` when any filter rejects the pair.
+    /// `from.var` / `to.var` / `edge.var` (or fails if a pre-bound `to.var`
+    /// disagrees with `dst_idx`). `edge_idx` is `Some` for single-hop
+    /// traversals and `None` for variable-length paths where `r` would
+    /// otherwise need to bind to a list of edges — that shape is deferred
+    /// (issue #242). Returns `None` when any filter rejects the pair.
     fn build_path_binding(
         &self,
         bindings: &Bindings,
         src_idx: NodeIndex,
         dst_idx: NodeIndex,
+        edge_idx: Option<EdgeIndex>,
         pp: &PathPattern,
     ) -> Option<Bindings> {
         if !self.matches_node_pattern_for_endpoint(dst_idx, &pp.to) {
@@ -277,6 +283,9 @@ impl<'a> Evaluator<'a> {
                     next.insert(var.clone(), Binding::NodeRef(dst_idx));
                 }
             }
+        }
+        if let (Some(var), Some(idx)) = (&pp.edge.var, edge_idx) {
+            next.insert(var.clone(), Binding::EdgeRef(idx));
         }
         Some(next)
     }
@@ -312,15 +321,61 @@ impl<'a> Evaluator<'a> {
     }
 
     /// Traverse edges from `src_idx` according to `edge`. Honors direction
-    /// and variable-length quantifier. Returns the set of destination node
-    /// indices reached (BFS semantics with cycle detection).
-    fn traverse(&self, src_idx: NodeIndex, edge: &EdgePattern) -> Vec<NodeIndex> {
+    /// and variable-length quantifier. Returns `(dst_idx, edge_idx)` pairs
+    /// for destinations reached. `edge_idx` is `Some` only for single-hop
+    /// emissions; for variable-length paths `edge_idx` is `None` — the
+    /// edge variable would otherwise need to bind to a list of edges, and
+    /// list-of-edges binding is deferred (issue #242).
+    ///
+    /// Single-hop (no `var_length` quantifier) emits one row per matching
+    /// edge — parallel edges (`bag` semantics per `cfdb_core::fact::Edge`)
+    /// each produce their own row, and `count(r)` equals the jq edge
+    /// count. Variable-length paths go through a BFS that dedupes by
+    /// visited node for cycle detection, matching Cypher's standard
+    /// reachability semantics.
+    fn traverse(
+        &self,
+        src_idx: NodeIndex,
+        edge: &EdgePattern,
+    ) -> Vec<(NodeIndex, Option<EdgeIndex>)> {
+        if edge.var_length.is_none() {
+            return self.traverse_single_hop(src_idx, edge);
+        }
+        self.traverse_bfs(src_idx, edge)
+    }
+
+    /// Single-hop traversal — emits one row per matching edge at depth=1.
+    /// No BFS, no visited-set, no parallel-edge dedup (each edge counts).
+    fn traverse_single_hop(
+        &self,
+        src_idx: NodeIndex,
+        edge: &EdgePattern,
+    ) -> Vec<(NodeIndex, Option<EdgeIndex>)> {
+        let edges = match edge.direction {
+            Direction::Out => self.collect_directed_edges(src_idx, edge, true, false),
+            Direction::In => self.collect_directed_edges(src_idx, edge, false, true),
+            Direction::Undirected => self.collect_directed_edges(src_idx, edge, true, true),
+        };
+        let mut out: Vec<(NodeIndex, Option<EdgeIndex>)> =
+            edges.into_iter().map(|(n, e)| (n, Some(e))).collect();
+        out.sort_by_key(|(n, e)| (*n, e.map(|i| i.index())));
+        out
+    }
+
+    /// Variable-length BFS traversal — dedupes by visited node for cycle
+    /// detection (Cypher reachability semantics). Returns `(dst, None)`
+    /// since the edge variable cannot bind to a list in this subset.
+    fn traverse_bfs(
+        &self,
+        src_idx: NodeIndex,
+        edge: &EdgePattern,
+    ) -> Vec<(NodeIndex, Option<EdgeIndex>)> {
         let (min_depth, max_depth) = edge.var_length.unwrap_or((1, 1));
         let max_depth = max_depth
             .max(min_depth)
             .min(DEFAULT_VAR_LENGTH_MAX.max(min_depth));
 
-        let mut out: Vec<NodeIndex> = Vec::new();
+        let mut out: Vec<(NodeIndex, Option<EdgeIndex>)> = Vec::new();
         let mut visited: BTreeSet<NodeIndex> = BTreeSet::new();
         let mut queue: VecDeque<(NodeIndex, u32)> = VecDeque::new();
         queue.push_back((src_idx, 0));
@@ -328,7 +383,7 @@ impl<'a> Evaluator<'a> {
 
         while let Some((idx, depth)) = queue.pop_front() {
             if depth >= min_depth && depth > 0 {
-                out.push(idx);
+                out.push((idx, None));
             }
             if depth >= max_depth {
                 continue;
@@ -339,13 +394,13 @@ impl<'a> Evaluator<'a> {
                 Direction::In => self.collect_directed_edges(idx, edge, false, true),
                 Direction::Undirected => self.collect_directed_edges(idx, edge, true, true),
             };
-            for target in edges_iter {
+            for (target, _edge_idx) in edges_iter {
                 if visited.insert(target) {
                     queue.push_back((target, next_depth));
                 }
             }
         }
-        out.sort();
+        out.sort_by_key(|(n, _)| *n);
         out
     }
 
@@ -355,12 +410,12 @@ impl<'a> Evaluator<'a> {
         edge: &EdgePattern,
         outgoing: bool,
         incoming: bool,
-    ) -> Vec<NodeIndex> {
-        let mut targets: Vec<NodeIndex> = Vec::new();
+    ) -> Vec<(NodeIndex, EdgeIndex)> {
+        let mut targets: Vec<(NodeIndex, EdgeIndex)> = Vec::new();
         if outgoing {
             for e in self.state.graph.edges(idx) {
                 if edge_label_matches(edge, e.weight()) {
-                    targets.push(e.target());
+                    targets.push((e.target(), e.id()));
                 }
             }
         }
@@ -371,7 +426,7 @@ impl<'a> Evaluator<'a> {
                 .edges_directed(idx, petgraph::Direction::Incoming)
             {
                 if edge_label_matches(edge, e.weight()) {
-                    targets.push(e.source());
+                    targets.push((e.source(), e.id()));
                 }
             }
         }
