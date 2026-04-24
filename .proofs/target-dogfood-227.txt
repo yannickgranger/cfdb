@@ -1,0 +1,52 @@
+=== Target dogfood proof — issue #227 ===
+Date: 2026-04-24T07:34:10+00:00
+qbot-core SHA: 6eb494ebe
+cfdb SHA:      167ce49
+
+--- Extract output ---
+extract: 170115 nodes, 175345 edges
+extract --hir: loading HIR database for /var/mnt/workspaces/qbot-core
+extract --hir: resolving call sites
+extract --hir: scanning entry points
+extract --hir: 137250 :CallSite, 137250 CALLS, 137250 INVOKES_AT, 102 :EntryPoint, 102 EXPOSES
+extract: saved keyspace `qbot` to /tmp/qbot-227/qbot.json
+
+--- Raw edge label counts (from keyspace JSON) ---
+BELONGS_TO	113
+CALLS	2753
+EXPOSES	75
+HAS_FIELD	8330
+HAS_PARAM	16965
+HAS_VARIANT	2259
+IMPLEMENTS	143
+IMPLEMENTS_FOR	2256
+INVOKES_AT	123094
+IN_CRATE	23576
+REGISTERS_PARAM	79
+RETURNS	1216
+TYPE_OF	2218
+
+--- REGISTERS_PARAM from :EntryPoint{kind:mcp_tool} — impl-method qname matches ---
+74
+
+--- Sample mcp_tool REGISTERS_PARAM edges (post-fix, canonical impl qname) ---
+[
+  {
+    "src": "entrypoint:mcp_tool:qbot_mcp::handler::tools_compute::QbotMcpHandler::acknowledge_alert",
+    "dst": "param:qbot_mcp::handler::tools_compute::QbotMcpHandler::acknowledge_alert#1",
+    "label": "REGISTERS_PARAM"
+  },
+  {
+    "src": "entrypoint:mcp_tool:qbot_mcp::handler::tools_compute::QbotMcpHandler::add_symbol",
+    "dst": "param:qbot_mcp::handler::tools_compute::QbotMcpHandler::add_symbol#1",
+    "label": "REGISTERS_PARAM"
+  },
+  {
+    "src": "entrypoint:mcp_tool:qbot_mcp::handler::tools_compute::QbotMcpHandler::assign_strategy",
+    "dst": "param:qbot_mcp::handler::tools_compute::QbotMcpHandler::assign_strategy#1",
+    "label": "REGISTERS_PARAM"
+  }
+]
+
+--- :Param node existence check for edge dsts (random sample) ---
+1

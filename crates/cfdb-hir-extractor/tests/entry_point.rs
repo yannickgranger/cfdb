@@ -19,7 +19,7 @@ use std::fs;
 use std::path::Path;
 
 use cfdb_core::fact::{Node, PropValue};
-use cfdb_core::qname::{field_node_id, item_node_id, variant_node_id};
+use cfdb_core::qname::{field_node_id, item_node_id, method_qname, param_node_id, variant_node_id};
 use cfdb_core::schema::{EdgeLabel, Label};
 use cfdb_hir_extractor::{build_hir_database, extract_entry_points};
 use tempfile::tempdir;
@@ -636,5 +636,141 @@ pub struct Cli {
             .iter()
             .map(|e| (&e.src, &e.dst))
             .collect::<Vec<_>>(),
+    );
+}
+
+// ---------------------------------------------------------------
+// Issue #227 — fn_name_and_qname must include impl target
+// ---------------------------------------------------------------
+//
+// Regression test for the seam closure between HIR-side :EntryPoint
+// emission and syn-side :Param emission for MCP `#[tool]` fns
+// declared inside an `impl` block. Pre-fix the HIR side built the fn
+// qname from module path + fn name (`mod::method`), while the syn
+// side built `mod::ImplTarget::method` via `method_qname` — the
+// REGISTERS_PARAM dst therefore pointed at a non-existent :Param
+// node id and ingest silently dropped the edge. Post-fix the HIR
+// side routes through `call_site_emitter::function_qname`, which
+// applies `normalize_impl_target` + `method_qname` for associated
+// items and so produces a qname that matches syn's.
+
+#[test]
+fn mcp_tool_on_impl_method_emits_registers_param_matching_syn_side_param_id() {
+    // Fixture: `impl Tools { #[tool] pub fn bar(&self, x: i32, y: i32) -> i32 { x + y } }`.
+    // Pre-fix expectation: fn qname = `impltools::bar` (broken);
+    // post-fix expectation: fn qname = `impltools::Tools::bar`
+    // (canonical — matches `method_qname` the syn extractor uses).
+    let tmp = tempdir().expect("tempdir");
+    let root = tmp.path();
+    write(root, "Cargo.toml", &workspace_cargo_toml(&["impltools"]));
+    write(
+        root,
+        "impltools/Cargo.toml",
+        &member_cargo_toml("impltools"),
+    );
+    write(
+        root,
+        "impltools/src/lib.rs",
+        r#"
+// Stand-in receiver — the test exercises the impl-method qname path.
+pub struct Tools;
+
+impl Tools {
+    // `#[tool]` attribute detected syntactically by `has_tool_attr`.
+    // `&self` receiver + two typed params; the syn-side extractor
+    // emits :Param at index 0 (self), 1 (x), 2 (y); the HIR-side
+    // REGISTERS_PARAM emitter offsets typed params by +1 when a
+    // receiver is present, so it targets indices 1 and 2.
+    #[tool]
+    pub fn bar(&self, x: i32, y: i32) -> i32 {
+        x + y
+    }
+}
+"#,
+    );
+
+    let (db, vfs) = build_hir_database(root).expect("build_hir_database on impltools");
+    let (nodes, edges) =
+        extract_entry_points(&db, &vfs).expect("extract_entry_points on impltools");
+
+    // The canonical qname is derived via the canonical helper — if
+    // the qname formula ever changes shape, this assertion updates
+    // with it instead of silently drifting against a hand-spelled
+    // string.
+    let expected_qname = method_qname(&["impltools".to_string()], "Tools", "bar");
+    assert_eq!(
+        expected_qname, "impltools::Tools::bar",
+        "sanity: method_qname formula must yield `<crate>::<target>::<method>`"
+    );
+
+    // The :EntryPoint{kind:mcp_tool} node must carry the impl-target
+    // qname, not the module-only shape.
+    let eps = entry_points(&nodes);
+    let mcp_eps: Vec<_> = eps
+        .iter()
+        .filter(|n| kind_of(n) == Some("mcp_tool"))
+        .collect();
+    assert_eq!(
+        mcp_eps.len(),
+        1,
+        "expected exactly 1 mcp_tool :EntryPoint for impl method; got {}: {:?}",
+        mcp_eps.len(),
+        mcp_eps.iter().map(|n| &n.id).collect::<Vec<_>>(),
+    );
+    let ep = mcp_eps[0];
+    assert_eq!(
+        handler_qname(ep),
+        Some(expected_qname.as_str()),
+        "handler_qname must include impl target: expected `{expected_qname}`, got `{:?}`",
+        handler_qname(ep),
+    );
+
+    // The EXPOSES edge must point at the canonical :Item node id.
+    let expected_item = item_node_id(&expected_qname);
+    let exposes: Vec<_> = edges
+        .iter()
+        .filter(|e| e.label.as_str() == EdgeLabel::EXPOSES && e.src == ep.id)
+        .collect();
+    assert_eq!(
+        exposes.len(),
+        1,
+        "expected exactly 1 EXPOSES edge for impl-method mcp_tool :EntryPoint"
+    );
+    assert_eq!(
+        exposes[0].dst, expected_item,
+        "EXPOSES dst must equal item_node_id(method_qname) for the impl method"
+    );
+
+    // REGISTERS_PARAM: `&self` is receiver (syn :Param index 0);
+    // typed params `x` and `y` land at syn indices 1 and 2 via the
+    // +1 offset inside `emit_mcp_registers_param`. Pre-fix the dsts
+    // were `param:impltools::bar#{1,2}` (broken); post-fix they must
+    // be `param:impltools::Tools::bar#{1,2}` — matching what the syn
+    // extractor emits for the same method.
+    let entry_point_id = format!("entrypoint:mcp_tool:{expected_qname}");
+    let register_edges: Vec<_> = edges
+        .iter()
+        .filter(|e| e.label.as_str() == EdgeLabel::REGISTERS_PARAM && e.src == entry_point_id)
+        .collect();
+    assert_eq!(
+        register_edges.len(),
+        2,
+        "expected 2 REGISTERS_PARAM edges (x, y — self excluded); got {}: {:?}",
+        register_edges.len(),
+        register_edges
+            .iter()
+            .map(|e| (&e.src, &e.dst))
+            .collect::<Vec<_>>(),
+    );
+
+    let mut dsts: Vec<&str> = register_edges.iter().map(|e| e.dst.as_str()).collect();
+    dsts.sort();
+    let expected_x = param_node_id(&expected_qname, 1);
+    let expected_y = param_node_id(&expected_qname, 2);
+    let expected_dsts = vec![expected_x.as_str(), expected_y.as_str()];
+    assert_eq!(
+        dsts, expected_dsts,
+        "REGISTERS_PARAM dsts must equal param_node_id(method_qname, i) for receiver-offset \
+         indices 1 and 2 — proves HIR-side dsts match syn-side :Param ids"
     );
 }

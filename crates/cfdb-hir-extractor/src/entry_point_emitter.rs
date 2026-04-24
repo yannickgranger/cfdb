@@ -333,16 +333,6 @@ fn emit_clap_enum_registers_param(enum_qname: &str, enum_: &ast::Enum, edges: &m
 /// `self` / `&self` / `&mut self` receiver, the syn walker still calls
 /// `emit_param` for it with `index=0`, so we offset the typed-param
 /// index by 1 to match.
-///
-/// **Known limitation (follow-up).** `fn_name_and_qname` builds the
-/// qname from the HIR module path + fn name, omitting the impl target
-/// for impl-method tools. The syn-side :Param `parent_qname` includes
-/// the impl target (via `method_qname`), so for impl-method MCP tools
-/// the HIR-constructed `param_node_id(fn_qname, i)` dst id mismatches
-/// the syn-emitted :Param id and ingest drops the edge silently. Free-
-/// fn MCP tools work correctly; impl-method MCP tools emit 0
-/// REGISTERS_PARAM until `fn_name_and_qname` is extended to include
-/// impl target.
 fn emit_mcp_registers_param(fn_qname: &str, fn_ast: &ast::Fn, edges: &mut Vec<Edge>) {
     let Some(param_list) = fn_ast.param_list() else {
         return;
@@ -407,13 +397,20 @@ where
     Some((name, qname))
 }
 
+/// Resolve an `ast::Fn`'s qname via the canonical HIR fn-qname formula
+/// in [`crate::call_site_emitter::function_qname`]. The formula is
+/// impl-aware and trait-aware: methods inside `impl Foo { fn bar }` get
+/// `<module>::Foo::bar`, trait impls get `<module>::Trait::bar`, free
+/// fns get `<module>::bar`. Routing through the canonical builder
+/// keeps cross-producer :Param / REGISTERS_PARAM keys bit-identical
+/// with the syn-side emitter (RFC-037 §3.1 / #227).
 fn fn_name_and_qname<DB>(sema: &Semantics<'_, DB>, fn_ast: &ast::Fn) -> Option<(String, String)>
 where
     DB: HirDatabase + Sized,
 {
     let name = fn_ast.name()?.text().to_string();
     let def = sema.to_def(fn_ast)?;
-    let qname = build_item_qname(sema, def.module(sema.db), def.krate(sema.db), &name);
+    let qname = crate::call_site_emitter::function_qname(sema, def);
     Some((name, qname))
 }
 
