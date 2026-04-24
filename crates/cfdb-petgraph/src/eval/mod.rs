@@ -46,6 +46,8 @@ use crate::graph::KeyspaceState;
 
 #[cfg(test)]
 mod cross_match_tests;
+#[cfg(test)]
+mod edge_match_regression_tests;
 mod explain_fmt;
 #[cfg(test)]
 mod fast_path_tests;
