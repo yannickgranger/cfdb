@@ -1,0 +1,11 @@
+[workspace]
+resolver = "2"
+members = ["crate-a", "crate-b"]
+
+# Scar fixture for RFC-036 §3.2 / issue #202 — Compound Stop Layer Isolation.
+#
+# Mirrors the CLAUDE.md compound-stop canary rule M1: layer isolation
+# in canary tests must suppress other layers that could preempt. The
+# scar models a CLI entry point that registers `CompoundStop` and
+# reaches both the modern builder and a legacy constructor through a
+# 2-hop call chain.

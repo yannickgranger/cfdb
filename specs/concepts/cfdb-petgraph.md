@@ -37,3 +37,11 @@ One observability row emitted by `PetgraphStore::execute_explained` (RFC-035 sli
 ## ExplainHit
 
 The closed two-variant enum tagging one `ExplainRow`. `Indexed` means the slice-5/6 `by_prop` fast path fired; `Fallback` means the evaluator used `nodes_with_label` (or `all_nodes_sorted` for label-less patterns). Dogfood tests grep on the arrow-form rendering (`→ indexed` / `→ fallback`) so both variants are load-bearing test primitives for self-dogfood + target-dogfood hit-rate measurements.
+
+## AstSignals
+
+Per-function AST-derived signal pair: `{ unwrap_count, cyclomatic }`. Produced by `cfdb_petgraph::enrich::metrics::ast_signals` (issue #203 / RFC-036 §3.3) when the `quality-metrics` feature is active. `unwrap_count` counts `.unwrap()` + `.expect()` method calls in the function body; `cyclomatic` is McCabe complexity (branches + 1) counting `if` / `match` (N arms → N−1) / loops / `?` / `&&` / `||`. Stateless full re-walk of every distinct source file referenced by a `:Item{kind:"Fn"}.file` prop — no incremental-parse mode. DIP constraint (RFC-036 CP6): parses syn directly from within cfdb-petgraph; dep direction `cfdb-petgraph → cfdb-extractor` is forbidden.
+
+## Config
+
+Per-run configuration for `enrich_metrics` (`enrich::metrics::Config`). Currently one field: `coverage_json: Option<PathBuf>` naming a `cargo llvm-cov --json` output file. `None` leaves `:Item.test_coverage` unpopulated; `Some` populates per-qname from the file's `summary.lines.percent` block. `Default::default()` yields `coverage_json: None` — matches the G6 invariant (test_coverage toolchain-version-scoped, excluded from G1 canonical-dump sha256). Internal producer helpers (`compute_for_block`, `compute_for_item`, `compute_dup_cluster_ids`, `hash_cluster`, `parse_llvm_cov_json`) are `pub(crate)` and therefore not separately catalogued — they are implementation detail of this `Config`-driven pass.

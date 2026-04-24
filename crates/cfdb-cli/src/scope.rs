@@ -16,8 +16,8 @@ mod explain_sink;
 mod helpers;
 
 use classifier::{query_canonical_candidates, query_findings_in_context, run_classifier_rule};
-use explain_sink::ExplainSink;
-use helpers::validate_context;
+pub(crate) use explain_sink::ExplainSink;
+pub(crate) use helpers::validate_context;
 
 /// Embedded hsb-by-name rule, used by `cfdb scope` to seed
 /// `canonical_candidates` from Pattern A horizontal split-brain findings.
@@ -151,7 +151,7 @@ fn build_scope_inventory(
 /// was not run against the keyspace — leave the bucket empty; the
 /// warning path in [`attach_scope_warnings`] reports dependency
 /// degradations.
-fn populate_findings_by_class(
+pub(crate) fn populate_findings_by_class(
     store: &cfdb_petgraph::PetgraphStore,
     ks: &cfdb_core::schema::Keyspace,
     context: &str,
@@ -169,6 +169,43 @@ fn populate_findings_by_class(
     Ok(())
 }
 
+/// Populate `inventory.findings_by_class` with classifier findings restricted
+/// to qnames present in `restrict_to`. Delegates to
+/// [`populate_findings_by_class`] (the sole classifier-iteration entry
+/// point) and then filters each bucket in place — never a parallel
+/// classifier run. Used by `cfdb classify` (#213).
+///
+/// Post-filter semantics: after [`populate_findings_by_class`] has filled
+/// every bucket, each `Vec<Finding>` is retained to only those findings
+/// whose `qname` is in `restrict_to`. A resulting empty bucket triggers
+/// the same per-class warning [`class_empty_bucket_note`] emits for
+/// `cfdb scope`, so consumers can distinguish "zero in-diff findings"
+/// from "classifier degraded on missing enrichment".
+pub(crate) fn populate_findings_by_class_restricted(
+    store: &cfdb_petgraph::PetgraphStore,
+    ks: &cfdb_core::schema::Keyspace,
+    context: &str,
+    restrict_to: &std::collections::BTreeSet<String>,
+    inventory: &mut ScopeInventory,
+    sink: &ExplainSink,
+) -> Result<(), crate::CfdbCliError> {
+    populate_findings_by_class(store, ks, context, inventory, sink)?;
+    retain_findings_by_qname(inventory, restrict_to);
+    Ok(())
+}
+
+/// Post-filter that retains only findings whose `qname` is in
+/// `restrict_to`. Extracted from [`populate_findings_by_class_restricted`]
+/// so the set-algebra half can be unit-tested without a `PetgraphStore`.
+pub(crate) fn retain_findings_by_qname(
+    inventory: &mut ScopeInventory,
+    restrict_to: &std::collections::BTreeSet<String>,
+) {
+    for bucket in inventory.findings_by_class.values_mut() {
+        bucket.retain(|finding| restrict_to.contains(&finding.qname));
+    }
+}
+
 /// Attach the full warning set for a `cfdb scope` inventory — per-class
 /// dependency / degradation notes (only when the bucket is empty), the
 /// reachability-map HIR caveat, and the loc-per-crate approximation
@@ -180,7 +217,7 @@ fn populate_findings_by_class(
 /// warning naming the likely cause (missing enrichment, no signal in
 /// this context, etc.) so consumers can distinguish "zero bypass bugs"
 /// from "reachability enrichment was not run".
-fn attach_scope_warnings(inventory: &mut ScopeInventory) {
+pub(crate) fn attach_scope_warnings(inventory: &mut ScopeInventory) {
     DebtClass::variants()
         .iter()
         .filter(|class| {
@@ -242,7 +279,10 @@ fn emit_scope_output(
 /// supplied `--keyspace`, use it. Otherwise, if the db directory holds
 /// exactly one `.json` keyspace file, use its stem. Any other case is a
 /// usage error — the user must disambiguate.
-fn resolve_keyspace_name(db: &Path, keyspace: Option<&str>) -> Result<String, crate::CfdbCliError> {
+pub(crate) fn resolve_keyspace_name(
+    db: &Path,
+    keyspace: Option<&str>,
+) -> Result<String, crate::CfdbCliError> {
     if let Some(name) = keyspace {
         return Ok(name.to_string());
     }
@@ -288,7 +328,7 @@ fn resolve_keyspace_name(db: &Path, keyspace: Option<&str>) -> Result<String, cr
 /// with per-class degradation semantics now that each classifier
 /// rule ships. The class name still appears in every message so
 /// consumers can grep for a specific class.
-fn class_empty_bucket_note(class: DebtClass) -> Option<String> {
+pub(crate) fn class_empty_bucket_note(class: DebtClass) -> Option<String> {
     let reason = match class {
         DebtClass::DuplicatedFeature => {
             "findings_by_class.duplicated_feature is empty — no same-context \
@@ -332,4 +372,77 @@ fn class_empty_bucket_note(class: DebtClass) -> Option<String> {
         }
     };
     Some(reason.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cfdb_query::{DebtClass, Finding};
+    use std::collections::BTreeSet;
+
+    fn finding(qname: &str) -> Finding {
+        Finding {
+            qname: qname.to_string(),
+            name: qname.rsplit("::").next().unwrap_or(qname).to_string(),
+            kind: "struct".to_string(),
+            crate_name: "test".to_string(),
+            file: "test.rs".to_string(),
+            line: 1,
+            bounded_context: "test".to_string(),
+        }
+    }
+
+    fn inventory_with_findings(entries: &[(DebtClass, &[&str])]) -> ScopeInventory {
+        let mut inv = ScopeInventory::new("ctx", "sha");
+        for (class, qnames) in entries {
+            if let Some(bucket) = inv.findings_by_class.get_mut(class) {
+                for q in *qnames {
+                    bucket.push(finding(q));
+                }
+            }
+        }
+        inv
+    }
+
+    #[test]
+    fn retain_findings_by_qname_empty_restrict_clears_all_buckets() {
+        let mut inv = inventory_with_findings(&[
+            (DebtClass::DuplicatedFeature, &["a::X", "b::Y"]),
+            (DebtClass::ContextHomonym, &["c::Z"]),
+        ]);
+        retain_findings_by_qname(&mut inv, &BTreeSet::new());
+        for (class, bucket) in &inv.findings_by_class {
+            assert!(
+                bucket.is_empty(),
+                "class {class:?} should be empty after empty-restrict filter"
+            );
+        }
+    }
+
+    #[test]
+    fn retain_findings_by_qname_keeps_only_matching_qnames() {
+        let mut inv = inventory_with_findings(&[
+            (DebtClass::DuplicatedFeature, &["keep::X", "drop::Y"]),
+            (DebtClass::UnfinishedRefactor, &["keep::Z", "drop::W"]),
+        ]);
+        let restrict: BTreeSet<String> = ["keep::X", "keep::Z"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        retain_findings_by_qname(&mut inv, &restrict);
+        let dup = &inv.findings_by_class[&DebtClass::DuplicatedFeature];
+        assert_eq!(dup.len(), 1);
+        assert_eq!(dup[0].qname, "keep::X");
+        let unfin = &inv.findings_by_class[&DebtClass::UnfinishedRefactor];
+        assert_eq!(unfin.len(), 1);
+        assert_eq!(unfin[0].qname, "keep::Z");
+    }
+
+    #[test]
+    fn retain_findings_by_qname_unrelated_qnames_yield_empty_buckets() {
+        let mut inv = inventory_with_findings(&[(DebtClass::CanonicalBypass, &["present::X"])]);
+        let restrict: BTreeSet<String> = ["absent::Z".into()].into_iter().collect();
+        retain_findings_by_qname(&mut inv, &restrict);
+        assert!(inv.findings_by_class[&DebtClass::CanonicalBypass].is_empty());
+    }
 }

@@ -118,8 +118,13 @@ pub(super) fn item_attrs_extractor() -> Vec<AttributeDescriptor> {
     ]
 }
 
-/// `enrich_metrics`-provenance attributes on `:Item` — deferred pass per
-/// RFC addendum §A2.2; descriptors remain reserved.
+/// `enrich_metrics`-provenance attributes on `:Item` — populated by
+/// `PetgraphStore::enrich_metrics` (RFC-036 §3.3 / issue #203) when the
+/// `quality-metrics` feature is active. Descriptors were reserved in
+/// V0_3_0 and became load-bearing in V0_3_1 (producer landing). G6
+/// invariant: `test_coverage` is toolchain-version-scoped (depends on
+/// `cargo-llvm-cov` output) and excluded from the G1 canonical-dump
+/// sha256; the other three attrs participate in G1 as normal.
 pub(super) fn item_attrs_enrich_metrics() -> Vec<AttributeDescriptor> {
     use Provenance::EnrichMetrics;
     vec![
@@ -155,7 +160,7 @@ pub(super) fn field_node_descriptor() -> NodeLabelDescriptor {
     use Provenance::Extractor;
     NodeLabelDescriptor {
         label: Label::new(Label::FIELD),
-        description: "A struct field or tuple-struct element.".into(),
+        description: "A struct field, tuple-struct element, or enum variant field.".into(),
         attributes: vec![
             attr(
                 "index",
@@ -166,13 +171,13 @@ pub(super) fn field_node_descriptor() -> NodeLabelDescriptor {
             attr(
                 "name",
                 "string",
-                "Field identifier (`_0`, `_1`, ... for tuple structs).",
+                "Field identifier (`_0`, `_1`, ... for tuple structs and tuple variants).",
                 Extractor,
             ),
             attr(
                 "parent_qname",
                 "string",
-                "Qualified name of the struct that owns this field.",
+                "Qualified name of the owning struct or enum variant.",
                 Extractor,
             ),
             attr(

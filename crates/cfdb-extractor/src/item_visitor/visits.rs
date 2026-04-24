@@ -18,6 +18,39 @@ use crate::type_render::{render_fn_signature, render_path, render_type_string};
 
 use super::{parse_syn_visibility, span_line, ItemVisitor};
 
+/// Extract `(name, is_self, type_path, type_normalized)` for one
+/// `syn::FnArg`. Wildcard patterns (`_`) and non-ident patterns
+/// collapse to an empty `name`. Receiver shape (`&self`, `&mut self`,
+/// `self`) is rendered as `&Self`, `&mut Self`, or `Self` so cross-
+/// extractor consumers see a stable string. §6.4 semantic
+/// normalization is deferred; today `type_path` and `type_normalized`
+/// share the rendered source form (#209 / RFC-036 §3.1).
+fn param_info(arg: &syn::FnArg) -> (String, bool, String, String) {
+    match arg {
+        syn::FnArg::Receiver(r) => {
+            let mut ty = String::new();
+            if r.reference.is_some() {
+                ty.push('&');
+                if r.mutability.is_some() {
+                    ty.push_str("mut ");
+                }
+            } else if r.mutability.is_some() {
+                ty.push_str("mut ");
+            }
+            ty.push_str("Self");
+            ("self".to_string(), true, ty.clone(), ty)
+        }
+        syn::FnArg::Typed(pt) => {
+            let name = match pt.pat.as_ref() {
+                syn::Pat::Ident(pi) => pi.ident.to_string(),
+                _ => String::new(),
+            };
+            let ty = render_type_string(&pt.ty);
+            (name, false, ty.clone(), ty)
+        }
+    }
+}
+
 impl<'ast> Visit<'ast> for ItemVisitor<'_> {
     fn visit_item_fn(&mut self, node: &'ast syn::ItemFn) {
         let name = node.sig.ident.to_string();
@@ -33,6 +66,33 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
             Some(&signature),
         );
         let caller_qname = qname_from_node_id(&id).to_string();
+        // RETURNS post-walk queue (RFC-037 §3.2, #216). Defer
+        // resolution to `extract_workspace`'s post-walk pass — the
+        // return type may name an item declared later in this file or
+        // in a file walked later in the same workspace.
+        if let syn::ReturnType::Type(_, ty) = &node.sig.output {
+            let return_type = render_type_string(ty);
+            self.emitter
+                .deferred_returns
+                .push((caller_qname.clone(), return_type));
+        }
+        for (index, arg) in node.sig.inputs.iter().enumerate() {
+            let (name, is_self, type_path, type_normalized) = param_info(arg);
+            self.emit_param(
+                &caller_qname,
+                index,
+                &name,
+                is_self,
+                &type_path,
+                &type_normalized,
+            );
+        }
+        // REGISTERS_PARAM for MCP `#[tool]` fns is emitted HIR-side in
+        // `cfdb-hir-extractor::entry_point_emitter` — it owns
+        // `:EntryPoint` node emission and therefore has a valid src id
+        // in the keyspace. Emitting from here would produce dangling
+        // edges that `cfdb-petgraph::ingest_one_edge` drops silently
+        // (graph.rs:204), making the producer invisible in the graph.
         walk_call_sites_with_test_flag(
             self.emitter,
             &caller_qname,
@@ -126,12 +186,31 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
             label: Label::new(Label::ITEM),
             props,
         });
+        // Track method qname for RETURNS / TYPE_OF post-walk
+        // resolution (RFC-037 §3.2, #216). The impl-method emission
+        // path bypasses `emit_item_with_flags`, so we insert into
+        // the workspace-scoped set explicitly here.
+        self.emitter.emitted_item_qnames.insert(qname.clone());
         self.emitter.emit_edge(Edge {
             src: id,
             dst: self.crate_id.clone(),
             label: EdgeLabel::new(EdgeLabel::IN_CRATE),
             props: BTreeMap::new(),
         });
+        // RETURNS post-walk queue (RFC-037 §3.2, #216). Mirrors the
+        // free-fn path in `visit_item_fn`. The deferred entry uses the
+        // method's full qname (`module::Foo::bar`) so the post-walk
+        // pass produces the correct `item:<method-qname>` src id.
+        if let syn::ReturnType::Type(_, ty) = &node.sig.output {
+            let return_type = render_type_string(ty);
+            self.emitter
+                .deferred_returns
+                .push((qname.clone(), return_type));
+        }
+        for (index, arg) in node.sig.inputs.iter().enumerate() {
+            let (name, is_self, type_path, type_normalized) = param_info(arg);
+            self.emit_param(&qname, index, &name, is_self, &type_path, &type_normalized);
+        }
         walk_call_sites_with_test_flag(self.emitter, &qname, &self.file_path, &node.block, is_test);
     }
 
@@ -145,22 +224,24 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
             &node.attrs,
         );
         let parent_qname = qname_from_node_id(&id).to_string();
+        // Walk the struct's fields uniformly — `emit_field_list` handles
+        // both `Fields::Named` (record struct) and `Fields::Unnamed`
+        // (tuple struct). `Fields::Unit` is a no-op. #218 / RFC-037 §3.3
+        // step 7.
+        self.emit_field_list(&id, &node.fields, &parent_qname);
+        // Serde `default = "path"` attribute on a named field is a
+        // name-based reference to a callable — syntactically visible
+        // to syn but never exercised as an `ExprCall`, so the
+        // CallSiteVisitor would miss it. Emit a `kind="serde_default"`
+        // CallSite linked from the owning struct Item so ban rules can
+        // catch it. Only applies to record-style fields (has `ident`).
         if let syn::Fields::Named(named) = &node.fields {
             for f in &named.named {
                 if let Some(ident) = &f.ident {
-                    let field_name = ident.to_string();
-                    let ty = render_type_string(&f.ty);
-                    self.emit_field(&parent_qname, &field_name, &ty);
-                    // Serde `default = "path"` attribute on a field is a
-                    // name-based reference to a callable — syntactically
-                    // visible to syn but never exercised as an `ExprCall`,
-                    // so the CallSiteVisitor would miss it. Emit a
-                    // `kind="serde_default"` CallSite linked from the
-                    // owning struct Item so ban rules can catch it.
                     if let Some(callee_path) = extract_serde_default_attr(&f.attrs) {
                         self.emit_attr_call_site(
                             &parent_qname,
-                            &field_name,
+                            &ident.to_string(),
                             &callee_path,
                             "serde_default",
                         );
@@ -172,13 +253,34 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
 
     fn visit_item_enum(&mut self, node: &'ast syn::ItemEnum) {
         let name = node.ident.to_string();
-        self.emit_item(
+        let id = self.emit_item(
             &name,
             "enum",
             span_line(&node.ident),
             &node.vis,
             &node.attrs,
         );
+        let enum_qname = qname_from_node_id(&id).to_string();
+        // Walk every variant — emit the `:Variant` node + `HAS_VARIANT`
+        // edge, then recurse into the variant's payload via
+        // `emit_field_list` (shared with `visit_item_struct`). #218 /
+        // RFC-037 §3.3.
+        for (index, variant) in node.variants.iter().enumerate() {
+            let variant_name = variant.ident.to_string();
+            let payload_kind = match &variant.fields {
+                syn::Fields::Unit => "unit",
+                syn::Fields::Unnamed(_) => "tuple",
+                syn::Fields::Named(_) => "struct",
+            };
+            let (variant_id, variant_qname) =
+                self.emit_variant(&enum_qname, index, &variant_name, payload_kind);
+            // Variant payload fields use the `:Variant` node as the
+            // `HAS_FIELD` edge src (the descriptor's widened `from:`
+            // list). `parent_qname` is `Enum::Variant` so field ids
+            // (`field:Enum::Variant.x`) do not collide with enum- or
+            // struct-field ids on the same graph.
+            self.emit_field_list(&variant_id, &variant.fields, &variant_qname);
+        }
     }
 
     fn visit_item_trait(&mut self, node: &'ast syn::ItemTrait) {

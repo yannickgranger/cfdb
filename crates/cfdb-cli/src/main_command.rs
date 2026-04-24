@@ -179,16 +179,29 @@ pub(crate) enum Command {
         keyspace: String,
     },
 
-    /// Enrich a keyspace with quality-signal facts (complexity, unwraps,
-    /// clones-in-loops). Phase A stub — **deferred out of #43 scope** per
-    /// RFC amendment §A2.2: orthogonal to the debt-cause classifier
-    /// pipeline. Surface retained so a future RFC can resuscitate it
-    /// without a breaking rename.
+    /// Enrich a keyspace with quality-signal facts
+    /// (`unwrap_count`, `cyclomatic`, `test_coverage`, `dup_cluster_id`)
+    /// on `:Item{kind:"fn"}` nodes. Populated by `PetgraphStore::enrich_metrics`
+    /// (RFC-036 §3.3 / issue #203) when the binary is built with
+    /// `--features quality-metrics`. Without the feature the verb dispatches
+    /// to a `ran: false` report naming the missing feature flag.
+    ///
+    /// `--workspace` is required for the real pass — syn re-parses source
+    /// files referenced by `:Item.file`. A stored keyspace with its own
+    /// `workspace_root` (from a prior `--workspace` extract) overrides an
+    /// omitted `--workspace` here; otherwise the pass returns a degraded
+    /// report.
     EnrichMetrics {
         #[arg(long)]
         db: PathBuf,
         #[arg(long)]
         keyspace: String,
+        /// Workspace-root path handed to the store before dispatching —
+        /// required for the real pass to re-parse source files. Mirrors
+        /// the `--workspace` flag shared by every workspace-scanning
+        /// enrichment verb (#43 slices B/D/E/F).
+        #[arg(long)]
+        workspace: Option<PathBuf>,
     },
 
     /// Typed verb — find the canonical definition of a concept.
@@ -297,21 +310,66 @@ pub(crate) enum Command {
         db: PathBuf,
     },
 
-    /// Diff two keyspaces (added / removed / changed facts). Phase A stub —
-    /// the snapshot diff verb ships with the snapshot store in Phase B.
+    /// Route `cfdb diff` findings by `DebtClass`. Consumes a
+    /// `DiffEnvelope` (`--restrict-to-diff`) and emits a
+    /// `ClassifyEnvelope` whose `findings_by_class` buckets cover only
+    /// items whose `qname` appears in the diff's added/changed sets.
+    /// Delegates to the same classifier plumbing as `cfdb scope` per
+    /// RFC-cfdb.md §A2.2. Routing to concrete skills is external —
+    /// `.cfdb/skill-routing.toml` + the consumer gate.
+    Classify {
+        #[arg(long)]
+        db: PathBuf,
+        /// Keyspace name (defaults to the single on-disk keyspace when
+        /// unambiguous). Mirrors `cfdb scope`'s resolution semantics.
+        #[arg(long)]
+        keyspace: Option<String>,
+        /// Bounded-context name — filters classifier findings to items
+        /// where `Item.bounded_context == <name>`. Unknown context →
+        /// exit 1 with `known contexts: ...` message.
+        #[arg(long)]
+        context: String,
+        /// Path to a `DiffEnvelope` JSON (output of `cfdb diff`). The
+        /// classifier restricts its `findings_by_class` buckets to
+        /// items whose `qname` appears in the diff's added/changed
+        /// sets.
+        #[arg(long)]
+        restrict_to_diff: PathBuf,
+        /// Optional workspace path (enables `.cfdb/indexes.toml` per
+        /// RFC-035 slice 7, same as `cfdb scope`).
+        #[arg(long)]
+        workspace: Option<PathBuf>,
+        /// Write to file path; otherwise stdout.
+        #[arg(long)]
+        output: Option<PathBuf>,
+        /// Output format. `json` (default) emits the full `ClassifyEnvelope`
+        /// as pretty JSON. `sorted-jsonl` emits one line per finding with an
+        /// `op: header|finding|warning` discriminator — line-diff friendly.
+        #[arg(long, default_value = "json")]
+        format: String,
+    },
+
+    /// Diff two keyspaces — emit the `{added, removed, changed}` delta
+    /// over the canonical sorted-JSONL dump (RFC-cfdb.md §12.1). Exit 0
+    /// regardless of diff size; the consumer gate decides pass/fail.
     Diff {
         #[arg(long)]
         db: PathBuf,
-        /// First keyspace (the "before" snapshot).
+        /// First keyspace (the "before").
         #[arg(long)]
         a: String,
-        /// Second keyspace (the "after" snapshot).
+        /// Second keyspace (the "after").
         #[arg(long)]
         b: String,
-        /// Optional comma-separated list of fact kinds to diff
-        /// (e.g. `nodes,edges`). Phase A: parsed but not yet wired.
+        /// Optional comma-separated list of dump-line kinds to include
+        /// (`node`, `edge`, or `node,edge`). Default is both.
         #[arg(long)]
         kinds: Option<String>,
+        /// Output format. `json` (default) emits the full `DiffEnvelope`
+        /// as pretty JSON. `sorted-jsonl` emits one line per fact with an
+        /// `op: added|removed|changed` discriminator — line-diff friendly.
+        #[arg(long, default_value = "json")]
+        format: String,
     },
 
     /// Drop a keyspace from the database. The only deletion verb (RFC §6 G5).

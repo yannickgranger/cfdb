@@ -1,0 +1,40 @@
+running 1 test
+test cfdb_hir_extractor_does_not_emit_item_crate_or_module_labels ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/http_route.rs (target/debug/deps/http_route-29e47856d8afc1f6)
+
+running 7 tests
+test map_put_with_non_slash_key_is_not_a_route ... ok
+test axum_get_method_emits_http_route_entry_point ... ok
+test axum_route_method_emits_http_route_entry_point ... ok
+test axum_nest_method_emits_http_route_entry_point ... ok
+test actix_app_route_with_web_get_to_emits_http_route_entry_point ... ok
+test actix_service_web_resource_route_emits_http_route_entry_point ... ok
+test axum_post_method_emits_http_route_entry_point ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+
+     Running tests/resolved_dispatch.rs (target/debug/deps/resolved_dispatch-d065138d6579b46f)
+
+running 2 tests
+test hir_resolves_inherent_method_call ... ok
+test hir_resolves_trait_method_via_generic_receiver ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+     Running tests/v02_1_coverage.rs (target/debug/deps/v02_1_coverage-69b626e3e3fe380f)
+
+running 2 tests
+test v02_1_expected_total_matches_documented_ground_truth ... ok
+test v02_1_coverage_gate_meets_95_percent_recall_per_kind ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+   Doc-tests cfdb_hir_extractor
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

@@ -148,45 +148,6 @@ pub fn snapshots(db: PathBuf) -> Result<(), crate::CfdbCliError> {
     Ok(())
 }
 
-/// `cfdb diff` — Phase A stub. The snapshot diff verb ships in Phase B
-/// (RFC §6 SNAPSHOT). For now the CLI validates inputs and prints the empty
-/// `{added, removed, changed}` shape so consumers can develop against the
-/// final wire form.
-pub fn diff(
-    db: PathBuf,
-    a: String,
-    b: String,
-    kinds: Option<String>,
-) -> Result<(), crate::CfdbCliError> {
-    let path_a = keyspace_path(&db, &a);
-    let path_b = keyspace_path(&db, &b);
-    if !path_a.exists() {
-        return Err(format!("keyspace `{a}` not found at {}", path_a.display()).into());
-    }
-    if !path_b.exists() {
-        return Err(format!("keyspace `{b}` not found at {}", path_b.display()).into());
-    }
-    let mut report = serde_json::Map::new();
-    report.insert("a".into(), serde_json::Value::String(a));
-    report.insert("b".into(), serde_json::Value::String(b));
-    if let Some(k) = kinds {
-        report.insert("kinds".into(), serde_json::Value::String(k));
-    }
-    report.insert("added".into(), serde_json::Value::Array(vec![]));
-    report.insert("removed".into(), serde_json::Value::Array(vec![]));
-    report.insert("changed".into(), serde_json::Value::Array(vec![]));
-    report.insert(
-        "warnings".into(),
-        serde_json::Value::Array(vec![serde_json::Value::String(
-            "diff: snapshot diff not implemented in v0.1 (Phase A — ships in Phase B \
-             per EPIC #3622)"
-                .into(),
-        )]),
-    );
-    println!("{}", serde_json::to_string_pretty(&report)?);
-    Ok(())
-}
-
 /// `cfdb drop` — drop a keyspace from the database. The only deletion verb
 /// (RFC §6 G5). Loads the store from `db/<ks>.json`, calls
 /// `StoreBackend::drop_keyspace`, then deletes the on-disk file.

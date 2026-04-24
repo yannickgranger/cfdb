@@ -1,0 +1,16 @@
+[workspace]
+resolver = "2"
+members = ["crate-a", "crate-b"]
+
+# Scar fixture for RFC-036 §3.2 / issue #202 — Param-Effect Canary.
+#
+# A human-runnable Cargo workspace mirroring the synthetic-injection
+# shape asserted in `cfdb-petgraph/tests/vsb_multi_resolver.rs`. Run
+# `cfdb extract --workspace <this-dir>` + `cfdb query --cypher
+# "$(cat ../../../../../../.cfdb/queries/vsb-multi-resolver.cypher)"`
+# to confirm the detector fires on crate-b (scar) and ignores crate-a
+# (clean).
+#
+# Not ingested by the workspace-level cargo build — excluded from the
+# top-level `members` list. syn-lowering via cfdb-extractor is the
+# intended consumption path.

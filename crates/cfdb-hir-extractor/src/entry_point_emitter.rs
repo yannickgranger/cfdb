@@ -28,7 +28,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use cfdb_core::fact::{Edge, Node, PropValue};
-use cfdb_core::qname::{item_node_id, item_qname};
+use cfdb_core::qname::{field_node_id, item_node_id, item_qname, param_node_id, variant_node_id};
 use cfdb_core::schema::{EdgeLabel, Label};
 use ra_ap_edition::Edition;
 use ra_ap_hir::db::HirDatabase;
@@ -128,7 +128,27 @@ fn scan_file<DB>(
                 if let Some(strukt) = ast::Struct::cast(descendant) {
                     if has_clap_derive(&strukt) {
                         if let Some((name, qname)) = struct_name_and_qname(sema, &strukt) {
-                            emit(nodes, edges, qname, name, "cli_command", file_path, None);
+                            emit(
+                                nodes,
+                                edges,
+                                qname.clone(),
+                                name,
+                                "cli_command",
+                                file_path,
+                                None,
+                            );
+                            // REGISTERS_PARAM for clap `#[derive(Parser)]`
+                            // structs (#219 / RFC-037 §3.1, clap-struct row
+                            // of the crate-ownership table). Walk the
+                            // struct's named fields; for each one carrying
+                            // `#[arg(...)]` emit a REGISTERS_PARAM edge
+                            // pointing at the `:Field` node id the syn-side
+                            // extractor produced via `field_node_id`. The
+                            // HIR side does NOT emit `:Field` nodes itself —
+                            // it relies on the syn-side producer to have
+                            // emitted the node with the same canonical id
+                            // (crate-ownership B9 resolution).
+                            emit_clap_struct_registers_param(&qname, &strukt, edges);
                         }
                     }
                 }
@@ -137,7 +157,25 @@ fn scan_file<DB>(
                 if let Some(enum_) = ast::Enum::cast(descendant) {
                     if has_clap_derive(&enum_) {
                         if let Some((name, qname)) = enum_name_and_qname(sema, &enum_) {
-                            emit(nodes, edges, qname, name, "cli_command", file_path, None);
+                            emit(
+                                nodes,
+                                edges,
+                                qname.clone(),
+                                name,
+                                "cli_command",
+                                file_path,
+                                None,
+                            );
+                            // REGISTERS_PARAM for clap `#[derive(Subcommand)]`
+                            // enums (#219 / RFC-037 §3.1, Subcommand row of
+                            // the crate-ownership table). One edge per
+                            // variant pointing at the `:Variant` node id the
+                            // syn-side extractor produces via
+                            // `variant_node_id`. Per-variant-field granularity
+                            // is deferred to a follow-up RFC that introduces
+                            // `:EntryPoint{kind:cli_subcommand}` (N1 —
+                            // transitional approximation).
+                            emit_clap_enum_registers_param(&qname, &enum_, edges);
                         }
                     }
                 }
@@ -146,7 +184,22 @@ fn scan_file<DB>(
                 if let Some(fn_ast) = ast::Fn::cast(descendant) {
                     if has_tool_attr(&fn_ast) {
                         if let Some((name, qname)) = fn_name_and_qname(sema, &fn_ast) {
-                            emit(nodes, edges, qname, name, "mcp_tool", file_path, None);
+                            emit(
+                                nodes,
+                                edges,
+                                qname.clone(),
+                                name,
+                                "mcp_tool",
+                                file_path,
+                                None,
+                            );
+                            // REGISTERS_PARAM for MCP `#[tool]` fns
+                            // (#219 / RFC-037 §3.1 MCP row — HIR-owned).
+                            // `ast::Fn` covers free fns AND impl methods;
+                            // kept HIR-side because :EntryPoint is emitted
+                            // here; syn-side emission would dangle src and
+                            // be dropped by cfdb-petgraph's ingest.
+                            emit_mcp_registers_param(&qname, &fn_ast, edges);
                         }
                     }
                 }
@@ -185,6 +238,120 @@ fn has_clap_derive<N: HasAttrs>(item: &N) -> bool {
         }
         text.contains("Parser") || text.contains("Subcommand")
     })
+}
+
+/// `true` when a clap-struct field carries an `#[arg(...)]` (or bare
+/// `#[arg]`) attribute — the clap convention for declaring a CLI-visible
+/// input. Matches `#[arg]`, `#[arg(short, long)]`, `#[clap::arg]`, etc.
+/// by checking the attribute path's last segment, mirroring `has_tool_attr`'s
+/// discipline for multi-segment vs single-segment paths.
+fn field_has_arg_attr(field: &ast::RecordField) -> bool {
+    field.attrs().any(|attr| {
+        let Some(path) = attr.meta().and_then(|m| m.path()) else {
+            return false;
+        };
+        let last = path
+            .syntax()
+            .to_string()
+            .rsplit("::")
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        last == "arg"
+    })
+}
+
+/// Emit REGISTERS_PARAM edges for a clap `#[derive(Parser)]` struct —
+/// one edge per `#[arg(...)]`-carrying named field, pointing at the
+/// pre-existing `:Field` node id produced by the syn-side extractor via
+/// `cfdb_core::qname::field_node_id`. Tuple structs and unit structs
+/// emit zero edges; clap requires named fields on Parser structs.
+///
+/// The HIR side is deliberately edge-only: `:Field` nodes are owned by
+/// the syn-side producer (RFC-037 §3.1 B9 — single-producer discipline
+/// per structural node kind).
+fn emit_clap_struct_registers_param(
+    struct_qname: &str,
+    strukt: &ast::Struct,
+    edges: &mut Vec<Edge>,
+) {
+    let Some(ast::FieldList::RecordFieldList(record_list)) = strukt.field_list() else {
+        // Tuple / unit structs — clap `#[derive(Parser)]` always uses
+        // named fields, so any non-record field list has no `#[arg]`
+        // fields to register.
+        return;
+    };
+    let entry_point_id = format!("entrypoint:cli_command:{struct_qname}");
+    for field in record_list.fields() {
+        if !field_has_arg_attr(&field) {
+            continue;
+        }
+        let Some(name) = field.name() else {
+            continue;
+        };
+        let field_name = name.text().to_string();
+        edges.push(Edge {
+            src: entry_point_id.clone(),
+            dst: field_node_id(struct_qname, &field_name),
+            label: EdgeLabel::new(EdgeLabel::REGISTERS_PARAM),
+            props: BTreeMap::new(),
+        });
+    }
+}
+
+/// Emit REGISTERS_PARAM edges for a clap `#[derive(Subcommand)]` enum —
+/// one edge per declared variant, pointing at the pre-existing
+/// `:Variant` node id produced by the syn-side extractor via
+/// `cfdb_core::qname::variant_node_id`. Per-variant-field granularity
+/// is explicitly deferred: §3.1 N1 documents the transitional
+/// approximation (one edge per variant) that a future
+/// `cli_subcommand` kind will supersede.
+///
+/// Variant index is the declaration order, matching `variant_node_id`'s
+/// indexing policy.
+fn emit_clap_enum_registers_param(enum_qname: &str, enum_: &ast::Enum, edges: &mut Vec<Edge>) {
+    let Some(variant_list) = enum_.variant_list() else {
+        return;
+    };
+    let entry_point_id = format!("entrypoint:cli_command:{enum_qname}");
+    for (index, _variant) in variant_list.variants().enumerate() {
+        edges.push(Edge {
+            src: entry_point_id.clone(),
+            dst: variant_node_id(enum_qname, index),
+            label: EdgeLabel::new(EdgeLabel::REGISTERS_PARAM),
+            props: BTreeMap::new(),
+        });
+    }
+}
+
+/// Emit one `REGISTERS_PARAM` edge per non-self param of an MCP
+/// `#[tool]` fn (#219 / RFC-037 §3.1 MCP row — HIR-owned).
+///
+/// Targets the `:Param` node the syn extractor emits via
+/// `param_node_id(fn_qname, index)`. Receiver-aware: when the fn has a
+/// `self` / `&self` / `&mut self` receiver, the syn walker still calls
+/// `emit_param` for it with `index=0`, so we offset the typed-param
+/// index by 1 to match.
+fn emit_mcp_registers_param(fn_qname: &str, fn_ast: &ast::Fn, edges: &mut Vec<Edge>) {
+    let Some(param_list) = fn_ast.param_list() else {
+        return;
+    };
+    let entry_point_id = format!("entrypoint:mcp_tool:{fn_qname}");
+    let has_receiver = param_list.self_param().is_some();
+    for (typed_index, _param) in param_list.params().enumerate() {
+        let syn_index = if has_receiver {
+            typed_index + 1
+        } else {
+            typed_index
+        };
+        edges.push(Edge {
+            src: entry_point_id.clone(),
+            dst: param_node_id(fn_qname, syn_index),
+            label: EdgeLabel::new(EdgeLabel::REGISTERS_PARAM),
+            props: BTreeMap::new(),
+        });
+    }
 }
 
 /// `true` when the fn carries an attribute whose last path segment
@@ -230,13 +397,20 @@ where
     Some((name, qname))
 }
 
+/// Resolve an `ast::Fn`'s qname via the canonical HIR fn-qname formula
+/// in [`crate::call_site_emitter::function_qname`]. The formula is
+/// impl-aware and trait-aware: methods inside `impl Foo { fn bar }` get
+/// `<module>::Foo::bar`, trait impls get `<module>::Trait::bar`, free
+/// fns get `<module>::bar`. Routing through the canonical builder
+/// keeps cross-producer :Param / REGISTERS_PARAM keys bit-identical
+/// with the syn-side emitter (RFC-037 §3.1 / #227).
 fn fn_name_and_qname<DB>(sema: &Semantics<'_, DB>, fn_ast: &ast::Fn) -> Option<(String, String)>
 where
     DB: HirDatabase + Sized,
 {
     let name = fn_ast.name()?.text().to_string();
     let def = sema.to_def(fn_ast)?;
-    let qname = build_item_qname(sema, def.module(sema.db), def.krate(sema.db), &name);
+    let qname = crate::call_site_emitter::function_qname(sema, def);
     Some((name, qname))
 }
 

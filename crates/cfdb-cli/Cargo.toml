@@ -54,6 +54,13 @@ hir = ["dep:cfdb-hir-extractor", "dep:cfdb-hir-petgraph-adapter"]
 # `git2`. Default builds (`cargo build -p cfdb-cli`) MUST have zero `git2`
 # in their dep tree (issue #105 / slice 43-B / rust-systems Q1).
 git-enrich = ["cfdb-petgraph/git-enrich"]
+# Enables `cfdb enrich-metrics` real implementation — pulls syn + sha2.
+# Default builds (`cargo build -p cfdb-cli`) MUST have zero `syn` in their
+# dep tree (issue #203 / RFC-036 §3.3 / CP6).
+quality-metrics = ["cfdb-petgraph/quality-metrics"]
+# Sub-feature of `quality-metrics` that additionally populates
+# `:Item.test_coverage` from cargo-llvm-cov JSON output (RFC-036 §3.3).
+llvm-cov = ["cfdb-petgraph/llvm-cov", "quality-metrics"]
 
 [dev-dependencies]
 assert_cmd = "2"

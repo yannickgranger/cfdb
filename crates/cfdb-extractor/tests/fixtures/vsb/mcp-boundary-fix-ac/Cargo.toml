@@ -1,0 +1,10 @@
+[workspace]
+resolver = "2"
+members = ["crate-a", "crate-b"]
+
+# Scar fixture for RFC-036 §3.2 / issue #202 — MCP Boundary Fix AC Template.
+#
+# Mirrors the CLAUDE.md "MCP Boundary Fix AC Template" required triple:
+# parser delegates to domain `FromStr`, schema enumerates domain
+# variants, error `valid_values` derived from domain. The scar models
+# a handler that bypasses step 1 with a handwritten parser.

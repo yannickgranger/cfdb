@@ -23,9 +23,9 @@ pub(super) fn edge_descriptors() -> Vec<EdgeLabelDescriptor> {
         },
         EdgeLabelDescriptor {
             label: EdgeLabel::new(EdgeLabel::HAS_FIELD),
-            description: "A struct Item owns a Field.".into(),
+            description: "A struct Item or enum Variant owns a Field.".into(),
             attributes: vec![],
-            from: vec![Label::new(Label::ITEM)],
+            from: vec![Label::new(Label::ITEM), Label::new(Label::VARIANT)],
             to: vec![Label::new(Label::FIELD)],
         },
         EdgeLabelDescriptor {
@@ -76,13 +76,6 @@ pub(super) fn edge_descriptors() -> Vec<EdgeLabelDescriptor> {
             to: vec![Label::new(Label::ITEM)],
         },
         EdgeLabelDescriptor {
-            label: EdgeLabel::new(EdgeLabel::SUPERTRAIT),
-            description: "A trait Item extends another trait Item as a supertrait bound.".into(),
-            attributes: vec![],
-            from: vec![Label::new(Label::ITEM)],
-            to: vec![Label::new(Label::ITEM)],
-        },
-        EdgeLabelDescriptor {
             label: EdgeLabel::new(EdgeLabel::BELONGS_TO),
             description: "A Crate belongs to its bounded Context (council-cfdb-wiring §B.1.3)."
                 .into(),
@@ -110,18 +103,6 @@ pub(super) fn edge_descriptors() -> Vec<EdgeLabelDescriptor> {
             from: vec![Label::new(Label::CALL_SITE)],
             to: vec![Label::new(Label::ITEM)],
         },
-        EdgeLabelDescriptor {
-            label: EdgeLabel::new(EdgeLabel::RECEIVES_ARG),
-            description: "A CallSite binds one of its arguments to a callee Param.".into(),
-            attributes: vec![attr(
-                "arg_index",
-                "int",
-                "Position of the argument at the call site (0-based).",
-                Extractor,
-            )],
-            from: vec![Label::new(Label::CALL_SITE)],
-            to: vec![Label::new(Label::PARAM)],
-        },
         // ---- Entry points ----------------------------------------------------
         EdgeLabelDescriptor {
             label: EdgeLabel::new(EdgeLabel::EXPOSES),
@@ -132,10 +113,20 @@ pub(super) fn edge_descriptors() -> Vec<EdgeLabelDescriptor> {
         },
         EdgeLabelDescriptor {
             label: EdgeLabel::new(EdgeLabel::REGISTERS_PARAM),
-            description: "An EntryPoint declares a registered parameter.".into(),
+            description: "An EntryPoint declares an entry-point-exposed input — \
+                          an MCP tool fn param (:Param), a clap `#[arg]` struct \
+                          field (:Field), or a clap `Subcommand` variant (:Variant). \
+                          Nodes on the target side keep their structural labels; \
+                          this edge carries the semantic that the target is \
+                          externally-facing."
+                .into(),
             attributes: vec![],
             from: vec![Label::new(Label::ENTRY_POINT)],
-            to: vec![Label::new(Label::PARAM)],
+            to: vec![
+                Label::new(Label::PARAM),
+                Label::new(Label::FIELD),
+                Label::new(Label::VARIANT),
+            ],
         },
         // ---- Concept overlay -------------------------------------------------
         EdgeLabelDescriptor {
