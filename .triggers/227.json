@@ -1,0 +1,17 @@
+{
+  "schema_version": "v1",
+  "from_ref": "508b16463c4aa0f99f648d58788ea91bf10a6ae0",
+  "to_ref": "508b16463c4aa0f99f648d58788ea91bf10a6ae0",
+  "triggers_fired": [],
+  "evidence": {
+    "C3": {
+      "matched_paths": [],
+      "rule": "^crates/ports[^/]*/src/"
+    },
+    "C9": {
+      "cargo_toml_touched": false,
+      "changed_count": 0,
+      "rule": "workspace Cargo.toml not in diff"
+    }
+  }
+}
