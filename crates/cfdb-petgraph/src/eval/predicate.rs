@@ -62,6 +62,15 @@ impl<'a> Evaluator<'a> {
                 let binding = bindings.get(var)?;
                 match binding {
                     Binding::NodeRef(idx) => self.state.graph[*idx].props.get(prop).cloned(),
+                    Binding::EdgeRef(idx) => {
+                        let edge = self.state.graph.edge_weight(*idx)?;
+                        match prop.as_str() {
+                            "label" => Some(PropValue::Str(edge.label.as_str().to_string())),
+                            "src" => Some(PropValue::Str(edge.src.clone())),
+                            "dst" => Some(PropValue::Str(edge.dst.clone())),
+                            _ => edge.props.get(prop).cloned(),
+                        }
+                    }
                     Binding::Value(RowValue::Scalar(p)) => {
                         if prop.is_empty() {
                             Some(p.clone())
@@ -75,6 +84,11 @@ impl<'a> Evaluator<'a> {
             Expr::Var(name) => bindings.get(name).and_then(|b| match b {
                 Binding::Value(RowValue::Scalar(p)) => Some(p.clone()),
                 Binding::NodeRef(idx) => Some(PropValue::Str(self.state.graph[*idx].id.clone())),
+                Binding::EdgeRef(idx) => self
+                    .state
+                    .graph
+                    .edge_weight(*idx)
+                    .map(|edge| PropValue::Str(edge.label.as_str().to_string())),
                 _ => None,
             }),
             Expr::Literal(p) => Some(p.clone()),

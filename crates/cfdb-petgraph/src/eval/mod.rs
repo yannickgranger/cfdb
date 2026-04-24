@@ -40,12 +40,14 @@ use std::collections::BTreeMap;
 
 use cfdb_core::query::{Param, Pattern, Predicate, Query};
 use cfdb_core::result::{QueryResult, RowValue, Warning, WarningKind};
-use petgraph::stable_graph::NodeIndex;
+use petgraph::stable_graph::{EdgeIndex, NodeIndex};
 
 use crate::graph::KeyspaceState;
 
 #[cfg(test)]
 mod cross_match_tests;
+#[cfg(test)]
+mod edge_match_regression_tests;
 mod explain_fmt;
 #[cfg(test)]
 mod fast_path_tests;
@@ -67,6 +69,14 @@ pub(super) enum Binding {
     /// A reference to a graph node. Dereferenced when a property access or
     /// projection needs concrete values.
     NodeRef(NodeIndex),
+    /// A reference to a graph edge. Bound by `build_path_binding` when a
+    /// single-hop `PathPattern` names its edge variable (e.g. `-[r]->` or
+    /// `-[r:LABEL]->`). Dereferenced by `eval_expr` for property access
+    /// (`r.label`, `r.src`, `r.dst`, `r.<prop>`) and for bare-var
+    /// references in aggregations (`count(r)`). Unset for variable-length
+    /// patterns where `r` would otherwise need to bind to a list of edges
+    /// — variable-length edge binding is deferred (issue #242).
+    EdgeRef(EdgeIndex),
     /// A concrete value — used for `UNWIND $list AS var` cross-joins and for
     /// projection aliases in `WITH`.
     Value(RowValue),
