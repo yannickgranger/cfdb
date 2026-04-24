@@ -68,6 +68,71 @@ pub(crate) fn render_type_string(ty: &syn::Type) -> String {
     out
 }
 
+/// Closed list of standard-library wrapper types whose generic arg is
+/// `render_type_inner`'s candidate set. Matching is by **last path
+/// segment** (`std::vec::Vec<T>` and `Vec<T>` both match via `"Vec"`).
+/// This table is audit-load-bearing per RFC-037 §6 / issue #239 — the
+/// closed-list property means extending it is an RFC-gated change, not a
+/// silent addition. Keep the 9 entries; do not grow this set in a PR
+/// that is not a ratified RFC amendment.
+const WRAPPER_TYPES: &[&str] = &[
+    "Arc", "Box", "Cell", "Option", "Pin", "RefCell", "Rc", "Result", "Vec",
+];
+
+/// Unwrap one layer of standard-library wrapper generics around a
+/// `syn::Type` and return the rendered inner candidate names. Used by
+/// the post-walk RETURNS / TYPE_OF resolvers as the third match tier —
+/// runs ONLY when exact-match and unique-last-segment fallback both
+/// miss on the outer `render_type_string` output.
+///
+/// Matching is by last path segment against [`WRAPPER_TYPES`]. For
+/// every `GenericArgument::Type(inner)` under the wrapper, both the
+/// inner's own `render_type_string` output AND the recursive
+/// `render_type_inner(&inner, depth - 1)` candidates are collected,
+/// so a wrapper-around-non-wrapper (`Vec<Foo>`) yields `"Foo"` and a
+/// nested wrapper (`Vec<Option<Foo>>`) recurses through the inner
+/// unwrap. `Result<T, E>` yields both arms as independent candidates.
+///
+/// `depth` is a recursion budget. Each recursive call decrements it
+/// by 1. A `depth == 0` call returns the empty Vec synchronously
+/// without inspecting `ty`; this is the termination condition for
+/// pathologically nested wrappers (`Vec<Vec<Vec<Vec<Foo>>>>` at
+/// depth 3 exhausts the budget before reaching `Foo`). Callers in
+/// the resolvers use `depth = 3` per RFC-037 §6 / issue #239.
+///
+/// Non-wrapper `Type::Path` (including bare generics like `T` and
+/// user-defined types like `MyBox<Foo>`) returns empty Vec. Non-Path
+/// `syn::Type` variants (`Reference`, `Tuple`, `Slice`, `Array`,
+/// `TraitObject`, `ImplTrait`, `Paren`, `Infer`) return empty Vec —
+/// references and tuples are explicit non-goals per the issue body.
+pub(crate) fn render_type_inner(ty: &syn::Type, depth: u8) -> Vec<String> {
+    if depth == 0 {
+        return Vec::new();
+    }
+    let syn::Type::Path(tp) = ty else {
+        return Vec::new();
+    };
+    let Some(seg) = tp.path.segments.last() else {
+        return Vec::new();
+    };
+    let name = seg.ident.to_string();
+    if !WRAPPER_TYPES.contains(&name.as_str()) {
+        return Vec::new();
+    }
+    let syn::PathArguments::AngleBracketed(args) = &seg.arguments else {
+        return Vec::new();
+    };
+    let mut out: Vec<String> = Vec::new();
+    for arg in &args.args {
+        let syn::GenericArgument::Type(inner_ty) = arg else {
+            continue;
+        };
+        out.push(render_type_string(inner_ty));
+        out.extend(render_type_inner(inner_ty, depth - 1));
+    }
+    out
+}
+
 /// Render a `syn::Path` to its textual form (`a::b::c`). Last-segment only
 /// when the path has exactly one segment.
 pub(crate) fn render_path(p: &syn::Path) -> String {
@@ -150,6 +215,177 @@ fn render_fn_arg(arg: &syn::FnArg, out: &mut String) {
         }
         syn::FnArg::Typed(pt) => {
             render_type(&pt.ty, out);
+        }
+    }
+}
+
+#[cfg(test)]
+mod render_type_inner_tests {
+    //! Unit tests for [`super::render_type_inner`] — the closed-list
+    //! wrapper-unwrap helper (issue #239, RFC-037 §6 closeout).
+    //!
+    //! Rules under test:
+    //! - Wrapper match is by last path segment (`Vec`, `std::vec::Vec`
+    //!   both match).
+    //! - The closed [`super::WRAPPER_TYPES`] list refuses to unwrap
+    //!   anything outside the 9 entries.
+    //! - `depth` is a recursion budget; `depth == 0` returns empty
+    //!   without inspecting the type; each recursion decrements by 1.
+    //! - `Result<T, E>` yields both arms as independent candidates.
+    //! - Non-`Type::Path` variants return empty.
+    //!
+    //! See also the integration-level scar flips in
+    //! `tests/returns_emission.rs` and `tests/type_of_emission.rs`.
+    use super::render_type_inner;
+    use super::WRAPPER_TYPES;
+
+    fn parse_ty(src: &str) -> syn::Type {
+        syn::parse_str::<syn::Type>(src).unwrap_or_else(|_| panic!("parse type: {src}"))
+    }
+
+    #[test]
+    fn vec_of_foo_yields_foo_at_depth_3() {
+        let ty = parse_ty("Vec<Foo>");
+        let out = render_type_inner(&ty, 3);
+        assert!(
+            out.contains(&"Foo".to_string()),
+            "expected `Vec<Foo>` to yield `Foo` among candidates, got {out:?}"
+        );
+    }
+
+    #[test]
+    fn result_yields_both_arms_at_depth_3() {
+        let ty = parse_ty("Result<Ok, Err>");
+        let out = render_type_inner(&ty, 3);
+        assert!(
+            out.contains(&"Ok".to_string()),
+            "expected `Result<Ok, Err>` to yield `Ok` candidate, got {out:?}"
+        );
+        assert!(
+            out.contains(&"Err".to_string()),
+            "expected `Result<Ok, Err>` to yield `Err` candidate, got {out:?}"
+        );
+    }
+
+    #[test]
+    fn nested_vec_option_arc_foo_yields_foo_at_depth_3() {
+        let ty = parse_ty("Vec<Option<Arc<Foo>>>");
+        let out = render_type_inner(&ty, 3);
+        assert!(
+            out.contains(&"Foo".to_string()),
+            "expected `Vec<Option<Arc<Foo>>>` to yield `Foo` at depth 3, got {out:?}"
+        );
+    }
+
+    #[test]
+    fn depth_four_nesting_drops_leaf_foo() {
+        // Vec<Vec<Vec<Vec<Foo>>>> — four wrapper levels. At depth 3:
+        // outer Vec (depth 3, emits "Vec<Vec<Vec<Foo>>>" outer render +
+        // recurse at depth 2) → Vec at depth 2 → Vec at depth 1 → Vec
+        // at depth 0 returns empty. The leaf "Foo" is behind the
+        // depth-0 wall and must not surface.
+        let ty = parse_ty("Vec<Vec<Vec<Vec<Foo>>>>");
+        let out = render_type_inner(&ty, 3);
+        assert!(
+            !out.contains(&"Foo".to_string()),
+            "depth-4 nesting must drop leaf `Foo` at depth-3 budget, got {out:?}"
+        );
+    }
+
+    #[test]
+    fn bare_generic_t_yields_empty() {
+        // `T` — trait-constrained generic. `seg.arguments` is
+        // `PathArguments::None`, so no inner generic args to unwrap.
+        // Also `T` is not in `WRAPPER_TYPES`. Either reason alone
+        // must produce an empty result; the behaviour pins the
+        // explicit non-goal at RFC-037 §2 / #239 non-goals.
+        let ty = parse_ty("T");
+        let out = render_type_inner(&ty, 3);
+        assert!(
+            out.is_empty(),
+            "bare generic `T` must yield no candidates, got {out:?}"
+        );
+    }
+
+    #[test]
+    fn user_defined_wrapper_yields_empty() {
+        // `MyBox<Foo>` — `MyBox` is not in WRAPPER_TYPES. Unwrap
+        // refuses, pinning the explicit non-goal "user-defined
+        // wrappers require RFC addendum".
+        let ty = parse_ty("MyBox<Foo>");
+        let out = render_type_inner(&ty, 3);
+        assert!(
+            out.is_empty(),
+            "user-defined wrapper `MyBox<Foo>` must yield no candidates, got {out:?}"
+        );
+    }
+
+    #[test]
+    fn qualified_path_std_vec_vec_yields_foo_at_depth_3() {
+        // Ambiguity D (last-segment matching): `std::vec::Vec<Foo>`
+        // renders via its last path segment `"Vec"`. The helper
+        // matches on `tp.path.segments.last().ident`, not on the full
+        // rendered path, so qualified and unqualified wrappers both
+        // unwrap the same way.
+        let ty = parse_ty("std::vec::Vec<Foo>");
+        let out = render_type_inner(&ty, 3);
+        assert!(
+            out.contains(&"Foo".to_string()),
+            "qualified path `std::vec::Vec<Foo>` must still yield `Foo`, got {out:?}"
+        );
+    }
+
+    #[test]
+    fn depth_zero_returns_empty_synchronously() {
+        // The termination condition. `depth == 0` returns empty Vec
+        // without inspecting `ty` — the `ty` may be `Vec<Foo>` but
+        // the budget is exhausted.
+        let ty = parse_ty("Vec<Foo>");
+        let out = render_type_inner(&ty, 0);
+        assert!(
+            out.is_empty(),
+            "depth==0 must return empty without inspecting type, got {out:?}"
+        );
+    }
+
+    #[test]
+    fn non_path_type_reference_yields_empty() {
+        // References and tuples are explicit non-goals. The helper
+        // returns empty when the outer `syn::Type` is anything other
+        // than `Type::Path`.
+        let ty = parse_ty("&Foo");
+        let out = render_type_inner(&ty, 3);
+        assert!(out.is_empty(), "reference types must yield empty");
+    }
+
+    #[test]
+    fn non_path_type_tuple_yields_empty() {
+        let ty = parse_ty("(Foo, Bar)");
+        let out = render_type_inner(&ty, 3);
+        assert!(out.is_empty(), "tuple types must yield empty");
+    }
+
+    #[test]
+    fn wrapper_types_is_closed_nine_entries() {
+        // Closed-list invariant: the const table holds exactly the
+        // 9 standard-library wrappers declared in the issue body.
+        // Growing this list is an RFC-gated change; this test pins
+        // the current membership so accidental additions flip a
+        // unit test before they hit review.
+        assert_eq!(
+            WRAPPER_TYPES.len(),
+            9,
+            "WRAPPER_TYPES must remain the closed 9; got {} entries: {:?}",
+            WRAPPER_TYPES.len(),
+            WRAPPER_TYPES
+        );
+        for expected in &[
+            "Arc", "Box", "Cell", "Option", "Pin", "RefCell", "Rc", "Result", "Vec",
+        ] {
+            assert!(
+                WRAPPER_TYPES.contains(expected),
+                "WRAPPER_TYPES missing `{expected}`"
+            );
         }
     }
 }

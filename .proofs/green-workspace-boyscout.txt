@@ -1,0 +1,1161 @@
+   Compiling cfdb-query v0.3.0 (/var/mnt/workspaces/cfdb/.claude/worktrees/239-render-type-inner/crates/cfdb-query)
+   Compiling cfdb-extractor v0.3.0 (/var/mnt/workspaces/cfdb/.claude/worktrees/239-render-type-inner/crates/cfdb-extractor)
+   Compiling cfdb-hir-extractor v0.3.0 (/var/mnt/workspaces/cfdb/.claude/worktrees/239-render-type-inner/crates/cfdb-hir-extractor)
+   Compiling cfdb-hir-petgraph-adapter v0.3.0 (/var/mnt/workspaces/cfdb/.claude/worktrees/239-render-type-inner/crates/cfdb-hir-petgraph-adapter)
+   Compiling cfdb-recall v0.3.0 (/var/mnt/workspaces/cfdb/.claude/worktrees/239-render-type-inner/crates/cfdb-recall)
+   Compiling cfdb-cli v0.3.0 (/var/mnt/workspaces/cfdb/.claude/worktrees/239-render-type-inner/crates/cfdb-cli)
+   Compiling cfdb-petgraph v0.3.0 (/var/mnt/workspaces/cfdb/.claude/worktrees/239-render-type-inner/crates/cfdb-petgraph)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 11.88s
+     Running unittests src/lib.rs (target/debug/deps/cfdb_cli-cce0b452bfd2ee8a)
+
+running 62 tests
+test check::tests::trigger_id_display_is_uppercase_tag ... ok
+test check::tests::trigger_id_from_str_is_case_sensitive ... ok
+test check::tests::trigger_id_variants_enumerates_t1_and_t3_in_stable_order ... ok
+test check::tests::trigger_id_from_str_round_trips_every_variant ... ok
+test check::tests::trigger_id_from_str_rejects_unknown_with_derived_valid_values ... ok
+test check_predicate::tests::predicate_path_resolution_is_deterministic ... ok
+test check_predicate::tests::predicate_row_sorts_by_qname_then_line_ascending ... ok
+test commands::classify::tests::classify_format_from_str_accepts_both_values ... ok
+test check_predicate::tests::predicate_run_report_serializes_to_stable_json ... ok
+test commands::classify::tests::classify_format_from_str_rejects_unknown_with_enumerated_error ... ok
+test check_predicate::tests::missing_predicate_file_returns_structured_usage_error ... ok
+test commands::classify::tests::collect_restrict_qnames_empty_diff_produces_empty_set ... ok
+test commands::classify::tests::collect_restrict_qnames_falls_back_to_id_when_props_qname_absent ... ok
+test commands::classify::tests::collect_restrict_qnames_extracts_added_node_props_qname ... ok
+test commands::classify::tests::collect_restrict_qnames_includes_both_sides_of_changed ... ok
+test commands::classify::tests::collect_restrict_qnames_includes_edge_endpoints ... ok
+test commands::classify::tests::collect_restrict_qnames_unions_added_and_changed ... ok
+test commands::classify::tests::sorted_jsonl_empty_inventory_emits_only_header ... ok
+test commands::classify::tests::sorted_jsonl_determinism_byte_stable ... ok
+test commands::classify::tests::load_diff_envelope_rejects_bad_schema_version ... ok
+test commands::classify::tests::sorted_jsonl_finding_line_uses_crate_not_crate_name ... ok
+test commands::classify::tests::load_diff_envelope_reads_valid_file ... ok
+test commands::tests::cache_base_dir_env_var_precedence ... ok
+test commands::classify::tests::sorted_jsonl_warning_line_shape ... ok
+test commands::tests::parse_url_at_sha_accepts_file_scheme ... ok
+test commands::tests::parse_url_at_sha_accepts_http_and_ssh_schemes ... ok
+test commands::tests::parse_url_at_sha_accepts_https_with_full_hex_sha ... ok
+test commands::classify::tests::sorted_jsonl_sort_key_is_class_then_finding_ord ... ok
+test commands::tests::parse_url_at_sha_rejects_non_hex_or_short_sha ... ok
+test commands::tests::cache_dir_for_structure_is_base_slash_hex16_slash_sha ... ok
+test commands::tests::parse_url_at_sha_rejects_plain_sha ... ok
+test commands::classify::tests::sorted_jsonl_header_line_shape ... ok
+test commands::tests::parse_url_at_sha_rejects_unknown_scheme ... ok
+test commands::classify::tests::sorted_jsonl_has_no_trailing_newline_on_file_write ... ok
+test commands::tests::parse_url_at_sha_splits_on_rightmost_at_sign ... ok
+test commands::tests::short_rev_keeps_non_hex_long_names_verbatim ... ok
+test commands::tests::short_rev_preserves_short_sha_or_branch_name ... ok
+test commands::tests::short_rev_sanitises_path_unsafe_chars ... ok
+test commands::tests::short_rev_truncates_long_sha ... ok
+test commands::tests::url_hash_hex16_is_deterministic_and_16_chars ... ok
+test param_resolver::tests::context_with_missing_concepts_dir_returns_unknown_context ... ok
+test param_resolver::tests::list_form_preserves_input_order ... ok
+test compose::tests::load_store_with_workspace_some_missing_toml_is_empty_spec ... ok
+test compose::tests::load_store_with_workspace_none_has_empty_spec ... ok
+test param_resolver::tests::literal_form_resolves_to_scalar_str ... ok
+test param_resolver::tests::missing_name_or_form_returns_unknown_form ... ok
+test param_resolver::tests::regex_form_resolves_to_scalar_str ... ok
+test compose::tests::load_store_with_workspace_invalid_toml_errors ... ok
+test param_resolver::tests::regex_with_colon_in_pattern_is_preserved ... ok
+test param_resolver::tests::resolve_params_collects_multiple_args_into_btreemap ... ok
+test param_resolver::tests::malformed_toml_returns_toml_variant ... ok
+test param_resolver::tests::resolve_params_short_circuits_on_first_error ... ok
+test param_resolver::tests::context_form_sorts_crate_names_ascending ... ok
+test param_resolver::tests::unknown_form_returns_structured_error ... ok
+test scope::classifier::tests_memory_169::context_filter_is_pushed_into_cypher_not_rust ... ok
+test scope::tests::retain_findings_by_qname_empty_restrict_clears_all_buckets ... ok
+test compose::tests::load_store_with_workspace_some_reads_indexes_toml ... ok
+test param_resolver::tests::context_form_is_deterministic_across_two_calls ... ok
+test scope::tests::retain_findings_by_qname_unrelated_qnames_yield_empty_buckets ... ok
+test scope::tests::retain_findings_by_qname_keeps_only_matching_qnames ... ok
+test param_resolver::tests::unknown_context_returns_structured_error ... ok
+test param_resolver::tests::self_dogfood_context_cfdb_resolves_to_expected_crates ... ok
+
+test result: ok. 62 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/debug/deps/cfdb-c1014592ccc02f6b)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/arch_ban_utc_now.rs (target/debug/deps/arch_ban_utc_now-cf7167ad0c6714be)
+
+running 1 test
+test arch_ban_utc_now_finds_violator_in_fixture_workspace ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running tests/check_predicate_dogfood.rs (target/debug/deps/check_predicate_dogfood-927f41a4fe9173dc)
+
+running 2 tests
+test context_homonym_predicate_self_dogfood_is_empty ... ok
+test path_regex_predicate_matches_cfdb_query_source_files ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.58s
+
+     Running tests/classifier_taxonomy.rs (target/debug/deps/classifier_taxonomy-4481263b54799bd7)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/classify_self_dogfood.rs (target/debug/deps/classify_self_dogfood-d36c2599263521d4)
+
+running 6 tests
+test classify_rejects_missing_restrict_file ... ok
+test classify_rejects_unknown_format_with_enumerated_values ... ok
+test classify_rejects_unknown_context ... ok
+test classify_emits_sorted_jsonl_header_and_finding_lines ... ok
+test classify_against_identical_keyspaces_emits_empty_buckets_and_warnings ... ok
+test classify_sorted_jsonl_determinism ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 39.42s
+
+     Running tests/diff_handler.rs (target/debug/deps/diff_handler-6fcfc2c943dce332)
+
+running 5 tests
+test unknown_kind_token_errors_cleanly ... ok
+test missing_keyspace_errors_with_message ... ok
+test sorted_jsonl_format_emits_header_line ... ok
+test identical_keyspaces_emit_empty_envelope_and_exit_zero ... ok
+test back_to_back_runs_are_byte_identical ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.85s
+
+     Running tests/end_to_end.rs (target/debug/deps/end_to_end-4604dface7c6fcab)
+
+running 3 tests
+test end_to_end_extract_then_query_finds_store_backend_trait ... ok
+test dump_output_is_pure_jsonl_sorted_by_label_qname ... ok
+test two_extractions_produce_byte_identical_dump ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.12s
+
+     Running tests/extract_rev.rs (target/debug/deps/extract_rev-a8130e23ba19be6c)
+
+running 5 tests
+test ac4_non_git_workspace_rejected_when_rev_passed ... ok
+test ac3_invalid_rev_fails_with_nonzero_exit ... ok
+test ac5_default_keyspace_is_short_rev ... ok
+test ac2_extract_rev_is_deterministic_across_runs ... ok
+test ac1_extract_rev_honours_commit_sha ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/extract_rev_url.rs (target/debug/deps/extract_rev_url-c21342c3908da6e1)
+
+running 5 tests
+test malformed_url_at_sha_falls_through_to_same_repo_path ... ok
+test ac2_unreachable_url_surfaces_git_error ... ok
+test default_keyspace_is_short_rev_of_sha ... ok
+test ac3_second_run_hits_cache ... ok
+test ac1_url_rev_honours_commit_sha ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+     Running tests/list_callers.rs (target/debug/deps/list_callers-b102364f2cb47400)
+
+running 3 tests
+test list_callers_typed_verb_filters_by_qname_pattern ... ok
+test list_callers_typed_verb_finds_all_three_kalman_call_sites ... ok
+test list_callers_typed_verb_equals_raw_query_with_params ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/list_items_matching.rs (target/debug/deps/list_items_matching-e17f4518b6680b54)
+
+running 8 tests
+test list_items_matching_help_lists_every_flag ... ok
+test list_items_matching_rejects_unknown_kind_with_exit_2 ... ok
+test list_items_matching_subsumes_list_definitions_of_when_kinds_omitted ... ok
+test list_items_matching_filters_keyspace_by_name_pattern ... ok
+test list_items_matching_deterministic_across_runs_at_cli_surface ... ok
+test list_items_matching_warns_on_unemitted_impl_block ... ok
+test list_items_matching_filters_by_kinds_at_cli_surface ... ok
+test list_items_matching_group_by_context_partitions_real_keyspace ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.65s
+
+     Running tests/pattern_c_canonical_bypass.rs (target/debug/deps/pattern_c_canonical_bypass-c1600afee17351bd)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/predicate_library_dogfood.rs (target/debug/deps/predicate_library_dogfood-be1511a657ccb45e)
+
+running 3 tests
+test seed_cases_cover_every_shipped_predicate ... ok
+test every_seed_predicate_runs_against_cfdb_keyspace ... ok
+test every_seed_predicate_is_deterministic_across_two_calls ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.33s
+
+     Running tests/scope.rs (target/debug/deps/scope-7801009a596725e6)
+
+running 9 tests
+test scope_missing_context_arg_exits_with_usage_error_code_2 ... ok
+test scope_help_lists_every_flag ... ok
+test scope_rejects_format_table_in_v01 ... ok
+test scope_rejects_unknown_context ... ok
+test scope_writes_to_output_path_when_given ... ok
+test scope_empty_buckets_carry_per_class_warning_naming_missing_input ... ok
+test scope_filters_to_named_context ... ok
+test scope_emits_section_a33_shape ... ok
+test scope_deterministic_across_runs ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 36.89s
+
+     Running tests/self_dogfood_computed_key_evaluate.rs (target/debug/deps/self_dogfood_computed_key_evaluate-b079fab1ca56e2e4)
+
+running 1 test
+test computed_key_evaluate_matches_qname_helper_on_every_item ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.85s
+
+     Running tests/self_dogfood_enrich_bounded_context.rs (target/debug/deps/self_dogfood_enrich_bounded_context-7180602c226cbd7b)
+
+running 1 test
+test ac2_and_ac4_self_dogfood_cfdb_scoped_ground_truth ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.83s
+
+     Running tests/self_dogfood_enrich_concepts.rs (target/debug/deps/self_dogfood_enrich_concepts-c4446cca445c270e)
+
+running 1 test
+test self_dogfood_cfdb_concept_and_labeled_as_coverage ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.84s
+
+     Running tests/self_dogfood_enrich_git_history.rs (target/debug/deps/self_dogfood_enrich_git_history-b5a04af1aac488f2)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/self_dogfood_enrich_metrics.rs (target/debug/deps/self_dogfood_enrich_metrics-9fd0092483797a0c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/self_dogfood_enrich_rfc_docs.rs (target/debug/deps/self_dogfood_enrich_rfc_docs-49d1ed66c2cebe9a)
+
+running 1 test
+test ac3_ac4_self_dogfood_enrich_backend_references_rfc_031 ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.87s
+
+     Running tests/self_dogfood_persist_round_trip.rs (target/debug/deps/self_dogfood_persist_round_trip-b2b4980a22901c07)
+
+running 1 test
+test persist_round_trip_rebuilds_by_prop_on_cfdb_workspace ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.58s
+
+     Running tests/signature_divergent.rs (target/debug/deps/signature_divergent-adac6f2e6b40496e)
+
+running 3 tests
+test identical_place_order_pair_is_not_surfaced_as_homonym ... ok
+test divergent_valuation_pair_surfaces_as_context_homonym ... ok
+test signature_emission_is_byte_stable_across_extracts ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/trigger_t1.rs (target/debug/deps/trigger_t1-7002cb67d82d088b)
+
+running 4 tests
+test t1_drift_fixture_with_no_fail_exits_zero_but_reports_same_findings ... ok
+test t1_clean_fixture_reports_zero_findings_and_exits_zero ... ok
+test t1_unknown_trigger_is_rejected_with_derived_valid_values ... ok
+test t1_drift_fixture_reports_exactly_two_findings_and_exits_one ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/trigger_t3.rs (target/debug/deps/trigger_t3-de5f88d1f7195116)
+
+running 4 tests
+test t3_clean_fixture_with_no_shared_names_reports_zero_rows ... ok
+test t3_same_context_fixture_with_no_fail_exits_zero_but_preserves_payload ... ok
+test t3_cross_context_fixture_reports_is_cross_context_true ... ok
+test t3_same_context_fixture_reports_one_row_with_is_cross_context_false ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/v02_9_bounded_context_accuracy.rs (target/debug/deps/v02_9_bounded_context_accuracy-d7c028197c6d20ea)
+
+running 1 test
+test ac5_v02_9_accuracy_gate_on_qbot_core ... ignored, requires /var/mnt/workspaces/qbot-core checkout; run locally with --ignored
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/wire_form_20_verbs.rs (target/debug/deps/wire_form_20_verbs-49a6fce7ceea30c2)
+
+running 4 tests
+test unknown_subcommand_exits_with_usage_error_code_2 ... ok
+test schema_describe_prints_json_and_exits_zero ... ok
+test root_help_lists_all_20_rfc_verbs ... ok
+test every_rfc_verb_has_a_clap_subcommand_with_help ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running unittests src/lib.rs (target/debug/deps/cfdb_concepts-ec2ca96e2bf12784)
+
+running 22 tests
+test published_language::tests::missing_file_returns_empty ... ok
+test published_language::tests::empty_file_returns_empty ... ok
+test tests::heuristic_returns_full_name_for_bare_prefix ... ok
+test published_language::tests::malformed_toml_returns_toml_error ... ok
+test tests::heuristic_returns_full_name_when_no_prefix ... ok
+test tests::heuristic_strips_adapters_prefix ... ok
+test tests::heuristic_strips_application_prefix ... ok
+test published_language::tests::single_crate_parses ... ok
+test published_language::tests::multiple_crates_parse ... ok
+test tests::heuristic_strips_domain_prefix ... ok
+test tests::heuristic_strips_ports_prefix ... ok
+test published_language::tests::wildcard_consumers_pass_through_verbatim ... ok
+test published_language::tests::duplicate_crate_name_is_rejected ... ok
+test tests::heuristic_strips_qbot_prefix ... ok
+test tests::heuristic_strips_use_cases_prefix ... ok
+test tests::load_concept_overrides_missing_directory_returns_empty ... ok
+test tests::override_applies_to_unknown_prefix ... ok
+test tests::override_wins_over_heuristic ... ok
+test tests::load_concept_overrides_rejects_malformed_toml ... ok
+test published_language::tests::two_loads_are_deterministic ... ok
+test tests::load_concept_overrides_parses_single_toml_file ... ok
+test tests::load_concept_overrides_sorts_entries_deterministically ... ok
+
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/published_language.rs (target/debug/deps/published_language-7dbb05fd5e309ad3)
+
+running 3 tests
+test workspace_without_cfdb_dir_returns_empty_loader ... ok
+test cfdb_dir_without_pl_file_returns_empty ... ok
+test full_pipeline_exercises_all_three_public_methods ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/cfdb_core-a1c06d301b38e3f8)
+
+running 90 tests
+test cfg_gate::tests::display_feature_quotes_the_name ... ok
+test cfg_gate::tests::display_not_wraps_once ... ok
+test cfg_gate::tests::display_all_and_any_comma_separated ... ok
+test cfg_gate::tests::evaluate_any_requires_at_least_one_child ... ok
+test cfg_gate::tests::evaluate_feature_matches_enabled_set ... ok
+test cfg_gate::tests::evaluate_all_requires_every_child ... ok
+test cfg_gate::tests::evaluate_nested_expression ... ok
+test cfg_gate::tests::evaluate_not_negates_child ... ok
+test cfg_gate::tests::parser_rejects_malformed_inputs ... ok
+test cfg_gate::tests::round_trip_through_wire_string ... ok
+test enrich::tests::enrich_bounded_context_default_stub_returns_not_implemented ... ok
+test enrich::tests::enrich_concepts_default_stub_returns_not_implemented ... ok
+test enrich::tests::enrich_deprecation_default_stub_returns_not_implemented ... ok
+test enrich::tests::enrich_git_history_default_stub_returns_not_implemented ... ok
+test enrich::tests::enrich_metrics_remains_as_deferred_phase_a_stub ... ok
+test enrich::tests::enrich_reachability_default_stub_returns_not_implemented ... ok
+test enrich::tests::enrich_rfc_docs_default_stub_returns_not_implemented ... ok
+test enrich::tests::is_complete_reflects_ran_flag ... ok
+test enrich::tests::not_implemented_marks_pass_as_unran ... ok
+test enrich::tests::not_implemented_warning_mentions_phase_d ... ok
+test fact::tests::edge_bag_semantics_via_props ... ok
+test enrich::tests::report_round_trips_through_serde ... ok
+test fact::tests::node_builder ... ok
+test fact::tests::edge_round_trips_with_props ... ok
+test fact::tests::node_round_trips_without_props ... ok
+test fact::tests::node_round_trips_with_props ... ok
+test fact::tests::prop_value_untagged_serializes_as_bare_json ... ok
+test fact::tests::prop_value_round_trips_every_variant ... ok
+test qname::qname_contract_sync::field_node_id_formula_is_field_colon_parent_dot_name ... ok
+test qname::qname_contract_sync::field_node_id_handles_tuple_field_name_convention ... ok
+test qname::qname_contract_sync::last_segment_consistent_with_module_qpath_then_append ... ok
+test qname::qname_contract_sync::last_segment_recovers_item_name_from_item_qname ... ok
+test qname::qname_contract_sync::last_segment_recovers_method_name_from_method_qname ... ok
+test qname::qname_contract_sync::last_segment_recovers_trailing_token_after_node_id_strip ... ok
+test qname::qname_contract_sync::param_node_id_disambiguates_by_index_not_name ... ok
+test qname::qname_contract_sync::variant_node_id_disambiguates_by_index_not_name ... ok
+test qname::qname_contract_sync::variant_node_id_formula_is_variant_colon_parent_hash_index ... ok
+test qname::tests::item_node_id_is_string_prefix_not_structural ... ok
+test qname::tests::item_node_id_prefixes_with_item_colon ... ok
+test qname::tests::item_qname_appends_name_under_module ... ok
+test qname::tests::item_qname_then_node_id_composes ... ok
+test qname::tests::item_qname_with_crate_root_stack_produces_crate_prefix ... ok
+test qname::tests::item_qname_with_empty_stack_falls_back_to_bare_name ... ok
+test qname::tests::last_segment_handles_empty_input ... ok
+test qname::tests::last_segment_returns_input_unchanged_when_no_separator ... ok
+test qname::tests::last_segment_returns_trailing_segment_after_double_colon ... ok
+test qname::tests::method_qname_interposes_impl_target_between_module_and_method ... ok
+test qname::tests::method_qname_single_crate_element_stack ... ok
+test qname::tests::method_qname_then_node_id_composes ... ok
+test qname::tests::method_qname_with_empty_module_stack_drops_leading_separator ... ok
+test qname::tests::method_qname_with_generic_impl_target_preserves_angle_brackets ... ok
+test qname::tests::method_qname_with_qualified_impl_target_preserves_path ... ok
+test qname::tests::module_qpath_empty_stack_is_empty_string ... ok
+test qname::tests::module_qpath_joins_with_double_colon ... ok
+test qname::tests::module_qpath_single_element_has_no_trailing_separator ... ok
+test qname::tests::normalize_impl_target_handles_empty_input ... ok
+test qname::tests::normalize_impl_target_handles_unmatched_closing_bracket ... ok
+test qname::tests::normalize_impl_target_preserves_non_angle_punctuation ... ok
+test qname::tests::normalize_impl_target_preserves_qualified_paths_without_generics ... ok
+test qname::tests::normalize_impl_target_strips_lifetime_and_bounds ... ok
+test qname::tests::normalize_impl_target_strips_nested_generics ... ok
+test qname::tests::normalize_impl_target_strips_single_generic_param ... ok
+test qname::tests::normalize_impl_target_trims_trailing_whitespace_after_strip ... ok
+test qname::tests::qname_from_node_id_returns_input_unchanged_when_no_prefix ... ok
+test qname::tests::qname_from_node_id_round_trip_via_item_node_id ... ok
+test qname::tests::qname_from_node_id_strips_item_prefix ... ok
+test query::item_kind::tests::item_kind_fromstr_display_roundtrips_every_variant ... ok
+test query::item_kind::tests::item_kind_fromstr_rejects_unknown ... ok
+test query::item_kind::tests::item_kind_to_extractor_str_maps_every_variant ... ok
+test query::ast::tests::ast_roundtrip_via_serde ... ok
+test query::item_kind::tests::item_kind_variants_enumerates_council_seven_in_order ... ok
+test schema::describe::tests::schema_describe_concept_attrs_are_enrich_concepts ... ok
+test schema::describe::tests::schema_describe_covers_all_edge_labels ... ok
+test schema::describe::tests::schema_describe_covers_all_node_labels ... ok
+test schema::descriptors::tests::provenance_round_trips_as_snake_case ... ok
+test schema::labels::tests::edge_label_serde_round_trip ... ok
+test schema::describe::tests::schema_describe_item_has_quality_signals_with_enrich_metrics_provenance ... ok
+test schema::labels::tests::keyspace_serde_round_trip ... ok
+test schema::labels::tests::schema_version_compat ... ok
+test schema::describe::tests::schema_describe_item_deprecation_attrs_are_extractor_provenanced ... ok
+test schema::labels::tests::schema_version_serde_round_trip ... ok
+test visibility::tests::display_matches_wire_str ... ok
+test visibility::tests::empty_string_is_private ... ok
+test visibility::tests::pub_self_collapses_to_module ... ok
+test schema::labels::tests::label_serde_round_trip ... ok
+test visibility::tests::restricted_with_nested_path ... ok
+test visibility::tests::round_trip_through_wire_string ... ok
+test visibility::tests::unknown_visibility_is_rejected ... ok
+test schema::describe::tests::schema_describe_round_trips_through_serde ... ok
+test schema::describe::tests::schema_describe_is_deterministic ... ok
+
+test result: ok. 90 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/architecture_dep_rule.rs (target/debug/deps/architecture_dep_rule-3d04447f003da088)
+
+running 4 tests
+test cfdb_core_dependencies_are_all_whitelisted ... ok
+test cfdb_core_has_no_forbidden_dependencies ... ok
+test cfdb_core_keeps_serde_thiserror_minimum ... ok
+test parser_finds_all_current_dependencies ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/cfdb_extractor-64e2e098ca01817e)
+
+running 47 tests
+test attrs::tests::attrs_contain_hash_test_rejects_multi_segment_tokio_test ... ok
+test attrs::tests::attrs_contain_hash_test_matches_bare_test_attribute ... ok
+test attrs::tests::attrs_contain_hash_test_rejects_cfg_test ... ok
+test attrs::tests::attrs_contain_hash_test_rejects_no_attrs ... ok
+test attrs::tests::extract_cfg_feature_gate_all_combinator ... ok
+test attrs::tests::extract_cfg_feature_gate_any_combinator ... ok
+test attrs::tests::extract_cfg_feature_gate_ignores_non_cfg_attrs ... ok
+test attrs::tests::extract_cfg_feature_gate_mixed_feature_and_non_feature_drops_to_none ... ok
+test attrs::tests::extract_cfg_feature_gate_multiple_attrs_conjoin ... ok
+test attrs::tests::extract_cfg_feature_gate_none_when_no_attrs ... ok
+test attrs::tests::extract_cfg_feature_gate_non_feature_poisons_result ... ok
+test attrs::tests::extract_cfg_feature_gate_nested_combinators ... ok
+test attrs::tests::extract_cfg_feature_gate_not_combinator ... ok
+test attrs::tests::extract_deprecated_attr_bare_form ... ok
+test attrs::tests::extract_cfg_feature_gate_simple_feature ... ok
+test attrs::tests::extract_deprecated_attr_none_when_no_attrs ... ok
+test attrs::tests::extract_deprecated_attr_ignores_non_deprecated_attrs ... ok
+test attrs::tests::extract_deprecated_attr_note_only_form ... ok
+test attrs::tests::extract_deprecated_attr_rejects_multi_segment_path ... ok
+test attrs::tests::extract_deprecated_attr_since_form ... ok
+test item_visitor::parse_syn_visibility_tests::inherited_is_private ... ok
+test attrs::tests::extract_deprecated_attr_since_and_note_form ... ok
+test item_visitor::parse_syn_visibility_tests::pub_crate_is_crate_local ... ok
+test item_visitor::parse_syn_visibility_tests::pub_in_crate_does_not_collapse_to_crate_local ... ok
+test item_visitor::parse_syn_visibility_tests::pub_is_public ... ok
+test item_visitor::parse_syn_visibility_tests::pub_in_path_is_restricted ... ok
+test type_render::render_fn_signature_tests::bare_fn_no_params_unit_return ... ok
+test item_visitor::parse_syn_visibility_tests::pub_super_and_pub_self_collapse_to_module ... ok
+test type_render::render_fn_signature_tests::async_unsafe_const_modifiers_are_prefixed ... ok
+test type_render::render_fn_signature_tests::fn_with_params_renders_types_not_names ... ok
+test type_render::render_fn_signature_tests::owned_receiver_renders_as_self ... ok
+test type_render::render_fn_signature_tests::mut_reference_receiver_renders_as_mut_ref_self ... ok
+test type_render::render_fn_signature_tests::deterministic_byte_stable_across_calls ... ok
+test type_render::render_fn_signature_tests::param_name_does_not_affect_signature ... ok
+test type_render::render_type_inner_tests::bare_generic_t_yields_empty ... ok
+test type_render::render_fn_signature_tests::reference_receiver_renders_as_ref_self ... ok
+test type_render::render_fn_signature_tests::return_type_divergence_surfaces_in_signature ... ok
+test type_render::render_type_inner_tests::depth_zero_returns_empty_synchronously ... ok
+test type_render::render_type_inner_tests::non_path_type_reference_yields_empty ... ok
+test type_render::render_type_inner_tests::non_path_type_tuple_yields_empty ... ok
+test type_render::render_type_inner_tests::nested_vec_option_arc_foo_yields_foo_at_depth_3 ... ok
+test type_render::render_type_inner_tests::result_yields_both_arms_at_depth_3 ... ok
+test type_render::render_type_inner_tests::qualified_path_std_vec_vec_yields_foo_at_depth_3 ... ok
+test type_render::render_type_inner_tests::user_defined_wrapper_yields_empty ... ok
+test type_render::render_type_inner_tests::depth_four_nesting_drops_leaf_foo ... ok
+test type_render::render_type_inner_tests::wrapper_types_is_closed_nine_entries ... ok
+test type_render::render_type_inner_tests::vec_of_foo_yields_foo_at_depth_3 ... ok
+
+test result: ok. 47 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/architecture_dep_rule.rs (target/debug/deps/architecture_dep_rule-fec74de567b13984)
+
+running 3 tests
+test cfdb_extractor_dependencies_are_all_whitelisted ... ok
+test cfdb_extractor_depends_on_cfdb_core_and_syn ... ok
+test cfdb_extractor_has_no_forbidden_dependencies ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/architecture_determinism.rs (target/debug/deps/architecture_determinism-ee3e0fb853c09605)
+
+running 1 test
+test cfdb_extractor_src_has_no_determinism_breaking_patterns ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/field_emission.rs (target/debug/deps/field_emission-c4e49ba147428452)
+
+running 5 tests
+test field_type_normalized_and_type_path_both_populated_with_rendered_type ... ok
+test field_nodes_carry_descriptor_five_props_only ... ok
+test field_index_matches_declaration_order ... ok
+test struct_with_three_named_fields_emits_three_field_nodes_and_has_field_edges ... ok
+test has_field_edge_points_from_parent_item_to_field_node ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/fixture_extraction.rs (target/debug/deps/fixture_extraction-25fcafe27e3da1dc)
+
+running 9 tests
+test bounded_context_overridden_by_concepts_toml ... ok
+test call_sites_inside_macro_bodies_are_visible ... ok
+test every_syn_call_site_carries_resolver_and_callee_resolved_discriminators ... ok
+test impl_blocks_emit_implements_and_implements_for_edges ... ok
+test fn_pointer_path_refs_emit_call_sites ... ok
+test is_test_attribute_extracted_from_hash_test ... ok
+test bounded_context_derived_from_crate_prefix ... ok
+test serde_default_attribute_emits_call_site ... ok
+test path_attribute_remap_preserves_test_flag ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/param_emission.rs (target/debug/deps/param_emission-82a25cdeef1e1460)
+
+running 6 tests
+test has_param_edges_point_from_item_fn_to_param_nodes ... ok
+test method_with_self_and_two_params_emits_three_param_nodes ... ok
+test wildcard_pattern_param_emits_param_with_empty_name ... ok
+test fn_with_zero_params_emits_no_param_nodes ... ok
+test free_fn_with_three_params_emits_three_param_nodes_and_has_param_edges ... ok
+test param_emission_is_deterministic_across_two_extractions ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/published_language_dogfood.rs (target/debug/deps/published_language_dogfood-8579f8a059ff69d9)
+
+running 2 tests
+test extractor_emits_published_language_false_when_pl_file_absent ... ok
+test extractor_emits_published_language_prop_on_every_crate_node ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/returns_emission.rs (target/debug/deps/returns_emission-40f85c1415c35d12)
+
+running 11 tests
+test fn_returning_nested_wrappers_at_depth_three_emits_one_returns_edge ... ok
+test fn_returning_user_defined_wrapper_emits_no_returns_edge ... ok
+test method_returning_same_crate_struct_emits_returns_edge ... ok
+test fn_with_no_explicit_return_type_emits_no_returns_edge ... ok
+test fn_returning_forward_declared_type_still_emits_returns_edge ... ok
+test fn_returning_qualified_std_vec_emits_returns_edge_via_last_segment ... ok
+test fn_returning_same_crate_struct_emits_returns_edge ... ok
+test fn_returning_unknown_type_emits_no_returns_edge ... ok
+test fn_returning_wrapped_same_crate_type_emits_returns_edge ... ok
+test fn_returning_result_emits_one_returns_edge_per_arm ... ok
+test returns_edge_emission_is_deterministic_across_two_extractions ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/self_workspace.rs (target/debug/deps/self_workspace-01fcef3ee89e2446)
+
+running 5 tests
+test self_workspace_emits_cfdb_context_and_belongs_to_edges ... ok
+test extracts_self_workspace ... ok
+test emits_call_sites_and_methods ... ok
+test tags_cfg_test_modules_with_is_test ... ok
+test extractor_is_deterministic_across_two_runs ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.91s
+
+     Running tests/type_of_emission.rs (target/debug/deps/type_of_emission-878190010b3223ad)
+
+running 9 tests
+test field_with_primitive_type_emits_no_type_of_edge ... ok
+test param_referencing_same_crate_struct_emits_type_of_edge ... ok
+test param_with_wrapped_same_crate_type_emits_type_of_edge ... ok
+test field_with_result_wrapper_emits_one_type_of_edge_per_arm ... ok
+test field_with_nested_wrappers_at_depth_three_emits_type_of_edge ... ok
+test field_wrapped_same_crate_type_emits_type_of_edge ... ok
+test field_referencing_same_crate_struct_emits_type_of_edge ... ok
+test field_referencing_forward_declared_struct_still_emits_type_of_edge ... ok
+test type_of_edge_emission_is_deterministic_across_two_extractions ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/variant_emission.rs (target/debug/deps/variant_emission-98f8e802e2a8a374)
+
+running 7 tests
+test enum_with_variants_emits_has_variant_edges_from_item_to_variant ... ok
+test unit_variant_emits_no_has_field_edges ... ok
+test variant_node_ids_follow_canonical_formula ... ok
+test tuple_struct_now_emits_field_nodes_with_underscore_names ... ok
+test struct_variant_payload_emits_fields_with_variant_as_has_field_src ... ok
+test tuple_variant_payload_emits_indexed_fields_with_underscore_names ... ok
+test unit_tuple_and_struct_variants_all_emit_variant_nodes ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/lib.rs (target/debug/deps/cfdb_hir_extractor-cd8dc7fc46e00a2f)
+
+running 2 tests
+test emit::tests::emit_stats_default_is_all_zero ... ok
+test emit::tests::emit_stats_equality_is_field_wise ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/arch_boundary.rs (target/debug/deps/arch_boundary-a266826b6fed9569)
+
+running 1 test
+test cfdb_core_contains_no_ra_ap_token ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/entry_point.rs (target/debug/deps/entry_point-7e562dd41cada381)
+
+running 10 tests
+test clap_parser_struct_emits_one_registers_param_per_arg_field ... ok
+test cron_job_detects_job_new_async_with_named_registration_fn ... ok
+test clap_parser_struct_with_no_arg_fields_emits_zero_registers_param ... ok
+test websocket_detects_on_upgrade_with_inline_closure ... ok
+test clap_subcommand_enum_emits_one_registers_param_per_variant ... ok
+test websocket_detects_on_upgrade_with_named_handler_fn ... ok
+test mcp_tool_on_impl_method_emits_registers_param_matching_syn_side_param_id ... ok
+test attribute_based_entry_point_detection_covers_cli_and_mcp ... ok
+test cron_job_detects_scheduler_add_registration_path ... ok
+test cron_job_detects_job_new_synchronous_variant ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s
+
+     Running tests/exclusion.rs (target/debug/deps/exclusion-08ae4016a6dbbf50)
+
+running 1 test
+test cfdb_hir_extractor_does_not_emit_item_crate_or_module_labels ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/http_route.rs (target/debug/deps/http_route-790d173663edd312)
+
+running 7 tests
+test map_put_with_non_slash_key_is_not_a_route ... ok
+test axum_route_method_emits_http_route_entry_point ... ok
+test axum_nest_method_emits_http_route_entry_point ... ok
+test actix_app_route_with_web_get_to_emits_http_route_entry_point ... ok
+test axum_post_method_emits_http_route_entry_point ... ok
+test axum_get_method_emits_http_route_entry_point ... ok
+test actix_service_web_resource_route_emits_http_route_entry_point ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+
+     Running tests/resolved_dispatch.rs (target/debug/deps/resolved_dispatch-04e8cf5810c83097)
+
+running 2 tests
+test hir_resolves_inherent_method_call ... ok
+test hir_resolves_trait_method_via_generic_receiver ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+     Running tests/v02_1_coverage.rs (target/debug/deps/v02_1_coverage-36726fc7fb08f5d0)
+
+running 2 tests
+test v02_1_expected_total_matches_documented_ground_truth ... ok
+test v02_1_coverage_gate_meets_95_percent_recall_per_kind ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+
+     Running unittests src/lib.rs (target/debug/deps/cfdb_hir_petgraph_adapter-6ef434f5fcb2d054)
+
+running 3 tests
+test tests::ingest_with_empty_batches_returns_zero_stats ... ok
+test tests::ingest_does_not_count_non_hir_edge_labels ... ok
+test tests::ingest_counts_call_sites_calls_and_invokes_at ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/arch_cli_isolation.rs (target/debug/deps/arch_cli_isolation-2ff4b20aabdab744)
+
+running 3 tests
+test adapter_direct_dependencies_include_trait_source_and_target_type ... ok
+test adapter_crate_does_not_reference_ra_ap_directly ... ok
+test cli_workspace_closure_contains_no_hir_crate ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/cfdb_self_dogfood.rs (target/debug/deps/cfdb_self_dogfood-85fe0c46302fa4f4)
+
+running 1 test
+test cfdb_self_dogfood_emits_at_least_one_resolved_call_site ... ignored, self-dogfood loads cfdb's full workspace into RootDatabase — tens of seconds; run explicitly
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/cfdb_petgraph-29cde29a0b8bc342)
+
+running 118 tests
+test enrich::bounded_context::tests::empty_keyspace_returns_ran_true_with_zero_counters ... ok
+test enrich::bounded_context::tests::no_workspace_root_returns_degraded_report ... ok
+test enrich::bounded_context::tests::unknown_keyspace_returns_err ... ok
+test enrich::bounded_context::tests::ac2_no_toml_is_noop_on_items_that_match_heuristic ... ok
+test enrich::bounded_context::tests::malformed_toml_returns_ran_false_with_warning ... ok
+test enrich::bounded_context::tests::ac1_toml_override_patches_mismatched_items ... ok
+test enrich::concepts::tests::ac2_empty_concepts_dir_is_graceful_noop ... ok
+test enrich::bounded_context::tests::ac3_only_mismatched_crates_patched ... ok
+test enrich::concepts::tests::ac3_malformed_toml_returns_ran_false_with_warning ... ok
+test enrich::concepts::tests::unknown_keyspace_returns_err ... ok
+test enrich::concepts::tests::no_concepts_dir_is_graceful_noop ... ok
+test enrich::reachability::tests::ac3_zero_entry_points_returns_ran_false_with_warning ... ok
+test enrich::reachability::tests::ac1_three_item_fixture_reachability ... ok
+test enrich::reachability::tests::ac5_call_cycle_does_not_loop_forever ... ok
+test enrich::concepts::tests::items_without_crate_prop_are_ignored ... ok
+test enrich::reachability::tests::bfs_ignores_non_calls_edges ... ok
+test enrich::concepts::tests::concept_nodes_have_assigned_by_manual ... ok
+test enrich::reachability::tests::entry_point_without_exposes_is_ignored ... ok
+test enrich::concepts::tests::ac1_toml_emits_concept_plus_labeled_as_plus_canonical_for ... ok
+test enrich::bounded_context::tests::ac7_two_runs_produce_identical_canonical_dumps ... ok
+test enrich::reachability::tests::unknown_keyspace_returns_err ... ok
+test enrich::concepts::tests::no_workspace_root_returns_degraded_report ... ok
+test enrich::rfc_docs::tests::no_workspace_root_returns_degraded_report ... ok
+test enrich::rfc_docs::tests::ac2_no_rfc_files_returns_zeroed_report ... ok
+test enrich::reachability::tests::ac2_multi_entry_attribution_counts_distinct_origins ... ok
+test enrich::concepts::tests::ac7_three_toml_files_emit_three_concept_nodes ... ok
+test enrich::rfc_docs::tests::ac1_match_emits_one_rfc_doc_and_one_edge ... ok
+test enrich::rfc_docs::tests::unknown_keyspace_returns_err ... ok
+test enrich::rfc_docs::tests::rfc_file_with_no_matches_is_not_emitted_as_node ... ok
+test enrich::reachability::tests::ac6_two_runs_produce_identical_canonical_dumps ... ok
+test enrich::rfc_docs::tests::qname_match_triggers_reference_when_name_absent ... ok
+test enrich::rfc_docs::tests::ac6_empty_file_and_no_heading_do_not_panic ... ok
+test enrich::rfc_docs::tests::whole_word_matching_rejects_substring_matches ... ok
+test enrich::rfc_docs::tests::whole_word_matching_accepts_punctuation_neighbours ... ok
+test eval::predicate::last_segment_tests::call_last_segment_returns_none_on_non_string_input ... ok
+test eval::predicate::last_segment_tests::call_last_segment_agrees_with_canonical_owner_byte_for_byte ... ok
+test eval::predicate::signature_divergent_tests::collapse_internal_whitespace ... ok
+test eval::predicate::signature_divergent_tests::different_types_are_divergent ... ok
+test eval::predicate::signature_divergent_tests::identical_normalized_strings_are_not_divergent ... ok
+test eval::target_dogfood_tests::target_dogfood_homonym_completes_under_rfc035_wall_budget ... ignored, requires CFDB_TARGET_DOGFOOD_KEYSPACE pointing at an extracted qbot-core keyspace JSON
+test eval::predicate::signature_divergent_tests::trim_outer_whitespace ... ok
+test enrich::rfc_docs::tests::ac5_two_runs_produce_identical_canonical_dumps ... ok
+test enrich::concepts::tests::ac5_two_runs_produce_identical_canonical_dumps ... ok
+test eval::predicate::signature_divergent_tests::whitespace_only_difference_is_not_divergent ... ok
+test graph::index_build_tests::empty_spec_skips_build_pass_entirely ... ok
+test graph::index_build_tests::label_change_on_reingest_drops_old_label_entries ... ok
+test graph::index_build_tests::stale_entry_removed_on_reingest_with_changed_prop ... ok
+test graph::index_build_tests::canonical_dump_unaffected_by_by_prop ... ok
+test index::build::tests::entry_value_for_node_computed_evaluates_last_segment ... ok
+test index::build::tests::entry_value_for_node_returns_none_when_prop_absent ... ok
+test index::lookup_cross_match_tests::cross_match_falls_through_when_bound_var_unresolved ... ok
+test index::build::tests::entry_value_for_node_skips_label_mismatch ... ok
+test index::lookup_cross_match_tests::cross_match_resolves_target_a_against_bound_b_commuted ... ok
+test index::lookup_cross_match_tests::cross_match_resolves_target_b_against_bound_a ... ok
+test index::build::tests::entry_value_for_node_prop_returns_tag_and_value ... ok
+test index::lookup_cross_match_tests::cross_match_skips_unknown_call_name ... ok
+test index::lookup_cross_match_tests::cross_match_skips_when_both_sides_are_target_var ... ok
+test index::lookup_cross_match_tests::cross_match_skips_when_spec_lacks_computed_entry ... ok
+test index::lookup_tests::pattern_literal_miss_returns_empty_vec ... ok
+test index::lookup_tests::pattern_literal_hits_posting_list ... ok
+test index::lookup_tests::returns_none_when_label_missing_on_pattern ... ok
+test index::lookup_tests::returns_none_when_no_hints_match_spec ... ok
+test index::lookup_tests::returns_none_when_spec_is_empty ... ok
+test index::lookup_tests::where_and_conjunction_intersects_posting_lists ... ok
+test index::lookup_tests::where_eq_commuted_literal_prop_hits ... ok
+test index::lookup_tests::where_eq_for_unrelated_var_is_ignored ... ok
+test graph_round_trip_tests::by_prop_rebuilt_on_load_matches_ingest_time_state ... ok
+test index::lookup_tests::where_eq_literal_becomes_a_hint ... ok
+test index::lookup_tests::where_eq_param_becomes_a_hint ... ok
+test index::lookup_tests::where_not_alone_contributes_no_hint ... ok
+test index::lookup_tests::where_non_eq_compare_is_ignored_not_fatal ... ok
+test index::spec::tests::computed_key_round_trips_as_canonical_string ... ok
+test index::lookup_tests::where_or_alone_contributes_no_hint ... ok
+test index::spec::tests::evaluate_dispatches_last_segment_to_cfdb_core_helper ... ok
+test index::spec::tests::empty_toml_produces_empty_spec ... ok
+test index::spec::tests::missing_file_returns_empty_spec ... ok
+test index::spec::tests::rejects_entry_missing_notes ... ok
+test index::spec::tests::parses_three_entry_fixture ... ok
+test index::spec::tests::rejects_unknown_computed_key ... ok
+test index::spec::tests::from_path_reads_a_real_file ... ok
+test index::spec::tests::parse_is_deterministic ... ok
+test index::spec::tests::serde_round_trip_via_json_preserves_notes ... ok
+test tests::canonical_dump_edge_sort_fallback_when_src_qname_absent ... ok
+test tests::canonical_dump_edge_sort_uses_label_then_src_qname_then_dst_qname ... ok
+test tests::canonical_dump_field_order_is_alphabetical ... ok
+test tests::canonical_dump_kind_discriminator_present ... ok
+test tests::canonical_dump_lf_separated_no_trailing_newline ... ok
+test index::lookup_tests::where_or_inside_and_does_not_invalidate_sibling_hint ... ok
+test tests::canonical_dump_is_deterministic ... ok
+test index::build::tests::index_key_of_rejects_float_and_null ... ok
+test index::lookup_cross_match_tests::cross_match_skips_when_neither_side_is_target_var ... ok
+test tests::canonical_dump_lines_are_pure_jsonl ... ok
+test tests::canonical_dump_node_sort_uses_label_then_qname ... ok
+test tests::count_star_aggregation ... ok
+test index::build::tests::index_key_of_accepts_scalar_shapes ... ok
+test tests::canonical_dump_byte_identity_across_two_calls ... ok
+test tests::optional_match_null_fills_unmatched_bindings ... ok
+test tests::ingest_round_trip_via_canonical_dump ... ok
+test tests::order_by_and_limit_are_applied ... ok
+test tests::unknown_label_emits_warning_with_suggestion ... ok
+test tests::unknown_keyspace_returns_error ... ok
+test tests::unwind_list_param_cross_joins ... ok
+test with_indexes_tests::default_store_has_empty_index_spec ... ok
+test tests::with_collect_then_return_var_preserves_list_binding_3675 ... ok
+test tests::unresolved_edge_endpoint_warns_but_does_not_error ... ok
+test with_indexes_tests::with_indexes_stores_spec_on_store ... ok
+test with_indexes_tests::default_store_leaves_by_prop_empty_after_ingest ... ok
+test with_indexes_tests::keyspace_mut_propagates_spec_to_auto_created_keyspaces ... ok
+test tests::f2_variable_length_matches_spike_count ... ok
+test tests::f1b_aggregation_matches_spike_count ... ok
+test eval::fast_path_tests::label_plus_literal_fast_path_matches_full_scan ... ok
+test eval::fast_path_tests::non_indexed_prop_falls_back_to_label_scan ... ok
+test eval::fast_path_tests::label_plus_where_eq_fast_path_matches_full_scan ... ok
+test eval::cross_match_tests::cross_match_returns_exactly_ten_homonym_pairs_on_indexed_keyspace ... ok
+test eval::cross_match_tests::cross_match_indexed_completes_under_100ms ... ok
+test tests::f3_regex_filter_matches_spike_count ... ok
+test graph::index_build_tests::recall_matches_full_scan_on_1000_item_fixture ... ok
+test eval::cross_match_tests::cross_match_matches_full_scan_fallback_byte_for_byte ... ok
+
+test result: ok. 117 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 1.17s
+
+     Running tests/architecture_dep_rule.rs (target/debug/deps/architecture_dep_rule-0ad2599b578417de)
+
+running 3 tests
+test cfdb_petgraph_depends_on_cfdb_core_and_petgraph ... ok
+test cfdb_petgraph_dependencies_are_all_whitelisted ... ok
+test cfdb_petgraph_has_no_forbidden_dependencies ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/hsb_cluster.rs (target/debug/deps/hsb_cluster-cf114f3f3a34e5db)
+
+running 6 tests
+test unique_signatures_emit_no_rows ... ok
+test mixed_test_and_production_pair_excluded ... ok
+test test_tagged_pair_excluded ... ok
+test same_name_duplicate_fns_emit_one_cluster_row ... ok
+test synonym_renamed_duplicate_fns_emit_one_cluster_row ... ok
+test three_crate_fixture_with_two_clusters_emits_both ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/indexes_toml_self_dogfood.rs (target/debug/deps/indexes_toml_self_dogfood-6c7a85692a745b82)
+
+running 2 tests
+test loads_cfdb_own_indexes_toml ... ok
+test own_indexes_toml_round_trips_through_serde ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/pattern_b_vertical_split_brain.rs (target/debug/deps/pattern_b_vertical_split_brain-046f986b19894ebc)
+
+running 7 tests
+test single_resolver_emits_no_rows ... ok
+test resolvers_under_distinct_entry_points_emit_no_rows ... ok
+test test_tagged_resolvers_are_excluded ... ok
+test scar_3522_pair_resolution_reports_concept_prefix ... ok
+test scar_2651_compound_stop_emits_one_fork_row ... ok
+test scar_3545_three_way_scatter_emits_three_pairs ... ok
+test scar_3654_seven_way_scatter_emits_twenty_one_pairs ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.92s
+
+     Running tests/persist_round_trip.rs (target/debug/deps/persist_round_trip-049302fbb5479e20)
+
+running 4 tests
+test load_rejects_incompatible_schema_version ... ok
+test load_accepts_legacy_v0_2_keyspace_with_no_index_fields ... ok
+test save_is_byte_identical_across_two_calls ... ok
+test save_then_load_preserves_canonical_dump ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/raid_plan_queries.rs (target/debug/deps/raid_plan_queries-8f72f2390dc60889)
+
+running 7 tests
+test dangling_drop_is_empty_on_clean_plan ... ok
+test hidden_callers_flags_external_caller_of_portage ... ok
+test dangling_drop_flags_the_still_called_drop ... ok
+test missing_canonical_flags_rewrite_without_canonical_for_target ... ok
+test signal_mismatch_flags_unclean_portage_item ... ok
+test signal_mismatch_is_empty_when_thresholds_relaxed ... ok
+test completeness_flags_items_not_in_any_qname_bucket ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/vsb_multi_resolver.rs (target/debug/deps/vsb_multi_resolver-f7203393000915bf)
+
+running 6 tests
+test single_resolver_per_entry_point_emits_no_rows ... ok
+test compound_stop_layer_isolation_emits_one_row ... ok
+test resolvers_returning_mismatched_type_emit_no_rows ... ok
+test two_resolvers_split_across_entry_points_emit_no_rows ... ok
+test mcp_boundary_fix_ac_template_emits_one_row ... ok
+test param_effect_canary_emits_one_multi_resolver_row ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/cfdb_query-ded59e9e49fe9f04)
+
+running 44 tests
+test builder::tests::build_bare_match_count_star ... ok
+test classify::tests::diff_source_meta_serde_keys_are_snake_case ... ok
+test builder::tests::where_preds_are_and_folded ... ok
+test classify::tests::envelope_new_pins_schema_version ... ok
+test classify::tests::envelope_serde_round_trip ... ok
+test classify::tests::envelope_json_does_not_leak_skill_fields ... ok
+test diff::tests::added_only_surfaces_b_minus_a ... ok
+test diff::tests::envelope_missing_kind_is_invalid ... ok
+test diff::tests::changed_only_surfaces_props_drift ... ok
+test diff::tests::identical_keyspaces_produce_empty_envelope ... ok
+test diff::tests::kinds_filter_accepts_node_edge_and_both ... ok
+test diff::tests::kinds_filter_rejects_unknown_tokens ... ok
+test diff::tests::compute_diff_is_deterministic_across_calls ... ok
+test diff::tests::malformed_json_reports_line_number ... ok
+test diff::tests::kinds_filter_node_hides_edge_changes ... ok
+test diff::tests::removed_only_surfaces_a_minus_b ... ok
+test inventory::tests::debt_class_fromstr_rejects_unknown_with_err_carrying_input ... ok
+test diff::tests::mixed_adds_removes_and_changes ... ok
+test inventory::tests::debt_class_json_keys_match_snake_case_taxonomy ... ok
+test inventory::tests::debt_class_roundtrips_fromstr_display_for_every_variant ... ok
+test inventory::tests::debt_class_variants_enumerates_taxonomy_in_a21_order ... ok
+test diff::tests::serde_round_trip_preserves_envelope ... ok
+test inventory::tests::scope_inventory_a33_envelope_serializes_with_required_keys ... ok
+test inventory::tests::scope_inventory_deterministic_across_runs ... ok
+test inventory::tests::scope_inventory_new_seeds_all_six_buckets_empty ... ok
+test list_items::tests::list_items_matching_filters_by_kinds ... ok
+test list_items::tests::list_items_matching_filters_by_name_pattern ... ok
+test list_items::tests::list_items_matching_group_by_context_partitions_rows ... ok
+test list_items::tests::list_items_matching_deterministic_across_runs ... ok
+test list_items::tests::list_items_matching_implblock_maps_to_impl_block_kind ... ok
+test parser::tests::parse_rejects_create ... ok
+test parser::tests::parse_rejects_multi_statement ... ok
+test parser::tests::parse_minimal_return_count_star ... ok
+test skill_routing::tests::from_toml_str_rejects_malformed_input ... ok
+test shape_lint::tests::silent_on_simple_return ... ok
+test skill_routing::tests::missing_classes_reports_every_absent_variant ... ok
+test shape_lint::tests::silent_on_plain_property_equality_self_join ... ok
+test shape_lint::tests::fires_on_canonical_f1a_cartesian ... ok
+test skill_routing::tests::route_returns_none_for_absent_class ... ok
+test skill_routing::tests::route_carries_mode_flag_for_unfinished_refactor ... ok
+test shape_lint::tests::silent_on_f1b_aggregation_form ... ok
+test skill_routing::tests::from_toml_str_parses_every_class ... ok
+test skill_routing::tests::route_looks_up_by_class ... ok
+test skill_routing::tests::parse_is_deterministic ... ok
+
+test result: ok. 44 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/architecture_dep_rule.rs (target/debug/deps/architecture_dep_rule-9cf0a20e173f98bb)
+
+running 3 tests
+test cfdb_query_depends_on_cfdb_core ... ok
+test cfdb_query_has_no_forbidden_dependencies ... ok
+test cfdb_query_dependencies_are_all_whitelisted ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/builder_parser_equivalence.rs (target/debug/deps/builder_parser_equivalence-16691c2d0333dcc4)
+
+running 4 tests
+test bare_match_count_star_equivalent ... ok
+test return_with_order_by_limit_equivalent ... ok
+test match_with_where_compare_equivalent ... ok
+test match_with_gt_literal_equivalent ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/finding_no_skill_field.rs (target/debug/deps/finding_no_skill_field-da8e00ed74a76243)
+
+running 3 tests
+test debtclass_is_not_a_field_on_finding ... ok
+test finding_carries_exactly_the_canonical_column_set ... ok
+test finding_has_no_forbidden_skill_fields ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/parser_errors.rs (target/debug/deps/parser_errors-b827198b62865874)
+
+running 5 tests
+test create_rejected_with_suggestion ... ok
+test delete_rejected ... ok
+test multi_statement_rejected ... ok
+test garbage_input_reports_location ... ok
+test keyword_inside_string_literal_does_not_false_positive ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/parser_patterns.rs (target/debug/deps/parser_patterns-2a38475849e0e05c)
+
+running 9 tests
+test f2_variable_length_path ... ok
+test f3_property_regex_in_where ... ok
+test f4_optional_match ... ok
+test f5_param_list_in ... ok
+test f8_parameterized_query ... ok
+test f7_aggregation_grouping ... ok
+test f1_fixed_hop_label_property_match ... ok
+test f6_not_exists_anti_join ... ok
+test f9_multi_valued_edges_with_var ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/predicate_schema_refs.rs (target/debug/deps/predicate_schema_refs-d4136ed19b88d94c)
+
+running 4 tests
+test seed_directory_is_not_empty ... ok
+test every_seed_predicate_references_only_known_node_labels ... ok
+test every_seed_predicate_parses_cleanly ... ok
+test every_seed_predicate_references_only_known_edge_labels ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/cfdb_recall-4f62745ba688a67d)
+
+running 24 tests
+test adapters::extractor::tests::drops_test_scope_items ... ok
+test adapters::extractor::tests::drops_methods_by_kind_filter ... ok
+test adapters::extractor::tests::ignores_non_item_nodes ... ok
+test adapters::extractor::tests::keeps_all_kept_item_kinds ... ok
+test adapters::extractor::tests::skips_item_nodes_missing_required_props ... ok
+test adapters::ground_truth::tests::deduplicates_identical_paths ... ok
+test adapters::extractor::tests::projects_prod_items_into_crate_keyed_sets ... ok
+test adapters::ground_truth::tests::drops_foreign_crate_items ... ok
+test adapters::ground_truth::tests::drops_entries_with_empty_path ... ok
+test adapters::ground_truth::tests::drops_modules_impls_fields_variants ... ok
+test adapters::ground_truth::tests::joins_path_segments_with_double_colon ... ok
+test adapters::ground_truth::tests::keeps_struct_enum_fn_trait_type_const_static_union ... ok
+test tests::audit_list_also_removes_items_from_numerator ... ok
+test tests::audit_list_never_references_an_item_not_in_public_set ... ok
+test tests::audit_list_removes_items_from_denominator ... ok
+test tests::empty_denominator_after_audit_passes_vacuously ... ok
+test tests::empty_public_set_passes_vacuously ... ok
+test tests::extractor_superset_does_not_affect_recall ... ok
+test tests::missing_items_are_sorted_for_stable_reporting ... ok
+test tests::recall_is_perfect_when_extracted_matches_public ... ok
+test tests::recall_is_set_based_not_count_based ... ok
+test tests::fails_just_below_95_percent ... ok
+test tests::passes_at_exactly_95_percent ... ok
+test tests::recall_is_zero_when_extracted_is_disjoint ... ok
+
+test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/architecture_dep_rule.rs (target/debug/deps/architecture_dep_rule-cabaac58a48a4f5d)
+
+running 3 tests
+test cfdb_recall_depends_on_cfdb_core_and_cfdb_extractor ... ok
+test cfdb_recall_dependencies_are_all_whitelisted ... ok
+test cfdb_recall_has_no_forbidden_dependencies ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/integration_recall.rs (target/debug/deps/integration_recall-d0ddb2990fab9e0a)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/check_prelude_triggers-36a5756a53ab8f40)
+
+running 19 tests
+test report::tests::record_populates_triggers_fired_and_evidence ... ok
+test report::tests::schema_version_is_frozen_v1 ... ok
+test report::tests::serializes_without_per_trigger_boolean_fields ... ok
+test trigger_id::tests::serializes_to_rfc034_uppercase_strings ... ok
+test toml_io::tests::read_changed_paths_strips_blanks_and_whitespace ... ok
+test toml_io::tests::read_toml_surfaces_io_error_for_missing_file ... ok
+test toml_io::tests::read_toml_rejects_malformed_file ... ok
+test toml_io::tests::read_toml_parses_valid_file ... ok
+test triggers::c1_cross_context::tests::c1_fires_when_two_contexts_touched ... ok
+test triggers::c1_cross_context::tests::c1_stays_silent_when_single_context_touched ... ok
+test triggers::c7_financial_precision::tests::c7_fires_when_financial_crate_touched ... ok
+test triggers::c7_financial_precision::tests::c7_stays_silent_when_non_financial_crate_touched ... ok
+test triggers::c9_workspace_cardinality::tests::c9_stays_silent_when_cargo_toml_not_in_diff ... ok
+test triggers::c8_pipeline_stage::tests::c8_fires_on_stage_cross ... ok
+test triggers::c9_workspace_cardinality::tests::c9_fires_when_workspace_cargo_toml_in_diff ... ok
+test triggers::c8_pipeline_stage::tests::c8_stays_silent_on_single_stage ... ok
+test triggers::c3_port_signature::tests::c3_stays_silent_on_non_port_change ... ok
+test triggers::c3_port_signature::tests::c3_does_not_fire_on_ports_tests_dir ... ok
+test triggers::c3_port_signature::tests::c3_fires_on_port_src_change ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/debug/deps/check_prelude_triggers-7896efc68a562966)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests cfdb_cli
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests cfdb_concepts
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests cfdb_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests cfdb_extractor
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests cfdb_hir_extractor
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests cfdb_hir_petgraph_adapter
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests cfdb_petgraph
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests cfdb_query
+
+running 1 test
+test crates/cfdb-query/src/builder/mod.rs - builder (line 7) ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+   Doc-tests cfdb_recall
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests check_prelude_triggers
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

@@ -37,12 +37,14 @@ pub(crate) fn scan_workspace(
     warnings: &mut Vec<String>,
 ) -> BTreeMap<String, AstSignals> {
     let files = distinct_files(items);
+    // Consume `files` by value so each `rel: String` is moved into the
+    // map (no per-iteration clone).
     let mut by_file: BTreeMap<String, syn::File> = BTreeMap::new();
-    for rel in &files {
-        let abs = workspace_root.join(rel);
+    for rel in files {
+        let abs = workspace_root.join(&rel);
         match parse_file(&abs) {
             Ok(f) => {
-                by_file.insert(rel.clone(), f);
+                by_file.insert(rel, f);
             }
             Err(e) => warnings.push(format!(
                 "{}: failed to parse {}: {e}",
@@ -52,16 +54,15 @@ pub(crate) fn scan_workspace(
         }
     }
 
-    let mut out: BTreeMap<String, AstSignals> = BTreeMap::new();
-    for item in items {
-        let Some(file) = by_file.get(&item.file) else {
-            continue;
-        };
-        if let Some(signals) = compute_for_item(file, &item.name) {
-            out.insert(item.qname.clone(), signals);
-        }
-    }
-    out
+    // Iterator chain form avoids `.clone()` inside a `for` body.
+    items
+        .iter()
+        .filter_map(|item| {
+            let file = by_file.get(&item.file)?;
+            let signals = compute_for_item(file, &item.name)?;
+            Some((item.qname.clone(), signals))
+        })
+        .collect()
 }
 
 fn distinct_files(items: &[FnItem]) -> Vec<String> {

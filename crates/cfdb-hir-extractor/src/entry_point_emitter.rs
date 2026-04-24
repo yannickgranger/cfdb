@@ -28,13 +28,13 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use cfdb_core::fact::{Edge, Node, PropValue};
-use cfdb_core::qname::{field_node_id, item_node_id, item_qname, param_node_id, variant_node_id};
+use cfdb_core::qname::{item_node_id, item_qname};
 use cfdb_core::schema::{EdgeLabel, Label};
 use ra_ap_edition::Edition;
 use ra_ap_hir::db::HirDatabase;
 use ra_ap_hir::{HasCrate, ModuleDef, PathResolution, Semantics};
 use ra_ap_hir_ty::attach_db;
-use ra_ap_syntax::ast::{self, AstNode, HasAttrs, HasName};
+use ra_ap_syntax::ast::{self, AstNode, HasName};
 use ra_ap_syntax::{SyntaxKind, SyntaxNode};
 use ra_ap_vfs::{Vfs, VfsPath};
 
@@ -42,6 +42,12 @@ use crate::error::HirError;
 
 mod http_route;
 mod other_kinds;
+mod registers_param;
+
+use registers_param::{
+    emit_clap_enum_registers_param, emit_clap_struct_registers_param, emit_mcp_registers_param,
+    has_clap_derive, has_tool_attr,
+};
 
 /// HTTP method verbs recognized on axum's `Router` and actix's `App`.
 /// `route` is overloaded (2-arg on axum / actix `App`, 1-arg on actix
@@ -128,15 +134,7 @@ fn scan_file<DB>(
                 if let Some(strukt) = ast::Struct::cast(descendant) {
                     if has_clap_derive(&strukt) {
                         if let Some((name, qname)) = struct_name_and_qname(sema, &strukt) {
-                            emit(
-                                nodes,
-                                edges,
-                                qname.clone(),
-                                name,
-                                "cli_command",
-                                file_path,
-                                None,
-                            );
+                            emit(nodes, edges, &qname, &name, "cli_command", file_path, None);
                             // REGISTERS_PARAM for clap `#[derive(Parser)]`
                             // structs (#219 / RFC-037 §3.1, clap-struct row
                             // of the crate-ownership table). Walk the
@@ -157,15 +155,7 @@ fn scan_file<DB>(
                 if let Some(enum_) = ast::Enum::cast(descendant) {
                     if has_clap_derive(&enum_) {
                         if let Some((name, qname)) = enum_name_and_qname(sema, &enum_) {
-                            emit(
-                                nodes,
-                                edges,
-                                qname.clone(),
-                                name,
-                                "cli_command",
-                                file_path,
-                                None,
-                            );
+                            emit(nodes, edges, &qname, &name, "cli_command", file_path, None);
                             // REGISTERS_PARAM for clap `#[derive(Subcommand)]`
                             // enums (#219 / RFC-037 §3.1, Subcommand row of
                             // the crate-ownership table). One edge per
@@ -184,15 +174,7 @@ fn scan_file<DB>(
                 if let Some(fn_ast) = ast::Fn::cast(descendant) {
                     if has_tool_attr(&fn_ast) {
                         if let Some((name, qname)) = fn_name_and_qname(sema, &fn_ast) {
-                            emit(
-                                nodes,
-                                edges,
-                                qname.clone(),
-                                name,
-                                "mcp_tool",
-                                file_path,
-                                None,
-                            );
+                            emit(nodes, edges, &qname, &name, "mcp_tool", file_path, None);
                             // REGISTERS_PARAM for MCP `#[tool]` fns
                             // (#219 / RFC-037 §3.1 MCP row — HIR-owned).
                             // `ast::Fn` covers free fns AND impl methods;
@@ -224,154 +206,6 @@ fn scan_file<DB>(
             _ => {}
         }
     }
-}
-
-/// `true` when the item's attribute list contains a `#[derive(...)]`
-/// whose syntax text mentions `Parser` or `Subcommand`. Matching on
-/// the raw syntax text handles `#[derive(Parser)]`, `#[derive(Parser,
-/// Debug)]`, `#[derive(clap::Parser)]`, etc. uniformly.
-fn has_clap_derive<N: HasAttrs>(item: &N) -> bool {
-    item.attrs().any(|attr| {
-        let text = attr.syntax().to_string();
-        if !text.contains("derive") {
-            return false;
-        }
-        text.contains("Parser") || text.contains("Subcommand")
-    })
-}
-
-/// `true` when a clap-struct field carries an `#[arg(...)]` (or bare
-/// `#[arg]`) attribute — the clap convention for declaring a CLI-visible
-/// input. Matches `#[arg]`, `#[arg(short, long)]`, `#[clap::arg]`, etc.
-/// by checking the attribute path's last segment, mirroring `has_tool_attr`'s
-/// discipline for multi-segment vs single-segment paths.
-fn field_has_arg_attr(field: &ast::RecordField) -> bool {
-    field.attrs().any(|attr| {
-        let Some(path) = attr.meta().and_then(|m| m.path()) else {
-            return false;
-        };
-        let last = path
-            .syntax()
-            .to_string()
-            .rsplit("::")
-            .next()
-            .unwrap_or_default()
-            .trim()
-            .to_string();
-        last == "arg"
-    })
-}
-
-/// Emit REGISTERS_PARAM edges for a clap `#[derive(Parser)]` struct —
-/// one edge per `#[arg(...)]`-carrying named field, pointing at the
-/// pre-existing `:Field` node id produced by the syn-side extractor via
-/// `cfdb_core::qname::field_node_id`. Tuple structs and unit structs
-/// emit zero edges; clap requires named fields on Parser structs.
-///
-/// The HIR side is deliberately edge-only: `:Field` nodes are owned by
-/// the syn-side producer (RFC-037 §3.1 B9 — single-producer discipline
-/// per structural node kind).
-fn emit_clap_struct_registers_param(
-    struct_qname: &str,
-    strukt: &ast::Struct,
-    edges: &mut Vec<Edge>,
-) {
-    let Some(ast::FieldList::RecordFieldList(record_list)) = strukt.field_list() else {
-        // Tuple / unit structs — clap `#[derive(Parser)]` always uses
-        // named fields, so any non-record field list has no `#[arg]`
-        // fields to register.
-        return;
-    };
-    let entry_point_id = format!("entrypoint:cli_command:{struct_qname}");
-    for field in record_list.fields() {
-        if !field_has_arg_attr(&field) {
-            continue;
-        }
-        let Some(name) = field.name() else {
-            continue;
-        };
-        let field_name = name.text().to_string();
-        edges.push(Edge {
-            src: entry_point_id.clone(),
-            dst: field_node_id(struct_qname, &field_name),
-            label: EdgeLabel::new(EdgeLabel::REGISTERS_PARAM),
-            props: BTreeMap::new(),
-        });
-    }
-}
-
-/// Emit REGISTERS_PARAM edges for a clap `#[derive(Subcommand)]` enum —
-/// one edge per declared variant, pointing at the pre-existing
-/// `:Variant` node id produced by the syn-side extractor via
-/// `cfdb_core::qname::variant_node_id`. Per-variant-field granularity
-/// is explicitly deferred: §3.1 N1 documents the transitional
-/// approximation (one edge per variant) that a future
-/// `cli_subcommand` kind will supersede.
-///
-/// Variant index is the declaration order, matching `variant_node_id`'s
-/// indexing policy.
-fn emit_clap_enum_registers_param(enum_qname: &str, enum_: &ast::Enum, edges: &mut Vec<Edge>) {
-    let Some(variant_list) = enum_.variant_list() else {
-        return;
-    };
-    let entry_point_id = format!("entrypoint:cli_command:{enum_qname}");
-    for (index, _variant) in variant_list.variants().enumerate() {
-        edges.push(Edge {
-            src: entry_point_id.clone(),
-            dst: variant_node_id(enum_qname, index),
-            label: EdgeLabel::new(EdgeLabel::REGISTERS_PARAM),
-            props: BTreeMap::new(),
-        });
-    }
-}
-
-/// Emit one `REGISTERS_PARAM` edge per non-self param of an MCP
-/// `#[tool]` fn (#219 / RFC-037 §3.1 MCP row — HIR-owned).
-///
-/// Targets the `:Param` node the syn extractor emits via
-/// `param_node_id(fn_qname, index)`. Receiver-aware: when the fn has a
-/// `self` / `&self` / `&mut self` receiver, the syn walker still calls
-/// `emit_param` for it with `index=0`, so we offset the typed-param
-/// index by 1 to match.
-fn emit_mcp_registers_param(fn_qname: &str, fn_ast: &ast::Fn, edges: &mut Vec<Edge>) {
-    let Some(param_list) = fn_ast.param_list() else {
-        return;
-    };
-    let entry_point_id = format!("entrypoint:mcp_tool:{fn_qname}");
-    let has_receiver = param_list.self_param().is_some();
-    for (typed_index, _param) in param_list.params().enumerate() {
-        let syn_index = if has_receiver {
-            typed_index + 1
-        } else {
-            typed_index
-        };
-        edges.push(Edge {
-            src: entry_point_id.clone(),
-            dst: param_node_id(fn_qname, syn_index),
-            label: EdgeLabel::new(EdgeLabel::REGISTERS_PARAM),
-            props: BTreeMap::new(),
-        });
-    }
-}
-
-/// `true` when the fn carries an attribute whose last path segment
-/// is `tool` (rmcp / mcp-core convention). Matches `#[tool]`,
-/// `#[tool(...)]`, `#[rmcp::tool]`, etc.
-fn has_tool_attr(fn_ast: &ast::Fn) -> bool {
-    fn_ast.attrs().any(|attr| {
-        let Some(path) = attr.meta().and_then(|m| m.path()) else {
-            return false;
-        };
-        let last = path
-            .syntax()
-            .to_string()
-            .rsplit("::")
-            .next()
-            .unwrap_or_default()
-            .trim()
-            .to_string();
-        last == "tool"
-    })
 }
 
 fn struct_name_and_qname<DB>(
@@ -502,11 +336,12 @@ where
 /// Emit the `:EntryPoint` node and its `EXPOSES` edge. The optional
 /// `extra_props` map is merged into the node props (e.g. `cron_expr`
 /// for `cron_job`).
+#[allow(clippy::too_many_arguments)] // nodes/edges are sinks; qname/name/kind/path/extra are the :EntryPoint shape
 fn emit(
     nodes: &mut Vec<Node>,
     edges: &mut Vec<Edge>,
-    handler_qname: String,
-    display_name: String,
+    handler_qname: &str,
+    display_name: &str,
     kind: &str,
     file_path: &Path,
     extra_props: Option<BTreeMap<String, PropValue>>,
@@ -515,11 +350,11 @@ fn emit(
     let file_str = file_path.to_string_lossy().into_owned();
 
     let mut props = BTreeMap::new();
-    props.insert("name".into(), PropValue::Str(display_name));
+    props.insert("name".into(), PropValue::Str(display_name.to_string()));
     props.insert("kind".into(), PropValue::Str(kind.to_string()));
     props.insert(
         "handler_qname".into(),
-        PropValue::Str(handler_qname.clone()),
+        PropValue::Str(handler_qname.to_string()),
     );
     props.insert("file".into(), PropValue::Str(file_str));
     // Parameter JSON is reserved for follow-up enrichment (extracting
@@ -540,7 +375,7 @@ fn emit(
 
     edges.push(Edge {
         src: ep_id,
-        dst: item_node_id(&handler_qname),
+        dst: item_node_id(handler_qname),
         label: EdgeLabel::new(EdgeLabel::EXPOSES),
         props: BTreeMap::new(),
     });

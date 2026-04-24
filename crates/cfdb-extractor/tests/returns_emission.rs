@@ -1,4 +1,4 @@
-//! `RETURNS` edge emission tests (#216, RFC-037 §3.2).
+//! `RETURNS` edge emission tests (#216, RFC-037 §3.2; #239 closeout).
 //!
 //! After #216, every fn/method whose `syn::ReturnType` resolves to a
 //! `:Item` qname emitted in the same workspace produces one `RETURNS`
@@ -7,14 +7,14 @@
 //! later in the same file (or in a different file walked later) still
 //! emits the edge.
 //!
-//! Documented limitation (RFC-037 §6 non-goals): the v0.1
-//! `render_type_string` strips generic arguments — `Vec<T>` renders as
-//! `"Vec"`, `Option<T>` as `"Option"`, `Result<T, E>` as `"Result"` —
-//! so wrapper-wrapped same-crate types silently do not emit a
-//! `RETURNS` edge. The `wrapped_same_crate_type_does_not_emit_returns`
-//! test below pins this behaviour so the day someone adds a
-//! `render_type_inner` unwrapper, this test flips and reminds them to
-//! update the limitation comment in `lib.rs::resolve_deferred_returns`.
+//! Third-tier wrapper unwrap (#239, RFC-037 §6 closeout): when the
+//! outer rendered return-type string misses both the exact-match and
+//! unique-last-segment tiers, the resolver falls back to
+//! `render_type_inner` on the stored `syn::Type` with a depth-3
+//! budget. `fn v() -> Vec<Foo>` now emits a RETURNS edge to `Foo`;
+//! `fn r() -> Result<Ok, Err>` emits two. The closed wrapper list
+//! (`Vec`, `Option`, `Arc`, `Rc`, `Box`, `Result`, `Pin`, `Cell`,
+//! `RefCell`) is in `type_render::WRAPPER_TYPES`.
 
 use std::path::Path;
 
@@ -183,14 +183,13 @@ fn fn_returning_unknown_type_emits_no_returns_edge() {
 }
 
 #[test]
-fn fn_returning_wrapped_same_crate_type_emits_no_returns_edge() {
-    // `v() -> Vec<MyType>`. `render_type_string` (type_render.rs) strips
-    // generic arguments — the rendered string is just `"Vec"`, which
-    // never matches a workspace `:Item` qname. This test pins the
-    // documented limitation (RFC-037 §6 non-goals) so the day someone
-    // adds a `render_type_inner` unwrapper, this test FLIPS — at which
-    // point the limitation comment in
-    // `lib.rs::resolve_deferred_returns` must be deleted in the same PR.
+fn fn_returning_wrapped_same_crate_type_emits_returns_edge() {
+    // `v() -> Vec<MyType>`. The outer `render_type_string` renders
+    // `"Vec"`, which does not match any workspace `:Item` qname. The
+    // third-tier `render_type_inner` unwrap (#239) then inspects the
+    // stored `syn::Type`, matches `Vec` in `WRAPPER_TYPES`, and
+    // yields the inner candidate `"MyType"` — which resolves to the
+    // walked struct and emits one RETURNS edge.
     let fixture = tempdir().expect("tempdir");
     write_cargo_workspace(
         fixture.path(),
@@ -202,11 +201,19 @@ pub fn v() -> Vec<MyType> {
 }
 "#,
     );
-    let (_nodes, edges) = extract_workspace(fixture.path()).expect("extract");
+    let (nodes, edges) = extract_workspace(fixture.path()).expect("extract");
+    let v_id = item_id_by_name(&nodes, "fn", "v");
+    let my_type_id = item_id_by_name(&nodes, "struct", "MyType");
     let returns = returns_edges(&edges);
-    assert!(
-        returns.is_empty(),
-        "documented limitation: render_type_string strips generics, so Vec<MyType> currently does not emit RETURNS (got {} edges; if this fires, the unwrapper has been added — update the limitation comment in lib.rs::resolve_deferred_returns)",
+    let to_my_type: Vec<&&cfdb_core::Edge> = returns
+        .iter()
+        .filter(|e| e.src == v_id && e.dst == my_type_id)
+        .collect();
+    assert_eq!(
+        to_my_type.len(),
+        1,
+        "expected exactly one RETURNS edge from v to MyType via render_type_inner unwrap, got {} (all RETURNS edges: {:?})",
+        to_my_type.len(),
         returns.len()
     );
 }
@@ -309,5 +316,153 @@ pub fn noop() {}
         returns.is_empty(),
         "fn with no explicit return type must not emit RETURNS edge (got {})",
         returns.len()
+    );
+}
+
+#[test]
+fn fn_returning_result_emits_one_returns_edge_per_arm() {
+    // `fn r() -> Result<Ok, Err>` where both `Ok` and `Err` are walked
+    // in the same workspace. `render_type_string` renders `"Result"`
+    // (no item match); third-tier `render_type_inner` at depth 3
+    // yields both inner candidates `"Ok"` and `"Err"`. The resolver
+    // must emit one RETURNS edge per resolvable arm — two edges total.
+    let fixture = tempdir().expect("tempdir");
+    write_cargo_workspace(
+        fixture.path(),
+        "returnsresult",
+        r#"pub struct Ok;
+pub struct Err;
+
+pub fn r() -> Result<Ok, Err> {
+    Result::Ok(Ok)
+}
+"#,
+    );
+    let (nodes, edges) = extract_workspace(fixture.path()).expect("extract");
+    let r_id = item_id_by_name(&nodes, "fn", "r");
+    let ok_id = item_id_by_name(&nodes, "struct", "Ok");
+    let err_id = item_id_by_name(&nodes, "struct", "Err");
+    let returns = returns_edges(&edges);
+    let to_ok: Vec<&&cfdb_core::Edge> = returns
+        .iter()
+        .filter(|e| e.src == r_id && e.dst == ok_id)
+        .collect();
+    let to_err: Vec<&&cfdb_core::Edge> = returns
+        .iter()
+        .filter(|e| e.src == r_id && e.dst == err_id)
+        .collect();
+    assert_eq!(
+        to_ok.len(),
+        1,
+        "expected one RETURNS edge from r to Ok arm, got {}",
+        to_ok.len()
+    );
+    assert_eq!(
+        to_err.len(),
+        1,
+        "expected one RETURNS edge from r to Err arm, got {}",
+        to_err.len()
+    );
+}
+
+#[test]
+fn fn_returning_nested_wrappers_at_depth_three_emits_one_returns_edge() {
+    // `fn n() -> Vec<Option<Arc<Foo>>>` where `Foo` is the leaf.
+    // Outer render `"Vec"` misses; third-tier unwrap at depth 3
+    // recurses Vec → Option → Arc → Foo and yields `"Foo"` among
+    // candidates. Exactly one RETURNS edge to Foo.
+    let fixture = tempdir().expect("tempdir");
+    write_cargo_workspace(
+        fixture.path(),
+        "returnsnested",
+        r#"use std::sync::Arc;
+
+pub struct Foo;
+
+pub fn n() -> Vec<Option<Arc<Foo>>> {
+    Vec::new()
+}
+"#,
+    );
+    let (nodes, edges) = extract_workspace(fixture.path()).expect("extract");
+    let n_id = item_id_by_name(&nodes, "fn", "n");
+    let foo_id = item_id_by_name(&nodes, "struct", "Foo");
+    let returns = returns_edges(&edges);
+    let to_foo: Vec<&&cfdb_core::Edge> = returns
+        .iter()
+        .filter(|e| e.src == n_id && e.dst == foo_id)
+        .collect();
+    assert_eq!(
+        to_foo.len(),
+        1,
+        "expected exactly one RETURNS edge from n to Foo via depth-3 unwrap, got {}",
+        to_foo.len()
+    );
+}
+
+#[test]
+fn fn_returning_user_defined_wrapper_emits_no_returns_edge() {
+    // `MyBox<Foo>` — `MyBox` is not in the closed wrapper list
+    // (`type_render::WRAPPER_TYPES`). `render_type_inner` refuses to
+    // unwrap; the third tier also misses. No RETURNS edge.
+    let fixture = tempdir().expect("tempdir");
+    write_cargo_workspace(
+        fixture.path(),
+        "returnsuserwrap",
+        r#"pub struct Foo;
+pub struct MyBox<T>(pub T);
+
+pub fn u() -> MyBox<Foo> {
+    MyBox(Foo)
+}
+"#,
+    );
+    let (nodes, edges) = extract_workspace(fixture.path()).expect("extract");
+    let u_id = item_id_by_name(&nodes, "fn", "u");
+    let foo_id = item_id_by_name(&nodes, "struct", "Foo");
+    let returns = returns_edges(&edges);
+    let to_foo: Vec<&&cfdb_core::Edge> = returns
+        .iter()
+        .filter(|e| e.src == u_id && e.dst == foo_id)
+        .collect();
+    assert_eq!(
+        to_foo.len(),
+        0,
+        "user-defined wrapper `MyBox<Foo>` must not trigger unwrap (got {} edges)",
+        to_foo.len()
+    );
+}
+
+#[test]
+fn fn_returning_qualified_std_vec_emits_returns_edge_via_last_segment() {
+    // Ambiguity D: `std::vec::Vec<Foo>` renders outer as
+    // `"std::vec::Vec"` (misses). Third-tier `render_type_inner`
+    // matches by the last segment `"Vec"` — both `Vec<Foo>` and
+    // `std::vec::Vec<Foo>` unwrap the same way. Emits one RETURNS
+    // edge to `Foo`.
+    let fixture = tempdir().expect("tempdir");
+    write_cargo_workspace(
+        fixture.path(),
+        "returnsqualified",
+        r#"pub struct Foo;
+
+pub fn q() -> std::vec::Vec<Foo> {
+    std::vec::Vec::new()
+}
+"#,
+    );
+    let (nodes, edges) = extract_workspace(fixture.path()).expect("extract");
+    let q_id = item_id_by_name(&nodes, "fn", "q");
+    let foo_id = item_id_by_name(&nodes, "struct", "Foo");
+    let returns = returns_edges(&edges);
+    let to_foo: Vec<&&cfdb_core::Edge> = returns
+        .iter()
+        .filter(|e| e.src == q_id && e.dst == foo_id)
+        .collect();
+    assert_eq!(
+        to_foo.len(),
+        1,
+        "qualified `std::vec::Vec<Foo>` must unwrap via last-segment to Foo, got {}",
+        to_foo.len()
     );
 }
