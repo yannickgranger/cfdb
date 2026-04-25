@@ -289,18 +289,7 @@ pub(crate) fn resolve_keyspace_name(
     if !db.exists() {
         return Err(format!("db directory `{}` does not exist", db.display()).into());
     }
-    let mut names: Vec<String> = std::fs::read_dir(db)?
-        .filter_map(|e| e.ok())
-        .filter_map(|e| {
-            let p = e.path();
-            if p.extension().and_then(|s| s.to_str()) == Some("json") {
-                p.file_stem().and_then(|s| s.to_str()).map(String::from)
-            } else {
-                None
-            }
-        })
-        .collect();
-    names.sort();
+    let names = compose::list_keyspace_names(db)?;
     match names.len() {
         0 => Err(format!(
             "db `{}` contains no keyspace files; run `cfdb extract` first",

@@ -112,6 +112,37 @@ pub(crate) fn save_store(
     Ok(path)
 }
 
+/// Returns the sorted list of keyspace names found under `<db>/`.
+///
+/// A keyspace name is the file_stem of a `.json` direct child. Returns an
+/// empty `Vec` if the directory is missing or contains no `.json` files —
+/// missing directory is not an error here, callers that want a "db missing"
+/// error message must check `db.exists()` themselves before invoking.
+///
+/// Centralised in the composition root so the read_dir / extension-filter /
+/// file_stem / sort recipe lives once (audit 2026-W17, EPIC #273, Pattern 3
+/// finding cfdb-cli F-011). Callers requiring count-based semantics
+/// (`resolve_keyspace_name`'s 0/1/N branch) layer their own logic on top of
+/// the returned `Vec<String>`.
+pub(crate) fn list_keyspace_names(db: &Path) -> Result<Vec<String>, CfdbCliError> {
+    if !db.exists() {
+        return Ok(Vec::new());
+    }
+    let mut names: Vec<String> = std::fs::read_dir(db)?
+        .filter_map(|e| e.ok())
+        .filter_map(|e| {
+            let p = e.path();
+            if p.extension().and_then(|s| s.to_str()) == Some("json") {
+                p.file_stem().and_then(|s| s.to_str()).map(String::from)
+            } else {
+                None
+            }
+        })
+        .collect();
+    names.sort();
+    Ok(names)
+}
+
 #[cfg(test)]
 mod tests {
     //! Slice-7 (#186) — `load_store_with_workspace` reads
