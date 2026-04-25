@@ -26,6 +26,37 @@ impl ItemVisitor<'_> {
         item_qname(&self.module_stack, item_name)
     }
 
+    /// Emit `src_id -[IN_MODULE]-> module:<current_module_qpath>` when an
+    /// enclosing `:Module` node exists.
+    ///
+    /// The schema declares `IN_MODULE` from `[Item, File]` to `[Module]`
+    /// (`cfdb-core/src/schema/describe/edges.rs`), but the extractor used
+    /// to emit only the `IN_CRATE` edge — `SchemaDescribe()` lied to
+    /// consumers and any Cypher walking `Item -[:IN_MODULE]-> Module`
+    /// returned zero rows (#267, audit ID CFDB-EXT-H1).
+    ///
+    /// `:Module` nodes are emitted only by `visit_item_mod` for nested
+    /// `mod` declarations — the crate root has no `:Module` node. The
+    /// `module_stack` invariant (see `ItemVisitor::module_stack` doc) is
+    /// that element 0 is always the crate name, so an item is at the
+    /// crate root iff `module_stack.len() == 1`. In that case there is
+    /// no enclosing `:Module` to point at and this method is a no-op —
+    /// the existing `IN_CRATE` edge already routes the item to its
+    /// `:Crate` node.
+    pub(super) fn emit_in_module_edge(&mut self, src_id: &str) {
+        if self.module_stack.len() <= 1 {
+            return;
+        }
+        let qpath = self.current_module_qpath();
+        let module_id = format!("module:{qpath}");
+        self.emitter.emit_edge(Edge {
+            src: src_id.to_string(),
+            dst: module_id,
+            label: EdgeLabel::new(EdgeLabel::IN_MODULE),
+            props: BTreeMap::new(),
+        });
+    }
+
     pub(super) fn is_in_test_mod(&self) -> bool {
         self.test_mod_depth > 0
     }
@@ -130,6 +161,9 @@ impl ItemVisitor<'_> {
             label: EdgeLabel::new(EdgeLabel::IN_CRATE),
             props: BTreeMap::new(),
         });
+        // IN_MODULE membership for the deepest enclosing module (#267).
+        // No-op at crate root where no `:Module` node exists.
+        self.emit_in_module_edge(&id);
         id
     }
 
@@ -215,6 +249,9 @@ impl ItemVisitor<'_> {
             label: EdgeLabel::new(EdgeLabel::IN_CRATE),
             props: BTreeMap::new(),
         });
+        // IN_MODULE membership for the deepest enclosing module (#267).
+        // No-op at crate root where no `:Module` node exists.
+        self.emit_in_module_edge(&impl_id);
 
         // IMPLEMENTS_FOR — always emitted. Target resolution via the
         // `item:<qname>` id formula. The dst may dangle when the target
