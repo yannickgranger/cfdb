@@ -4,9 +4,9 @@
 //! corresponding `cfdb_cli::*` handler.
 
 use cfdb_cli::{
-    check, check_predicate, classify, diff, drop_keyspace_cmd, dump, enrich, export, extract,
-    list_callers, list_items_matching, list_keyspaces, query, scope, snapshots, typed_stub,
-    violations, CfdbCliError, EnrichVerb,
+    check, check_predicate, classify, diff, drop_keyspace_cmd, dump, emit_json, enrich, export,
+    extract, list_callers, list_items_matching, list_keyspaces, query, scope, snapshots,
+    typed_stub, violations, CfdbCliError, EnrichVerb,
 };
 
 use crate::main_command::{Command, ExtractArgs};
@@ -162,11 +162,7 @@ fn emit_check_predicate_report(
             }
             Ok(())
         }
-        "json" => {
-            let json = serde_json::to_string_pretty(&report)?;
-            println!("{json}");
-            Ok(())
-        }
+        "json" => emit_json(&report),
         other => Err(CfdbCliError::Usage(format!(
             "--format `{other}` not supported; expected `text` or `json`"
         ))),

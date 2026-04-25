@@ -10,6 +10,7 @@ use cfdb_core::{Param, PropValue, Query};
 use cfdb_query::{lint_shape, parse, ShapeLint};
 
 use crate::compose;
+use crate::output;
 
 use super::extract::keyspace_path;
 
@@ -59,9 +60,7 @@ pub fn query(
 
     let result = store.execute(&ks, &parsed)?;
 
-    let as_json = serde_json::to_string_pretty(&result)?;
-    println!("{as_json}");
-    Ok(())
+    output::emit_json(&result)
 }
 
 /// Bind a `--params <json>` object into a parsed `Query`'s param bag. The
@@ -144,7 +143,5 @@ pub fn list_callers(
     let (store, ks) = compose::load_store(&db, &keyspace)?;
     let result = store.execute(&ks, &parsed)?;
 
-    let as_json = serde_json::to_string_pretty(&result)?;
-    println!("{as_json}");
-    Ok(())
+    output::emit_json(&result)
 }

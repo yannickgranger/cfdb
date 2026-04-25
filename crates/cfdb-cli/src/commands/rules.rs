@@ -10,6 +10,7 @@ use cfdb_core::store::StoreBackend;
 use cfdb_query::{lint_shape, parse, ShapeLint};
 
 use crate::compose;
+use crate::output;
 
 /// Run a .cypher rule file and print violations. Returns the number of
 /// rows found so the caller can set the process exit code.
@@ -60,8 +61,7 @@ fn run_cypher_rule(
     if count_only {
         println!("{row_count}");
     } else {
-        let as_json = serde_json::to_string_pretty(&result)?;
-        println!("{as_json}");
+        output::emit_json(&result)?;
     }
 
     Ok(row_count)

@@ -13,6 +13,7 @@ use cfdb_query::list_items_matching as compose_list_items_matching;
 
 use crate::commands::keyspace_path;
 use crate::compose;
+use crate::output;
 
 /// Phase A stub for typed convenience verbs (`find_canonical`, `list_callers`,
 /// `list_bypasses`). Validates --db / --keyspace exist so the user gets a real
@@ -53,8 +54,7 @@ pub fn typed_stub(
             serde_json::Value::String((*v).to_string()),
         );
     }
-    println!("{}", serde_json::to_string_pretty(&report)?);
-    Ok(())
+    output::emit_json(&report)
 }
 
 /// `cfdb list-items-matching` — the 16th cfdb verb (council-cfdb-wiring
@@ -108,8 +108,7 @@ pub fn list_items_matching(
         }
     }
 
-    println!("{}", serde_json::to_string_pretty(&result)?);
-    Ok(())
+    output::emit_json(&result)
 }
 
 /// `cfdb snapshots` — list snapshots in a database. v0.1: each on-disk
@@ -133,8 +132,7 @@ pub fn snapshots(db: PathBuf) -> Result<(), crate::CfdbCliError> {
         row.insert("timestamp".into(), serde_json::Value::Null);
         entries.push(serde_json::Value::Object(row));
     }
-    println!("{}", serde_json::to_string_pretty(&entries)?);
-    Ok(())
+    output::emit_json(&entries)
 }
 
 /// `cfdb drop` — drop a keyspace from the database. The only deletion verb
@@ -156,7 +154,5 @@ pub fn drop_keyspace_cmd(db: PathBuf, keyspace: String) -> Result<(), crate::Cfd
 /// pretty JSON. Read-only and deterministic for a given build.
 pub fn schema_describe_cmd() -> Result<(), crate::CfdbCliError> {
     let describe = schema_describe();
-    let json = serde_json::to_string_pretty(&describe)?;
-    println!("{json}");
-    Ok(())
+    output::emit_json(&describe)
 }

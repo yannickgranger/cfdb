@@ -12,6 +12,7 @@ use cfdb_core::fact::PropValue;
 use cfdb_core::result::{QueryResult, Row, RowValue, Warning, WarningKind};
 
 use crate::commands::parse_and_execute;
+use crate::output;
 
 use super::{
     ContextRow, Finding, T1_CONTEXT_INVENTORY_CYPHER, T1_CRATE_NAMES_CYPHER,
@@ -68,8 +69,7 @@ pub(super) fn run(db: &Path, keyspace: &str) -> Result<usize, crate::CfdbCliErro
     let row_count = merged.rows.len();
     eprintln!("violations: {row_count} (rule: trigger T1)");
 
-    let as_json = serde_json::to_string_pretty(&merged)?;
-    println!("{as_json}");
+    output::emit_json(&merged)?;
 
     Ok(row_count)
 }

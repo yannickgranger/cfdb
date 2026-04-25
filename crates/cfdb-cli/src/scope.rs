@@ -10,6 +10,7 @@ use cfdb_query::{DebtClass, ScopeInventory};
 
 use crate::commands::keyspace_path;
 use crate::compose;
+use crate::output;
 
 mod classifier;
 mod explain_sink;
@@ -253,23 +254,23 @@ pub(crate) fn attach_scope_warnings(inventory: &mut ScopeInventory) {
     }
 }
 
-/// Serialise the inventory and write it to `output` (or stdout if `None`).
+/// Serialise the inventory and write it to `output_path` (or stdout if `None`).
 fn emit_scope_output(
     inventory: &ScopeInventory,
-    output: Option<&Path>,
+    output_path: Option<&Path>,
 ) -> Result<(), crate::CfdbCliError> {
-    let json = serde_json::to_string_pretty(inventory)?;
-    match output {
+    match output_path {
         Some(path) => {
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent)
                     .map_err(|e| format!("create output parent dir `{}`: {e}", parent.display()))?;
             }
+            let json = serde_json::to_string_pretty(inventory)?;
             std::fs::write(path, &json)
                 .map_err(|e| format!("write output file `{}`: {e}", path.display()))?;
         }
         None => {
-            println!("{json}");
+            output::emit_json(inventory)?;
         }
     }
     Ok(())
