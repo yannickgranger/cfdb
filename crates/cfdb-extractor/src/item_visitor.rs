@@ -17,6 +17,8 @@ mod visits;
 #[cfg(test)]
 mod parse_syn_visibility_tests;
 
+pub(crate) use emit::emit_call_site_node_and_edge;
+
 pub(crate) struct ItemVisitor<'e> {
     pub(crate) emitter: &'e mut Emitter,
     pub(crate) crate_id: String,
