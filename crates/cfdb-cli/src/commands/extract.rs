@@ -183,8 +183,19 @@ fn prepare_cache_dir(cache_dir: &Path) -> Result<(), crate::CfdbCliError> {
 /// branch; arbitrary SHAs need an explicit fetch (server must support
 /// `uploadpack.allowReachableSHA1InWant`, which Gitea has on by default).
 fn clone_and_checkout(url: &str, sha: &str, cache_dir: &Path) -> Result<(), crate::CfdbCliError> {
+    // The `--` separator before user-supplied positional arguments is
+    // defense-in-depth (audit 2026-W17 / CFDB-CLI-H2 / #270). `url` is
+    // user-controlled via `--rev <url>@<sha>` and an attacker-influenced
+    // value (e.g. via `.cfdb/extract-pins`) could otherwise be
+    // misinterpreted as a `git` flag — `file:///path/--option` is a valid
+    // file URL. The sha is already hex-validated by `parse_url_at_sha`
+    // (all-ASCII-hex, ≥ 7 chars — cannot start with `--`); `--` is kept
+    // on the `fetch` refspec position for symmetry. `git checkout` is
+    // INTENTIONALLY left without `--` because `git checkout -- <arg>`
+    // forces pathspec mode and would treat a SHA as a filename, breaking
+    // the checkout. The hex validation upstream is sufficient there.
     let clone = Command::new("git")
-        .args(["clone", "--quiet", url])
+        .args(["clone", "--quiet", "--", url])
         .arg(cache_dir)
         .output()?;
     if !clone.status.success() {
@@ -199,7 +210,7 @@ fn clone_and_checkout(url: &str, sha: &str, cache_dir: &Path) -> Result<(), crat
     let fetch = Command::new("git")
         .arg("-C")
         .arg(cache_dir)
-        .args(["fetch", "--quiet", "origin", sha])
+        .args(["fetch", "--quiet", "origin", "--", sha])
         .output()?;
     if !fetch.status.success() {
         return Err(crate::CfdbCliError::Usage(format!(
@@ -348,9 +359,12 @@ struct GitWorktree {
 
 impl GitWorktree {
     fn add(repo: &Path, path: &Path, rev: &str) -> Result<Self, crate::CfdbCliError> {
+        // `--` before the positional `<path> <rev>` blocks rev (user-
+        // supplied via `--rev <sha-or-ref>`) from being misinterpreted as
+        // an option (audit 2026-W17 / CFDB-CLI-H2 / #270).
         let status = Command::new("git")
             .current_dir(repo)
-            .args(["worktree", "add", "--detach", "--quiet"])
+            .args(["worktree", "add", "--detach", "--quiet", "--"])
             .arg(path)
             .arg(rev)
             .status()?;
