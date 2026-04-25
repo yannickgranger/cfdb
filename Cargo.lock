@@ -378,7 +378,6 @@ version = "0.4.0"
 dependencies = [
  "cfdb-core",
  "chumsky",
- "regex",
  "serde",
  "serde_json",
  "thiserror",
