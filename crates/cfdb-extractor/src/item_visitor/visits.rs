@@ -200,11 +200,16 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
         // the workspace-scoped set explicitly here.
         self.emitter.emitted_item_qnames.insert(qname.clone());
         self.emitter.emit_edge(Edge {
-            src: id,
+            src: id.clone(),
             dst: self.crate_id.clone(),
             label: EdgeLabel::new(EdgeLabel::IN_CRATE),
             props: BTreeMap::new(),
         });
+        // IN_MODULE membership for the deepest enclosing module (#267).
+        // The impl-method emission path bypasses `emit_item_with_flags`,
+        // so the IN_MODULE edge is emitted explicitly here. No-op at
+        // crate root where no `:Module` node exists.
+        self.emit_in_module_edge(&id);
         // RETURNS post-walk queue (RFC-037 §3.2, #216). Mirrors the
         // free-fn path in `visit_item_fn`. The deferred entry uses the
         // method's full qname (`module::Foo::bar`) so the post-walk
@@ -354,7 +359,14 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
             self.test_mod_depth += 1;
         }
 
-        // Emit the module node + IN_MODULE membership for the parent module.
+        // Emit the `:Module` node and its `IN_CRATE` edge to the owning
+        // `:Crate`. `:Module` itself does NOT emit an `IN_MODULE` edge
+        // to its parent module — `IN_MODULE` is declared from `[Item,
+        // File]` to `[Module]` (`cfdb-core/src/schema/describe/edges.rs`
+        // — `Module → Module` would be a separate parentage edge,
+        // intentionally not in v0.1 vocabulary). Item membership in
+        // this module is emitted by the per-item helpers via
+        // `emit_in_module_edge`.
         let qpath = self.current_module_qpath();
         let id = format!("module:{qpath}");
         let mut props = BTreeMap::new();
