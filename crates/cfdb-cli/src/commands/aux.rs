@@ -20,18 +20,7 @@ pub fn list_keyspaces(db: PathBuf) -> Result<(), crate::CfdbCliError> {
     if !db.exists() {
         return Ok(());
     }
-    let mut names: Vec<String> = std::fs::read_dir(&db)?
-        .filter_map(|entry| entry.ok())
-        .filter_map(|e| {
-            let path = e.path();
-            if path.extension().and_then(|s| s.to_str()) == Some("json") {
-                path.file_stem().and_then(|s| s.to_str()).map(String::from)
-            } else {
-                None
-            }
-        })
-        .collect();
-    names.sort();
+    let names = compose::list_keyspace_names(&db)?;
     for n in names {
         println!("{n}");
     }

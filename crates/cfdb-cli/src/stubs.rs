@@ -121,18 +121,7 @@ pub fn snapshots(db: PathBuf) -> Result<(), crate::CfdbCliError> {
         return Ok(());
     }
     let mut entries: Vec<serde_json::Value> = Vec::new();
-    let mut names: Vec<String> = std::fs::read_dir(&db)?
-        .filter_map(|e| e.ok())
-        .filter_map(|e| {
-            let p = e.path();
-            if p.extension().and_then(|s| s.to_str()) == Some("json") {
-                p.file_stem().and_then(|s| s.to_str()).map(String::from)
-            } else {
-                None
-            }
-        })
-        .collect();
-    names.sort();
+    let names = compose::list_keyspace_names(&db)?;
     for name in names {
         let mut row = serde_json::Map::new();
         row.insert("keyspace".into(), serde_json::Value::String(name));
