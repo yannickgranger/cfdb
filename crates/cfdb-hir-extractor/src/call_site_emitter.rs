@@ -32,8 +32,9 @@ use ra_ap_hir::{
     AsAssocItem, AssocItemContainer, DisplayTarget, Function, HasCrate, HirDisplay, Semantics,
 };
 use ra_ap_hir_ty::attach_db;
+use ra_ap_ide_db::line_index::LineIndex;
 use ra_ap_syntax::ast::{self, AstNode};
-use ra_ap_syntax::SyntaxNode;
+use ra_ap_syntax::{SyntaxNode, TextSize};
 use ra_ap_vfs::{Vfs, VfsPath};
 
 use crate::error::HirError;
@@ -103,6 +104,17 @@ where
 
     for (file_id, file_path) in files {
         let source_file = sema.parse_guess_edition(file_id);
+        // Build a LineIndex once per file so byte-offset → 1-indexed
+        // source-line conversion in `walk_file` is O(log n) per call
+        // site. The text comes from salsa-cached `SourceDatabase::file_text`,
+        // so this read is free; constructing the LineIndex is a single
+        // newline scan amortised across every method-call we emit. F-005
+        // / EPIC #273: `:CallSite.line` in the HIR extractor was hardcoded
+        // to 0 — this is the parity fix matching what PR #291 did for the
+        // syn extractor.
+        let file_text_handle = db.file_text(file_id);
+        let file_text: &str = file_text_handle.text(db);
+        let line_index = LineIndex::new(file_text);
         // Per-call-site deduplication counter keyed by
         // `(caller_qname, callee_path)`.
         let mut counts: BTreeMap<(String, String), usize> = BTreeMap::new();
@@ -110,6 +122,7 @@ where
             &sema,
             &source_file,
             &file_path,
+            &line_index,
             &mut counts,
             &mut nodes,
             &mut edges,
@@ -135,6 +148,7 @@ fn walk_file<DB>(
     sema: &Semantics<'_, DB>,
     source_file: &ast::SourceFile,
     file_path: &Path,
+    line_index: &LineIndex,
     counts: &mut BTreeMap<(String, String), usize>,
     nodes: &mut Vec<Node>,
     edges: &mut Vec<Edge>,
@@ -147,11 +161,22 @@ fn walk_file<DB>(
         .filter_map(ast::MethodCallExpr::cast)
         .for_each(|method_call| {
             if let Some(callee_fn) = sema.resolve_method_call(&method_call) {
+                // Source-line where the method-call expression starts.
+                // The `LineIndex::line_col` API returns a 0-indexed line;
+                // we store 1-indexed lines in the wire vocabulary (matching
+                // the syn extractor's `proc_macro2::Span::start().line`
+                // convention — see #291 / F-005). The receiver-token start
+                // mirrors syn's choice of `node.method.span().start().line`
+                // for consistency across resolvers when `foo\n .bar()`
+                // straddles two lines.
+                let offset: TextSize = method_call.syntax().text_range().start();
+                let line = line_index.line_col(offset).line as usize + 1;
                 emit_resolved_call(
                     sema,
                     &method_call,
                     callee_fn,
                     file_path,
+                    line,
                     counts,
                     nodes,
                     edges,
@@ -161,11 +186,21 @@ fn walk_file<DB>(
 }
 
 /// Emit the three facts for one resolved method call.
+///
+/// `line` is the 1-indexed source-line where the method-call
+/// expression starts, computed by the caller from a per-file
+/// `LineIndex`. Stored as `:CallSite.line` to match the syn
+/// extractor's wire convention (#291 / F-005). A future synthetic
+/// or macro-expanded span that produces no meaningful line should
+/// pass `0` (the caller — `walk_file` — handles real source spans
+/// only, so today every call here passes a real `line >= 1`).
+#[allow(clippy::too_many_arguments)] // 8 args — :CallSite shape carries caller_qname, file, and line as separate plumbed values per the syn extractor's emission signature; tying them into a struct would just shift the surface.
 fn emit_resolved_call<DB>(
     sema: &Semantics<'_, DB>,
     method_call: &ast::MethodCallExpr,
     callee: Function,
     file_path: &Path,
+    line: usize,
     counts: &mut BTreeMap<(String, String), usize>,
     nodes: &mut Vec<Node>,
     edges: &mut Vec<Edge>,
@@ -202,7 +237,7 @@ fn emit_resolved_call<DB>(
     );
     props.insert("kind".into(), PropValue::Str("method".to_string()));
     props.insert("file".into(), PropValue::Str(file_str));
-    props.insert("line".into(), PropValue::Int(0));
+    props.insert("line".into(), PropValue::Int(line as i64));
     props.insert("is_test".into(), PropValue::Bool(false));
     props.insert("resolver".into(), PropValue::Str("hir".to_string()));
     props.insert("callee_resolved".into(), PropValue::Bool(true));
