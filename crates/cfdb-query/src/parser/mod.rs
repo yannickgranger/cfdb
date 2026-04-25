@@ -379,8 +379,10 @@ fn full_query_parser<'a>() -> BoxedParser<'a, Query> {
                 .repeated()
                 .at_least(1)
                 .to_slice()
-                .from_str::<u32>()
-                .unwrapped()
+                .try_map(|s: &str, span| {
+                    s.parse::<u32>()
+                        .map_err(|_| Rich::custom(span, "LIMIT integer exceeds u32::MAX"))
+                })
                 .padded(),
         )
         .boxed();

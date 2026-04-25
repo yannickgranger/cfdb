@@ -61,3 +61,25 @@ fn keyword_inside_string_literal_does_not_false_positive() {
     let q = parse("MATCH (a:Item) WHERE a.qname = 'CREATE foo' RETURN a").expect("parses");
     assert_eq!(q.match_clauses.len(), 1);
 }
+
+#[test]
+fn parse_match_range_rejects_u32_overflow() {
+    // Audit CFDB-QRY-H2 (#272): variable-length range used `unwrapped()` and
+    // panicked the process on integer overflow. Must surface as ParseError.
+    let result = parse("MATCH ()-[:CALLS*1..99999999999]->() RETURN count(*) AS n");
+    assert!(
+        result.is_err(),
+        "overflowing variable-length range must return Err, got {result:?}"
+    );
+}
+
+#[test]
+fn parse_limit_rejects_u32_overflow() {
+    // Audit CFDB-QRY-H2 (#272): LIMIT integer parser used `unwrapped()` and
+    // panicked the process on overflow. Must surface as ParseError.
+    let result = parse("MATCH (a:Item) RETURN a LIMIT 99999999999");
+    assert!(
+        result.is_err(),
+        "overflowing LIMIT must return Err, got {result:?}"
+    );
+}
