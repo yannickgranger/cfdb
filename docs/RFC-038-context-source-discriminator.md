@@ -1,6 +1,6 @@
 # RFC-038 — `:Context.source` discriminator (declared vs heuristic)
 
-Status: **draft, R1 pending**
+Status: **draft, R2 pending** (R1: 2 RATIFY + 2 REQUEST CHANGES — B1 / B2 addressed in this revision)
 Parent trace: deep-audit EPIC #273 → Pattern 2 / cfdb-extractor F-013 → **this RFC**
 Companion: closes the contract-drift item paired with F-005 (`span_line` real numbers — closed via PRs #291/#294).
 
@@ -40,7 +40,7 @@ Audit synthesis at v0.4.0 / SHA `eed55cd` flagged this as Pattern 2 (doc / contr
 - **No new node label, no new edge label.** Only an attribute on an existing node.
 - **No migration of existing keyspaces.** Re-extract is the supported path. Both `cfdb-extractor` (syn) and `cfdb-hir-extractor` (HIR — currently does not emit `:Context`) are unaffected; only the extract-time emission path changes.
 - **No graph-specs-rust cross-fixture lockstep PR.** The cross-dogfood ban rules in cfdb's `.cfdb/queries/*.cypher` do not reference `:Context.source`. Cross-fixture finding count is invariant under this change. Verified at PR time.
-- **No `cfdb-petgraph::enrich_bounded_context` change.** That re-enrichment pass patches `:Item.bounded_context` (a string) when `.cfdb/concepts/*.toml` changes between extracts. It does NOT re-emit `:Context` nodes (per `crates/cfdb-petgraph/src/enrich/bounded_context.rs:18-19`). The new `:Context.source` prop lands at extract time only.
+- **No `cfdb-petgraph::enrich_bounded_context` change.** That re-enrichment pass patches `:Item.bounded_context` (a string) when `.cfdb/concepts/*.toml` changes between extracts. It does NOT re-emit `:Context` nodes (per `crates/cfdb-petgraph/src/enrich/bounded_context.rs:18-19`). The new `:Context.source` prop lands at extract time only. The enrichment pass's `expected_for_crate` memo (`crates/cfdb-petgraph/src/enrich/bounded_context.rs:151`) only consumes `BoundedContext.name`, not `.source` — verified by R1 rust-systems migration count (post-R2 §3.2).
 
 ---
 
@@ -96,7 +96,33 @@ impl FromStr for ContextSource {
 
 **Invariant-owner pattern (RFC-035 §3.3 precedent).** The wire-string round-trip is defined by `ContextSource` alone — no other crate is allowed to construct the wire string by hand. `audit-split-brain`'s FromStrBypass check is the existing enforcement.
 
-### 3.2 `BoundedContext` return type
+**Return type of `as_wire_str` — `&'static str` (divergence from `Visibility::as_wire_str`).** R1 rust-systems flagged that `Visibility::as_wire_str` returns `String` (`crates/cfdb-core/src/visibility.rs:47`) while this RFC's `ContextSource::as_wire_str` returns `&'static str`. The divergence is **intentional**: `Visibility` carries a `Restricted(String)` variant whose wire form requires runtime allocation (`format!("pub(in {path})", ...)`). `ContextSource` has no such dynamic variant — the closed two-variant set maps to two `&'static str` literals. Returning `&'static str` is strictly more precise (no allocation, no lifetime concern) for this enum. The inconsistency with `Visibility` is a refactor opportunity for a future PR (Visibility's two static variants `Public` / `Private` could also be `&'static str`-routed with a small enum tweak), out of scope for RFC-038. Documented here so the precedent is clear: closed-set wire enums use `&'static str`; open-set wire enums (variants carrying owned data) use `String`.
+
+### 3.2 `BoundedContext` return type and `cfdb-concepts → cfdb-core` dep arc
+
+**New dependency arc (R1 B1 resolution).** `BoundedContext` lives in `cfdb-concepts` and carries `source: ContextSource` (which lives in `cfdb-core`). This requires adding a workspace-internal dep:
+
+```toml
+# crates/cfdb-concepts/Cargo.toml — [dependencies]
+cfdb-core = { path = "../cfdb-core" }
+```
+
+`cfdb-concepts/Cargo.toml` today carries an explicit "zero heavy deps" comment (lines 10-22 of the current Cargo.toml). The intent of that comment is to keep `cfdb-concepts` out of the `ra-ap-*` / `cargo_metadata` / `syn` heavy-dep transitive closure so that `cfdb-query` (and other lightweight consumers) can depend on it without pulling in 1M+ LoC. **Adding `cfdb-core` does not violate that intent** — `cfdb-core`'s own deps are exactly `serde`, `serde_json`, `thiserror` (verified: `crates/cfdb-core/Cargo.toml`), all of which are already in `cfdb-concepts`'s direct dep list or are negligibly small. No HIR / no syn / no cargo_metadata transitively pulled in.
+
+The arc direction is `cfdb-concepts → cfdb-core` (downward toward maximal stability, no cycle — `cfdb-core` has zero workspace-internal deps). The `Cargo.toml` comment in `cfdb-concepts` is updated to acknowledge `cfdb-core` as the schema-vocabulary-types provider, while preserving the "no heavy deps" intent. Slice 1's deliverable explicitly includes the Cargo.toml edit + comment update.
+
+**Why not relocate `ContextSource` to `cfdb-concepts`?** R1 solid-architect offered an alternative: keep `ContextSource` inside `cfdb-concepts` (avoiding the new arc entirely). Rejected because the `:Item.visibility` precedent already places wire-vocabulary types in `cfdb-core` (`Visibility` enum). `cfdb-core` is the schema-vocabulary authority — every wire string consumed via `PropValue::Str` in the schema describer should round-trip through a typed enum in `cfdb-core`. Relocating `ContextSource` to `cfdb-concepts` would fragment that authority: future schema readers in `cfdb-petgraph` or `cfdb-query` that want to type-check `:Context.source` props would have to depend on `cfdb-concepts` (a higher-level crate) instead of `cfdb-core` (the schema authority). Keeping the precedent consistent is worth the new arc.
+
+**Migration cost (R1 rust-systems audit).** Production callsites of `compute_bounded_context` that need migration: 2.
+
+| Callsite | File | Reads `.source`? |
+|---|---|---|
+| `cfdb-extractor::emit_crate_and_walk_targets` | `crates/cfdb-extractor/src/lib.rs:190` | Yes (via the per-context accumulator, slice 3) |
+| `cfdb-petgraph::enrich/bounded_context.rs::expected_for_crate` | `crates/cfdb-petgraph/src/enrich/bounded_context.rs:151` | No — only `.name` (BTreeMap value type unchanged from `String`) |
+
+Test callsites in `crates/cfdb-concepts/src/lib.rs` (11 occurrences in `#[cfg(test)] mod tests`): all updated to assert on `.name`.
+
+### 3.2.1 `BoundedContext` struct
 
 ```rust
 // crates/cfdb-concepts/src/lib.rs
@@ -146,7 +172,26 @@ A `:Context{name='trading'}` node is emitted once even if multiple crates resolv
 
 Rationale: declarations are author intent; the heuristic is a fallback. If any author has named a context in TOML, that name is meaningful. Mixing one declared crate with N heuristic crates does not demote the context — it stays `Declared`.
 
-This is enforced in the extractor's per-context accumulator: when a crate resolves to `BoundedContext { name, source: Declared }`, the accumulator marks the context as `Declared`; when a crate resolves to `Heuristic` and the context is not yet marked declared, the accumulator records `Heuristic`. Order of crate visitation does not affect the final source value. Determinism preserved.
+**The aggregation rule is already implicitly implemented (R1 DDD discovery).** The extractor's `contexts_seen` accumulator at `crates/cfdb-extractor/src/lib.rs:116` is a `BTreeMap<String, ContextMeta>` pre-seeded with `overrides.declared_contexts()` BEFORE the per-crate loop runs. The per-crate loop at lines 196-203 uses `or_insert_with` — heuristic crates can ONLY insert when the context name is absent from the map; they CANNOT overwrite a pre-seeded declared entry. This means:
+
+- A context whose name appears in any `.cfdb/concepts/*.toml` → in the map BEFORE the loop runs, with the full `ContextMeta` (canonical_crate, owning_rfc).
+- A context whose name does NOT appear in TOML → inserted by the first heuristic crate to reach it, with default `ContextMeta`.
+
+The aggregation rule "Declared if any crate via override" is therefore implicit in the pre-seeding: declared contexts are seeded as declared; heuristic contexts cannot promote themselves. Slice 3's job is **not** to re-implement this rule — it's to extend the accumulator's value type to carry the discriminator alongside `ContextMeta`, and propagate it to `:Context.source` at emission time.
+
+**Updated accumulator type (slice 3).**
+
+```rust
+// Before (current code, crates/cfdb-extractor/src/lib.rs:116):
+let mut contexts_seen: BTreeMap<String, ContextMeta> = ...;
+
+// After (slice 3):
+let mut contexts_seen: BTreeMap<String, (ContextMeta, ContextSource)> = ...;
+```
+
+The pre-seed at the same site changes from `(name, meta)` pairs to `(name, (meta, ContextSource::Declared))` for declared contexts. The per-crate `or_insert_with` arm changes from inserting `ContextMeta::default()` to inserting `(ContextMeta::default(), ContextSource::Heuristic)`. The emitter at `emit_context_node` (currently around line 245 of the same file) reads the second tuple element and writes `props["source"] = PropValue::Str(source.as_wire_str().to_string())`.
+
+Order independence is preserved: BTreeMap iteration is sorted; the `or_insert_with` operation is order-independent (it inserts only when absent); pre-seeding happens before any per-crate insertion, so no race exists. G1 byte-stable canonical dump under cross-binary extract is verifiable.
 
 ### 3.4 Schema declaration
 
@@ -186,11 +231,36 @@ The attribute is **required** (`"string"`, not `"string?"`). Every `:Context` no
 
 ## 5. Council review
 
-### 5.1 R1 — pending
+### 5.1 R1 (2026-04-25) — REQUEST CHANGES
 
-Four §2.3 lenses (clean-arch, ddd-specialist, solid-architect, rust-systems) reviewing this draft. Verdicts captured here on return.
+All four §2.3 lenses reviewed the R1 draft.
 
-### 5.2 R2+ — pending
+| Lens | Verdict | Primary concern |
+|---|---|---|
+| clean-arch | REQUEST CHANGES | New `cfdb-concepts → cfdb-core` dep arc unacknowledged; `:245` line ref wrong (should be `:190`) |
+| ddd-specialist | RATIFY | None blocking — discovered the aggregation rule is already implicitly implemented via pre-seeding |
+| solid-architect | RATIFY w/ B1 | Same dep-arc concern; offered alternative (relocate `ContextSource` to `cfdb-concepts`) |
+| rust-systems | REQUEST CHANGES | Same dep-arc concern; flagged `as_wire_str` return-type inconsistency with `Visibility::as_wire_str` |
+
+Two BLOCKING items identified, both addressed in this R2 draft:
+
+| # | Item | R2 resolution |
+|---|---|---|
+| B1 | RFC silent on adding `cfdb-core = { path = "../cfdb-core" }` to `cfdb-concepts/Cargo.toml`; need explicit dep-arc justification | §3.2 — added Cargo.toml deliverable; rejected the relocation alternative; documented why the precedent (Visibility lives in cfdb-core) makes cfdb-core the right home |
+| B2 | `ContextSource::as_wire_str -> &'static str` diverges from `Visibility::as_wire_str -> String` | §3.1 — divergence intentional and documented; closed-set vs open-set wire-enum convention captured |
+
+Non-blocking items absorbed:
+
+- clean-arch line-ref correction (`245` → `190`) — fixed in §2 Non-deliverables.
+- clean-arch / DDD note on the `contexts_seen` accumulator type change — §3.3 now shows the explicit `BTreeMap<String, (ContextMeta, ContextSource)>` migration.
+- DDD note on slice 3 mixed-crate unit test — added to §7 slice 3 prescription.
+- DDD discovery: the §3.3 aggregation rule is already implicitly implemented via pre-seeding + `or_insert_with` — captured in §3.3 to simplify slice 3 implementation.
+
+Detailed verdicts retained in the conversation transcript and on the council team's task list (`~/.claude/teams/rfc-038-council/`).
+
+### 5.2 R2 — pending re-review
+
+This draft incorporates the R1 BLOCKING resolutions (B1, B2). Sent back to the same four lenses for R2 verdict; any RATIFY round closes the council; any REJECT or REQUEST CHANGES with new BLOCKING items triggers an R3 revision.
 
 ---
 
@@ -238,12 +308,16 @@ Tests:
 
 ### Slice 3 — extractor wires `source` into `:Context` emission
 
-Plumb the source signal from slice 2's `BoundedContext` through the per-context accumulator (§3.3) and into the prop map at `emit_context_node`. Adds the self-dogfood scar.
+Plumb the source signal from slice 2's `BoundedContext` through the per-context accumulator (§3.3) and into the prop map at `emit_context_node` (`crates/cfdb-extractor/src/lib.rs`, currently around line 245). Adds the self-dogfood scar. The accumulator value type changes from `BTreeMap<String, ContextMeta>` to `BTreeMap<String, (ContextMeta, ContextSource)>` per §3.3.
 
 ```
 Tests:
-  - Unit: per-context aggregation rule (§3.3) — declared+heuristic inputs combine to declared; heuristic+heuristic stays heuristic; visitation order independent.
-  - Self dogfood (cfdb on cfdb): every :Context emitted on cfdb's own tree carries source ∈ {"declared","heuristic"}; cfdb's `.cfdb/concepts/*.toml` files determine the expected distribution (asserted explicitly).
+  - Unit: per-context aggregation rule (§3.3) — three explicit cases:
+      * declared+heuristic mixed (one TOML-overridden crate + one prefix-heuristic crate map to same context name) → context source = Declared.
+      * heuristic+heuristic (two prefix-heuristic crates map to same context name, neither in TOML) → context source = Heuristic.
+      * declared+declared (two TOML-overridden crates map to same context name) → context source = Declared.
+      * Visitation-order independence: shuffle crate visitation order across runs, assert identical (name, source) tuple set.
+  - Self dogfood (cfdb on cfdb): every :Context emitted on cfdb's own tree carries source ∈ {"declared","heuristic"}; cfdb's `.cfdb/concepts/*.toml` files determine the expected distribution (asserted explicitly — e.g. `:Context{name="cfdb"}` is declared, `:Context{name="recall"}` should be declared or heuristic depending on TOML state at slice 3 ship time, asserted on the actual file set).
   - Cross dogfood (cfdb on graph-specs-rust at pinned SHA): zero finding delta — no rule references `:Context.source`.
   - Target dogfood (qbot-core at pinned SHA): report the count of declared vs heuristic :Context nodes in the PR body for reviewer sanity-check.
 ```
