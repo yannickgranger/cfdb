@@ -18,6 +18,26 @@ use super::{
     impl_block_name, impl_block_qname, parse_syn_visibility, resolve_target_qname, ItemVisitor,
 };
 
+/// Insert `cfg_gate` (when present) + `is_deprecated` + `deprecation_since`
+/// (when present) into the prop map. Centralises the shape used by every
+/// `:Item` emit path so a future schema change touches one site
+/// (audit 2026-W17 / EPIC #273 / Pattern 3 fan-out).
+fn insert_attr_metadata_props(props: &mut BTreeMap<String, PropValue>, attrs: &[syn::Attribute]) {
+    if let Some(gate) = extract_cfg_feature_gate(attrs) {
+        props.insert("cfg_gate".into(), PropValue::Str(gate.to_string()));
+    }
+    // Deprecation facts (#106 / RFC addendum §A2.2 row 3) —
+    // extractor-time per DDD + rust-systems verdicts. `is_deprecated`
+    // always emitted (false by default so downstream classifier
+    // queries can treat absence as a data gap vs. false). `deprecation_since`
+    // only emitted when the `#[deprecated(since = "X")]` form is used.
+    let (is_deprecated, deprecation_since) = extract_deprecated_attr(attrs);
+    props.insert("is_deprecated".into(), PropValue::Bool(is_deprecated));
+    if let Some(since) = deprecation_since {
+        props.insert("deprecation_since".into(), PropValue::Str(since));
+    }
+}
+
 impl ItemVisitor<'_> {
     pub(super) fn current_module_qpath(&self) -> String {
         module_qpath(&self.module_stack)
@@ -158,19 +178,7 @@ impl ItemVisitor<'_> {
             "visibility".into(),
             PropValue::Str(parse_syn_visibility(vis).to_string()),
         );
-        if let Some(gate) = extract_cfg_feature_gate(attrs) {
-            props.insert("cfg_gate".into(), PropValue::Str(gate.to_string()));
-        }
-        // Deprecation facts (#106 / RFC addendum §A2.2 row 3) —
-        // extractor-time per DDD + rust-systems verdicts. `is_deprecated`
-        // always emitted (false by default so downstream classifier
-        // queries can treat absence as a data gap vs. false). `deprecation_since`
-        // only emitted when the `#[deprecated(since = "X")]` form is used.
-        let (is_deprecated, deprecation_since) = extract_deprecated_attr(attrs);
-        props.insert("is_deprecated".into(), PropValue::Bool(is_deprecated));
-        if let Some(since) = deprecation_since {
-            props.insert("deprecation_since".into(), PropValue::Str(since));
-        }
+        insert_attr_metadata_props(&mut props, attrs);
         // `:Item.signature` — canonical fn signature string (#47). Only
         // emitted on fn / method kinds. Non-fn kinds pass `None` and the
         // prop is absent, which queries can distinguish from the empty
@@ -256,14 +264,7 @@ impl ItemVisitor<'_> {
         if let Some(t) = trait_qname {
             props.insert("impl_trait".into(), PropValue::Str(t.into()));
         }
-        if let Some(gate) = extract_cfg_feature_gate(attrs) {
-            props.insert("cfg_gate".into(), PropValue::Str(gate.to_string()));
-        }
-        let (is_deprecated, deprecation_since) = extract_deprecated_attr(attrs);
-        props.insert("is_deprecated".into(), PropValue::Bool(is_deprecated));
-        if let Some(since) = deprecation_since {
-            props.insert("deprecation_since".into(), PropValue::Str(since));
-        }
+        insert_attr_metadata_props(&mut props, attrs);
 
         self.emitter.emit_node(Node {
             id: impl_id.clone(),
