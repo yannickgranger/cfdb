@@ -110,17 +110,17 @@ MATCH (ep:EntryPoint)-[:EXPOSES]->(handler:Item),
 WHERE a.kind = 'fn'
   AND b.kind = 'fn'
   AND a.qname < b.qname
-  AND a.name =~ '^(\w+)_(from|to|for|as)_(\w+)$'
-  AND b.name =~ '^(\w+)_(from|to|for|as)_(\w+)$'
-  AND regexp_extract(a.name, '^(\w+)_(?:from|to|for|as)_') =
-      regexp_extract(b.name, '^(\w+)_(?:from|to|for|as)_')
-  AND regexp_extract(a.name, '_(?:from|to|for|as)_(\w+)$') <>
-      regexp_extract(b.name, '_(?:from|to|for|as)_(\w+)$')
+  AND a.name =~ '^(\\w+)_(from|to|for|as)_(\\w+)$'
+  AND b.name =~ '^(\\w+)_(from|to|for|as)_(\\w+)$'
+  AND regexp_extract(a.name, '^(\\w+)_(?:from|to|for|as)_') =
+      regexp_extract(b.name, '^(\\w+)_(?:from|to|for|as)_')
+  AND regexp_extract(a.name, '_(?:from|to|for|as)_(\\w+)$') <>
+      regexp_extract(b.name, '_(?:from|to|for|as)_(\\w+)$')
   AND a.is_test = false
   AND b.is_test = false
 RETURN ep.name AS entry_point,
        ep.handler_qname AS entry_qname,
-       regexp_extract(a.name, '^(\w+)_(?:from|to|for|as)_') AS concept_prefix,
+       regexp_extract(a.name, '^(\\w+)_(?:from|to|for|as)_') AS concept_prefix,
        a.qname AS resolver_a_qname,
        b.qname AS resolver_b_qname,
        'fork' AS divergence_kind

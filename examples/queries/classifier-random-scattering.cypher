@@ -68,12 +68,12 @@ WHERE a.kind IN ['fn', 'method']
   AND b.is_test = false
   AND a.bounded_context = $context
   AND b.bounded_context = $context
-  AND a.name =~ '^(\w+)_(from|to|for|as)_(\w+)$'
-  AND b.name =~ '^(\w+)_(from|to|for|as)_(\w+)$'
-  AND regexp_extract(a.name, '^(\w+)_(?:from|to|for|as)_') =
-      regexp_extract(b.name, '^(\w+)_(?:from|to|for|as)_')
-  AND regexp_extract(a.name, '_(?:from|to|for|as)_(\w+)$') <>
-      regexp_extract(b.name, '_(?:from|to|for|as)_(\w+)$')
+  AND a.name =~ '^(\\w+)_(from|to|for|as)_(\\w+)$'
+  AND b.name =~ '^(\\w+)_(from|to|for|as)_(\\w+)$'
+  AND regexp_extract(a.name, '^(\\w+)_(?:from|to|for|as)_') =
+      regexp_extract(b.name, '^(\\w+)_(?:from|to|for|as)_')
+  AND regexp_extract(a.name, '_(?:from|to|for|as)_(\\w+)$') <>
+      regexp_extract(b.name, '_(?:from|to|for|as)_(\\w+)$')
 RETURN a.qname AS qname,
        a.name AS name,
        a.kind AS kind,
