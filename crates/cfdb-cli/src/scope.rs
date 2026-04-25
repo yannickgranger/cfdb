@@ -4,12 +4,14 @@
 //! surface preserved: every item here is re-exported from the crate root.
 
 use std::path::Path;
+use std::str::FromStr;
 
 use cfdb_core::result::{Warning, WarningKind};
 use cfdb_query::{DebtClass, ScopeInventory};
 
 use crate::compose;
 use crate::output;
+use crate::output::OutputFormat;
 
 mod classifier;
 mod explain_sink;
@@ -75,7 +77,14 @@ pub fn scope(
     keyspace: Option<&str>,
     explain: bool,
 ) -> Result<(), crate::CfdbCliError> {
-    if format != "json" {
+    // EPIC #273 Pattern 1 #4: scope accepts only `json` in v0.1. The
+    // `tests/scope.rs::scope_rejects_format_table_in_v01` substring assert
+    // pins both `table` and `v0.2` as load-bearing in the rejection
+    // message, so we keep that wording for any non-`json` input rather
+    // than routing through the canonical "expected one of: ..." shape
+    // (which would falsely advertise `text` / `sorted-jsonl` / `table` as
+    // accepted by `scope`).
+    if OutputFormat::from_str(format).ok() != Some(OutputFormat::Json) {
         return Err(format!(
             "`--format {format}` is not supported in v0.1. \
              Only `json` ships today; `table` is deferred to v0.2 per §A3.3."

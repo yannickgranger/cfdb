@@ -14,6 +14,10 @@ Selector for the four enrichment subcommands (`enrich-docs`, `enrich-metrics`, `
 
 Error returned by the `hir` feature's `extract_and_ingest_hir` composition (Issue #86 / slice 4). Wraps either a `cfdb_hir_extractor::HirError` or a `cfdb_core::store::StoreError`. Only compiled under `cfdb-cli`'s `hir` Cargo feature; default builds never see this type. Surfaced by `cfdb extract --hir --workspace <path>` and mapped to a `CfdbCliError::Usage` string at the CLI boundary.
 
+## OutputFormat
+
+Canonical `--format` flag enum used by every cfdb subcommand that accepts an output-format selector. Replaces the per-handler split (`enum DiffFormat`, `enum ClassifyFormat`, three raw `match format { ... }` blocks) that EPIC #273 Pattern 1 #4 surfaced as cfdb-internal split-brain. Variants are `Text`, `Json`, `SortedJsonl`, `Table` — wire strings (`"text"`, `"json"`, `"sorted-jsonl"`, `"table"`) are stable round-trip via `FromStr` ↔ `as_wire()`. Each handler narrows to its accepted subset via `OutputFormat::require_one_of(&[..], cmd)`, which produces the unified `"<cmd>: --format `<got>` not supported; expected `<a>` or `<b>`"` rejection message. Pure value type — no I/O, no schema impact (the enum lives in `cfdb-cli` only; wire strings are not part of `SchemaVersion`).
+
 ## PredicateRow
 
 One row of a `cfdb check-predicate` result — mirrors the canonical three-column `(qname, line, reason)` format emitted by `cfdb violations` so consumer skills can parse both with the same code path (RFC-034 §3.5). `qname` is a fully-qualified name (or a file path, for `:File`-subject predicates); `line` is the 1-based source line number, or `0` for subjects that do not have a line (e.g. `:Crate`, `:File`); `reason` is the human-readable violation description from the predicate's `RETURN … AS reason` clause. Derives `Ord` so `PredicateRunReport::rows` can be sorted ascending by `(qname, line)` before serialization — determinism invariant §4.1. Landed in RFC-034 Slice 3 / #147.
