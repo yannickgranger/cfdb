@@ -290,6 +290,7 @@ dependencies = [
 name = "cfdb-concepts"
 version = "0.4.0"
 dependencies = [
+ "cfdb-core",
  "serde",
  "tempfile",
  "thiserror",

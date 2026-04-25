@@ -333,6 +333,12 @@ pub(super) fn context_node_descriptor() -> NodeLabelDescriptor {
             attr("canonical_crate", "string?", "Crate nominated as the authoritative owner of this context (if declared in `.cfdb/concepts/<name>.toml`; else empty).", Extractor),
             attr("name", "string", "Context identifier (e.g. `trading`, `strategy`, `cfdb`).", Extractor),
             attr("owning_rfc", "string?", "RFC identifier attached to this context (if declared in override TOML).", Extractor),
+            attr(
+                "source",
+                "string",
+                "Provenance discriminator: `\"declared\"` if the context name appears in `.cfdb/concepts/<name>.toml`; `\"heuristic\"` if the name was auto-derived by `cfdb_concepts::compute_bounded_context` via crate-name prefix stripping (RFC-038).",
+                Extractor,
+            ),
         ],
     }
 }

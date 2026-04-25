@@ -15,13 +15,17 @@ publish.workspace = true
 # `ContextMap` implementation. The shared crate is the single canonical
 # TOML loader + prefix heuristic, consumed by both.
 #
-# Dependency discipline (Issue #3 AC): zero heavy deps. No `syn`, no
-# `cargo_metadata`, no `ra-ap-hir`, no `thiserror`-via-workspace-wide
-# chain. Pure TOML reader + serde deserialize + domain types. The
-# rationale: `cfdb-query` must be able to depend on this crate without
-# accidentally pulling in the 1M+ LoC HIR stack.
+# Dependency discipline (Issue #3 AC + RFC-038): zero HEAVY deps. No
+# `syn`, no `cargo_metadata`, no `ra-ap-hir`, no `thiserror`-via-
+# workspace-wide chain. `cfdb-core` (this crate's only workspace-internal
+# dep) provides the schema vocabulary types (`Visibility`, `ContextSource`,
+# ...); its own deps are exactly serde + serde_json + thiserror, none of
+# which violate the no-heavy-deps intent. The rationale: `cfdb-query`
+# must be able to depend on this crate without accidentally pulling in
+# the 1M+ LoC HIR stack.
 
 [dependencies]
+cfdb-core = { path = "../cfdb-core" }
 serde.workspace = true
 thiserror.workspace = true
 toml.workspace = true
