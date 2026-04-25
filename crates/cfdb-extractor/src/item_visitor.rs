@@ -97,11 +97,16 @@ fn resolve_target_qname(module_stack: &[String], type_or_trait: &str) -> String 
     item_qname(module_stack, type_or_trait)
 }
 
-fn span_line(_ident: &syn::Ident) -> usize {
-    // proc_macro2::Span does not expose line info on stable Rust. Storing 0
-    // is a known placeholder that callers can overwrite later with a
-    // rustc-generated source map. RFC §8.2 phase B tracks this.
-    0
+/// Source line of `ident` (1-indexed). Returns 0 only for synthetic spans
+/// (e.g. macro-expanded tokens with no original source location). The
+/// `proc-macro2` `span-locations` feature is enabled in the workspace
+/// `Cargo.toml`, which is what makes `Span::start().line` available on
+/// non-proc-macro builds (#273 / F-005). The previous implementation
+/// returned 0 unconditionally with a stale comment claiming proc-macro2
+/// did not expose line info on stable — false since proc-macro2 1.0.66
+/// (May 2023).
+fn span_line(ident: &syn::Ident) -> usize {
+    ident.span().start().line
 }
 
 /// Translate a `syn::Visibility` AST node into the typed cfdb-core enum

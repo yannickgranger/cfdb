@@ -300,6 +300,71 @@ fn extractor_is_deterministic_across_two_runs() {
     );
 }
 
+/// F-005 / EPIC #273 self-dogfood scar: every extraction against cfdb's
+/// own source tree must produce :Item nodes with REAL source-line numbers
+/// (1-indexed, from `proc_macro2::Span::start().line`), not the 0
+/// placeholder that `span_line` returned for the entire RFC-029 era.
+///
+/// The previous implementation hardcoded `span_line() -> 0` with a stale
+/// comment claiming proc-macro2 didn't expose line info on stable Rust.
+/// False since proc-macro2 1.0.66 (May 2023). The fix:
+///
+/// 1. Workspace `Cargo.toml` enables `span-locations` on `proc-macro2`.
+/// 2. `cfdb-extractor/Cargo.toml` names `proc-macro2` directly so the
+///    feature is opted in (it's a transitive dep of `syn`).
+/// 3. `span_line` calls `ident.span().start().line` instead of returning 0.
+/// 4. `:CallSite` emission paths (body-call + attr-ref) plumb a line
+///    number through `emit_call_site_node_and_edge` instead of hardcoding 0.
+///
+/// Threshold rationale: cfdb's own tree has thousands of items; even
+/// allowing for a long tail of synthetic / macro-expanded spans we
+/// expect the OVERWHELMING majority of :Item nodes to carry a real line.
+/// 50% is the safe lower bound per the issue body — the actual share
+/// should be well over 95%. If this drops below 50% the regression is
+/// the feature flag silently turning off (`Cargo.lock` rebuild merging
+/// features the wrong way) or `span_line` reverting to a placeholder.
+#[test]
+fn test_f005_item_line_is_real_not_zero() {
+    let root = cfdb_workspace_root();
+    let (nodes, _edges) = extract_workspace(root).expect("extract cfdb sub-workspace");
+
+    let item_count = nodes
+        .iter()
+        .filter(|n| n.label.as_str() == Label::ITEM)
+        .count();
+    assert!(
+        item_count > 0,
+        "self-dogfood produced zero :Item nodes — extraction broken upstream of this scar"
+    );
+
+    let items_with_real_line = nodes
+        .iter()
+        .filter(|n| n.label.as_str() == Label::ITEM)
+        .filter(|n| {
+            n.props
+                .get("line")
+                .and_then(PropValue::as_i64)
+                .map(|line| line > 0)
+                .unwrap_or(false)
+        })
+        .count();
+
+    // Issue-body threshold: ≥ 50% of :Item nodes must carry a real line.
+    // Real-world share against cfdb's own tree is far above this — the
+    // 50% figure exists so legitimate impl_block / macro-expanded spans
+    // (which legitimately render as 0) cannot mask a regression where
+    // the feature flag silently turns off.
+    let percentage = (items_with_real_line * 100) / item_count;
+    assert!(
+        percentage >= 50,
+        "F-005 regression: only {items_with_real_line} of {item_count} :Item nodes \
+         ({percentage}%) carry a real line>0 — expected >= 50%. \
+         If proc-macro2's `span-locations` feature was disabled or \
+         `span_line` reverted to returning 0, every :Item.line collapses \
+         to 0 and line-precision queries silently return zero rows."
+    );
+}
+
 #[test]
 fn self_workspace_emits_render_type_inner_deltas() {
     // #239 self-dogfood assertion: extracting cfdb's own tree must emit
