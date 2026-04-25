@@ -1,6 +1,6 @@
 # RFC-038 — `:Context.source` discriminator (declared vs heuristic)
 
-Status: **draft, R2 pending** (R1: 2 RATIFY + 2 REQUEST CHANGES — B1 / B2 addressed in this revision)
+Status: **Ratified (R2, 2026-04-25)** — 4/4 RATIFY: clean-arch, ddd-specialist, solid-architect, rust-systems.
 Parent trace: deep-audit EPIC #273 → Pattern 2 / cfdb-extractor F-013 → **this RFC**
 Companion: closes the contract-drift item paired with F-005 (`span_line` real numbers — closed via PRs #291/#294).
 
@@ -189,7 +189,7 @@ let mut contexts_seen: BTreeMap<String, ContextMeta> = ...;
 let mut contexts_seen: BTreeMap<String, (ContextMeta, ContextSource)> = ...;
 ```
 
-The pre-seed at the same site changes from `(name, meta)` pairs to `(name, (meta, ContextSource::Declared))` for declared contexts. The per-crate `or_insert_with` arm changes from inserting `ContextMeta::default()` to inserting `(ContextMeta::default(), ContextSource::Heuristic)`. The emitter at `emit_context_node` (currently around line 245 of the same file) reads the second tuple element and writes `props["source"] = PropValue::Str(source.as_wire_str().to_string())`.
+The pre-seed at the same site changes from `(name, meta)` pairs to `(name, (meta, ContextSource::Declared))` for declared contexts. The per-crate `or_insert_with` arm changes from inserting `ContextMeta::default()` to inserting `(ContextMeta::default(), ContextSource::Heuristic)`. The emitter at `emit_context_node` (currently around line 260 of the same file) reads the second tuple element and writes `props["source"] = PropValue::Str(source.as_wire_str().to_string())`.
 
 Order independence is preserved: BTreeMap iteration is sorted; the `or_insert_with` operation is order-independent (it inserts only when absent); pre-seeding happens before any per-crate insertion, so no race exists. G1 byte-stable canonical dump under cross-binary extract is verifiable.
 
@@ -258,9 +258,26 @@ Non-blocking items absorbed:
 
 Detailed verdicts retained in the conversation transcript and on the council team's task list (`~/.claude/teams/rfc-038-council/`).
 
-### 5.2 R2 — pending re-review
+### 5.2 R2 (2026-04-25) — RATIFIED
 
-This draft incorporates the R1 BLOCKING resolutions (B1, B2). Sent back to the same four lenses for R2 verdict; any RATIFY round closes the council; any REJECT or REQUEST CHANGES with new BLOCKING items triggers an R3 revision.
+All four §2.3 lenses RATIFY. Per CLAUDE.md §2.3 the RFC is **ratified**; no override recorded, no dissent.
+
+| Lens | Verdict |
+|---|---|
+| clean-arch | RATIFY |
+| ddd-specialist | RATIFY |
+| solid-architect | RATIFY |
+| rust-systems | RATIFY |
+
+**NITs flagged for slice implementer attention** (non-blocking, resolve during slice work):
+
+- **clean-arch NIT.** §3.3 says `emit_context_node` is "currently around line 260" — verify in slice 3 against the live `crates/cfdb-extractor/src/lib.rs` at slice-3-PR-time.
+- **DDD NIT (carried from R1).** Slice 4's `parse_or_default(prop_value: Option<&PropValue>) -> ContextSource` helper — if it ever becomes public API, rename to `ContextSource::from_prop` to match the domain-vocabulary pattern used by `Visibility`.
+- **SOLID NIT (carried from R2).** Open question Q1 ("any crate" vs "canonical_crate only") effectively answered by R1 DDD discovery: pre-seeding implementation already implements "any crate" semantic. The chosen rule is consistent with current code; Q1 is closed.
+
+### 5.3 Post-ratification
+
+Per CLAUDE.md §2.4, the §7 Issue decomposition is now the concrete backlog. Each slice is filed as a forge issue with `Refs: docs/RFC-038-context-source-discriminator.md` and the prescribed `Tests:` block, and worked via `/work-issue-lib`. Open questions Q1/Q2/Q3 in §8 are all resolved by council consensus or R2 absorption.
 
 ---
 
@@ -308,7 +325,7 @@ Tests:
 
 ### Slice 3 — extractor wires `source` into `:Context` emission
 
-Plumb the source signal from slice 2's `BoundedContext` through the per-context accumulator (§3.3) and into the prop map at `emit_context_node` (`crates/cfdb-extractor/src/lib.rs`, currently around line 245). Adds the self-dogfood scar. The accumulator value type changes from `BTreeMap<String, ContextMeta>` to `BTreeMap<String, (ContextMeta, ContextSource)>` per §3.3.
+Plumb the source signal from slice 2's `BoundedContext` through the per-context accumulator (§3.3) and into the prop map at `emit_context_node` (`crates/cfdb-extractor/src/lib.rs`, currently around line 260). Adds the self-dogfood scar. The accumulator value type changes from `BTreeMap<String, ContextMeta>` to `BTreeMap<String, (ContextMeta, ContextSource)>` per §3.3.
 
 ```
 Tests:
