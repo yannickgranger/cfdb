@@ -3,10 +3,12 @@
 //! unpacks one slice of the `Command` enum and delegates to the
 //! corresponding `cfdb_cli::*` handler.
 
+use std::str::FromStr;
+
 use cfdb_cli::{
     check, check_predicate, classify, diff, drop_keyspace_cmd, dump, emit_json, enrich, export,
     extract, list_callers, list_items_matching, list_keyspaces, query, scope, snapshots,
-    typed_stub, violations, CfdbCliError, EnrichVerb,
+    typed_stub, violations, CfdbCliError, EnrichVerb, OutputFormat,
 };
 
 use crate::main_command::{Command, ExtractArgs};
@@ -151,8 +153,14 @@ fn emit_check_predicate_report(
     report: &cfdb_cli::PredicateRunReport,
     format: &str,
 ) -> Result<(), CfdbCliError> {
+    // EPIC #273 Pattern 1 #4: parse via the canonical `OutputFormat`, then
+    // narrow to the per-handler allowlist (`text` and `json`). Other
+    // variants are rejected with the unified "expected `text` or `json`"
+    // shape.
+    let format = OutputFormat::from_str(format)?
+        .require_one_of(&[OutputFormat::Text, OutputFormat::Json], "check-predicate")?;
     match format {
-        "text" => {
+        OutputFormat::Text => {
             eprintln!(
                 "check-predicate: {} (predicate: {})",
                 report.row_count, report.predicate_name
@@ -162,10 +170,10 @@ fn emit_check_predicate_report(
             }
             Ok(())
         }
-        "json" => emit_json(&report),
-        other => Err(CfdbCliError::Usage(format!(
-            "--format `{other}` not supported; expected `text` or `json`"
-        ))),
+        OutputFormat::Json => emit_json(&report),
+        // Other variants are filtered out by `require_one_of` above; the
+        // type system can't see that, so we name the contract here.
+        _ => unreachable!("check-predicate allowlist is restricted to Text | Json"),
     }
 }
 

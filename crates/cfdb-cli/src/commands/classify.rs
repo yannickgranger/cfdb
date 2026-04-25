@@ -22,6 +22,7 @@ use serde_json::Value;
 
 use crate::compose;
 use crate::output;
+use crate::output::OutputFormat;
 use crate::scope::{
     attach_scope_warnings, populate_findings_by_class_restricted, resolve_keyspace_name,
     validate_context, ExplainSink,
@@ -29,30 +30,6 @@ use crate::scope::{
 
 mod sorted_jsonl;
 use sorted_jsonl::emit_sorted_jsonl;
-
-/// Output surface for `cfdb classify`. `json` is the default pretty-printed
-/// envelope (MVP from #213). `sorted-jsonl` emits one line per finding with
-/// `{op, class, qname, ...}` — the line-diff-friendly analogue of
-/// `cfdb diff --format sorted-jsonl` (#212).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ClassifyFormat {
-    Json,
-    SortedJsonl,
-}
-
-impl FromStr for ClassifyFormat {
-    type Err = crate::CfdbCliError;
-
-    fn from_str(raw: &str) -> Result<Self, Self::Err> {
-        match raw {
-            "json" => Ok(Self::Json),
-            "sorted-jsonl" => Ok(Self::SortedJsonl),
-            other => Err(crate::CfdbCliError::from(format!(
-                "classify: --format `{other}` not supported; expected `json` or `sorted-jsonl`"
-            ))),
-        }
-    }
-}
 
 /// Classify the findings-by-class subset that touches qnames in
 /// `--restrict-to-diff`. See module docstring for the architecture
@@ -67,7 +44,11 @@ pub fn classify(
     workspace: Option<PathBuf>,
     format: String,
 ) -> Result<(), crate::CfdbCliError> {
-    let format = ClassifyFormat::from_str(&format)?;
+    // `cfdb classify` accepts `json` (default pretty-printed envelope, #213)
+    // and `sorted-jsonl` (one line per finding, #212). Other `OutputFormat`
+    // variants are filtered out by the allowlist.
+    let format = OutputFormat::from_str(&format)?
+        .require_one_of(&[OutputFormat::Json, OutputFormat::SortedJsonl], "classify")?;
 
     let ks_name = resolve_keyspace_name(&db, keyspace.as_deref())?;
     compose::ensure_keyspace_exists(&db, &ks_name)?;
@@ -93,8 +74,11 @@ pub fn classify(
 
     let envelope = ClassifyEnvelope::new(inventory, diff_source);
     match format {
-        ClassifyFormat::Json => emit_classify_output(&envelope, output.as_deref()),
-        ClassifyFormat::SortedJsonl => emit_sorted_jsonl(&envelope, output.as_deref()),
+        OutputFormat::Json => emit_classify_output(&envelope, output.as_deref()),
+        OutputFormat::SortedJsonl => emit_sorted_jsonl(&envelope, output.as_deref()),
+        // Other variants are filtered out by `require_one_of` above; the
+        // type system can't see that, so we name the contract here.
+        _ => unreachable!("classify allowlist is restricted to Json | SortedJsonl"),
     }
 }
 
@@ -341,24 +325,46 @@ mod tests {
         assert_eq!(loaded.b, "y");
     }
 
+    /// Allowlist contract for `cfdb classify` after EPIC #273 Pattern 1 #4
+    /// unification: parse via canonical `OutputFormat::from_str`, then narrow
+    /// to the per-handler allowlist via `require_one_of`. Both wire strings
+    /// (`json`, `sorted-jsonl`) must pass; any other variant must be
+    /// rejected with a `"classify:"`-prefixed error that names both allowed
+    /// values.
     #[test]
-    fn classify_format_from_str_accepts_both_values() {
+    fn classify_format_allowlist_accepts_both_values() {
+        let allow = [OutputFormat::Json, OutputFormat::SortedJsonl];
         assert_eq!(
-            ClassifyFormat::from_str("json").unwrap(),
-            ClassifyFormat::Json
+            OutputFormat::from_str("json")
+                .unwrap()
+                .require_one_of(&allow, "classify")
+                .unwrap(),
+            OutputFormat::Json
         );
         assert_eq!(
-            ClassifyFormat::from_str("sorted-jsonl").unwrap(),
-            ClassifyFormat::SortedJsonl
+            OutputFormat::from_str("sorted-jsonl")
+                .unwrap()
+                .require_one_of(&allow, "classify")
+                .unwrap(),
+            OutputFormat::SortedJsonl
         );
     }
 
     #[test]
-    fn classify_format_from_str_rejects_unknown_with_enumerated_error() {
-        let err = ClassifyFormat::from_str("toml").unwrap_err();
+    fn classify_format_allowlist_rejects_disallowed_with_enumerated_error() {
+        let allow = [OutputFormat::Json, OutputFormat::SortedJsonl];
+        // `text` parses as a valid OutputFormat but is not in the classify
+        // allowlist — this is the post-unification path that replaces the
+        // pre-#273 `ClassifyFormat::from_str("toml")` test.
+        let err = OutputFormat::from_str("text")
+            .unwrap()
+            .require_one_of(&allow, "classify")
+            .unwrap_err();
         let msg = format!("{err}");
+        assert!(msg.contains("classify"), "got: {msg}");
+        assert!(msg.contains("not supported"), "got: {msg}");
         assert!(msg.contains("json"), "got: {msg}");
         assert!(msg.contains("sorted-jsonl"), "got: {msg}");
-        assert!(msg.contains("toml"), "got: {msg}");
+        assert!(msg.contains("text"), "got: {msg}");
     }
 }
