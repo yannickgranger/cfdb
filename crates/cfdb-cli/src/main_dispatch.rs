@@ -212,55 +212,46 @@ pub(crate) fn dispatch_snapshot(cmd: Command) -> Result<(), CfdbCliError> {
 /// cyclomatic complexity — the top-level match collapses all seven arms to
 /// a single alternation arm that delegates here.
 pub(crate) fn dispatch_enrich(cmd: Command) -> Result<(), CfdbCliError> {
-    // The git-history / rfc-docs / bounded-context verbs thread a workspace
-    // path through the composition root (clean-arch B4 resolution, #43-A).
-    // We handle them inline so the other four variants keep their simple
-    // `(db, keyspace) → EnrichVerb` shape. Slice 43-F (#109) will add its
-    // own `--workspace` flag when `enrich_concepts` needs one.
-    if let Command::EnrichGitHistory {
-        db,
-        keyspace,
-        workspace,
-    } = cmd
-    {
-        return enrich(db, keyspace, EnrichVerb::GitHistory, workspace);
-    }
-    if let Command::EnrichRfcDocs {
-        db,
-        keyspace,
-        workspace,
-    } = cmd
-    {
-        return enrich(db, keyspace, EnrichVerb::RfcDocs, workspace);
-    }
-    if let Command::EnrichBoundedContext {
-        db,
-        keyspace,
-        workspace,
-    } = cmd
-    {
-        return enrich(db, keyspace, EnrichVerb::BoundedContext, workspace);
-    }
-    if let Command::EnrichConcepts {
-        db,
-        keyspace,
-        workspace,
-    } = cmd
-    {
-        return enrich(db, keyspace, EnrichVerb::Concepts, workspace);
-    }
-    if let Command::EnrichMetrics {
-        db,
-        keyspace,
-        workspace,
-    } = cmd
-    {
-        return enrich(db, keyspace, EnrichVerb::Metrics, workspace);
-    }
-
-    let (db, keyspace, verb) = match cmd {
-        Command::EnrichDeprecation { db, keyspace } => (db, keyspace, EnrichVerb::Deprecation),
-        Command::EnrichReachability { db, keyspace } => (db, keyspace, EnrichVerb::Reachability),
+    // Five verbs (git-history / rfc-docs / bounded-context / concepts /
+    // metrics) thread a `--workspace` path through the composition root
+    // (clean-arch B4 resolution, #43-A). The remaining two
+    // (deprecation / reachability) take no workspace and pass `None`.
+    // Audit 2026-W17 / EPIC #273 / Pattern 3 (cfdb-cli F-006) — the prior
+    // shape was five `if let` clones followed by a second match for the
+    // non-workspace pair. Collapsed here to a single match that extracts
+    // `(db, keyspace, EnrichVerb, Option<PathBuf>)` uniformly.
+    let (db, keyspace, verb, workspace) = match cmd {
+        Command::EnrichGitHistory {
+            db,
+            keyspace,
+            workspace,
+        } => (db, keyspace, EnrichVerb::GitHistory, workspace),
+        Command::EnrichRfcDocs {
+            db,
+            keyspace,
+            workspace,
+        } => (db, keyspace, EnrichVerb::RfcDocs, workspace),
+        Command::EnrichBoundedContext {
+            db,
+            keyspace,
+            workspace,
+        } => (db, keyspace, EnrichVerb::BoundedContext, workspace),
+        Command::EnrichConcepts {
+            db,
+            keyspace,
+            workspace,
+        } => (db, keyspace, EnrichVerb::Concepts, workspace),
+        Command::EnrichMetrics {
+            db,
+            keyspace,
+            workspace,
+        } => (db, keyspace, EnrichVerb::Metrics, workspace),
+        Command::EnrichDeprecation { db, keyspace } => {
+            (db, keyspace, EnrichVerb::Deprecation, None)
+        }
+        Command::EnrichReachability { db, keyspace } => {
+            (db, keyspace, EnrichVerb::Reachability, None)
+        }
         other => {
             // Unreachable — the caller pattern-matches on the seven enrich
             // variants before calling us. An unexpected command here is a
@@ -268,5 +259,5 @@ pub(crate) fn dispatch_enrich(cmd: Command) -> Result<(), CfdbCliError> {
             unreachable!("dispatch_enrich called with non-enrich command: {other:?}")
         }
     };
-    enrich(db, keyspace, verb, None)
+    enrich(db, keyspace, verb, workspace)
 }
