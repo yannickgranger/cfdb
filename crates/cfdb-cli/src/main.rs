@@ -41,9 +41,23 @@
 //! - `cfdb list-keyspaces --db <path>`                       — convenience listing
 //!
 //! Exit codes:
-//! - `0` — success
-//! - `1` — runtime error (any handler returns `Err`)
-//! - `2` — usage error (clap parse failure)
+//! - `0` — success (no findings, or `--no-fail` set)
+//! - `1` — runtime error (extractor panic, IO failure, parse error in rule,
+//!   any handler returns `Err`)
+//! - `2` — usage error (clap parse failure: unknown flag, missing required
+//!   arg, unknown enum value)
+//! - `30` — findings present, gate failure (rule rows returned by
+//!   `cfdb violations` / `cfdb check` / `cfdb check-predicate` without
+//!   `--no-fail`). Mirrors the `ci/cross-dogfood.sh` convention so CI
+//!   scripts can disambiguate "extractor blew up" (1) from "rule found
+//!   rows" (30). Issue #269 / EPIC #273 (audit ID CFDB-CLI-H1).
+//!
+//! NOTE — downstream `qbot-core` consumers reading exit code 1 as
+//! "findings" must update to read 30. The `scripts/check-arch-rfc.sh`
+//! and `.gitea/workflows/arch-rfc-enforcement.yml` in qbot-core need a
+//! follow-up PR (cross-repo). Until that lands, qbot-core CI may
+//! misclassify findings as runtime errors. Tracking issue:
+//! `agency:yg/qbot-core` (file post-merge).
 //!
 //! The `--db` path is a directory containing one `{keyspace}.json` file per
 //! keyspace. Extract writes; query/dump/list read.

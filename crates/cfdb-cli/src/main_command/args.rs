@@ -363,13 +363,18 @@ pub(crate) enum Command {
         format: String,
     },
 
-    /// Run a rule file and exit 1 if any violations are found.
+    /// Run a rule file and exit 30 if any violations are found.
+    ///
+    /// Exit contract (issue #269 / EPIC #273): 0 on no findings or with
+    /// `--no-fail`; 30 on findings (gate failure); 1 on runtime error
+    /// (extractor panic, IO failure, parse error in rule). Mirrors the
+    /// `ci/cross-dogfood.sh` exit-30 convention.
     ///
     /// Intended as the drop-in replacement for handwritten Rust
     /// architecture tests. Architecture tests in qbot-core can be
     /// expressed as one `.cypher` rule file plus a one-liner shell
     /// test that runs `cfdb violations --rule path.cypher` and fails
-    /// on exit code 1.
+    /// on exit code 30.
     Violations {
         /// Directory containing per-keyspace JSON files.
         #[arg(long)]
@@ -381,8 +386,10 @@ pub(crate) enum Command {
         /// a violation.
         #[arg(long)]
         rule: PathBuf,
-        /// Always exit 0, even when violations are found. Useful for
-        /// inventorying current state without failing CI.
+        /// Without `--no-fail`: rule rows return exit 30. With `--no-fail`:
+        /// rule rows return exit 0 (informational). Runtime errors always
+        /// return exit 1 regardless. Useful for inventorying current state
+        /// without failing CI.
         #[arg(long)]
         no_fail: bool,
         /// Emit only the integer row count on stdout, suppressing the
@@ -394,7 +401,7 @@ pub(crate) enum Command {
         count_only: bool,
     },
 
-    /// Run a cfdb editorial-drift trigger and exit 1 if any findings
+    /// Run a cfdb editorial-drift trigger and exit 30 if any findings
     /// fire. Issue #101 ships `T1` (concept-declared-in-TOML-but-
     /// missing-in-code, three sub-verdicts: CONCEPT_UNWIRED,
     /// MISSING_CANONICAL_CRATE, STALE_RFC_REFERENCE). T3 is reserved
@@ -417,15 +424,16 @@ pub(crate) enum Command {
         /// message enumerating the known set.
         #[arg(long, value_parser = parse_trigger_id)]
         trigger: TriggerId,
-        /// Always exit 0, even when findings are reported. Matches
-        /// the `violations --no-fail` idiom for CI scripts that want
-        /// to inventory without failing.
+        /// Without `--no-fail`: rule rows return exit 30. With `--no-fail`:
+        /// rule rows return exit 0 (informational). Runtime errors always
+        /// return exit 1 regardless. Matches the `violations --no-fail`
+        /// idiom for CI scripts that want to inventory without failing.
         #[arg(long)]
         no_fail: bool,
     },
 
     /// Run a named predicate from `.cfdb/predicates/<name>.cypher` and
-    /// exit 1 if any rows match — RFC-034 Slice 3.
+    /// exit 30 if any rows match — RFC-034 Slice 3.
     ///
     /// Unlike `violations --rule <path>` (which loads a user-supplied
     /// `.cypher` file with no param binding) this verb loads a named
@@ -458,8 +466,10 @@ pub(crate) enum Command {
         /// [`crate::PredicateRunReport`] on stdout.
         #[arg(long, default_value = "text")]
         format: String,
-        /// Always exit 0, even when rows are returned. Matches the
-        /// `violations --no-fail` idiom for CI scripts.
+        /// Without `--no-fail`: rule rows return exit 30. With `--no-fail`:
+        /// rule rows return exit 0 (informational). Runtime errors always
+        /// return exit 1 regardless. Matches the `violations --no-fail`
+        /// idiom for CI scripts.
         #[arg(long)]
         no_fail: bool,
     },

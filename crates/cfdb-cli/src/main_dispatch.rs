@@ -39,7 +39,11 @@ pub(crate) fn dispatch_core(cmd: Command) -> Result<(), CfdbCliError> {
         } => {
             let rows_found = violations(db, keyspace, rule, count_only)?;
             if rows_found > 0 && !no_fail {
-                std::process::exit(1);
+                // Exit 30 = "rule rows returned, gate failure" — distinct from
+                // exit 1 (runtime error). Aligns with `ci/cross-dogfood.sh`
+                // convention so CI scripts can disambiguate "extractor blew
+                // up" from "rule found rows." See main.rs `Exit codes` doc.
+                std::process::exit(30);
             }
             Ok(())
         }
@@ -51,7 +55,9 @@ pub(crate) fn dispatch_core(cmd: Command) -> Result<(), CfdbCliError> {
         } => {
             let rows_found = check(&db, &keyspace, trigger)?;
             if rows_found > 0 && !no_fail {
-                std::process::exit(1);
+                // Exit 30 = "rule rows returned, gate failure" — see the
+                // sibling site in `Command::Violations` above for rationale.
+                std::process::exit(30);
             }
             Ok(())
         }
@@ -127,7 +133,9 @@ pub(crate) fn dispatch_typed(cmd: Command) -> Result<(), CfdbCliError> {
             let report = check_predicate(&db, &keyspace, &workspace_root, &name, &params)?;
             emit_check_predicate_report(&report, &format)?;
             if report.row_count > 0 && !no_fail {
-                std::process::exit(1);
+                // Exit 30 = "rule rows returned, gate failure" — see the
+                // sibling site in `Command::Violations` above for rationale.
+                std::process::exit(30);
             }
             Ok(())
         }
