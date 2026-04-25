@@ -1,6 +1,6 @@
 ---
 title: RFC-030 — Anti-drift gate: adopt graph-specs + cfdb self-dogfood
-status: Draft (revision 1 — 2026-04-19)
+status: Implemented on develop — pending vNEXT release (2026-04-24)
 date: 2026-04-19
 authors: cfdb-architects council (clean-arch lens)
 parent: docs/RFC-cfdb.md (RFC-029 v0.1), docs/RFC-cfdb.md (RFC-029 addendum)
@@ -581,3 +581,19 @@ Gate G5 is a continuous invariant, not a one-time check.
 - CLAUDE.md §4 — the RFC-to-spec-to-issue-to-impl workflow codified
   in §3.3 of this RFC is an application of the outside-in development
   methodology documented there.
+
+---
+
+## §10 Landing trail
+
+All three adoptions landed on `develop`. The cleanup prerequisites (RFC-031
+§§2/5 — issues #22–#29) and the v0.2 extractor cohort (issues #35–#51) are
+all CLOSED. CI enforces the five gates declared in `CLAUDE.md §3` on every PR:
+
+- `.gitea/workflows/ci.yml` — determinism, recall, cross-dogfood, predicate
+  determinism, self-hosted ban rules
+- `ci/determinism-check.sh`, `ci/cross-dogfood.sh` — operational runbooks
+
+Status flipped from `Draft` → `Implemented on develop` as part of the
+monthly gap-audit cleanup (cfdb #258, filed 2026-04-24). Release of the
+landed batch is tracked under cfdb #257 (v0.4.0).

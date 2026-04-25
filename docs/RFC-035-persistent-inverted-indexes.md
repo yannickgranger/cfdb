@@ -1,6 +1,7 @@
 # RFC-035 — Persistent inverted indexes on `:Item` props and computed keys
 
-Status: **draft, R2 (post-R1 council)**
+Status: **Implemented on develop — pending vNEXT release (2026-04-24)**
+Ratification: R2 (post-R1 council), 4/4 RATIFY (clean-arch, ddd, rust-systems, solid).
 Parent trace: #167 → #168 (PR #177, merged) → #178 (closed, subsumed) → **this RFC**
 Companion: #167 trial evidence — 148k-node keyspace, 428 MB RSS (fixed), 16+ min scope wall time (unfixed).
 
@@ -277,3 +278,29 @@ No new open questions introduced in R2.
 - Keyspace-on-disk file size is unchanged (no `entries` block written).
 - All existing eval tests pass byte-identically.
 - Cross dogfood on graph-specs-rust at pinned SHA: zero findings delta.
+
+---
+
+## 10. Landing trail
+
+All seven slices merged to `develop`:
+
+| Slice | Issue | PR | Commit | Subject |
+| --- | --- | --- | --- | --- |
+| 1/7 | #180 | #187 | `2cad9e6` | IndexSpec + `.cfdb/indexes.toml` loader |
+| 2/7 | #181 | #188 | `55fcd88` | `KeyspaceState::by_prop` + build pass + stale-entry removal |
+| 3/7 | #182 | #190 | — | computed keys (`last_segment(qname)`) |
+| 4/7 | #183 | #191 | — | lazy rebuild on mutation |
+| 5/7 | #184 | #192 | `835a35d` | `candidate_nodes` fast paths (label+literal, label+WHERE Eq) |
+| 6/7 | #185 | #193 | `7a540e4` | cross-MATCH posting-list intersection |
+| 7/7 | #186 | #197 | `e9197a3` | composition-root wiring (`.cfdb/indexes.toml` → `PetgraphStore`) |
+
+Wired on disk:
+
+- `.cfdb/indexes.toml` — three entries: `Item.qname`, `Item.bounded_context`, `Item.last_segment(qname)`
+- `crates/cfdb-petgraph/src/index/spec.rs` — `IndexSpec::from_path`
+- `crates/cfdb-petgraph/src/state.rs` — `KeyspaceState::by_prop`
+
+Status flipped from `draft, R2` → `Implemented on develop` as part of the
+monthly gap-audit cleanup (cfdb #256, filed 2026-04-24). Release of the
+landed batch is tracked under cfdb #257 (v0.4.0).
