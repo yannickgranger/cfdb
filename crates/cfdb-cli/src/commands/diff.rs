@@ -15,6 +15,7 @@ use serde_json::{json, Value};
 
 use crate::commands::keyspace_path;
 use crate::compose;
+use crate::output;
 
 /// Output surface for the diff. `json` is the default envelope; the
 /// `sorted-jsonl` variant emits each `{added|removed|changed}` fact as its
@@ -73,7 +74,7 @@ pub fn diff(
 
     match format {
         DiffFormat::Json => {
-            println!("{}", serde_json::to_string_pretty(&envelope)?);
+            output::emit_json(&envelope)?;
         }
         DiffFormat::SortedJsonl => {
             emit_sorted_jsonl(&envelope)?;

@@ -22,6 +22,7 @@ use serde_json::Value;
 
 use crate::commands::keyspace_path;
 use crate::compose;
+use crate::output;
 use crate::scope::{
     attach_scope_warnings, populate_findings_by_class_restricted, resolve_keyspace_name,
     validate_context, ExplainSink,
@@ -180,10 +181,9 @@ fn extend_with_envelope_qnames(out: &mut BTreeSet<String>, envelope: &Value) {
 /// local to this module until a third caller justifies a generic emit.
 fn emit_classify_output(
     envelope: &ClassifyEnvelope,
-    output: Option<&Path>,
+    output_path: Option<&Path>,
 ) -> Result<(), crate::CfdbCliError> {
-    let json = serde_json::to_string_pretty(envelope)?;
-    match output {
+    match output_path {
         Some(path) => {
             if let Some(parent) = path.parent() {
                 if !parent.as_os_str().is_empty() {
@@ -192,11 +192,12 @@ fn emit_classify_output(
                     })?;
                 }
             }
+            let json = serde_json::to_string_pretty(envelope)?;
             std::fs::write(path, json)
                 .map_err(|e| format!("write output `{}`: {e}", path.display()))?;
         }
         None => {
-            println!("{json}");
+            output::emit_json(envelope)?;
         }
     }
     Ok(())
