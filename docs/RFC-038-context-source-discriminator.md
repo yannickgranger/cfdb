@@ -380,7 +380,7 @@ To be filled as slices merge.
 
 | Slice | Issue | PR | Commit | Subject |
 | --- | --- | --- | --- | --- |
-| 1/4 | TBD | TBD | TBD | ContextSource enum + schema attr |
-| 2/4 | TBD | TBD | TBD | compute_bounded_context returns BoundedContext |
-| 3/4 | TBD | TBD | TBD | extractor wires :Context.source |
-| 4/4 | TBD | TBD | TBD | legacy keyspace tolerance + reader helper |
+| 1/4 | #300 | TBD | TBD | ContextSource enum + schema attr + cfdb-concepts→cfdb-core dep arc |
+| 2/4 | #301 | TBD | TBD | compute_bounded_context returns BoundedContext |
+| 3/4 | #302 | TBD | TBD | extractor wires :Context.source |
+| 4/4 | #303 | TBD | TBD | legacy keyspace tolerance + reader helper |
