@@ -82,7 +82,7 @@ fn run(cli: Cli) -> Result<(), CfdbCliError> {
     match cli.command {
         Command::Version => print_version(),
         Command::SchemaDescribe => schema_describe_cmd()?,
-        cmd @ (Command::Extract { .. }
+        cmd @ (Command::Extract(_)
         | Command::Query { .. }
         | Command::Violations { .. }
         | Command::Check { .. }

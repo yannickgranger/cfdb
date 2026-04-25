@@ -1,0 +1,10 @@
+=== Target dogfood on qbot-core @ 6eb494ebe (HIR extraction: 137250 :CallSite + 137250 CALLS + 137250 INVOKES_AT + 102 :EntryPoint + 102 EXPOSES) ===
+
+REGISTERS_PARAM: cypher=79  jq=79  ✓ MATCH
+EXPOSES: cypher=75  jq=75  ✓ MATCH
+CALLS: cypher=2753  jq=2753  ✓ MATCH
+INVOKES_AT: cypher=123094  jq=123094  ✓ MATCH
+HAS_PARAM: cypher=16965  jq=16965  ✓ MATCH
+
+Pre-fix expected (issue #242): all cypher counts = 0
+Post-fix actual: cypher counts match jq exactly across all five edge labels

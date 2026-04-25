@@ -79,6 +79,19 @@ jobs:
           git config --global url."https://oauth2:${GITHUB_TOKEN}@agency.lab:3000/".insteadOf "https://agency.lab:3000/"
           git clone --depth=1 --branch="$BRANCH" "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" repo
 
+      - name: PR body check (#240 — Closes #N enforcement)
+        if: github.event_name == 'pull_request'
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY:  ${{ github.event.pull_request.body }}
+        run: |
+          # Per #240: integration PRs that reference issues in the title
+          # must carry a `Closes #N` / `Fixes #N` / `Resolves #N` footer
+          # (or a `Bundle: #A, #B, #C` directive). Runs pre-compile to
+          # fail fast on hygiene drift before burning cargo budget.
+          cd repo
+          bash ci/pr-body-check.sh
+
       - name: Format check
         run: |
           cd repo

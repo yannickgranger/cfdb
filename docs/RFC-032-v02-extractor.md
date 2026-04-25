@@ -1,6 +1,6 @@
 ---
 title: "RFC-032: v0.2 extractor cohort — issues #35–#51 grouped and sequenced"
-status: Draft
+status: Implemented on develop — pending vNEXT release (2026-04-24)
 date: 2026-04-19
 authors: cfdb-architects council (rust-systems lens)
 parent: docs/RFC-cfdb.md (RFC-029 v0.1), docs/RFC-cfdb.md (RFC-029 §A1–§A6), docs/RFC-031-audit-cleanup.md
@@ -547,3 +547,22 @@ table maps each gate to the issue that satisfies it:
 *RFC-032 — drafted by rust-systems (Rust-systems lens), 2026-04-19.*
 *All file:line citations verified against HEAD on branch*
 *`docs/rfc-030-anti-drift` (commit 250aac4 + RFC-031 merge).*
+
+---
+
+## Landing trail
+
+All v0.2 cohort slices (Groups A–D) are CLOSED on `agency:yg/cfdb`:
+
+- **Group A — syn-level extractor additions:** #35, #36, #41, #42
+- **Group B — git integration:** #37
+- **Group C — HIR bootstrap:** #39, #40
+- **Group D — HIR-dependent features:** #43, #44, #45, #46, #47, #48, #49, #50, #51
+
+`SchemaVersion::V0_2_0` shipped via #86. Later v0.2.x minor bumps
+(V0_2_1 – V0_2_3) land the enrichment passes (#106, #107, #108, #109,
+#110) and are covered by CHANGELOG.md.
+
+Status flipped from `Draft` → `Implemented on develop` as part of the
+monthly gap-audit cleanup (cfdb #258, filed 2026-04-24). Release of
+the landed batch is tracked under cfdb #257 (v0.4.0).

@@ -1,0 +1,45 @@
+=== target-dogfood #239 (cfdb on yg/qbot-core @ 6eb494e) ===
+
+-- BEFORE (develop-tip binary + qbot-core @ 6eb494e) --
+  binary: /var/mnt/workspaces/cfdb/.claude/worktrees/239-render-type-inner/.claude/worktrees/239-baseline-tmp/target/release/cfdb (from develop-tip 346eab1)
+  nodes: 170017
+  edges: 173972
+  RETURNS: 1216
+  TYPE_OF: 2218
+
+-- AFTER (#239 binary + qbot-core @ 6eb494e) --
+  binary: /var/mnt/workspaces/cfdb/.claude/worktrees/239-render-type-inner/target/release/cfdb (from #239 worktree)
+  nodes: 170017
+  edges: 178613
+  RETURNS: 5125
+  TYPE_OF: 2950
+
+-- DELTAS (qbot-core target-dogfood) --
+  RETURNS: 1216 → 5125  (4.21× baseline; issue body threshold ≥ 2× ✓)
+  TYPE_OF: 2218 → 2950  (1.33× baseline; issue body threshold ≥ 1.5× is MISSED — actual 1.33× — see wrapper-class coverage note below)
+
+-- Unrecognized wrapper classes in qbot-core (candidates for future RFC amendment of WRAPPER_TYPES) --
+[
+  {
+    "type": "HashMap",
+    "count": 109
+  },
+  {
+    "type": "RwLock",
+    "count": 105
+  },
+  {
+    "type": "Mutex",
+    "count": 83
+  },
+  {
+    "type": "BTreeMap",
+    "count": 8
+  },
+  {
+    "type": "HashSet",
+    "count": 2
+  }
+]
+
+TYPE_OF delta below issue-body 1.5× target because qbot-core's field/param type composition is heavily biased toward HashMap/Mutex/RwLock — types NOT in the closed 9-wrapper list (WRAPPER_TYPES). Widening the list requires an RFC amendment per Forbidden move #1.

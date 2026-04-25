@@ -172,30 +172,45 @@ fn apply_attrs(
 ) -> u64 {
     let mut count: u64 = 0;
     for item in items {
-        let Some(node) = state.graph.node_weight_mut(item.node_idx) else {
-            continue;
-        };
-        if let Some(sig) = signals.get(&item.qname) {
-            node.props.insert(
-                "unwrap_count".into(),
-                PropValue::Int(i64::try_from(sig.unwrap_count).unwrap_or(i64::MAX)),
-            );
-            node.props.insert(
-                "cyclomatic".into(),
-                PropValue::Int(i64::try_from(sig.cyclomatic).unwrap_or(i64::MAX)),
-            );
-            count = count.saturating_add(2);
-        }
-        if let Some(&cov) = coverage.get(&item.qname) {
-            node.props
-                .insert("test_coverage".into(), PropValue::Float(cov));
-            count = count.saturating_add(1);
-        }
-        if let Some(cluster_id) = clusters.get(&item.qname) {
-            node.props
-                .insert("dup_cluster_id".into(), PropValue::Str(cluster_id.clone()));
-            count = count.saturating_add(1);
-        }
+        count = count.saturating_add(apply_item_attrs(state, item, signals, coverage, clusters));
+    }
+    count
+}
+
+/// Apply metric attrs to a single `:Item` node — extracted from
+/// [`apply_attrs`] so the `cluster_id.clone()` below lives outside any
+/// `for`/`while` loop (quality-metrics clone-in-loop rule).
+fn apply_item_attrs(
+    state: &mut KeyspaceState,
+    item: &FnItem,
+    signals: &BTreeMap<String, ast_signals::AstSignals>,
+    coverage: &BTreeMap<String, f64>,
+    clusters: &BTreeMap<String, String>,
+) -> u64 {
+    let Some(node) = state.graph.node_weight_mut(item.node_idx) else {
+        return 0;
+    };
+    let mut count: u64 = 0;
+    if let Some(sig) = signals.get(&item.qname) {
+        node.props.insert(
+            "unwrap_count".into(),
+            PropValue::Int(i64::try_from(sig.unwrap_count).unwrap_or(i64::MAX)),
+        );
+        node.props.insert(
+            "cyclomatic".into(),
+            PropValue::Int(i64::try_from(sig.cyclomatic).unwrap_or(i64::MAX)),
+        );
+        count = count.saturating_add(2);
+    }
+    if let Some(&cov) = coverage.get(&item.qname) {
+        node.props
+            .insert("test_coverage".into(), PropValue::Float(cov));
+        count = count.saturating_add(1);
+    }
+    if let Some(cluster_id) = clusters.get(&item.qname) {
+        node.props
+            .insert("dup_cluster_id".into(), PropValue::Str(cluster_id.clone()));
+        count = count.saturating_add(1);
     }
     count
 }

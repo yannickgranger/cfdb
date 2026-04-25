@@ -200,26 +200,31 @@ pub fn compute_diff(
             envelope.removed.push(fact_from_line(&key.0, raw_line)?);
         }
     }
-    // Changed: present in both, envelope JSON differs.
-    for (key, a_line) in a_index.iter() {
-        if let Some(b_line) = b_index.get(key) {
-            if a_line != b_line {
-                envelope.changed.push(ChangedFact {
-                    kind: key.0.clone(),
-                    a: serde_json::from_str(a_line).map_err(|source| DiffError::Parse {
-                        side: "a".into(),
-                        line_number: 0,
-                        source,
-                    })?,
-                    b: serde_json::from_str(b_line).map_err(|source| DiffError::Parse {
-                        side: "b".into(),
-                        line_number: 0,
-                        source,
-                    })?,
-                });
-            }
-        }
-    }
+    // Changed: present in both, envelope JSON differs. Collect into a
+    // Vec via iterator chain to avoid `.clone()` inside a `for` body.
+    // `a_index` consumed by value so `key` moves into the ChangedFact
+    // construction.
+    let changed_facts: Vec<ChangedFact> = a_index
+        .into_iter()
+        .filter_map(|(key, a_line)| b_index.get(&key).map(|b_line| (key, a_line, b_line)))
+        .filter(|(_, a_line, b_line)| a_line != *b_line)
+        .map(|(key, a_line, b_line)| {
+            Ok::<ChangedFact, DiffError>(ChangedFact {
+                kind: key.0,
+                a: serde_json::from_str(&a_line).map_err(|source| DiffError::Parse {
+                    side: "a".into(),
+                    line_number: 0,
+                    source,
+                })?,
+                b: serde_json::from_str(b_line).map_err(|source| DiffError::Parse {
+                    side: "b".into(),
+                    line_number: 0,
+                    source,
+                })?,
+            })
+        })
+        .collect::<Result<_, _>>()?;
+    envelope.changed = changed_facts;
 
     Ok(envelope)
 }

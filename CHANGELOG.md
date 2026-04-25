@@ -2,6 +2,35 @@
 
 All notable changes to cfdb will be documented in this file.
 
+## [0.4.0] - 2026-04-25
+
+### 🚀 Features
+
+- *(cfdb-extractor)* Render_type_inner — unwrap Vec<T>/Option<T>/Result<T,E>/etc. for RETURNS + TYPE_OF precision ([#239](https://github.com/yannickgranger/cfdb/issues/239))
+- *(ci)* Backfill + enforce `Closes #N` footer on PRs ([#240](https://github.com/yannickgranger/cfdb/issues/240))
+
+### 🐛 Bug Fixes
+
+- *(cfdb-petgraph)* Bind edge.var in build_path_binding + emit per-edge for single-hop ([#242](https://github.com/yannickgranger/cfdb/issues/242))
+- *(boy-scout [#246](https://github.com/yannickgranger/cfdb/issues/246))* Drain 18 clones-in-loops across cfdb-* + split 2 god files
+
+### 🚜 Refactor
+
+- *(cfdb-cli [#248](https://github.com/yannickgranger/cfdb/issues/248))* Extract classify/sorted_jsonl submodule (641 → 372 LoC)
+- *(cfdb-cli [#248](https://github.com/yannickgranger/cfdb/issues/248))* Extract main_command/args submodule (514 → 13 LoC)
+- *(cfdb-core [#248](https://github.com/yannickgranger/cfdb/issues/248))* Extract qname/node_id submodule (528 → 445 LoC)
+- *(cfdb-cli [#248](https://github.com/yannickgranger/cfdb/issues/248))* Split Command::Extract into ExtractArgs (args.rs 515 → 480 LoC)
+- *(cfdb-petgraph [#253](https://github.com/yannickgranger/cfdb/issues/253))* Split pattern.rs path-pattern section → pattern/path.rs
+
+### 📚 Documentation
+
+- *(rfc-037)* Phase-shipped closeout + §6 non-goals disposition ([#238](https://github.com/yannickgranger/cfdb/issues/238))
+- *(rfc)* Flip status Draft → Implemented on develop (RFC-030/032/035)
+
+### 🧪 Testing
+
+- *([#242](https://github.com/yannickgranger/cfdb/issues/242))* RED — regression tests for named edge-var binding (count(r), r.prop)
+- *([#239](https://github.com/yannickgranger/cfdb/issues/239))* Self-dogfood count assertion + self/cross/target dogfood proofs
 ## [0.3.0] - 2026-04-24
 
 ### 🚀 Features
