@@ -13,10 +13,84 @@ use cfdb_core::qname::{
 use cfdb_core::schema::{EdgeLabel, Label};
 
 use crate::attrs::{attrs_contain_hash_test, extract_cfg_feature_gate, extract_deprecated_attr};
+use crate::Emitter;
 
 use super::{
     impl_block_name, impl_block_qname, parse_syn_visibility, resolve_target_qname, ItemVisitor,
 };
+
+/// Emit a `:CallSite` node + `INVOKES_AT` edge from the owning `:Item`.
+///
+/// Centralises the prop shape, node label, and edge wiring shared by the
+/// two CallSite emission paths in this crate (audit 2026-W17 / EPIC #273
+/// / Pattern 3 fan-out):
+///
+/// - **Body-call sites** ([`crate::call_visitor::CallSiteVisitor::emit_call_site`]) —
+///   call expressions inside a fn body. The caller computes
+///   `cs_id = format!("callsite:{caller_qname}:{callee_path}:{local_idx}")`.
+/// - **Attribute-ref sites**
+///   ([`ItemVisitor::emit_attr_call_site`]) — name references inside
+///   attributes such as `#[serde(default = "Utc::now")]`. The caller
+///   computes `cs_id = format!("callsite:{parent_qname}.{field_name}:{callee_path}:0")`
+///   and passes the `field` prop via `extra_props`.
+///
+/// The id format and the attr-only `field` prop stay caller-side; this
+/// helper owns the prop shape (`callee_last_segment` derivation, the
+/// `resolver="syn"` discriminator, the `callee_resolved=false` default),
+/// the `Label::CALL_SITE` node emission, and the `INVOKES_AT` edge from
+/// `item_node_id(caller_qname)`.
+///
+/// `extra_props` is merged after the canonical props so the attr-ref
+/// path can attach `field=<field_name>`. Body-call sites pass an empty
+/// map.
+#[allow(clippy::too_many_arguments)] // 8 args — :CallSite shape is wide; cs_id + extra_props stay caller-side because the two emission paths differ on id format and on whether they attach a `field` prop (audit 2026-W17 / EPIC #273 / Pattern 3 fan-out)
+pub(crate) fn emit_call_site_node_and_edge(
+    emitter: &mut Emitter,
+    cs_id: String,
+    caller_qname: &str,
+    callee_path: &str,
+    kind: &str,
+    file: String,
+    is_test: bool,
+    extra_props: BTreeMap<String, PropValue>,
+) {
+    let last_segment = callee_path
+        .rsplit("::")
+        .next()
+        .unwrap_or(callee_path)
+        .to_string();
+
+    let mut props = BTreeMap::new();
+    props.insert(
+        "caller_qname".into(),
+        PropValue::Str(caller_qname.to_string()),
+    );
+    props.insert(
+        "callee_path".into(),
+        PropValue::Str(callee_path.to_string()),
+    );
+    props.insert("callee_last_segment".into(), PropValue::Str(last_segment));
+    props.insert("kind".into(), PropValue::Str(kind.to_string()));
+    props.insert("file".into(), PropValue::Str(file));
+    props.insert("line".into(), PropValue::Int(0));
+    props.insert("is_test".into(), PropValue::Bool(is_test));
+    // SchemaVersion v0.1.3+ discriminator (Label::CALL_SITE doc, #83).
+    props.insert("resolver".into(), PropValue::Str("syn".to_string()));
+    props.insert("callee_resolved".into(), PropValue::Bool(false));
+    props.extend(extra_props);
+
+    emitter.emit_node(Node {
+        id: cs_id.clone(),
+        label: Label::new(Label::CALL_SITE),
+        props,
+    });
+    emitter.emit_edge(Edge {
+        src: item_node_id(caller_qname),
+        dst: cs_id,
+        label: EdgeLabel::new(EdgeLabel::INVOKES_AT),
+        props: BTreeMap::new(),
+    });
+}
 
 /// Insert `cfg_gate` (when present) + `is_deprecated` + `deprecation_since`
 /// (when present) into the prop map. Centralises the shape used by every
@@ -328,40 +402,18 @@ impl ItemVisitor<'_> {
         kind: &str,
     ) {
         let cs_id = format!("callsite:{parent_qname}.{field_name}:{callee_path}:0");
-        let last_segment = callee_path
-            .rsplit("::")
-            .next()
-            .unwrap_or(callee_path)
-            .to_string();
-        let mut props = BTreeMap::new();
-        props.insert(
-            "caller_qname".into(),
-            PropValue::Str(parent_qname.to_string()),
+        let mut extra = BTreeMap::new();
+        extra.insert("field".into(), PropValue::Str(field_name.to_string()));
+        emit_call_site_node_and_edge(
+            self.emitter,
+            cs_id,
+            parent_qname,
+            callee_path,
+            kind,
+            self.file_path.clone(),
+            self.is_in_test_mod(),
+            extra,
         );
-        props.insert(
-            "callee_path".into(),
-            PropValue::Str(callee_path.to_string()),
-        );
-        props.insert("callee_last_segment".into(), PropValue::Str(last_segment));
-        props.insert("kind".into(), PropValue::Str(kind.to_string()));
-        props.insert("file".into(), PropValue::Str(self.file_path.clone()));
-        props.insert("line".into(), PropValue::Int(0));
-        props.insert("is_test".into(), PropValue::Bool(self.is_in_test_mod()));
-        props.insert("field".into(), PropValue::Str(field_name.to_string()));
-        // SchemaVersion v0.1.3+ discriminator (Label::CALL_SITE doc, #83).
-        props.insert("resolver".into(), PropValue::Str("syn".to_string()));
-        props.insert("callee_resolved".into(), PropValue::Bool(false));
-        self.emitter.emit_node(Node {
-            id: cs_id.clone(),
-            label: Label::new(Label::CALL_SITE),
-            props,
-        });
-        self.emitter.emit_edge(Edge {
-            src: item_node_id(parent_qname),
-            dst: cs_id,
-            label: EdgeLabel::new(EdgeLabel::INVOKES_AT),
-            props: BTreeMap::new(),
-        });
     }
 
     /// Emit one `:Param` node + `HAS_PARAM` edge for a fn/method
