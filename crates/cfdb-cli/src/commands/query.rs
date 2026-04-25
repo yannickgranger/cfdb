@@ -12,8 +12,6 @@ use cfdb_query::{lint_shape, parse, ShapeLint};
 use crate::compose;
 use crate::output;
 
-use super::extract::keyspace_path;
-
 /// Embedded cypher template for `cfdb list-callers`. Loaded via `include_str!`
 /// at compile time so the shipped binary is self-contained — no runtime file
 /// lookup, no deployment-relative paths, and `cargo build` picks up edits to
@@ -124,15 +122,7 @@ pub fn list_callers(
     keyspace: String,
     qname: String,
 ) -> Result<(), crate::CfdbCliError> {
-    let path = keyspace_path(&db, &keyspace);
-    if !path.exists() {
-        return Err(format!(
-            "keyspace `{keyspace}` not found in db `{}` (looked for {})",
-            db.display(),
-            path.display()
-        )
-        .into());
-    }
+    compose::ensure_keyspace_exists(&db, &keyspace)?;
 
     let mut parsed = parse(LIST_CALLERS_CYPHER)
         .map_err(|e| format!("parse error in embedded list-callers template: {e}"))?;

@@ -8,7 +8,6 @@ use std::path::Path;
 use cfdb_core::result::{Warning, WarningKind};
 use cfdb_query::{DebtClass, ScopeInventory};
 
-use crate::commands::keyspace_path;
 use crate::compose;
 use crate::output;
 
@@ -85,15 +84,7 @@ pub fn scope(
     }
 
     let ks_name = resolve_keyspace_name(db, keyspace)?;
-    let ks_path = keyspace_path(db, &ks_name);
-    if !ks_path.exists() {
-        return Err(format!(
-            "keyspace `{ks_name}` not found in db `{}` (looked for {})",
-            db.display(),
-            ks_path.display()
-        )
-        .into());
-    }
+    compose::ensure_keyspace_exists(db, &ks_name)?;
 
     // RFC-035 §3.8: when a workspace is supplied, route through
     // `load_store_with_workspace` so `.cfdb/indexes.toml` flows into the

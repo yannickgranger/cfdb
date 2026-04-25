@@ -11,7 +11,6 @@ use cfdb_core::schema::schema_describe;
 use cfdb_core::store::StoreBackend;
 use cfdb_query::list_items_matching as compose_list_items_matching;
 
-use crate::commands::keyspace_path;
 use crate::compose;
 use crate::output;
 
@@ -25,15 +24,7 @@ pub fn typed_stub(
     keyspace: &str,
     args: &[(&str, &str)],
 ) -> Result<(), crate::CfdbCliError> {
-    let ks_path = keyspace_path(db, keyspace);
-    if !ks_path.exists() {
-        return Err(format!(
-            "keyspace `{keyspace}` not found in db `{}` (looked for {})",
-            db.display(),
-            ks_path.display()
-        )
-        .into());
-    }
+    compose::ensure_keyspace_exists(db, keyspace)?;
     let mut report = serde_json::Map::new();
     report.insert("verb".into(), serde_json::Value::String(verb.into()));
     report.insert("ran".into(), serde_json::Value::Bool(false));
@@ -74,15 +65,7 @@ pub fn list_items_matching(
     kinds: Option<&[ItemKind]>,
     group_by_context: bool,
 ) -> Result<(), crate::CfdbCliError> {
-    let ks_path = keyspace_path(db, keyspace);
-    if !ks_path.exists() {
-        return Err(format!(
-            "keyspace `{keyspace}` not found in db `{}` (looked for {})",
-            db.display(),
-            ks_path.display()
-        )
-        .into());
-    }
+    compose::ensure_keyspace_exists(db, keyspace)?;
 
     let (store, ks) = compose::load_store(db, keyspace)?;
 
@@ -139,10 +122,7 @@ pub fn snapshots(db: PathBuf) -> Result<(), crate::CfdbCliError> {
 /// (RFC §6 G5). Loads the store from `db/<ks>.json`, calls
 /// `StoreBackend::drop_keyspace`, then deletes the on-disk file.
 pub fn drop_keyspace_cmd(db: PathBuf, keyspace: String) -> Result<(), crate::CfdbCliError> {
-    let path = keyspace_path(&db, &keyspace);
-    if !path.exists() {
-        return Err(format!("keyspace `{keyspace}` not found at {}", path.display()).into());
-    }
+    let path = compose::ensure_keyspace_exists(&db, &keyspace)?;
     let (mut store, ks) = compose::load_store(&db, &keyspace)?;
     store.drop_keyspace(&ks)?;
     std::fs::remove_file(&path)?;
