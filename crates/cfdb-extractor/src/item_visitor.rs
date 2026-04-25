@@ -3,8 +3,6 @@
 //! declarations for the outer [`crate::file_walker`] to resolve and recurse
 //! into.
 
-use std::str::FromStr;
-
 use cfdb_core::qname::{item_qname, module_qpath};
 use cfdb_core::Visibility;
 
@@ -112,15 +110,15 @@ fn span_line(ident: &syn::Ident) -> usize {
 /// Translate a `syn::Visibility` AST node into the typed cfdb-core enum
 /// (RFC-033 §7 A1 / Issue #35).
 ///
-/// Two-step pipeline: render the AST to the canonical wire string, then
-/// delegate to `Visibility::from_str`. This keeps a **single resolution
-/// point** for the Rust→`Visibility` mapping — when the variant list grows,
-/// only `Visibility`'s wire-str / `FromStr` pair needs updating, and the
-/// extractor automatically picks up the new variant. Split-brain audit
-/// (`audit-split-brain` FromStrBypass check) enforces the invariant.
+/// Direct AST → enum match. This is the canonical (and only) AST →
+/// `Visibility` mapping — the inverse direction (wire string → enum)
+/// lives in `impl FromStr for Visibility`, and wire-string rendering
+/// for any consumer that needs it lives in `Visibility::as_wire_str`.
+/// Both directions are total over the syn AST, so this function cannot
+/// panic on any valid `syn::Visibility` input.
 ///
-/// Mapping (see `render_syn_visibility_wire` for the AST side and
-/// `impl FromStr for Visibility` for the string side):
+/// Mapping (see `Visibility::as_wire_str` / `impl FromStr for Visibility`
+/// for the wire-string side):
 ///
 /// - `pub`                        → `Public`
 /// - `pub(crate)`                 → `CrateLocal`
@@ -128,24 +126,20 @@ fn span_line(ident: &syn::Ident) -> usize {
 ///   always renders as `pub(super)`)
 /// - inherited (no modifier)      → `Private`
 /// - `pub(in path::to::mod)` and any other `Restricted` path → `Restricted`
-///   carrying the `::`-joined path string
+///   carrying the `::`-joined path string. `pub(in crate)` is preserved
+///   as `Restricted("crate")` rather than collapsing to `CrateLocal` —
+///   the `in` keyword makes it canonically a path-restricted form, and
+///   we keep the distinction on the wire.
+//
+// audit-split-brain: this function is the canonical AST → Visibility
+// source of truth; FromStr is the inverse direction (wire → enum) and
+// not relevant for AST → enum. Direct construction here is intentional
+// — going through render-then-FromStr would be a runtime panic surface
+// for what should be a compile-time-total mapping.
 fn parse_syn_visibility(vis: &syn::Visibility) -> Visibility {
-    let wire = render_syn_visibility_wire(vis);
-    Visibility::from_str(&wire).expect(
-        "render_syn_visibility_wire produces canonical wire strings that FromStr accepts — \
-         if this panics, the two sides of the visibility mapping drifted and audit-split-brain \
-         should have caught it",
-    )
-}
-
-/// Render a `syn::Visibility` AST node to its canonical wire string
-/// (see `Visibility::as_wire_str` for the inverse + full grammar). Kept
-/// separate from `parse_syn_visibility` so tests can assert the rendering
-/// alone without the FromStr round-trip.
-fn render_syn_visibility_wire(vis: &syn::Visibility) -> String {
     match vis {
-        syn::Visibility::Public(_) => "pub".to_string(),
-        syn::Visibility::Inherited => "private".to_string(),
+        syn::Visibility::Public(_) => Visibility::Public,
+        syn::Visibility::Inherited => Visibility::Private,
         syn::Visibility::Restricted(r) => {
             let segments: Vec<String> = r
                 .path
@@ -161,9 +155,9 @@ fn render_syn_visibility_wire(vis: &syn::Visibility) -> String {
             // `in` keyword; the long form always keeps the path verbatim.
             let has_in = r.in_token.is_some();
             match (segments.len(), segments.first().map(String::as_str), has_in) {
-                (1, Some("crate"), false) => "pub(crate)".to_string(),
-                (1, Some("super"), false) | (1, Some("self"), false) => "pub(super)".to_string(),
-                _ => format!("pub(in {})", segments.join("::")),
+                (1, Some("crate"), false) => Visibility::CrateLocal,
+                (1, Some("super"), false) | (1, Some("self"), false) => Visibility::Module,
+                _ => Visibility::Restricted(segments.join("::")),
             }
         }
     }
