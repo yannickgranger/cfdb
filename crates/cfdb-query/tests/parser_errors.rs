@@ -63,6 +63,27 @@ fn keyword_inside_string_literal_does_not_false_positive() {
 }
 
 #[test]
+fn out_of_scope_keyword_inside_double_quoted_string_literal_does_not_false_positive() {
+    // Companion to `keyword_inside_string_literal_does_not_false_positive`,
+    // covering the double-quoted-string branch of the
+    // `classify_string_byte` state machine. The literal "DELETE_ME"
+    // inside a string property comparison must not trigger out-of-scope
+    // rejection — the byte-scan must respect string boundaries.
+    let q = parse(r#"MATCH (n:Item) WHERE n.name = "DELETE_ME" RETURN n"#).expect("parses");
+    assert_eq!(q.match_clauses.len(), 1);
+}
+
+#[test]
+fn out_of_scope_keyword_as_identifier_substring_does_not_false_positive() {
+    // The substring `CREATE` inside identifier `CREATEd_at` must not
+    // trigger rejection. The keyword scan uses ASCII word-boundary
+    // detection (alnum + `_` is one identifier), so `CREATEd_at` is one
+    // identifier and the bare-keyword `CREATE` rule does not fire.
+    let q = parse("MATCH (n:Item) WHERE n.CREATEd_at > 0 RETURN n").expect("parses");
+    assert_eq!(q.match_clauses.len(), 1);
+}
+
+#[test]
 fn parse_match_range_rejects_u32_overflow() {
     // Audit CFDB-QRY-H2 (#272): variable-length range used `unwrapped()` and
     // panicked the process on integer overflow. Must surface as ParseError.
