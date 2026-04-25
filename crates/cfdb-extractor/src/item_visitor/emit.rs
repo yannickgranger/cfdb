@@ -7,7 +7,8 @@ use std::collections::BTreeMap;
 
 use cfdb_core::fact::{Edge, Node, PropValue};
 use cfdb_core::qname::{
-    field_node_id, item_node_id, item_qname, module_qpath, param_node_id, variant_node_id,
+    field_node_id, item_node_id, item_qname, method_qname, module_qpath, param_node_id,
+    variant_node_id,
 };
 use cfdb_core::schema::{EdgeLabel, Label};
 
@@ -78,7 +79,16 @@ impl ItemVisitor<'_> {
         vis: &syn::Visibility,
         attrs: &[syn::Attribute],
     ) -> String {
-        self.emit_item_with_flags(name, kind, line, self.is_in_test_mod(), vis, attrs, None)
+        self.emit_item_with_flags(
+            name,
+            kind,
+            line,
+            self.is_in_test_mod(),
+            vis,
+            attrs,
+            None,
+            None,
+        )
     }
 
     /// Like [`emit_item`] but the caller supplies the `is_test` flag
@@ -92,7 +102,19 @@ impl ItemVisitor<'_> {
     /// required by the `signature_divergent` UDF (#47). Non-fn kinds
     /// (struct, enum, trait, const, …) pass `None` and the prop is
     /// omitted.
-    #[allow(clippy::too_many_arguments)] // 8 args — fn/method :Item shape is wide (name/kind/line/is_test/vis/attrs/signature); a struct would add boilerplate without reducing cognitive load
+    ///
+    /// `impl_target` routes the impl-method emission path through this
+    /// helper instead of duplicating ~95 lines of `:Item` prop
+    /// construction (audit 2026-W17 / EPIC #273 / Pattern 3 F-002).
+    /// When `Some(target)` the qname is computed via
+    /// [`cfdb_core::qname::method_qname`] (`module::Target::method`)
+    /// instead of the free-item formula
+    /// (`module::name`), and the `impl_target` prop is emitted on the
+    /// resulting `:Item` node. When `None` the free-item formula is
+    /// used and no `impl_target` prop is emitted. This is the single
+    /// owner of `:Item` prop emission across free items, impl blocks,
+    /// and impl methods.
+    #[allow(clippy::too_many_arguments)] // 9 args — fn/method :Item shape is wide; impl_target is the impl-method routing knob (audit F-002), the rest are name/kind/line/is_test/vis/attrs/signature
     pub(super) fn emit_item_with_flags(
         &mut self,
         name: &str,
@@ -102,8 +124,12 @@ impl ItemVisitor<'_> {
         vis: &syn::Visibility,
         attrs: &[syn::Attribute],
         signature: Option<&str>,
+        impl_target: Option<&str>,
     ) -> String {
-        let qname = self.qname(name);
+        let qname = match impl_target {
+            Some(target) => method_qname(&self.module_stack, target, name),
+            None => self.qname(name),
+        };
         let id = item_node_id(&qname);
         let mut props = BTreeMap::new();
         props.insert("qname".into(), PropValue::Str(qname.clone()));
@@ -118,6 +144,13 @@ impl ItemVisitor<'_> {
             "module_qpath".into(),
             PropValue::Str(self.current_module_qpath()),
         );
+        // `impl_target` prop is emitted only on the impl-method path so
+        // queries can distinguish methods from free fns by the prop's
+        // presence (audit F-002 routing). Free items don't carry an
+        // impl target — the prop is absent, not the empty string.
+        if let Some(target) = impl_target {
+            props.insert("impl_target".into(), PropValue::Str(target.to_string()));
+        }
         props.insert("file".into(), PropValue::Str(self.file_path.clone()));
         props.insert("line".into(), PropValue::Int(line as i64));
         props.insert("is_test".into(), PropValue::Bool(is_test));
