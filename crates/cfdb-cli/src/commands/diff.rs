@@ -13,7 +13,6 @@ use cfdb_core::store::StoreBackend;
 use cfdb_query::diff::{compute_diff, ChangedFact, DiffEnvelope, DiffFact, KindsFilter};
 use serde_json::{json, Value};
 
-use crate::commands::keyspace_path;
 use crate::compose;
 use crate::output;
 
@@ -49,14 +48,8 @@ pub fn diff(
 ) -> Result<(), crate::CfdbCliError> {
     let format = DiffFormat::from_str(&format)?;
 
-    let path_a = keyspace_path(&db, &a);
-    let path_b = keyspace_path(&db, &b);
-    if !path_a.exists() {
-        return Err(format!("keyspace `{a}` not found at {}", path_a.display()).into());
-    }
-    if !path_b.exists() {
-        return Err(format!("keyspace `{b}` not found at {}", path_b.display()).into());
-    }
+    compose::ensure_keyspace_exists(&db, &a)?;
+    compose::ensure_keyspace_exists(&db, &b)?;
 
     let kinds_filter = kinds
         .as_deref()

@@ -53,6 +53,27 @@ pub(crate) fn empty_store() -> PetgraphStore {
     PetgraphStore::new()
 }
 
+/// Resolve a keyspace's on-disk path under `db` and verify it exists.
+/// Returns the resolved path. Centralises the "keyspace not found" error
+/// shape so every handler sees one consistent diagnostic.
+///
+/// Audit 2026-W17, EPIC #273, Pattern 3 finding cfdb-cli F-003: 8 sites
+/// across the crate hand-rolled `keyspace_path + .exists() + format!("not
+/// found...")`, with three different error-message variants. This helper
+/// collapses them into one canonical informative form.
+pub(crate) fn ensure_keyspace_exists(db: &Path, keyspace: &str) -> Result<PathBuf, CfdbCliError> {
+    let path = keyspace_path(db, keyspace);
+    if !path.exists() {
+        return Err(format!(
+            "keyspace `{keyspace}` not found in db `{}` (looked for {})",
+            db.display(),
+            path.display()
+        )
+        .into());
+    }
+    Ok(path)
+}
+
 /// Load a keyspace from the on-disk database into a fresh `PetgraphStore`.
 ///
 /// Returns the loaded store plus the `Keyspace` handle callers need for

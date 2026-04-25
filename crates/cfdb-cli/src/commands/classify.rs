@@ -20,7 +20,6 @@ use cfdb_query::{
 };
 use serde_json::Value;
 
-use crate::commands::keyspace_path;
 use crate::compose;
 use crate::output;
 use crate::scope::{
@@ -71,15 +70,7 @@ pub fn classify(
     let format = ClassifyFormat::from_str(&format)?;
 
     let ks_name = resolve_keyspace_name(&db, keyspace.as_deref())?;
-    let ks_path = keyspace_path(&db, &ks_name);
-    if !ks_path.exists() {
-        return Err(format!(
-            "keyspace `{ks_name}` not found in db `{}` (looked for {})",
-            db.display(),
-            ks_path.display()
-        )
-        .into());
-    }
+    compose::ensure_keyspace_exists(&db, &ks_name)?;
 
     let diff_envelope = load_diff_envelope(&restrict_to_diff)?;
     let restrict = collect_restrict_qnames(&diff_envelope);
