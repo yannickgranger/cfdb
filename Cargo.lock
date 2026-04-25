@@ -312,6 +312,7 @@ dependencies = [
  "cargo_metadata 0.22.0",
  "cfdb-concepts",
  "cfdb-core",
+ "proc-macro2",
  "serde",
  "serde_json",
  "syn",

@@ -127,7 +127,11 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
         // only — no trait to point to.)
         let trait_qname: Option<String> =
             node.trait_.as_ref().map(|(_, path, _)| render_path(path));
-        self.emit_impl_block(&target, trait_qname.as_deref(), &node.attrs);
+        // Use the `impl` keyword's span line — stable across inherent
+        // and trait impls, and matches what a human reader would point
+        // to as "the impl line" (#273 / F-005).
+        let impl_line = node.impl_token.span.start().line;
+        self.emit_impl_block(&target, trait_qname.as_deref(), impl_line, &node.attrs);
 
         let prev = self.current_impl_target.replace(target);
         syn::visit::visit_item_impl(self, node);
@@ -213,11 +217,17 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
             for f in &named.named {
                 if let Some(ident) = &f.ident {
                     if let Some(callee_path) = extract_serde_default_attr(&f.attrs) {
+                        // Real source line of the field ident — the
+                        // attr-ref CallSite points at the field whose
+                        // `#[serde(default = "...")]` attr it represents
+                        // (#273 / F-005).
+                        let field_line = ident.span().start().line;
                         self.emit_attr_call_site(
                             &parent_qname,
                             &ident.to_string(),
                             &callee_path,
                             "serde_default",
+                            field_line,
                         );
                     }
                 }

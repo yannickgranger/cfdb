@@ -43,7 +43,7 @@ use super::{
 /// `extra_props` is merged after the canonical props so the attr-ref
 /// path can attach `field=<field_name>`. Body-call sites pass an empty
 /// map.
-#[allow(clippy::too_many_arguments)] // 8 args — :CallSite shape is wide; cs_id + extra_props stay caller-side because the two emission paths differ on id format and on whether they attach a `field` prop (audit 2026-W17 / EPIC #273 / Pattern 3 fan-out)
+#[allow(clippy::too_many_arguments)] // 9 args — :CallSite shape is wide; cs_id + extra_props stay caller-side because the two emission paths differ on id format and on whether they attach a `field` prop (audit 2026-W17 / EPIC #273 / Pattern 3 fan-out). `line` is the real source-line number from the call expression's syn span (#273 / F-005); 0 = unknown / synthetic.
 pub(crate) fn emit_call_site_node_and_edge(
     emitter: &mut Emitter,
     cs_id: String,
@@ -51,6 +51,7 @@ pub(crate) fn emit_call_site_node_and_edge(
     callee_path: &str,
     kind: &str,
     file: String,
+    line: usize,
     is_test: bool,
     extra_props: BTreeMap<String, PropValue>,
 ) {
@@ -72,7 +73,7 @@ pub(crate) fn emit_call_site_node_and_edge(
     props.insert("callee_last_segment".into(), PropValue::Str(last_segment));
     props.insert("kind".into(), PropValue::Str(kind.to_string()));
     props.insert("file".into(), PropValue::Str(file));
-    props.insert("line".into(), PropValue::Int(0));
+    props.insert("line".into(), PropValue::Int(line as i64));
     props.insert("is_test".into(), PropValue::Bool(is_test));
     // SchemaVersion v0.1.3+ discriminator (Label::CALL_SITE doc, #83).
     props.insert("resolver".into(), PropValue::Str("syn".to_string()));
@@ -304,6 +305,7 @@ impl ItemVisitor<'_> {
         &mut self,
         target: &str,
         trait_qname: Option<&str>,
+        line: usize,
         attrs: &[syn::Attribute],
     ) {
         let impl_qname = impl_block_qname(&self.module_stack, target, trait_qname);
@@ -326,7 +328,10 @@ impl ItemVisitor<'_> {
             PropValue::Str(self.current_module_qpath()),
         );
         props.insert("file".into(), PropValue::Str(self.file_path.clone()));
-        props.insert("line".into(), PropValue::Int(0));
+        // Real source line of the `impl` token — feeds line-precision
+        // queries the same way fn / struct / enum lines do (#273 /
+        // F-005). 0 for synthetic / macro-expanded impls.
+        props.insert("line".into(), PropValue::Int(line as i64));
         props.insert("is_test".into(), PropValue::Bool(self.is_in_test_mod()));
         // impl blocks carry no visibility modifier of their own in Rust;
         // the impl's effective reachability is the intersection of the
@@ -400,6 +405,7 @@ impl ItemVisitor<'_> {
         field_name: &str,
         callee_path: &str,
         kind: &str,
+        line: usize,
     ) {
         let cs_id = format!("callsite:{parent_qname}.{field_name}:{callee_path}:0");
         let mut extra = BTreeMap::new();
@@ -411,6 +417,7 @@ impl ItemVisitor<'_> {
             callee_path,
             kind,
             self.file_path.clone(),
+            line,
             self.is_in_test_mod(),
             extra,
         );

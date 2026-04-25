@@ -8,6 +8,7 @@
 
 use std::collections::BTreeMap;
 
+use syn::spanned::Spanned;
 use syn::visit::Visit;
 
 use crate::item_visitor::emit_call_site_node_and_edge;
@@ -47,8 +48,9 @@ struct CallSiteVisitor<'e, 'a> {
     caller_qname: &'a str,
     file_path: &'a str,
     /// Count of prior occurrences of each `callee_path` within this fn body.
-    /// Used to build collision-free CallSite ids without needing source
-    /// offsets (which `proc_macro2::Span` doesn't expose on stable Rust).
+    /// Used to build collision-free CallSite ids — even with real line
+    /// numbers (#273 / F-005), two calls on the same line need distinct
+    /// ids so the local-index counter stays.
     counts: BTreeMap<String, usize>,
     is_test: bool,
 }
@@ -57,7 +59,11 @@ impl<'ast> Visit<'ast> for CallSiteVisitor<'_, '_> {
     fn visit_expr_call(&mut self, node: &'ast syn::ExprCall) {
         if let syn::Expr::Path(p) = &*node.func {
             let callee_path = render_path(&p.path);
-            self.emit_call_site(&callee_path, "call");
+            // Source-line of the call — `node.func.span()` points at the
+            // callee path which is the "where the call happens" the
+            // human reader expects (#273 / F-005).
+            let line = node.func.span().start().line;
+            self.emit_call_site(&callee_path, "call", line);
         }
         // Fn-pointer arg pattern: `foo(bar)` where `bar` is an `ExprPath`
         // that names a callable. syn's default visitor descends but never
@@ -68,7 +74,8 @@ impl<'ast> Visit<'ast> for CallSiteVisitor<'_, '_> {
         for arg in &node.args {
             if let syn::Expr::Path(p) = arg {
                 let path = render_path(&p.path);
-                self.emit_call_site(&path, "fn_ptr");
+                let line = p.span().start().line;
+                self.emit_call_site(&path, "fn_ptr", line);
             }
         }
         // Recurse into args — nested calls (`foo(bar())`) must not be lost.
@@ -77,14 +84,20 @@ impl<'ast> Visit<'ast> for CallSiteVisitor<'_, '_> {
 
     fn visit_expr_method_call(&mut self, node: &'ast syn::ExprMethodCall) {
         let method = node.method.to_string();
-        self.emit_call_site(&method, "method");
+        // The method ident span is the "where the call happens" line —
+        // `x\n .foo()` has the receiver on one line and `.foo` on the
+        // next; the method-name line is the more useful one for
+        // line-precision queries (#273 / F-005).
+        let line = node.method.span().start().line;
+        self.emit_call_site(&method, "method", line);
         // Same fn-pointer-arg projection as `visit_expr_call`. This is the
         // dominant shape in real code: `.unwrap_or_else(Utc::now)`,
         // `.or_insert_with(Default::default)`, etc.
         for arg in &node.args {
             if let syn::Expr::Path(p) = arg {
                 let path = render_path(&p.path);
-                self.emit_call_site(&path, "fn_ptr");
+                let arg_line = p.span().start().line;
+                self.emit_call_site(&path, "fn_ptr", arg_line);
             }
         }
         syn::visit::visit_expr_method_call(self, node);
@@ -152,7 +165,7 @@ impl CallSiteVisitor<'_, '_> {
 }
 
 impl CallSiteVisitor<'_, '_> {
-    fn emit_call_site(&mut self, callee_path: &str, kind: &str) {
+    fn emit_call_site(&mut self, callee_path: &str, kind: &str, line: usize) {
         let local_idx = {
             let counter = self.counts.entry(callee_path.to_string()).or_insert(0);
             let idx = *counter;
@@ -170,6 +183,7 @@ impl CallSiteVisitor<'_, '_> {
             callee_path,
             kind,
             self.file_path.to_string(),
+            line,
             self.is_test,
             BTreeMap::new(),
         );

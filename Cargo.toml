@@ -34,6 +34,13 @@ petgraph = "0.8"
 
 # Extractor
 syn = { version = "2", features = ["full", "extra-traits", "visit"] }
+# `span-locations` is load-bearing: proc-macro2 only exposes `Span::start()`
+# under this feature on non-proc-macro builds (i.e. cfdb-extractor parsing
+# `.rs` files via `syn::parse_file`). Without it, every `:Item.line` and
+# `:CallSite.line` collapses to 0 — the bug fixed in #273 / F-005. Keep
+# this feature enabled for every workspace consumer that derives source
+# coordinates from a syn AST.
+proc-macro2 = { version = "1", features = ["span-locations"] }
 cargo_metadata = "0.22"
 toml = { version = "0.8", default-features = false, features = ["parse"] }
 
