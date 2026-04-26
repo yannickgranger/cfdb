@@ -291,13 +291,25 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
 
     fn visit_item_const(&mut self, node: &'ast syn::ItemConst) {
         let name = node.ident.to_string();
-        self.emit_item(
+        let item_id = self.emit_item(
             &name,
             "const",
             span_line(&node.ident),
             &node.vis,
             &node.attrs,
         );
+        // RFC-040 §3.3 — recognize literal slice/array tables and emit a
+        // `:ConstTable` node + `HAS_CONST_TABLE` edge alongside the parent
+        // `:Item`. Non-recognized consts (scalars, custom types, non-literal
+        // exprs) take the early-return None path and emit only the parent.
+        if let Some(table) = crate::const_table::recognize_const_table(
+            node,
+            &self.crate_name,
+            &self.current_module_qpath(),
+            self.is_in_test_mod(),
+        ) {
+            self.emit_const_table(table, &item_id);
+        }
     }
 
     fn visit_item_static(&mut self, node: &'ast syn::ItemStatic) {
