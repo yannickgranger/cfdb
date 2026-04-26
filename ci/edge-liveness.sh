@@ -26,9 +26,18 @@
 #     with awk rather than the tabular awk 'NR==2 {print $1}' form the
 #     RFC draft assumed.
 #
+# Reserved-label suppression (issue #307): labels whose schema descriptor
+# carries `provenance: "reserved"` are declared without producers BY DESIGN
+# (Phase B reservations). They are reported with a `(reserved)` annotation
+# in the informational table but do NOT trigger the failure exit code. The
+# reserved set is read from `cfdb schema-describe` JSON — the schema
+# descriptor is the single source of truth (no hardcoded list here).
+#
 # Exit codes:
-#   0 — every declared label has at least one instance (liveness pass)
-#   1 — one or more declared labels have zero instances (reported on stderr)
+#   0 — every non-reserved declared label has at least one instance, OR
+#       all dormant labels are reserved (liveness pass)
+#   1 — one or more non-reserved declared labels have zero instances
+#       (reported on stderr)
 #   2 — usage error or required binary absent
 
 set -euo pipefail
@@ -42,6 +51,33 @@ if [ ! -x "$CFDB_BIN" ]; then
     echo "  hint: cargo build -p cfdb-cli --bin cfdb --release --features hir" >&2
     exit 2
 fi
+
+if ! command -v jq >/dev/null 2>&1; then
+    echo "edge-liveness: jq required (read reserved labels from schema describer)" >&2
+    exit 2
+fi
+
+# Reserved labels — read from the schema describer JSON. Single source of
+# truth = `Provenance::Reserved` in cfdb-core. Issue #307 forbids hardcoding
+# a list here; if a future reservation lands or unlands, this script tracks
+# the schema automatically.
+RESERVED_RAW="$("$CFDB_BIN" schema-describe 2>/dev/null \
+    | jq -r '.edges[] | select(.provenance == "reserved") | .label')"
+declare -a RESERVED_LABELS=()
+while IFS= read -r line; do
+    [ -n "$line" ] && RESERVED_LABELS+=("$line")
+done <<< "$RESERVED_RAW"
+
+is_reserved() {
+    local target="$1"
+    local r
+    for r in "${RESERVED_LABELS[@]}"; do
+        if [ "$r" = "$target" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
 
 # Full v0.3.0 edge-label vocabulary. Mirrors the `pub const` set in
 # `crates/cfdb-core/src/schema/labels.rs` (18 entries after #228).
@@ -78,9 +114,14 @@ for lbl in "${EDGE_LABELS[@]}"; do
         "MATCH ()-[r:${lbl}]->() RETURN count(*) AS n" 2>/dev/null || true)"
     n="$(printf '%s' "$out" | awk '/"n":/ {gsub(/[^0-9]/,""); print; exit}')"
     n="${n:-0}"
-    COUNTS+=("$(printf '%-18s %s' "$lbl" "$n")")
-    if [ "$n" = "0" ]; then
-        MISSING+=("$lbl")
+    if [ "$n" = "0" ] && is_reserved "$lbl"; then
+        # Reserved-by-design (issue #307): annotate, do not fail.
+        COUNTS+=("$(printf '%-18s %s' "$lbl" "0 (reserved)")")
+    else
+        COUNTS+=("$(printf '%-18s %s' "$lbl" "$n")")
+        if [ "$n" = "0" ]; then
+            MISSING+=("$lbl")
+        fi
     fi
 done
 
