@@ -43,6 +43,7 @@ use std::path::{Path, PathBuf};
 use cargo_metadata::MetadataCommand;
 use cfdb_core::fact::{Edge, Node, PropValue};
 use cfdb_core::schema::{EdgeLabel, Label};
+use cfdb_core::ContextSource;
 use thiserror::Error;
 
 mod attrs;
@@ -113,7 +114,16 @@ pub fn extract_workspace(workspace_root: &Path) -> Result<(Vec<Node>, Vec<Edge>)
     // Accumulate every bounded context we see so we can emit one `:Context`
     // node per unique context after the crate loop. BTreeMap gives us a
     // deterministic emission order (RFC-029 §12.1 G1).
-    let mut contexts_seen: BTreeMap<String, ContextMeta> = overrides.declared_contexts();
+    //
+    // Each entry pairs the metadata with a [`ContextSource`] discriminator
+    // (RFC-038 §3.3): `Declared` for contexts pre-seeded from
+    // `.cfdb/concepts/*.toml`, `Heuristic` for contexts synthesised from
+    // crate-name prefix stripping during the per-crate loop. Pre-seeding
+    // declared contexts FIRST means a later heuristic crate that maps to
+    // the same context name cannot demote the source — `or_insert_with`
+    // only fires when the entry is absent.
+    let mut contexts_seen: BTreeMap<String, (ContextMeta, ContextSource)> =
+        seed_declared_contexts(&overrides);
 
     for package in metadata.workspace_packages() {
         emit_crate_and_walk_targets(
@@ -132,8 +142,8 @@ pub fn extract_workspace(workspace_root: &Path) -> Result<(Vec<Node>, Vec<Edge>)
     // context first. Contexts declared in `.cfdb/concepts/*.toml` that no
     // workspace crate is part of are still emitted — downstream tooling
     // may reference cross-workspace taxonomies.
-    for (name, meta) in &contexts_seen {
-        emit_context_node(&mut emitter, name, meta);
+    for (name, (meta, source)) in &contexts_seen {
+        emit_context_node(&mut emitter, name, meta, *source);
     }
 
     // Step 3 (post-walk) — RETURNS resolution (RFC-037 §3.2, #216).
@@ -183,7 +193,7 @@ fn emit_crate_and_walk_targets(
     package: &cargo_metadata::Package,
     overrides: &ConceptOverrides,
     published_language: &PublishedLanguageCrates,
-    contexts_seen: &mut BTreeMap<String, ContextMeta>,
+    contexts_seen: &mut BTreeMap<String, (ContextMeta, ContextSource)>,
     workspace_root: &Path,
 ) -> Result<(), ExtractError> {
     let crate_id = format!("crate:{}", package.name);
@@ -191,16 +201,12 @@ fn emit_crate_and_walk_targets(
 
     // Heuristic-synthesised contexts also need a `:Context` node so
     // `BELONGS_TO` has a valid target. The override-declared ones are
-    // already in `contexts_seen`; insert the heuristic result if the
-    // name is new.
-    let context_for_seen = bounded_context.clone();
-    contexts_seen
-        .entry(context_for_seen)
-        .or_insert_with(|| ContextMeta {
-            name: bounded_context.clone(),
-            canonical_crate: None,
-            owning_rfc: None,
-        });
+    // already pre-seeded in `contexts_seen` with `ContextSource::Declared`
+    // (see `extract_workspace`); the helper only inserts a `Heuristic`
+    // entry for names absent from the pre-seed. This implements the
+    // §3.3 aggregation rule: a context declared via override cannot be
+    // demoted by a later heuristic crate.
+    accumulate_heuristic_context(contexts_seen, &bounded_context);
 
     emitter.emit_node(Node {
         id: crate_id.clone(),
@@ -254,10 +260,11 @@ fn emit_crate_and_walk_targets(
     Ok(())
 }
 
-/// Emit a single `:Context` node from its accumulated [`ContextMeta`].
-/// Pulled out of the context-emission loop so the per-property clones
-/// do not count against the `clones-in-loops` metric.
-fn emit_context_node(emitter: &mut Emitter, name: &str, meta: &ContextMeta) {
+/// Emit a single `:Context` node from its accumulated [`ContextMeta`] +
+/// [`ContextSource`] discriminator (RFC-038 §3.3). Pulled out of the
+/// context-emission loop so the per-property clones do not count against
+/// the `clones-in-loops` metric.
+fn emit_context_node(emitter: &mut Emitter, name: &str, meta: &ContextMeta, source: ContextSource) {
     let id = format!("context:{name}");
     let mut props = BTreeMap::new();
     props.insert("name".into(), PropValue::Str(name.to_string()));
@@ -275,9 +282,193 @@ fn emit_context_node(emitter: &mut Emitter, name: &str, meta: &ContextMeta) {
             None => PropValue::Null,
         },
     );
+    props.insert(
+        "source".into(),
+        PropValue::Str(source.as_wire_str().to_string()),
+    );
     emitter.emit_node(Node {
         id,
         label: Label::new(Label::CONTEXT),
         props,
     });
+}
+
+/// Build the per-context accumulator pre-seeded with every override-declared
+/// context tagged [`ContextSource::Declared`]. RFC-038 §3.3 aggregation rule:
+/// pre-seeding declared entries before the per-crate heuristic loop means
+/// `or_insert_with` cannot demote a declared context to heuristic later on.
+fn seed_declared_contexts(
+    overrides: &ConceptOverrides,
+) -> BTreeMap<String, (ContextMeta, ContextSource)> {
+    overrides
+        .declared_contexts()
+        .into_iter()
+        .map(|(name, meta)| (name, (meta, ContextSource::Declared)))
+        .collect()
+}
+
+/// Insert a heuristic-synthesised context into the accumulator iff its name
+/// is unseen. The entry-level idempotence is what makes the §3.3 aggregation
+/// rule hold: a declared pre-seed for the same name suppresses this insert
+/// entirely.
+fn accumulate_heuristic_context(
+    contexts_seen: &mut BTreeMap<String, (ContextMeta, ContextSource)>,
+    name: &str,
+) {
+    contexts_seen.entry(name.to_string()).or_insert_with(|| {
+        (
+            ContextMeta {
+                name: name.to_string(),
+                canonical_crate: None,
+                owning_rfc: None,
+            },
+            ContextSource::Heuristic,
+        )
+    });
+}
+
+#[cfg(test)]
+mod context_source_aggregation_tests {
+    //! RFC-038 §3.3 aggregation rule — four explicit cases prescribed in
+    //! issue #302. The rule: when multiple crates resolve to the same
+    //! bounded-context name, the emitted `:Context` node's `source` is
+    //! `Declared` if ANY contributing crate declared it via override, else
+    //! `Heuristic`. Pre-seeding declared contexts first + `or_insert_with`
+    //! for heuristic crates implements this implicitly.
+    use super::{accumulate_heuristic_context, seed_declared_contexts};
+    use cfdb_concepts::{compute_bounded_context, ConceptOverrides, ContextMeta};
+    use cfdb_core::ContextSource;
+    use std::collections::BTreeMap;
+    use std::path::PathBuf;
+    use tempfile::TempDir;
+
+    /// Synthesise a `ConceptOverrides` by writing a single
+    /// `.cfdb/concepts/<context>.toml` file inside a tempdir and feeding it
+    /// through the real `cfdb_concepts::load_concept_overrides` loader.
+    /// Real-infra preferred over hand-built struct (CLAUDE.md §2.5).
+    fn overrides_with_one_context(
+        context_name: &str,
+        crates: &[&str],
+    ) -> (TempDir, ConceptOverrides) {
+        let tmp = TempDir::new().expect("tempdir");
+        let dir: PathBuf = tmp.path().join(".cfdb").join("concepts");
+        std::fs::create_dir_all(&dir).expect("mkdir concepts");
+        let mut body = format!("name = \"{context_name}\"\ncrates = [");
+        for c in crates {
+            body.push_str(&format!("\"{c}\","));
+        }
+        body.push_str("]\n");
+        std::fs::write(dir.join(format!("{context_name}.toml")), body).expect("write toml");
+        let loaded = cfdb_concepts::load_concept_overrides(tmp.path()).expect("load overrides");
+        (tmp, loaded)
+    }
+
+    /// Drive the accumulator using the same call sequence as the production
+    /// extract loop: seed → per-crate heuristic insert (when not pre-seeded).
+    /// Returns the final accumulator state; visitation order is whatever the
+    /// caller passes in.
+    fn run_accumulator(
+        overrides: &ConceptOverrides,
+        crate_visit_order: &[&str],
+    ) -> BTreeMap<String, (ContextMeta, ContextSource)> {
+        let mut acc = seed_declared_contexts(overrides);
+        for crate_name in crate_visit_order {
+            let bc = compute_bounded_context(crate_name, overrides);
+            // Mirror `emit_crate_and_walk_targets`: heuristic-only insert.
+            // Pre-seeded declared entries are NEVER overwritten here.
+            accumulate_heuristic_context(&mut acc, &bc.name);
+        }
+        acc
+    }
+
+    /// Case 1: declared + heuristic mixed for the same context name.
+    /// One TOML-overridden crate maps to context `"trading"`; one
+    /// prefix-heuristic crate also maps to `"trading"`. The pre-seeded
+    /// declared entry must NOT be demoted by the heuristic crate.
+    #[test]
+    fn declared_plus_heuristic_resolves_to_declared() {
+        // Override: `messenger` -> `trading` (no prefix, declared via TOML).
+        let (_tmp, overrides) = overrides_with_one_context("trading", &["messenger"]);
+        // `domain-trading` is NOT in the override → prefix heuristic strips
+        // `domain-` and returns `trading` as the context name.
+        let acc = run_accumulator(&overrides, &["messenger", "domain-trading"]);
+        let (_, source) = acc.get("trading").expect("trading context present");
+        assert_eq!(
+            *source,
+            ContextSource::Declared,
+            "declared+heuristic mixed → context source must be Declared"
+        );
+    }
+
+    /// Case 2: heuristic + heuristic only — both crates resolve to the same
+    /// context name via prefix stripping; neither is in the override file.
+    /// The aggregated source is `Heuristic`.
+    #[test]
+    fn heuristic_plus_heuristic_resolves_to_heuristic() {
+        // Empty overrides — every crate resolves heuristically.
+        let overrides = ConceptOverrides::default();
+        // `domain-trading` and `ports-trading` both strip to `trading`.
+        let acc = run_accumulator(&overrides, &["domain-trading", "ports-trading"]);
+        let (_, source) = acc.get("trading").expect("trading context present");
+        assert_eq!(
+            *source,
+            ContextSource::Heuristic,
+            "heuristic+heuristic → context source must be Heuristic"
+        );
+    }
+
+    /// Case 3: declared + declared — two TOML-overridden crates declare the
+    /// same context. The aggregated source is `Declared`.
+    #[test]
+    fn declared_plus_declared_resolves_to_declared() {
+        // Both crates declared in the same `trading.toml`.
+        let (_tmp, overrides) = overrides_with_one_context("trading", &["messenger", "ledger"]);
+        let acc = run_accumulator(&overrides, &["messenger", "ledger"]);
+        let (_, source) = acc.get("trading").expect("trading context present");
+        assert_eq!(
+            *source,
+            ContextSource::Declared,
+            "declared+declared → context source must be Declared"
+        );
+    }
+
+    /// Case 4: visitation-order independence. Shuffling the crate visitation
+    /// order across runs must produce the identical `(name, source)` tuple
+    /// set — this is the determinism invariant (RFC-029 §12.1 G1) projected
+    /// onto the new `source` discriminator.
+    #[test]
+    fn visitation_order_independence() {
+        let (_tmp, overrides) = overrides_with_one_context("trading", &["messenger"]);
+
+        // Two interleavings of the same crate set: declared-first vs
+        // heuristic-first. Both must yield the same final accumulator.
+        let acc_declared_first = run_accumulator(
+            &overrides,
+            &["messenger", "domain-trading", "ports-trading"],
+        );
+        let acc_heuristic_first = run_accumulator(
+            &overrides,
+            &["ports-trading", "domain-trading", "messenger"],
+        );
+
+        // Project both accumulators to (name, source) sets — drop ContextMeta
+        // because its canonical_crate/owning_rfc fields are NOT subject to
+        // the aggregation rule (they come straight from the TOML).
+        let project = |acc: &BTreeMap<String, (ContextMeta, ContextSource)>| {
+            acc.iter()
+                .map(|(name, (_meta, source))| (name.clone(), *source))
+                .collect::<BTreeMap<String, ContextSource>>()
+        };
+        assert_eq!(
+            project(&acc_declared_first),
+            project(&acc_heuristic_first),
+            "(name, source) tuple set must be invariant under visitation order"
+        );
+        // And the trading context must be Declared in both — the override
+        // pre-seed wins regardless of when `messenger` is visited.
+        assert_eq!(
+            acc_declared_first.get("trading").map(|(_, s)| *s),
+            Some(ContextSource::Declared),
+        );
+    }
 }
