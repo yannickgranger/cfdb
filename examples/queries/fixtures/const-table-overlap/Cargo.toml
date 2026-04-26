@@ -1,0 +1,3 @@
+[workspace]
+resolver = "2"
+members = ["kraken_normalize", "oanda_pricing", "binance_exchange", "metric_client"]
