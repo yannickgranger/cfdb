@@ -17,6 +17,8 @@
 use std::fmt;
 use std::str::FromStr;
 
+use crate::fact::PropValue;
+
 /// Provenance discriminator for `:Context` nodes (RFC-038). `Declared` is
 /// author-asserted in `.cfdb/concepts/<name>.toml`; `Heuristic` is auto-derived
 /// by `cfdb_concepts::compute_bounded_context` via crate-name prefix stripping.
@@ -51,6 +53,31 @@ impl FromStr for ContextSource {
             "heuristic" => Ok(ContextSource::Heuristic),
             other => Err(format!("unrecognised context source: {other:?}")),
         }
+    }
+}
+
+/// Parse a `:Context.source` prop value into [`ContextSource`], defaulting
+/// to [`ContextSource::Heuristic`] when:
+///
+/// - the prop is absent (legacy pre-RFC-038 keyspace),
+/// - the prop is `Null`,
+/// - the prop is non-string (`Int`, `Float`, `Bool`),
+/// - the string fails to parse via [`ContextSource::from_str`].
+///
+/// Per RFC-038 §4: absence of provenance cannot be promoted to declared
+/// status; `Heuristic` is the least-confidence default. This invariant lets
+/// pre-RFC-038 keyspaces (no `:Context.source` prop on disk) load cleanly
+/// under post-RFC-038 readers without misclassifying their contexts as
+/// author-asserted.
+///
+/// Centralised here so consumers in `cfdb-petgraph` / `cfdb-query` /
+/// `cfdb-cli` and downstream crates don't each reinvent the absence-handling
+/// rule.
+#[must_use]
+pub fn parse_or_default(prop_value: Option<&PropValue>) -> ContextSource {
+    match prop_value {
+        Some(PropValue::Str(s)) => s.parse().unwrap_or(ContextSource::Heuristic),
+        _ => ContextSource::Heuristic,
     }
 }
 
@@ -98,5 +125,52 @@ mod tests {
         // Wire format is canonically lower-case; mixed-case rejects.
         assert!("Declared".parse::<ContextSource>().is_err());
         assert!("DECLARED".parse::<ContextSource>().is_err());
+    }
+
+    #[test]
+    fn parse_or_default_absent_returns_heuristic() {
+        assert_eq!(parse_or_default(None), ContextSource::Heuristic);
+    }
+
+    #[test]
+    fn parse_or_default_string_declared() {
+        let v = PropValue::Str("declared".into());
+        assert_eq!(parse_or_default(Some(&v)), ContextSource::Declared);
+    }
+
+    #[test]
+    fn parse_or_default_string_heuristic() {
+        let v = PropValue::Str("heuristic".into());
+        assert_eq!(parse_or_default(Some(&v)), ContextSource::Heuristic);
+    }
+
+    #[test]
+    fn parse_or_default_string_invalid_returns_heuristic() {
+        let v = PropValue::Str("garbage".into());
+        assert_eq!(parse_or_default(Some(&v)), ContextSource::Heuristic);
+    }
+
+    #[test]
+    fn parse_or_default_null_returns_heuristic() {
+        let v = PropValue::Null;
+        assert_eq!(parse_or_default(Some(&v)), ContextSource::Heuristic);
+    }
+
+    #[test]
+    fn parse_or_default_int_returns_heuristic() {
+        let v = PropValue::Int(0);
+        assert_eq!(parse_or_default(Some(&v)), ContextSource::Heuristic);
+    }
+
+    #[test]
+    fn parse_or_default_float_returns_heuristic() {
+        let v = PropValue::Float(0.0);
+        assert_eq!(parse_or_default(Some(&v)), ContextSource::Heuristic);
+    }
+
+    #[test]
+    fn parse_or_default_bool_returns_heuristic() {
+        let v = PropValue::Bool(false);
+        assert_eq!(parse_or_default(Some(&v)), ContextSource::Heuristic);
     }
 }
