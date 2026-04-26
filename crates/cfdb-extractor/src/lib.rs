@@ -48,6 +48,7 @@ use thiserror::Error;
 
 mod attrs;
 mod call_visitor;
+mod const_table;
 mod emitter;
 mod file_walker;
 mod item_visitor;
