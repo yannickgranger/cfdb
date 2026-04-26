@@ -52,6 +52,7 @@ mod emitter;
 mod file_walker;
 mod item_visitor;
 mod resolver;
+mod synthesize;
 mod type_render;
 
 pub(crate) use emitter::Emitter;
@@ -176,6 +177,17 @@ pub fn extract_workspace(workspace_root: &Path) -> Result<(Vec<Node>, Vec<Edge>)
     // follow-up (variant payloads are already walked as `:Field`
     // nodes which queue their own TYPE_OF entries).
     resolver::resolve_deferred_type_of(&mut emitter);
+
+    // Step 5 (post-walk) — synthesize minimal `:Item` nodes for edge dst
+    // qnames that no walk path emitted: foreign traits (`std::fmt::Display`),
+    // foreign types (`serde::Value`), or any same-workspace item referenced
+    // by edge before walking. Without this pass `cfdb-petgraph::ingest_one_edge`
+    // drops every IMPLEMENTS / IMPLEMENTS_FOR / RETURNS / TYPE_OF whose dst
+    // is unknown — issue #317 (reframed from withdrawn RFC-039). Runs AFTER
+    // RETURNS / TYPE_OF resolution so the resolvers' exact-match tier is
+    // not contaminated by synthesised entries; runs BEFORE finish() so
+    // synthesised nodes/edges land in the same canonical sort.
+    synthesize::synthesize_referenced_items(&mut emitter, &overrides);
 
     let (mut nodes, mut edges) = emitter.finish();
     nodes.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));

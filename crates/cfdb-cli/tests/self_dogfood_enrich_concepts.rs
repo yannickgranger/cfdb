@@ -70,18 +70,47 @@ fn self_dogfood_cfdb_concept_and_labeled_as_coverage() {
         Some("manual")
     );
 
-    let total_items = all_nodes
+    // LABELED_AS coverage is over WALKED cfdb :Item nodes — i.e. items
+    // whose `crate` prop is one of the cfdb sub-workspace crates listed
+    // in `.cfdb/concepts/cfdb.toml`. Items synthesised by the post-walk
+    // pass for foreign edge dst qnames (std, serde, ...) (issue #317)
+    // carry their own crate (`std`, `serde`, ...) — those are NOT cfdb
+    // concept members and correctly get no LABELED_AS edge.
+    // Mirrors `.cfdb/concepts/cfdb.toml` `crates` list. If cfdb gains a
+    // new crate, add it both to the TOML and here — the test is the
+    // signal that enrich_concepts saw every cfdb crate's items.
+    let cfdb_crates: std::collections::BTreeSet<&str> = [
+        "cfdb-core",
+        "cfdb-concepts",
+        "cfdb-query",
+        "cfdb-petgraph",
+        "cfdb-extractor",
+        "cfdb-hir-extractor",
+        "cfdb-hir-petgraph-adapter",
+        "cfdb-cli",
+        "cfdb-recall",
+        "check-prelude-triggers",
+    ]
+    .into_iter()
+    .collect();
+    let cfdb_walked_items = all_nodes
         .iter()
-        .filter(|n| n.label.as_str() == Label::ITEM)
+        .filter(|n| {
+            n.label.as_str() == Label::ITEM
+                && n.props
+                    .get("crate")
+                    .and_then(PropValue::as_str)
+                    .is_some_and(|c| cfdb_crates.contains(c))
+        })
         .count();
     let labeled_as_count = all_edges
         .iter()
         .filter(|e| e.label.as_str() == EdgeLabel::LABELED_AS && e.dst == cfdb_concept.id)
         .count();
     assert_eq!(
-        labeled_as_count, total_items,
-        "every cfdb :Item should have a LABELED_AS edge to :Concept{{cfdb}} \
-         (got {labeled_as_count} edges vs {total_items} items)"
+        labeled_as_count, cfdb_walked_items,
+        "every cfdb-crate :Item should have a LABELED_AS edge to :Concept{{cfdb}} \
+         (got {labeled_as_count} edges vs {cfdb_walked_items} cfdb-crate items)"
     );
 
     // CANONICAL_FOR: cfdb.toml declares canonical_crate = "cfdb-core", so
