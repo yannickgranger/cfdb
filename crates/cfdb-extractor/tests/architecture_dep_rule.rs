@@ -34,6 +34,21 @@ const ALLOWED_DEPS: &[&str] = &[
     "toml",
     // Serialization for emit surface.
     "serde",
+    // RFC-040 §3.1 / slice 3 (#325) — `:ConstTable.entries_normalized` and
+    // `entries_sample` are wire-stable JSON arrays of either strings (with
+    // full JSON escaping) or integers up to `u64::MAX`. Hand-rolling the
+    // escape rules duplicates serde_json's tested implementation; the dep
+    // is workspace-known. Source-analysis-adjacent: the extractor is the
+    // single producer of these wire props, no other layer is involved.
+    "serde_json",
+    // RFC-040 §3.1 / slice 3 (#325) — `:ConstTable.entries_hash` is sha256
+    // hex over the canonical-sorted entry sequence. Pure cryptographic
+    // primitive, no transitive runtime cost; the workspace dep table
+    // already carries it for `cfdb-cli`'s persistence layer (R2 absorbed
+    // rust-systems B2 — sha2 was incorrectly assumed transitive through
+    // `cfdb-cli` in the original draft, but cfdb-cli depends on
+    // cfdb-extractor and not vice-versa).
+    "sha2",
     "thiserror",
 ];
 

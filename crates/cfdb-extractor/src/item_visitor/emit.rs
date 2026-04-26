@@ -627,4 +627,68 @@ impl ItemVisitor<'_> {
         });
         (id, variant_qname)
     }
+
+    /// Emit one `:ConstTable` node and the `(:Item) -[:HAS_CONST_TABLE]->
+    /// (:ConstTable)` edge from a recognized const-table candidate
+    /// ([`crate::const_table::recognize_const_table`]). RFC-040 §3.1 / §3.2.
+    ///
+    /// `parent_item_id` is the `:Item` node id returned by `emit_item` for
+    /// the parent const — the edge flows parent → satellite, matching the
+    /// rest of the `HAS_*` family. The id namespace is disjoint from
+    /// `:Item` (`const_table:{qname}` vs `item:{qname}`).
+    ///
+    /// The `element_type` wire string is constructed exclusively via
+    /// [`crate::const_table::ElementType::as_wire_str`] — the single owner
+    /// of the closed-set vocabulary `{"str", "u32", "i32", "u64", "i64"}`
+    /// per the RFC-038 §3.1 invariant-owner pattern (R2 solid-architect B2).
+    pub(super) fn emit_const_table(
+        &mut self,
+        table: crate::const_table::RecognizedConstTable,
+        parent_item_id: &str,
+    ) {
+        let crate::const_table::RecognizedConstTable {
+            qname,
+            name,
+            crate_name,
+            module_qpath,
+            element_type,
+            entries,
+            is_test,
+        } = table;
+        let id = format!("const_table:{qname}");
+        let mut props = BTreeMap::new();
+        props.insert("crate".into(), PropValue::Str(crate_name));
+        props.insert(
+            "element_type".into(),
+            PropValue::Str(element_type.as_wire_str().to_string()),
+        );
+        props.insert(
+            "entries_hash".into(),
+            PropValue::Str(crate::const_table::entries_hash_hex(&entries)),
+        );
+        props.insert(
+            "entries_normalized".into(),
+            PropValue::Str(crate::const_table::entries_normalized_json(&entries)),
+        );
+        props.insert(
+            "entries_sample".into(),
+            PropValue::Str(crate::const_table::entries_sample_json(&entries)),
+        );
+        props.insert("entry_count".into(), PropValue::Int(entries.len() as i64));
+        props.insert("is_test".into(), PropValue::Bool(is_test));
+        props.insert("module_qpath".into(), PropValue::Str(module_qpath));
+        props.insert("name".into(), PropValue::Str(name));
+        props.insert("qname".into(), PropValue::Str(qname));
+        self.emitter.emit_node(Node {
+            id: id.clone(),
+            label: Label::new(Label::CONST_TABLE),
+            props,
+        });
+        self.emitter.emit_edge(Edge {
+            src: parent_item_id.to_string(),
+            dst: id,
+            label: EdgeLabel::new(EdgeLabel::HAS_CONST_TABLE),
+            props: BTreeMap::new(),
+        });
+    }
 }
