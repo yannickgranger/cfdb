@@ -9,7 +9,9 @@ fn schema_describe_covers_all_node_labels() {
     // Order follows RFC §6.1 / PLAN-v1 §6.1 table order; `Context` appended
     // per council-cfdb-wiring §B.1.3 (v0.1 minor schema bump, #3727);
     // `RfcDoc` appended per #43-A council round 1 synthesis (reservation
-    // only — first emissions land in slice 43-D).
+    // only — first emissions land in slice 43-D); `ConstTable` appended
+    // per RFC-040 slice 1/5 (issue #323 reservation; first emissions land
+    // in slice 3/5, issue #325).
     assert_eq!(
         labels,
         vec![
@@ -25,6 +27,7 @@ fn schema_describe_covers_all_node_labels() {
             "Concept",
             "Context",
             "RfcDoc",
+            "ConstTable",
         ]
     );
 }
@@ -35,13 +38,16 @@ fn schema_describe_covers_all_edge_labels() {
     let edges: Vec<&str> = d.edges.iter().map(|e| e.label.as_str()).collect();
     // Every const on EdgeLabel must appear in schema_describe exactly
     // once. `REFERENCED_BY` appended per #43-A (reservation only — first
-    // emissions land in slice 43-D alongside `:RfcDoc`).
+    // emissions land in slice 43-D alongside `:RfcDoc`); `HAS_CONST_TABLE`
+    // appended per RFC-040 slice 1/5 (issue #323 reservation; first
+    // emissions land in slice 3/5, issue #325).
     let expected = [
         "IN_CRATE",
         "IN_MODULE",
         "HAS_FIELD",
         "HAS_VARIANT",
         "HAS_PARAM",
+        "HAS_CONST_TABLE",
         "TYPE_OF",
         "IMPLEMENTS",
         "IMPLEMENTS_FOR",

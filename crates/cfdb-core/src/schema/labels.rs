@@ -50,6 +50,15 @@ impl Label {
     /// `:RfcDoc` nodes carry `path` (string, workspace-relative) and
     /// optional `title` (string, from the first `# ` heading).
     pub const RFC_DOC: &'static str = "RfcDoc";
+    /// A literal const slice/array recognized by the extractor as a "table"
+    /// of values (RFC-040). Carries `qname`, `name`, `crate`, `module_qpath`,
+    /// `element_type` (closed-set wire string ∈ `{"str", "u32", "i32",
+    /// "u64", "i64"}`), `entry_count`, `entries_hash`, `entries_normalized`,
+    /// `entries_sample`, `is_test`. Reserved in slice 1/5 (issue #323);
+    /// first emissions land in slice 3/5 (issue #325). The
+    /// `(:Item) -[:HAS_CONST_TABLE]-> (:ConstTable)` edge encodes parent →
+    /// satellite ownership matching the established `HAS_*` family.
+    pub const CONST_TABLE: &'static str = "ConstTable";
 
     pub fn new(s: impl Into<String>) -> Self {
         Self(s.into())
@@ -84,6 +93,11 @@ impl EdgeLabel {
     pub const HAS_FIELD: &'static str = "HAS_FIELD";
     pub const HAS_VARIANT: &'static str = "HAS_VARIANT";
     pub const HAS_PARAM: &'static str = "HAS_PARAM";
+    /// `(:Item{kind="const"}) -[:HAS_CONST_TABLE]-> (:ConstTable)`. Reserved
+    /// in slice 1/5 (issue #323) per RFC-040 §3.2; first emissions land in
+    /// slice 3/5 (issue #325). Direction is parent → satellite, matching
+    /// the rest of the `HAS_*` family.
+    pub const HAS_CONST_TABLE: &'static str = "HAS_CONST_TABLE";
     pub const TYPE_OF: &'static str = "TYPE_OF";
     pub const IMPLEMENTS: &'static str = "IMPLEMENTS";
     pub const IMPLEMENTS_FOR: &'static str = "IMPLEMENTS_FOR";
@@ -348,11 +362,30 @@ impl SchemaVersion {
         patch: 1,
     };
 
+    /// **v0.3.2 — RFC-040 slice 1/5 schema declaration (#323).** Reserves
+    /// the `:ConstTable` node label, the `HAS_CONST_TABLE` edge label, and
+    /// the corresponding describer entries. No producer wired yet — first
+    /// emissions land in slice 3/5 (issue #325) when the extractor walks
+    /// `visit_item_const` and recognizes literal slice/array tables.
+    ///
+    /// **Additive and non-breaking within 0.3.x.** V0_3_1 readers loading
+    /// a V0_3_2 keyspace see no new facts (no producer yet); once slice 3
+    /// lands the new nodes / edges appear and V0_3_1 readers ignore the
+    /// extra labels.
+    ///
+    /// Paired lockstep `graph-specs-rust` cross-fixture bump per cfdb
+    /// CLAUDE.md §3 / RFC-033 §4 I2 lands in slice 5/5 (issue #327).
+    pub const V0_3_2: Self = Self {
+        major: 0,
+        minor: 3,
+        patch: 2,
+    };
+
     /// The schema version this build of cfdb-core writes and reads.
     /// Producers tag every keyspace persist with `CURRENT`. Consumers use
     /// `CURRENT.can_read(&file.schema_version)` to reject forward-
     /// incompatible graphs per G4.
-    pub const CURRENT: Self = Self::V0_3_1;
+    pub const CURRENT: Self = Self::V0_3_2;
 
     pub fn new(major: u16, minor: u16, patch: u16) -> Self {
         Self {

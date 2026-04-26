@@ -343,6 +343,76 @@ pub(super) fn context_node_descriptor() -> NodeLabelDescriptor {
     }
 }
 
+pub(super) fn const_table_node_descriptor() -> NodeLabelDescriptor {
+    use Provenance::Extractor;
+    NodeLabelDescriptor {
+        label: Label::new(Label::CONST_TABLE),
+        description: "A literal const slice/array recognized as a table of values (RFC-040). Emitted when the extractor recognizes `&[T]`, `&'static [T]`, `[T; N]`, `&[T; N]`, or `&'static [T; N]` over `T ∈ {str, u32, i32, u64, i64}` with all-literal entries. The closed-set `element_type` wire vocabulary {\"str\", \"u32\", \"i32\", \"u64\", \"i64\"} is owned by `cfdb_extractor::const_table::ElementType::as_wire_str` (RFC-038 §3.1 invariant-owner pattern) — no consumer parses it back to a typed enum. SchemaVersion v0.3.2+ (#323 reservation; #325 first emissions). Pre-V0_3_2 keyspaces carry zero `:ConstTable` nodes.".into(),
+        attributes: vec![
+            attr(
+                "crate",
+                "string",
+                "Containing crate name.",
+                Extractor,
+            ),
+            attr(
+                "element_type",
+                "string",
+                "Closed-set wire vocabulary owned by `cfdb_extractor::const_table::ElementType::as_wire_str`: one of `\"str\"`, `\"u32\"`, `\"i32\"`, `\"u64\"`, `\"i64\"`. Adding a sixth variant requires an RFC bump and a coordinated update to the producer enum (no-ratchet rule, RFC-040 §4).",
+                Extractor,
+            ),
+            attr(
+                "entries_hash",
+                "string",
+                "sha256 hex (lowercase) over the canonical-sorted entries: ascending sort (lexicographic for `str`, numeric for integers), join `str` entries with `\\0` and numeric entries with `\\n` after decimal rendering, then sha256 the resulting bytes. Two consts with the same set produce the same hash regardless of declaration order — this is the structural-equality key for the overlap detector (RFC-040 §3.4).",
+                Extractor,
+            ),
+            attr(
+                "entries_normalized",
+                "string",
+                "JSON array of the canonical-sorted entries in the same order used to compute `entries_hash`. Permanent wire commitment: producers re-emit byte-identical normalization across builds; consumers may rely on `JSON.parse` returning a flat array of either strings or integers (matching `element_type`). Required for downstream rules that need the actual entry set without re-walking the source.",
+                Extractor,
+            ),
+            attr(
+                "entries_sample",
+                "string",
+                "JSON array of the first 8 entries in DECLARATION order (not sorted). Purely human-readable triage aid: reviewers reading a `const-table-overlap` finding see the original literal layout. Two consts with the same set but different declaration order produce identical `entries_hash` and `entries_normalized` but divergent `entries_sample` — the divergence is informational, not a correctness signal.",
+                Extractor,
+            ),
+            attr(
+                "entry_count",
+                "int",
+                "Number of literal entries in the recognized table. Equal to `entries_normalized.len()` after JSON parsing; convenience attribute for queries that filter on table size without parsing the JSON.",
+                Extractor,
+            ),
+            attr(
+                "is_test",
+                "bool",
+                "True when the const is declared inside a `#[cfg(test)]` module, sourced from the same `is_in_test_mod()` heuristic used by `:Item.is_test`. The default `const-table-overlap.cypher` rule excludes `is_test=true` rows so test fixtures (mock currency lists, etc.) do not trip the detector; consumers wanting test-mode coverage opt in explicitly.",
+                Extractor,
+            ),
+            attr(
+                "module_qpath",
+                "string",
+                "Fully-qualified path of the enclosing module (e.g. `kraken::normalize`).",
+                Extractor,
+            ),
+            attr(
+                "name",
+                "string",
+                "Last segment of `qname` — the const identifier.",
+                Extractor,
+            ),
+            attr(
+                "qname",
+                "string",
+                "Fully-qualified name of the parent const item (e.g. `kraken::normalize::Z_PREFIX_CURRENCIES`). Shares its segment with the parent `:Item.qname`; the two are joined structurally via the `HAS_CONST_TABLE` edge and can also be joined on string equality without traversing the edge.",
+                Extractor,
+            ),
+        ],
+    }
+}
+
 pub(super) fn rfc_doc_node_descriptor() -> NodeLabelDescriptor {
     use Provenance::EnrichRfcDocs;
     NodeLabelDescriptor {
