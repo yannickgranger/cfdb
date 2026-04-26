@@ -48,6 +48,14 @@ pub(super) fn edge_descriptors() -> Vec<EdgeLabelDescriptor> {
             provenance: Provenance::Extractor,
         },
         EdgeLabelDescriptor {
+            label: EdgeLabel::new(EdgeLabel::HAS_CONST_TABLE),
+            description: "A const Item owns a recognized literal table of values (RFC-040). Direction is parent → satellite, matching the rest of the `HAS_*` family. Reserved in slice 1/5 (issue #323); first emissions land in slice 3/5 (issue #325) once `cfdb-extractor::visit_item_const` recognizes literal slice/array tables. SchemaVersion v0.3.2+; pre-V0_3_2 keyspaces carry zero `HAS_CONST_TABLE` edges.".into(),
+            attributes: vec![],
+            from: vec![Label::new(Label::ITEM)],
+            to: vec![Label::new(Label::CONST_TABLE)],
+            provenance: Provenance::Extractor,
+        },
+        EdgeLabelDescriptor {
             label: EdgeLabel::new(EdgeLabel::TYPE_OF),
             description: "A Field, Param, or Variant payload references an Item used as its type."
                 .into(),
