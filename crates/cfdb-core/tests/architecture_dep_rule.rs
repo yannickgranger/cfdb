@@ -28,9 +28,6 @@ const ALLOWED_DEPS: &[&str] = &[
     "serde_json",
     // Error type derives. Foundation crates always need an error story.
     "thiserror",
-    // Stable-order hash maps for query parameter bindings — required for
-    // determinism invariant G1 (byte-identical canonical dump across runs).
-    "indexmap",
 ];
 
 /// Crates that MUST NEVER appear in cfdb-core's `[dependencies]` section.
@@ -163,7 +160,7 @@ fn parser_finds_all_current_dependencies() {
     // empty. This guards against silent test passes.
     let deps = parse_dependency_names();
     assert!(
-        deps.len() >= 4,
-        "expected ≥4 dependencies in cfdb-core/Cargo.toml, parsed: {deps:?}"
+        deps.len() >= 3,
+        "expected ≥3 dependencies in cfdb-core/Cargo.toml, parsed: {deps:?}"
     );
 }

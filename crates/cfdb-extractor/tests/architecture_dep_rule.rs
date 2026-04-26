@@ -21,6 +21,13 @@ const ALLOWED_DEPS: &[&str] = &[
     "cfdb-concepts",
     // Rust source AST visitor.
     "syn",
+    // Source-line spans — `span-locations` feature on `proc-macro2`
+    // makes `Span::start().line` available so the extractor reports
+    // real `:Item.line` / `:CallSite.line` instead of 0 (#273 / F-005).
+    // proc-macro2 is already a transitive dep of `syn`; we name it
+    // directly to opt into the feature flag, which is source-analysis
+    // tooling — same layer as `syn`.
+    "proc-macro2",
     // Workspace/crate metadata resolution.
     "cargo_metadata",
     // Concept override config (`.cfdb/concepts/*.toml`).

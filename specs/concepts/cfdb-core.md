@@ -20,6 +20,10 @@ Feature-only `#[cfg(...)]` expression tree captured on `:Item.cfg_gate`: `Featur
 
 Comparison operators available in predicates (`Eq`, `Ne`, `Lt`, `Le`, `Gt`, `Ge`).
 
+## ContextSource
+
+Provenance discriminator for `:Context` nodes (RFC-038). `Declared` is author-asserted in `.cfdb/concepts/<name>.toml`; `Heuristic` is auto-derived by `cfdb_concepts::compute_bounded_context` via crate-name prefix stripping. Wire form via `Display`/`FromStr` round-trips through `:Context.source` prop. Closed-set wire enum (no variant carries owned data), so `as_wire_str` returns `&'static str` per RFC-038 §3.1.
+
 ## Direction
 
 Traversal direction for a path pattern — outgoing, incoming, or either.

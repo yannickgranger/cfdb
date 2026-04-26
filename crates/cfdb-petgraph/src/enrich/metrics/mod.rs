@@ -17,15 +17,15 @@
 //! syn is fast and the file set is bounded by the crate count, not the
 //! item count.
 //!
-//! # Determinism under rayon (RFC-036 §3.3 / specs/concepts/cfdb-petgraph.md)
+//! # Determinism (RFC-036 §3.3 / specs/concepts/cfdb-petgraph.md)
 //!
-//! Per-file parsing is parallelised with rayon. Sort-before-emit: the
-//! computed `(qname, AstSignals)` pairs are collected into a
+//! Per-file parsing is sequential. Sort-before-emit: the computed
+//! `(qname, AstSignals)` pairs are collected into a
 //! `BTreeMap<String, AstSignals>` keyed by qname — deterministic
-//! iteration regardless of thread scheduling. `dup_cluster_id` emission
-//! order is driven by the `BTreeMap<signature_hash, Vec<qname>>` which
-//! is also inherently sorted. G1 canonical-dump sha256 is therefore
-//! stable across runs (modulo `test_coverage` which is excluded per G6).
+//! iteration. `dup_cluster_id` emission order is driven by the
+//! `BTreeMap<signature_hash, Vec<qname>>` which is also inherently
+//! sorted. G1 canonical-dump sha256 is therefore stable across runs
+//! (modulo `test_coverage` which is excluded per G6).
 
 pub(crate) mod ast_signals;
 pub(crate) mod clustering;

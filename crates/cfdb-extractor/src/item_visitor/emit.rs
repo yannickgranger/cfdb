@@ -7,15 +7,111 @@ use std::collections::BTreeMap;
 
 use cfdb_core::fact::{Edge, Node, PropValue};
 use cfdb_core::qname::{
-    field_node_id, item_node_id, item_qname, module_qpath, param_node_id, variant_node_id,
+    field_node_id, item_node_id, item_qname, method_qname, module_qpath, param_node_id,
+    variant_node_id,
 };
 use cfdb_core::schema::{EdgeLabel, Label};
 
 use crate::attrs::{attrs_contain_hash_test, extract_cfg_feature_gate, extract_deprecated_attr};
+use crate::Emitter;
 
 use super::{
     impl_block_name, impl_block_qname, parse_syn_visibility, resolve_target_qname, ItemVisitor,
 };
+
+/// Emit a `:CallSite` node + `INVOKES_AT` edge from the owning `:Item`.
+///
+/// Centralises the prop shape, node label, and edge wiring shared by the
+/// two CallSite emission paths in this crate (audit 2026-W17 / EPIC #273
+/// / Pattern 3 fan-out):
+///
+/// - **Body-call sites** ([`crate::call_visitor::CallSiteVisitor::emit_call_site`]) —
+///   call expressions inside a fn body. The caller computes
+///   `cs_id = format!("callsite:{caller_qname}:{callee_path}:{local_idx}")`.
+/// - **Attribute-ref sites**
+///   ([`ItemVisitor::emit_attr_call_site`]) — name references inside
+///   attributes such as `#[serde(default = "Utc::now")]`. The caller
+///   computes `cs_id = format!("callsite:{parent_qname}.{field_name}:{callee_path}:0")`
+///   and passes the `field` prop via `extra_props`.
+///
+/// The id format and the attr-only `field` prop stay caller-side; this
+/// helper owns the prop shape (`callee_last_segment` derivation, the
+/// `resolver="syn"` discriminator, the `callee_resolved=false` default),
+/// the `Label::CALL_SITE` node emission, and the `INVOKES_AT` edge from
+/// `item_node_id(caller_qname)`.
+///
+/// `extra_props` is merged after the canonical props so the attr-ref
+/// path can attach `field=<field_name>`. Body-call sites pass an empty
+/// map.
+#[allow(clippy::too_many_arguments)] // 9 args — :CallSite shape is wide; cs_id + extra_props stay caller-side because the two emission paths differ on id format and on whether they attach a `field` prop (audit 2026-W17 / EPIC #273 / Pattern 3 fan-out). `line` is the real source-line number from the call expression's syn span (#273 / F-005); 0 = unknown / synthetic.
+pub(crate) fn emit_call_site_node_and_edge(
+    emitter: &mut Emitter,
+    cs_id: String,
+    caller_qname: &str,
+    callee_path: &str,
+    kind: &str,
+    file: String,
+    line: usize,
+    is_test: bool,
+    extra_props: BTreeMap<String, PropValue>,
+) {
+    let last_segment = callee_path
+        .rsplit("::")
+        .next()
+        .unwrap_or(callee_path)
+        .to_string();
+
+    let mut props = BTreeMap::new();
+    props.insert(
+        "caller_qname".into(),
+        PropValue::Str(caller_qname.to_string()),
+    );
+    props.insert(
+        "callee_path".into(),
+        PropValue::Str(callee_path.to_string()),
+    );
+    props.insert("callee_last_segment".into(), PropValue::Str(last_segment));
+    props.insert("kind".into(), PropValue::Str(kind.to_string()));
+    props.insert("file".into(), PropValue::Str(file));
+    props.insert("line".into(), PropValue::Int(line as i64));
+    props.insert("is_test".into(), PropValue::Bool(is_test));
+    // SchemaVersion v0.1.3+ discriminator (Label::CALL_SITE doc, #83).
+    props.insert("resolver".into(), PropValue::Str("syn".to_string()));
+    props.insert("callee_resolved".into(), PropValue::Bool(false));
+    props.extend(extra_props);
+
+    emitter.emit_node(Node {
+        id: cs_id.clone(),
+        label: Label::new(Label::CALL_SITE),
+        props,
+    });
+    emitter.emit_edge(Edge {
+        src: item_node_id(caller_qname),
+        dst: cs_id,
+        label: EdgeLabel::new(EdgeLabel::INVOKES_AT),
+        props: BTreeMap::new(),
+    });
+}
+
+/// Insert `cfg_gate` (when present) + `is_deprecated` + `deprecation_since`
+/// (when present) into the prop map. Centralises the shape used by every
+/// `:Item` emit path so a future schema change touches one site
+/// (audit 2026-W17 / EPIC #273 / Pattern 3 fan-out).
+fn insert_attr_metadata_props(props: &mut BTreeMap<String, PropValue>, attrs: &[syn::Attribute]) {
+    if let Some(gate) = extract_cfg_feature_gate(attrs) {
+        props.insert("cfg_gate".into(), PropValue::Str(gate.to_string()));
+    }
+    // Deprecation facts (#106 / RFC addendum §A2.2 row 3) —
+    // extractor-time per DDD + rust-systems verdicts. `is_deprecated`
+    // always emitted (false by default so downstream classifier
+    // queries can treat absence as a data gap vs. false). `deprecation_since`
+    // only emitted when the `#[deprecated(since = "X")]` form is used.
+    let (is_deprecated, deprecation_since) = extract_deprecated_attr(attrs);
+    props.insert("is_deprecated".into(), PropValue::Bool(is_deprecated));
+    if let Some(since) = deprecation_since {
+        props.insert("deprecation_since".into(), PropValue::Str(since));
+    }
+}
 
 impl ItemVisitor<'_> {
     pub(super) fn current_module_qpath(&self) -> String {
@@ -24,6 +120,37 @@ impl ItemVisitor<'_> {
 
     pub(super) fn qname(&self, item_name: &str) -> String {
         item_qname(&self.module_stack, item_name)
+    }
+
+    /// Emit `src_id -[IN_MODULE]-> module:<current_module_qpath>` when an
+    /// enclosing `:Module` node exists.
+    ///
+    /// The schema declares `IN_MODULE` from `[Item, File]` to `[Module]`
+    /// (`cfdb-core/src/schema/describe/edges.rs`), but the extractor used
+    /// to emit only the `IN_CRATE` edge — `SchemaDescribe()` lied to
+    /// consumers and any Cypher walking `Item -[:IN_MODULE]-> Module`
+    /// returned zero rows (#267, audit ID CFDB-EXT-H1).
+    ///
+    /// `:Module` nodes are emitted only by `visit_item_mod` for nested
+    /// `mod` declarations — the crate root has no `:Module` node. The
+    /// `module_stack` invariant (see `ItemVisitor::module_stack` doc) is
+    /// that element 0 is always the crate name, so an item is at the
+    /// crate root iff `module_stack.len() == 1`. In that case there is
+    /// no enclosing `:Module` to point at and this method is a no-op —
+    /// the existing `IN_CRATE` edge already routes the item to its
+    /// `:Crate` node.
+    pub(super) fn emit_in_module_edge(&mut self, src_id: &str) {
+        if self.module_stack.len() <= 1 {
+            return;
+        }
+        let qpath = self.current_module_qpath();
+        let module_id = format!("module:{qpath}");
+        self.emitter.emit_edge(Edge {
+            src: src_id.to_string(),
+            dst: module_id,
+            label: EdgeLabel::new(EdgeLabel::IN_MODULE),
+            props: BTreeMap::new(),
+        });
     }
 
     pub(super) fn is_in_test_mod(&self) -> bool {
@@ -47,7 +174,16 @@ impl ItemVisitor<'_> {
         vis: &syn::Visibility,
         attrs: &[syn::Attribute],
     ) -> String {
-        self.emit_item_with_flags(name, kind, line, self.is_in_test_mod(), vis, attrs, None)
+        self.emit_item_with_flags(
+            name,
+            kind,
+            line,
+            self.is_in_test_mod(),
+            vis,
+            attrs,
+            None,
+            None,
+        )
     }
 
     /// Like [`emit_item`] but the caller supplies the `is_test` flag
@@ -61,7 +197,19 @@ impl ItemVisitor<'_> {
     /// required by the `signature_divergent` UDF (#47). Non-fn kinds
     /// (struct, enum, trait, const, …) pass `None` and the prop is
     /// omitted.
-    #[allow(clippy::too_many_arguments)] // 8 args — fn/method :Item shape is wide (name/kind/line/is_test/vis/attrs/signature); a struct would add boilerplate without reducing cognitive load
+    ///
+    /// `impl_target` routes the impl-method emission path through this
+    /// helper instead of duplicating ~95 lines of `:Item` prop
+    /// construction (audit 2026-W17 / EPIC #273 / Pattern 3 F-002).
+    /// When `Some(target)` the qname is computed via
+    /// [`cfdb_core::qname::method_qname`] (`module::Target::method`)
+    /// instead of the free-item formula
+    /// (`module::name`), and the `impl_target` prop is emitted on the
+    /// resulting `:Item` node. When `None` the free-item formula is
+    /// used and no `impl_target` prop is emitted. This is the single
+    /// owner of `:Item` prop emission across free items, impl blocks,
+    /// and impl methods.
+    #[allow(clippy::too_many_arguments)] // 9 args — fn/method :Item shape is wide; impl_target is the impl-method routing knob (audit F-002), the rest are name/kind/line/is_test/vis/attrs/signature
     pub(super) fn emit_item_with_flags(
         &mut self,
         name: &str,
@@ -71,8 +219,12 @@ impl ItemVisitor<'_> {
         vis: &syn::Visibility,
         attrs: &[syn::Attribute],
         signature: Option<&str>,
+        impl_target: Option<&str>,
     ) -> String {
-        let qname = self.qname(name);
+        let qname = match impl_target {
+            Some(target) => method_qname(&self.module_stack, target, name),
+            None => self.qname(name),
+        };
         let id = item_node_id(&qname);
         let mut props = BTreeMap::new();
         props.insert("qname".into(), PropValue::Str(qname.clone()));
@@ -87,6 +239,13 @@ impl ItemVisitor<'_> {
             "module_qpath".into(),
             PropValue::Str(self.current_module_qpath()),
         );
+        // `impl_target` prop is emitted only on the impl-method path so
+        // queries can distinguish methods from free fns by the prop's
+        // presence (audit F-002 routing). Free items don't carry an
+        // impl target — the prop is absent, not the empty string.
+        if let Some(target) = impl_target {
+            props.insert("impl_target".into(), PropValue::Str(target.to_string()));
+        }
         props.insert("file".into(), PropValue::Str(self.file_path.clone()));
         props.insert("line".into(), PropValue::Int(line as i64));
         props.insert("is_test".into(), PropValue::Bool(is_test));
@@ -94,19 +253,7 @@ impl ItemVisitor<'_> {
             "visibility".into(),
             PropValue::Str(parse_syn_visibility(vis).to_string()),
         );
-        if let Some(gate) = extract_cfg_feature_gate(attrs) {
-            props.insert("cfg_gate".into(), PropValue::Str(gate.to_string()));
-        }
-        // Deprecation facts (#106 / RFC addendum §A2.2 row 3) —
-        // extractor-time per DDD + rust-systems verdicts. `is_deprecated`
-        // always emitted (false by default so downstream classifier
-        // queries can treat absence as a data gap vs. false). `deprecation_since`
-        // only emitted when the `#[deprecated(since = "X")]` form is used.
-        let (is_deprecated, deprecation_since) = extract_deprecated_attr(attrs);
-        props.insert("is_deprecated".into(), PropValue::Bool(is_deprecated));
-        if let Some(since) = deprecation_since {
-            props.insert("deprecation_since".into(), PropValue::Str(since));
-        }
+        insert_attr_metadata_props(&mut props, attrs);
         // `:Item.signature` — canonical fn signature string (#47). Only
         // emitted on fn / method kinds. Non-fn kinds pass `None` and the
         // prop is absent, which queries can distinguish from the empty
@@ -130,6 +277,9 @@ impl ItemVisitor<'_> {
             label: EdgeLabel::new(EdgeLabel::IN_CRATE),
             props: BTreeMap::new(),
         });
+        // IN_MODULE membership for the deepest enclosing module (#267).
+        // No-op at crate root where no `:Module` node exists.
+        self.emit_in_module_edge(&id);
         id
     }
 
@@ -155,6 +305,7 @@ impl ItemVisitor<'_> {
         &mut self,
         target: &str,
         trait_qname: Option<&str>,
+        line: usize,
         attrs: &[syn::Attribute],
     ) {
         let impl_qname = impl_block_qname(&self.module_stack, target, trait_qname);
@@ -177,7 +328,10 @@ impl ItemVisitor<'_> {
             PropValue::Str(self.current_module_qpath()),
         );
         props.insert("file".into(), PropValue::Str(self.file_path.clone()));
-        props.insert("line".into(), PropValue::Int(0));
+        // Real source line of the `impl` token — feeds line-precision
+        // queries the same way fn / struct / enum lines do (#273 /
+        // F-005). 0 for synthetic / macro-expanded impls.
+        props.insert("line".into(), PropValue::Int(line as i64));
         props.insert("is_test".into(), PropValue::Bool(self.is_in_test_mod()));
         // impl blocks carry no visibility modifier of their own in Rust;
         // the impl's effective reachability is the intersection of the
@@ -189,14 +343,7 @@ impl ItemVisitor<'_> {
         if let Some(t) = trait_qname {
             props.insert("impl_trait".into(), PropValue::Str(t.into()));
         }
-        if let Some(gate) = extract_cfg_feature_gate(attrs) {
-            props.insert("cfg_gate".into(), PropValue::Str(gate.to_string()));
-        }
-        let (is_deprecated, deprecation_since) = extract_deprecated_attr(attrs);
-        props.insert("is_deprecated".into(), PropValue::Bool(is_deprecated));
-        if let Some(since) = deprecation_since {
-            props.insert("deprecation_since".into(), PropValue::Str(since));
-        }
+        insert_attr_metadata_props(&mut props, attrs);
 
         self.emitter.emit_node(Node {
             id: impl_id.clone(),
@@ -215,6 +362,9 @@ impl ItemVisitor<'_> {
             label: EdgeLabel::new(EdgeLabel::IN_CRATE),
             props: BTreeMap::new(),
         });
+        // IN_MODULE membership for the deepest enclosing module (#267).
+        // No-op at crate root where no `:Module` node exists.
+        self.emit_in_module_edge(&impl_id);
 
         // IMPLEMENTS_FOR — always emitted. Target resolution via the
         // `item:<qname>` id formula. The dst may dangle when the target
@@ -255,42 +405,22 @@ impl ItemVisitor<'_> {
         field_name: &str,
         callee_path: &str,
         kind: &str,
+        line: usize,
     ) {
         let cs_id = format!("callsite:{parent_qname}.{field_name}:{callee_path}:0");
-        let last_segment = callee_path
-            .rsplit("::")
-            .next()
-            .unwrap_or(callee_path)
-            .to_string();
-        let mut props = BTreeMap::new();
-        props.insert(
-            "caller_qname".into(),
-            PropValue::Str(parent_qname.to_string()),
+        let mut extra = BTreeMap::new();
+        extra.insert("field".into(), PropValue::Str(field_name.to_string()));
+        emit_call_site_node_and_edge(
+            self.emitter,
+            cs_id,
+            parent_qname,
+            callee_path,
+            kind,
+            self.file_path.clone(),
+            line,
+            self.is_in_test_mod(),
+            extra,
         );
-        props.insert(
-            "callee_path".into(),
-            PropValue::Str(callee_path.to_string()),
-        );
-        props.insert("callee_last_segment".into(), PropValue::Str(last_segment));
-        props.insert("kind".into(), PropValue::Str(kind.to_string()));
-        props.insert("file".into(), PropValue::Str(self.file_path.clone()));
-        props.insert("line".into(), PropValue::Int(0));
-        props.insert("is_test".into(), PropValue::Bool(self.is_in_test_mod()));
-        props.insert("field".into(), PropValue::Str(field_name.to_string()));
-        // SchemaVersion v0.1.3+ discriminator (Label::CALL_SITE doc, #83).
-        props.insert("resolver".into(), PropValue::Str("syn".to_string()));
-        props.insert("callee_resolved".into(), PropValue::Bool(false));
-        self.emitter.emit_node(Node {
-            id: cs_id.clone(),
-            label: Label::new(Label::CALL_SITE),
-            props,
-        });
-        self.emitter.emit_edge(Edge {
-            src: item_node_id(parent_qname),
-            dst: cs_id,
-            label: EdgeLabel::new(EdgeLabel::INVOKES_AT),
-            props: BTreeMap::new(),
-        });
     }
 
     /// Emit one `:Param` node + `HAS_PARAM` edge for a fn/method

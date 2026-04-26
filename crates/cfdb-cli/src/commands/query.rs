@@ -10,8 +10,7 @@ use cfdb_core::{Param, PropValue, Query};
 use cfdb_query::{lint_shape, parse, ShapeLint};
 
 use crate::compose;
-
-use super::extract::keyspace_path;
+use crate::output;
 
 /// Embedded cypher template for `cfdb list-callers`. Loaded via `include_str!`
 /// at compile time so the shipped binary is self-contained — no runtime file
@@ -59,9 +58,7 @@ pub fn query(
 
     let result = store.execute(&ks, &parsed)?;
 
-    let as_json = serde_json::to_string_pretty(&result)?;
-    println!("{as_json}");
-    Ok(())
+    output::emit_json(&result)
 }
 
 /// Bind a `--params <json>` object into a parsed `Query`'s param bag. The
@@ -125,15 +122,7 @@ pub fn list_callers(
     keyspace: String,
     qname: String,
 ) -> Result<(), crate::CfdbCliError> {
-    let path = keyspace_path(&db, &keyspace);
-    if !path.exists() {
-        return Err(format!(
-            "keyspace `{keyspace}` not found in db `{}` (looked for {})",
-            db.display(),
-            path.display()
-        )
-        .into());
-    }
+    compose::ensure_keyspace_exists(&db, &keyspace)?;
 
     let mut parsed = parse(LIST_CALLERS_CYPHER)
         .map_err(|e| format!("parse error in embedded list-callers template: {e}"))?;
@@ -144,7 +133,5 @@ pub fn list_callers(
     let (store, ks) = compose::load_store(&db, &keyspace)?;
     let result = store.execute(&ks, &parsed)?;
 
-    let as_json = serde_json::to_string_pretty(&result)?;
-    println!("{as_json}");
-    Ok(())
+    output::emit_json(&result)
 }

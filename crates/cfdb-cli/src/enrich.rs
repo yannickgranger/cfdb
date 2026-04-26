@@ -14,6 +14,7 @@ use std::path::PathBuf;
 use cfdb_core::enrich::{EnrichBackend, EnrichReport};
 
 use crate::compose;
+use crate::output;
 
 /// Which `enrich_*` verb to dispatch to. Lets one handler function service
 /// all CLI variants without duplicating the load-store-print boilerplate.
@@ -69,7 +70,5 @@ pub fn enrich(
         compose::save_store(&store, &ks, &db)?;
     }
 
-    let json = serde_json::to_string_pretty(&report)?;
-    println!("{json}");
-    Ok(())
+    output::emit_json(&report)
 }

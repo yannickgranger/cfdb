@@ -8,11 +8,10 @@
 
 use std::collections::BTreeMap;
 
-use cfdb_core::fact::{Edge, Node, PropValue};
-use cfdb_core::qname::item_node_id;
-use cfdb_core::schema::{EdgeLabel, Label};
+use syn::spanned::Spanned;
 use syn::visit::Visit;
 
+use crate::item_visitor::emit_call_site_node_and_edge;
 use crate::type_render::render_path;
 use crate::Emitter;
 
@@ -49,8 +48,9 @@ struct CallSiteVisitor<'e, 'a> {
     caller_qname: &'a str,
     file_path: &'a str,
     /// Count of prior occurrences of each `callee_path` within this fn body.
-    /// Used to build collision-free CallSite ids without needing source
-    /// offsets (which `proc_macro2::Span` doesn't expose on stable Rust).
+    /// Used to build collision-free CallSite ids — even with real line
+    /// numbers (#273 / F-005), two calls on the same line need distinct
+    /// ids so the local-index counter stays.
     counts: BTreeMap<String, usize>,
     is_test: bool,
 }
@@ -59,7 +59,11 @@ impl<'ast> Visit<'ast> for CallSiteVisitor<'_, '_> {
     fn visit_expr_call(&mut self, node: &'ast syn::ExprCall) {
         if let syn::Expr::Path(p) = &*node.func {
             let callee_path = render_path(&p.path);
-            self.emit_call_site(&callee_path, "call");
+            // Source-line of the call — `node.func.span()` points at the
+            // callee path which is the "where the call happens" the
+            // human reader expects (#273 / F-005).
+            let line = node.func.span().start().line;
+            self.emit_call_site(&callee_path, "call", line);
         }
         // Fn-pointer arg pattern: `foo(bar)` where `bar` is an `ExprPath`
         // that names a callable. syn's default visitor descends but never
@@ -70,7 +74,8 @@ impl<'ast> Visit<'ast> for CallSiteVisitor<'_, '_> {
         for arg in &node.args {
             if let syn::Expr::Path(p) = arg {
                 let path = render_path(&p.path);
-                self.emit_call_site(&path, "fn_ptr");
+                let line = p.span().start().line;
+                self.emit_call_site(&path, "fn_ptr", line);
             }
         }
         // Recurse into args — nested calls (`foo(bar())`) must not be lost.
@@ -79,14 +84,20 @@ impl<'ast> Visit<'ast> for CallSiteVisitor<'_, '_> {
 
     fn visit_expr_method_call(&mut self, node: &'ast syn::ExprMethodCall) {
         let method = node.method.to_string();
-        self.emit_call_site(&method, "method");
+        // The method ident span is the "where the call happens" line —
+        // `x\n .foo()` has the receiver on one line and `.foo` on the
+        // next; the method-name line is the more useful one for
+        // line-precision queries (#273 / F-005).
+        let line = node.method.span().start().line;
+        self.emit_call_site(&method, "method", line);
         // Same fn-pointer-arg projection as `visit_expr_call`. This is the
         // dominant shape in real code: `.unwrap_or_else(Utc::now)`,
         // `.or_insert_with(Default::default)`, etc.
         for arg in &node.args {
             if let syn::Expr::Path(p) = arg {
                 let path = render_path(&p.path);
-                self.emit_call_site(&path, "fn_ptr");
+                let arg_line = p.span().start().line;
+                self.emit_call_site(&path, "fn_ptr", arg_line);
             }
         }
         syn::visit::visit_expr_method_call(self, node);
@@ -154,7 +165,7 @@ impl CallSiteVisitor<'_, '_> {
 }
 
 impl CallSiteVisitor<'_, '_> {
-    fn emit_call_site(&mut self, callee_path: &str, kind: &str) {
+    fn emit_call_site(&mut self, callee_path: &str, kind: &str, line: usize) {
         let local_idx = {
             let counter = self.counts.entry(callee_path.to_string()).or_insert(0);
             let idx = *counter;
@@ -165,40 +176,16 @@ impl CallSiteVisitor<'_, '_> {
             "callsite:{}:{}:{}",
             self.caller_qname, callee_path, local_idx
         );
-        let last_segment = callee_path
-            .rsplit("::")
-            .next()
-            .unwrap_or(callee_path)
-            .to_string();
-
-        let mut props = BTreeMap::new();
-        props.insert(
-            "caller_qname".into(),
-            PropValue::Str(self.caller_qname.to_string()),
+        emit_call_site_node_and_edge(
+            self.emitter,
+            cs_id,
+            self.caller_qname,
+            callee_path,
+            kind,
+            self.file_path.to_string(),
+            line,
+            self.is_test,
+            BTreeMap::new(),
         );
-        props.insert(
-            "callee_path".into(),
-            PropValue::Str(callee_path.to_string()),
-        );
-        props.insert("callee_last_segment".into(), PropValue::Str(last_segment));
-        props.insert("kind".into(), PropValue::Str(kind.to_string()));
-        props.insert("file".into(), PropValue::Str(self.file_path.to_string()));
-        props.insert("line".into(), PropValue::Int(0));
-        props.insert("is_test".into(), PropValue::Bool(self.is_test));
-        // SchemaVersion v0.1.3+ discriminator (Label::CALL_SITE doc, #83).
-        props.insert("resolver".into(), PropValue::Str("syn".to_string()));
-        props.insert("callee_resolved".into(), PropValue::Bool(false));
-
-        self.emitter.emit_node(Node {
-            id: cs_id.clone(),
-            label: Label::new(Label::CALL_SITE),
-            props,
-        });
-        self.emitter.emit_edge(Edge {
-            src: item_node_id(self.caller_qname),
-            dst: cs_id,
-            label: EdgeLabel::new(EdgeLabel::INVOKES_AT),
-            props: BTreeMap::new(),
-        });
     }
 }

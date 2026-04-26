@@ -69,8 +69,14 @@ pub(super) fn edge_pattern_parser<'a>(
             .repeated()
             .at_least(1)
             .to_slice()
-            .from_str::<u32>()
-            .unwrapped()
+            .try_map(|s: &str, span| {
+                s.parse::<u32>().map_err(|_| {
+                    Rich::custom(
+                        span,
+                        "integer literal exceeds u32::MAX in variable-length range",
+                    )
+                })
+            })
     };
 
     let range = just('*')

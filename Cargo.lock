@@ -267,7 +267,7 @@ dependencies = [
 
 [[package]]
 name = "cfdb-cli"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "assert_cmd",
  "cfdb-concepts",
@@ -288,8 +288,9 @@ dependencies = [
 
 [[package]]
 name = "cfdb-concepts"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
+ "cfdb-core",
  "serde",
  "tempfile",
  "thiserror",
@@ -298,9 +299,8 @@ dependencies = [
 
 [[package]]
 name = "cfdb-core"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
- "indexmap",
  "serde",
  "serde_json",
  "thiserror",
@@ -308,11 +308,12 @@ dependencies = [
 
 [[package]]
 name = "cfdb-extractor"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "cargo_metadata 0.22.0",
  "cfdb-concepts",
  "cfdb-core",
+ "proc-macro2",
  "serde",
  "serde_json",
  "syn",
@@ -323,7 +324,7 @@ dependencies = [
 
 [[package]]
 name = "cfdb-hir-extractor"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "cfdb-core",
  "ra-ap-rustc_type_ir 0.161.0",
@@ -345,7 +346,7 @@ dependencies = [
 
 [[package]]
 name = "cfdb-hir-petgraph-adapter"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "cfdb-core",
  "cfdb-hir-extractor",
@@ -354,7 +355,7 @@ dependencies = [
 
 [[package]]
 name = "cfdb-petgraph"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "cfdb-concepts",
  "cfdb-core",
@@ -374,11 +375,10 @@ dependencies = [
 
 [[package]]
 name = "cfdb-query"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "cfdb-core",
  "chumsky",
- "regex",
  "serde",
  "serde_json",
  "thiserror",
@@ -387,7 +387,7 @@ dependencies = [
 
 [[package]]
 name = "cfdb-recall"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "cfdb-core",
  "cfdb-extractor",
@@ -414,7 +414,7 @@ checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
 name = "check-prelude-triggers"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "clap",
  "regex",

@@ -24,8 +24,6 @@ const ALLOWED_DEPS: &[&str] = &[
     "thiserror",
     // Parser combinator library (RFC-029 §10.2).
     "chumsky",
-    // Pre-pass comment/keyword scanner state machine.
-    "regex",
     // `SkillRoutingTable` parses the external `.cfdb/skill-routing.toml`
     // policy file (issue #48 / RFC-cfdb.md Addendum B §A2.3). Parser-layer
     // by construction — text in → typed policy AST out — the same shape as

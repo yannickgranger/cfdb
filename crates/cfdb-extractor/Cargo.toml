@@ -10,6 +10,11 @@ publish.workspace = true
 cfdb-core = { path = "../cfdb-core" }
 cfdb-concepts = { path = "../cfdb-concepts" }
 syn.workspace = true
+# `span-locations` enables `proc_macro2::Span::start().line` so the
+# extractor can report real source-line numbers instead of 0 (#273 /
+# F-005). Without this, `Span::start()` is not even available and
+# `:Item.line` / `:CallSite.line` are uniformly 0.
+proc-macro2.workspace = true
 cargo_metadata.workspace = true
 serde.workspace = true
 thiserror.workspace = true

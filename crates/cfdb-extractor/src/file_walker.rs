@@ -8,8 +8,9 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use cfdb_core::fact::{Node, PropValue};
-use cfdb_core::schema::Label;
+use cfdb_core::fact::{Edge, Node, PropValue};
+use cfdb_core::qname::module_qpath;
+use cfdb_core::schema::{EdgeLabel, Label};
 use syn::visit::Visit;
 
 use crate::item_visitor::ItemVisitor;
@@ -101,6 +102,29 @@ fn visit_file_inner(
             p
         },
     });
+    // IN_MODULE membership for the deepest enclosing `:Module` (#267 /
+    // CFDB-EXT-H1). Schema declares `IN_MODULE` from `[Item, File]` to
+    // `[Module]` (`cfdb-core/src/schema/describe/edges.rs`), but the
+    // extractor used to skip the File side entirely. The `:Module`
+    // node for `module_qpath(&module_stack)` is emitted by the parent
+    // file's `visit_item_mod` when the `mod foo;` declaration is
+    // encountered, so the dst already exists by the time we reach the
+    // child file — except at crate root, where `module_stack` is just
+    // `[crate_name]` and there is no `:Module` node (cfdb's existing
+    // convention emits `:Module` only for nested `mod` decls). Skip
+    // emission in that case to avoid a dangling edge; the existing
+    // workspace-level wiring still places the file via its containing
+    // crate.
+    if module_stack.len() > 1 {
+        let qpath = module_qpath(&module_stack);
+        let module_id = format!("module:{qpath}");
+        emitter.emit_edge(Edge {
+            src: file_id.clone(),
+            dst: module_id,
+            label: EdgeLabel::new(EdgeLabel::IN_MODULE),
+            props: BTreeMap::new(),
+        });
+    }
 
     let mut visitor = ItemVisitor {
         emitter,

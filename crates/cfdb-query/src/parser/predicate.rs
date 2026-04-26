@@ -42,7 +42,7 @@ pub(super) fn predicate_parser<'a>(expr: BoxedParser<'a, Expr>) -> BoxedParser<'
         // subqueries to avoid re-entering the full parser).
         let not_exists = kw("not")
             .ignore_then(kw("exists"))
-            .ignore_then(subquery_parser(expr.clone(), pred.clone()))
+            .ignore_then(subquery_parser(pred.clone()))
             .map(|inner| Predicate::NotExists {
                 inner: Box::new(inner),
             });
@@ -91,12 +91,17 @@ pub(super) fn predicate_parser<'a>(expr: BoxedParser<'a, Expr>) -> BoxedParser<'
 
 // `NOT EXISTS { MATCH (a)-[:CALLS]->(b) [WHERE pred] }` — inner is a pattern
 // with an optional WHERE. No nested WITH / RETURN.
+//
+// `pred` is the outer recursive Predicate parser threaded through so the inner
+// WHERE accepts the full v0.1 predicate subset (regex, IN, AND/OR/NOT, nested
+// NOT EXISTS) — single resolution point with the top-level WHERE per RFC-035
+// §3.3 invariant-owner pattern. The previous shape rebuilt a Compare/Ne-only
+// "inner_cmp" grammar inline (audit 2026-W17 / EPIC #273 / CFDB-QRY-H1 #271),
+// which was a split-brain with `predicate_parser` — any extension to the
+// outer grammar silently bypassed the subquery body.
 fn subquery_parser<'a>(
-    expr: BoxedParser<'a, Expr>,
-    _pred_hole: impl Parser<'a, &'a str, Predicate, Extra<'a>> + Clone + 'a,
+    pred: impl Parser<'a, &'a str, Predicate, Extra<'a>> + Clone + 'a,
 ) -> BoxedParser<'a, Query> {
-    // We reconstruct the minimum grammar inline to avoid re-entering the full
-    // parser path.
     let ident = ident_parser();
     let prop_lit = choice((
         string_literal_parser().map(PropValue::Str),
@@ -114,30 +119,6 @@ fn subquery_parser<'a>(
 
     let match_element = choice((path_pat, node_pat.map(Pattern::Node))).boxed();
 
-    // Inner subquery has its own tiny predicate grammar for WHERE — but we
-    // actually only need the top-level expression comparisons here. We
-    // synthesize a Compare-only predicate parser so we avoid the recursive
-    // loop. For v0.1 scope this covers the F6 use cases.
-    let inner_cmp_op = choice((
-        just("<>").to(CompareOp::Ne),
-        just("<=").to(CompareOp::Le),
-        just(">=").to(CompareOp::Ge),
-        just("=").to(CompareOp::Eq),
-        just("<").to(CompareOp::Lt),
-        just(">").to(CompareOp::Gt),
-    ))
-    .padded()
-    .boxed();
-    let inner_pred = expr
-        .clone()
-        .then(inner_cmp_op)
-        .then(expr.clone())
-        .map(|((left, op), right)| match op {
-            CompareOp::Ne => Predicate::Ne { left, right },
-            _ => Predicate::Compare { left, op, right },
-        })
-        .boxed();
-
     kw("match")
         .ignore_then(
             match_element
@@ -145,7 +126,7 @@ fn subquery_parser<'a>(
                 .at_least(1)
                 .collect::<Vec<_>>(),
         )
-        .then(kw("where").ignore_then(inner_pred).or_not())
+        .then(kw("where").ignore_then(pred).or_not())
         .delimited_by(just('{').padded(), just('}').padded())
         .map(|(match_clauses, where_clause)| Query {
             match_clauses,

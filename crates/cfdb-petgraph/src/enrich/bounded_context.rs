@@ -148,7 +148,7 @@ fn expected_for_crate<'a>(
     if !memo.contains_key(crate_name) {
         memo.insert(
             crate_name.to_string(),
-            compute_bounded_context(crate_name, overrides),
+            compute_bounded_context(crate_name, overrides).name,
         );
     }
     memo.get(crate_name)

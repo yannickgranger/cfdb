@@ -20,6 +20,7 @@
 //! possible and documented where they must be respected by implementors.
 
 pub mod cfg_gate;
+pub mod context_source;
 pub mod enrich;
 pub mod fact;
 pub mod qname;
@@ -30,6 +31,7 @@ pub mod store;
 pub mod visibility;
 
 pub use cfg_gate::CfgGate;
+pub use context_source::ContextSource;
 pub use enrich::{EnrichBackend, EnrichReport};
 pub use fact::{Edge, Node, PropValue, Props};
 pub use query::{

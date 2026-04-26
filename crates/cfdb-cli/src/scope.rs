@@ -4,12 +4,14 @@
 //! surface preserved: every item here is re-exported from the crate root.
 
 use std::path::Path;
+use std::str::FromStr;
 
 use cfdb_core::result::{Warning, WarningKind};
 use cfdb_query::{DebtClass, ScopeInventory};
 
-use crate::commands::keyspace_path;
 use crate::compose;
+use crate::output;
+use crate::output::OutputFormat;
 
 mod classifier;
 mod explain_sink;
@@ -75,7 +77,14 @@ pub fn scope(
     keyspace: Option<&str>,
     explain: bool,
 ) -> Result<(), crate::CfdbCliError> {
-    if format != "json" {
+    // EPIC #273 Pattern 1 #4: scope accepts only `json` in v0.1. The
+    // `tests/scope.rs::scope_rejects_format_table_in_v01` substring assert
+    // pins both `table` and `v0.2` as load-bearing in the rejection
+    // message, so we keep that wording for any non-`json` input rather
+    // than routing through the canonical "expected one of: ..." shape
+    // (which would falsely advertise `text` / `sorted-jsonl` / `table` as
+    // accepted by `scope`).
+    if OutputFormat::from_str(format).ok() != Some(OutputFormat::Json) {
         return Err(format!(
             "`--format {format}` is not supported in v0.1. \
              Only `json` ships today; `table` is deferred to v0.2 per §A3.3."
@@ -84,15 +93,7 @@ pub fn scope(
     }
 
     let ks_name = resolve_keyspace_name(db, keyspace)?;
-    let ks_path = keyspace_path(db, &ks_name);
-    if !ks_path.exists() {
-        return Err(format!(
-            "keyspace `{ks_name}` not found in db `{}` (looked for {})",
-            db.display(),
-            ks_path.display()
-        )
-        .into());
-    }
+    compose::ensure_keyspace_exists(db, &ks_name)?;
 
     // RFC-035 §3.8: when a workspace is supplied, route through
     // `load_store_with_workspace` so `.cfdb/indexes.toml` flows into the
@@ -253,23 +254,23 @@ pub(crate) fn attach_scope_warnings(inventory: &mut ScopeInventory) {
     }
 }
 
-/// Serialise the inventory and write it to `output` (or stdout if `None`).
+/// Serialise the inventory and write it to `output_path` (or stdout if `None`).
 fn emit_scope_output(
     inventory: &ScopeInventory,
-    output: Option<&Path>,
+    output_path: Option<&Path>,
 ) -> Result<(), crate::CfdbCliError> {
-    let json = serde_json::to_string_pretty(inventory)?;
-    match output {
+    match output_path {
         Some(path) => {
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent)
                     .map_err(|e| format!("create output parent dir `{}`: {e}", parent.display()))?;
             }
+            let json = serde_json::to_string_pretty(inventory)?;
             std::fs::write(path, &json)
                 .map_err(|e| format!("write output file `{}`: {e}", path.display()))?;
         }
         None => {
-            println!("{json}");
+            output::emit_json(inventory)?;
         }
     }
     Ok(())
@@ -289,18 +290,7 @@ pub(crate) fn resolve_keyspace_name(
     if !db.exists() {
         return Err(format!("db directory `{}` does not exist", db.display()).into());
     }
-    let mut names: Vec<String> = std::fs::read_dir(db)?
-        .filter_map(|e| e.ok())
-        .filter_map(|e| {
-            let p = e.path();
-            if p.extension().and_then(|s| s.to_str()) == Some("json") {
-                p.file_stem().and_then(|s| s.to_str()).map(String::from)
-            } else {
-                None
-            }
-        })
-        .collect();
-    names.sort();
+    let names = compose::list_keyspace_names(db)?;
     match names.len() {
         0 => Err(format!(
             "db `{}` contains no keyspace files; run `cfdb extract` first",

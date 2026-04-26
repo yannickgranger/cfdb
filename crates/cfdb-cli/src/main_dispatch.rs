@@ -3,10 +3,12 @@
 //! unpacks one slice of the `Command` enum and delegates to the
 //! corresponding `cfdb_cli::*` handler.
 
+use std::str::FromStr;
+
 use cfdb_cli::{
-    check, check_predicate, classify, diff, drop_keyspace_cmd, dump, enrich, export, extract,
-    list_callers, list_items_matching, list_keyspaces, query, scope, snapshots, typed_stub,
-    violations, CfdbCliError, EnrichVerb,
+    check, check_predicate, classify, diff, drop_keyspace_cmd, dump, emit_json, enrich, export,
+    extract, list_callers, list_items_matching, list_keyspaces, query, scope, snapshots,
+    typed_stub, violations, CfdbCliError, EnrichVerb, OutputFormat,
 };
 
 use crate::main_command::{Command, ExtractArgs};
@@ -39,7 +41,11 @@ pub(crate) fn dispatch_core(cmd: Command) -> Result<(), CfdbCliError> {
         } => {
             let rows_found = violations(db, keyspace, rule, count_only)?;
             if rows_found > 0 && !no_fail {
-                std::process::exit(1);
+                // Exit 30 = "rule rows returned, gate failure" — distinct from
+                // exit 1 (runtime error). Aligns with `ci/cross-dogfood.sh`
+                // convention so CI scripts can disambiguate "extractor blew
+                // up" from "rule found rows." See main.rs `Exit codes` doc.
+                std::process::exit(30);
             }
             Ok(())
         }
@@ -51,7 +57,9 @@ pub(crate) fn dispatch_core(cmd: Command) -> Result<(), CfdbCliError> {
         } => {
             let rows_found = check(&db, &keyspace, trigger)?;
             if rows_found > 0 && !no_fail {
-                std::process::exit(1);
+                // Exit 30 = "rule rows returned, gate failure" — see the
+                // sibling site in `Command::Violations` above for rationale.
+                std::process::exit(30);
             }
             Ok(())
         }
@@ -127,7 +135,9 @@ pub(crate) fn dispatch_typed(cmd: Command) -> Result<(), CfdbCliError> {
             let report = check_predicate(&db, &keyspace, &workspace_root, &name, &params)?;
             emit_check_predicate_report(&report, &format)?;
             if report.row_count > 0 && !no_fail {
-                std::process::exit(1);
+                // Exit 30 = "rule rows returned, gate failure" — see the
+                // sibling site in `Command::Violations` above for rationale.
+                std::process::exit(30);
             }
             Ok(())
         }
@@ -143,8 +153,14 @@ fn emit_check_predicate_report(
     report: &cfdb_cli::PredicateRunReport,
     format: &str,
 ) -> Result<(), CfdbCliError> {
+    // EPIC #273 Pattern 1 #4: parse via the canonical `OutputFormat`, then
+    // narrow to the per-handler allowlist (`text` and `json`). Other
+    // variants are rejected with the unified "expected `text` or `json`"
+    // shape.
+    let format = OutputFormat::from_str(format)?
+        .require_one_of(&[OutputFormat::Text, OutputFormat::Json], "check-predicate")?;
     match format {
-        "text" => {
+        OutputFormat::Text => {
             eprintln!(
                 "check-predicate: {} (predicate: {})",
                 report.row_count, report.predicate_name
@@ -154,14 +170,10 @@ fn emit_check_predicate_report(
             }
             Ok(())
         }
-        "json" => {
-            let json = serde_json::to_string_pretty(&report)?;
-            println!("{json}");
-            Ok(())
-        }
-        other => Err(CfdbCliError::Usage(format!(
-            "--format `{other}` not supported; expected `text` or `json`"
-        ))),
+        OutputFormat::Json => emit_json(&report),
+        // Other variants are filtered out by `require_one_of` above; the
+        // type system can't see that, so we name the contract here.
+        _ => unreachable!("check-predicate allowlist is restricted to Text | Json"),
     }
 }
 
@@ -204,55 +216,46 @@ pub(crate) fn dispatch_snapshot(cmd: Command) -> Result<(), CfdbCliError> {
 /// cyclomatic complexity — the top-level match collapses all seven arms to
 /// a single alternation arm that delegates here.
 pub(crate) fn dispatch_enrich(cmd: Command) -> Result<(), CfdbCliError> {
-    // The git-history / rfc-docs / bounded-context verbs thread a workspace
-    // path through the composition root (clean-arch B4 resolution, #43-A).
-    // We handle them inline so the other four variants keep their simple
-    // `(db, keyspace) → EnrichVerb` shape. Slice 43-F (#109) will add its
-    // own `--workspace` flag when `enrich_concepts` needs one.
-    if let Command::EnrichGitHistory {
-        db,
-        keyspace,
-        workspace,
-    } = cmd
-    {
-        return enrich(db, keyspace, EnrichVerb::GitHistory, workspace);
-    }
-    if let Command::EnrichRfcDocs {
-        db,
-        keyspace,
-        workspace,
-    } = cmd
-    {
-        return enrich(db, keyspace, EnrichVerb::RfcDocs, workspace);
-    }
-    if let Command::EnrichBoundedContext {
-        db,
-        keyspace,
-        workspace,
-    } = cmd
-    {
-        return enrich(db, keyspace, EnrichVerb::BoundedContext, workspace);
-    }
-    if let Command::EnrichConcepts {
-        db,
-        keyspace,
-        workspace,
-    } = cmd
-    {
-        return enrich(db, keyspace, EnrichVerb::Concepts, workspace);
-    }
-    if let Command::EnrichMetrics {
-        db,
-        keyspace,
-        workspace,
-    } = cmd
-    {
-        return enrich(db, keyspace, EnrichVerb::Metrics, workspace);
-    }
-
-    let (db, keyspace, verb) = match cmd {
-        Command::EnrichDeprecation { db, keyspace } => (db, keyspace, EnrichVerb::Deprecation),
-        Command::EnrichReachability { db, keyspace } => (db, keyspace, EnrichVerb::Reachability),
+    // Five verbs (git-history / rfc-docs / bounded-context / concepts /
+    // metrics) thread a `--workspace` path through the composition root
+    // (clean-arch B4 resolution, #43-A). The remaining two
+    // (deprecation / reachability) take no workspace and pass `None`.
+    // Audit 2026-W17 / EPIC #273 / Pattern 3 (cfdb-cli F-006) — the prior
+    // shape was five `if let` clones followed by a second match for the
+    // non-workspace pair. Collapsed here to a single match that extracts
+    // `(db, keyspace, EnrichVerb, Option<PathBuf>)` uniformly.
+    let (db, keyspace, verb, workspace) = match cmd {
+        Command::EnrichGitHistory {
+            db,
+            keyspace,
+            workspace,
+        } => (db, keyspace, EnrichVerb::GitHistory, workspace),
+        Command::EnrichRfcDocs {
+            db,
+            keyspace,
+            workspace,
+        } => (db, keyspace, EnrichVerb::RfcDocs, workspace),
+        Command::EnrichBoundedContext {
+            db,
+            keyspace,
+            workspace,
+        } => (db, keyspace, EnrichVerb::BoundedContext, workspace),
+        Command::EnrichConcepts {
+            db,
+            keyspace,
+            workspace,
+        } => (db, keyspace, EnrichVerb::Concepts, workspace),
+        Command::EnrichMetrics {
+            db,
+            keyspace,
+            workspace,
+        } => (db, keyspace, EnrichVerb::Metrics, workspace),
+        Command::EnrichDeprecation { db, keyspace } => {
+            (db, keyspace, EnrichVerb::Deprecation, None)
+        }
+        Command::EnrichReachability { db, keyspace } => {
+            (db, keyspace, EnrichVerb::Reachability, None)
+        }
         other => {
             // Unreachable — the caller pattern-matches on the seven enrich
             // variants before calling us. An unexpected command here is a
@@ -260,5 +263,5 @@ pub(crate) fn dispatch_enrich(cmd: Command) -> Result<(), CfdbCliError> {
             unreachable!("dispatch_enrich called with non-enrich command: {other:?}")
         }
     };
-    enrich(db, keyspace, verb, None)
+    enrich(db, keyspace, verb, workspace)
 }

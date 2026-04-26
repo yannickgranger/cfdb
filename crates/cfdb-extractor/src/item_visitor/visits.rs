@@ -4,19 +4,16 @@
 use std::collections::BTreeMap;
 
 use cfdb_core::fact::{Edge, Node, PropValue};
-use cfdb_core::qname::{item_node_id, method_qname, normalize_impl_target, qname_from_node_id};
+use cfdb_core::qname::{normalize_impl_target, qname_from_node_id};
 use cfdb_core::schema::{EdgeLabel, Label};
 use syn::visit::Visit;
 
-use crate::attrs::{
-    attrs_contain_cfg_test, extract_cfg_feature_gate, extract_deprecated_attr, extract_path_attr,
-    extract_serde_default_attr,
-};
+use crate::attrs::{attrs_contain_cfg_test, extract_path_attr, extract_serde_default_attr};
 use crate::call_visitor::walk_call_sites_with_test_flag;
 use crate::file_walker::PendingExternalMod;
 use crate::type_render::{render_fn_signature, render_path, render_type_string};
 
-use super::{parse_syn_visibility, span_line, ItemVisitor};
+use super::{span_line, ItemVisitor};
 
 /// Extract `(name, is_self, type_path, type_normalized, syn_type)` for
 /// one `syn::FnArg`. Wildcard patterns (`_`) and non-ident patterns
@@ -68,6 +65,7 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
             &node.vis,
             &node.attrs,
             Some(&signature),
+            None,
         );
         let caller_qname = qname_from_node_id(&id).to_string();
         // RETURNS post-walk queue (RFC-037 §3.2, #216). Defer
@@ -129,7 +127,11 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
         // only — no trait to point to.)
         let trait_qname: Option<String> =
             node.trait_.as_ref().map(|(_, path, _)| render_path(path));
-        self.emit_impl_block(&target, trait_qname.as_deref(), &node.attrs);
+        // Use the `impl` keyword's span line — stable across inherent
+        // and trait impls, and matches what a human reader would point
+        // to as "the impl line" (#273 / F-005).
+        let impl_line = node.impl_token.span.start().line;
+        self.emit_impl_block(&target, trait_qname.as_deref(), impl_line, &node.attrs);
 
         let prev = self.current_impl_target.replace(target);
         syn::visit::visit_item_impl(self, node);
@@ -142,69 +144,26 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
             .current_impl_target
             .clone()
             .unwrap_or_else(|| "_".to_string());
-        // Method qname includes the impl target: `module::Foo::bar`.
-        // We bypass emit_item() because it composes qname from
-        // current_module_qpath() + name, which would drop the impl target.
-        let qname = method_qname(&self.module_stack, &target, &method);
-        let id = item_node_id(&qname);
         let is_test = self.fn_is_test(&node.attrs);
-        let mut props = BTreeMap::new();
-        props.insert("qname".into(), PropValue::Str(qname.clone()));
-        props.insert("name".into(), PropValue::Str(method.clone()));
-        props.insert("kind".into(), PropValue::Str("method".to_string()));
-        props.insert("crate".into(), PropValue::Str(self.crate_name.clone()));
-        props.insert(
-            "bounded_context".into(),
-            PropValue::Str(self.bounded_context.clone()),
+        let signature = render_fn_signature(&node.sig);
+        // Route through `emit_item_with_flags` with `impl_target = Some(&target)`
+        // so the qname picks up the impl-target segment (`module::Foo::bar`)
+        // and the `impl_target` prop lands on the `:Item` node. This is the
+        // single owner of `:Item` prop emission — IN_CRATE, IN_MODULE,
+        // emitted_item_qnames, deprecation, cfg_gate, signature, and
+        // visibility are all owned by the helper (audit 2026-W17 / EPIC
+        // #273 / Pattern 3 F-002 — eliminates ~95 lines of triplication).
+        let id = self.emit_item_with_flags(
+            &method,
+            "method",
+            span_line(&node.sig.ident),
+            is_test,
+            &node.vis,
+            &node.attrs,
+            Some(&signature),
+            Some(&target),
         );
-        props.insert(
-            "module_qpath".into(),
-            PropValue::Str(self.current_module_qpath()),
-        );
-        props.insert("impl_target".into(), PropValue::Str(target.clone()));
-        props.insert("file".into(), PropValue::Str(self.file_path.clone()));
-        props.insert(
-            "line".into(),
-            PropValue::Int(span_line(&node.sig.ident) as i64),
-        );
-        props.insert("is_test".into(), PropValue::Bool(is_test));
-        props.insert(
-            "visibility".into(),
-            PropValue::Str(parse_syn_visibility(&node.vis).to_string()),
-        );
-        if let Some(gate) = extract_cfg_feature_gate(&node.attrs) {
-            props.insert("cfg_gate".into(), PropValue::Str(gate.to_string()));
-        }
-        // Deprecation facts (#106) — impl-method path mirrors `emit_item_with_flags`.
-        let (is_deprecated, deprecation_since) = extract_deprecated_attr(&node.attrs);
-        props.insert("is_deprecated".into(), PropValue::Bool(is_deprecated));
-        if let Some(since) = deprecation_since {
-            props.insert("deprecation_since".into(), PropValue::Str(since));
-        }
-        // `:Item.signature` (#47) — impl-method path mirrors `emit_item_with_flags`.
-        // Every `method`-kind Item carries a canonical signature string so
-        // the `signature_divergent(a, b)` UDF can compare two items with
-        // same last-segment qname across bounded contexts.
-        props.insert(
-            "signature".into(),
-            PropValue::Str(render_fn_signature(&node.sig)),
-        );
-        self.emitter.emit_node(Node {
-            id: id.clone(),
-            label: Label::new(Label::ITEM),
-            props,
-        });
-        // Track method qname for RETURNS / TYPE_OF post-walk
-        // resolution (RFC-037 §3.2, #216). The impl-method emission
-        // path bypasses `emit_item_with_flags`, so we insert into
-        // the workspace-scoped set explicitly here.
-        self.emitter.emitted_item_qnames.insert(qname.clone());
-        self.emitter.emit_edge(Edge {
-            src: id,
-            dst: self.crate_id.clone(),
-            label: EdgeLabel::new(EdgeLabel::IN_CRATE),
-            props: BTreeMap::new(),
-        });
+        let qname = qname_from_node_id(&id).to_string();
         // RETURNS post-walk queue (RFC-037 §3.2, #216). Mirrors the
         // free-fn path in `visit_item_fn`. The deferred entry uses the
         // method's full qname (`module::Foo::bar`) so the post-walk
@@ -258,11 +217,17 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
             for f in &named.named {
                 if let Some(ident) = &f.ident {
                     if let Some(callee_path) = extract_serde_default_attr(&f.attrs) {
+                        // Real source line of the field ident — the
+                        // attr-ref CallSite points at the field whose
+                        // `#[serde(default = "...")]` attr it represents
+                        // (#273 / F-005).
+                        let field_line = ident.span().start().line;
                         self.emit_attr_call_site(
                             &parent_qname,
                             &ident.to_string(),
                             &callee_path,
                             "serde_default",
+                            field_line,
                         );
                     }
                 }
@@ -354,7 +319,14 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
             self.test_mod_depth += 1;
         }
 
-        // Emit the module node + IN_MODULE membership for the parent module.
+        // Emit the `:Module` node and its `IN_CRATE` edge to the owning
+        // `:Crate`. `:Module` itself does NOT emit an `IN_MODULE` edge
+        // to its parent module — `IN_MODULE` is declared from `[Item,
+        // File]` to `[Module]` (`cfdb-core/src/schema/describe/edges.rs`
+        // — `Module → Module` would be a separate parentage edge,
+        // intentionally not in v0.1 vocabulary). Item membership in
+        // this module is emitted by the per-item helpers via
+        // `emit_in_module_edge`.
         let qpath = self.current_module_qpath();
         let id = format!("module:{qpath}");
         let mut props = BTreeMap::new();

@@ -6,6 +6,10 @@ Extracted from `cfdb-extractor/src/context.rs` in Issue #3 so that the future `c
 
 Dependency discipline: no `syn`, no `cargo_metadata`, no `ra-ap-hir`. Pure TOML + serde. Consumed by `cfdb-extractor` today and by `cfdb-query` once `ContextMap` lands (per issue #49).
 
+## BoundedContext
+
+Return type of `compute_bounded_context` (RFC-038 slice 2). Pairs the resolved context `name` (the same string the function returned pre-RFC-038) with a `cfdb_core::ContextSource` discriminator that surfaces the override-vs-heuristic provenance previously discarded at the API boundary. `Declared` when the result came from a `.cfdb/concepts/<name>.toml` override; `Heuristic` when it came from prefix stripping or the no-prefix fallback. Slice 3 (#302) plumbs `.source` to `:Context.source` emission; this slice exposes the discriminator at the API surface so every caller is forced to decide what to do with provenance.
+
 ## ConceptOverrides
 
 Loaded override map — reverse lookup from crate name to the owning `ContextMeta`. Returned by `load_concept_overrides`; consumed by `compute_bounded_context`. Internally a sorted `BTreeMap` for determinism. Provides `lookup(crate_name)` for per-crate resolution and `declared_contexts()` for enumerating every context declared across all TOML files.

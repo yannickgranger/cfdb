@@ -13,31 +13,9 @@ use cfdb_core::store::StoreBackend;
 use cfdb_query::diff::{compute_diff, ChangedFact, DiffEnvelope, DiffFact, KindsFilter};
 use serde_json::{json, Value};
 
-use crate::commands::keyspace_path;
 use crate::compose;
-
-/// Output surface for the diff. `json` is the default envelope; the
-/// `sorted-jsonl` variant emits each `{added|removed|changed}` fact as its
-/// own JSONL line — determinism-friendly for line-by-line CI diffs.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum DiffFormat {
-    Json,
-    SortedJsonl,
-}
-
-impl FromStr for DiffFormat {
-    type Err = crate::CfdbCliError;
-
-    fn from_str(raw: &str) -> Result<Self, Self::Err> {
-        match raw {
-            "json" => Ok(Self::Json),
-            "sorted-jsonl" => Ok(Self::SortedJsonl),
-            other => Err(crate::CfdbCliError::from(format!(
-                "diff: --format `{other}` not supported; expected `json` or `sorted-jsonl`"
-            ))),
-        }
-    }
-}
+use crate::output;
+use crate::output::OutputFormat;
 
 pub fn diff(
     db: PathBuf,
@@ -46,16 +24,15 @@ pub fn diff(
     kinds: Option<String>,
     format: String,
 ) -> Result<(), crate::CfdbCliError> {
-    let format = DiffFormat::from_str(&format)?;
+    // `cfdb diff` accepts `json` (default envelope) and `sorted-jsonl` (one
+    // line per `{added|removed|changed}` fact). The shared `OutputFormat`
+    // enum carries other variants (text, table) that this verb does not
+    // accept; the allowlist below enforces the per-handler subset.
+    let format = OutputFormat::from_str(&format)?
+        .require_one_of(&[OutputFormat::Json, OutputFormat::SortedJsonl], "diff")?;
 
-    let path_a = keyspace_path(&db, &a);
-    let path_b = keyspace_path(&db, &b);
-    if !path_a.exists() {
-        return Err(format!("keyspace `{a}` not found at {}", path_a.display()).into());
-    }
-    if !path_b.exists() {
-        return Err(format!("keyspace `{b}` not found at {}", path_b.display()).into());
-    }
+    compose::ensure_keyspace_exists(&db, &a)?;
+    compose::ensure_keyspace_exists(&db, &b)?;
 
     let kinds_filter = kinds
         .as_deref()
@@ -72,12 +49,15 @@ pub fn diff(
         .map_err(|err| crate::CfdbCliError::from(err.to_string()))?;
 
     match format {
-        DiffFormat::Json => {
-            println!("{}", serde_json::to_string_pretty(&envelope)?);
+        OutputFormat::Json => {
+            output::emit_json(&envelope)?;
         }
-        DiffFormat::SortedJsonl => {
+        OutputFormat::SortedJsonl => {
             emit_sorted_jsonl(&envelope)?;
         }
+        // Other variants are filtered out by `require_one_of` above; the
+        // type system can't see that, so we name the contract here.
+        _ => unreachable!("diff allowlist is restricted to Json | SortedJsonl"),
     }
     Ok(())
 }
