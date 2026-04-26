@@ -84,6 +84,15 @@ impl Emitter {
         self.edges.push(edge);
     }
 
+    /// Read-only view of every edge emitted so far. Used by the post-walk
+    /// synthesis pass ([`crate::synthesize::synthesize_referenced_items`])
+    /// to discover dst qnames that no walk path emitted as `:Item` nodes
+    /// (foreign traits, foreign types — issue #317). Not exposed publicly;
+    /// `pub(crate)` so the synthesis function in this crate can iterate.
+    pub(crate) fn edges(&self) -> &[Edge] {
+        &self.edges
+    }
+
     pub(crate) fn finish(self) -> (Vec<Node>, Vec<Edge>) {
         (self.nodes, self.edges)
     }
