@@ -33,6 +33,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use cfdb_core::ContextSource;
 use serde::Deserialize;
 
 mod published_language;
@@ -63,6 +64,18 @@ pub struct ContextMeta {
     pub name: String,
     pub canonical_crate: Option<String>,
     pub owning_rfc: Option<String>,
+}
+
+/// Bounded-context name with provenance discriminator (RFC-038).
+///
+/// Returned by [`compute_bounded_context`]. The `name` field is the same
+/// string the function returned pre-RFC-038; the `source` field surfaces
+/// the override-vs-heuristic discrimination that was previously discarded
+/// at the API boundary.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BoundedContext {
+    pub name: String,
+    pub source: ContextSource,
 }
 
 /// The on-disk shape of a `.cfdb/concepts/<context>.toml` file.
@@ -194,19 +207,33 @@ fn load_single_concept_file(
 /// Override wins over the heuristic. The heuristic strips one well-known
 /// crate-prefix (from [`WELL_KNOWN_PREFIXES`]) and returns the remainder;
 /// crates with no known prefix return their full name unchanged.
+///
+/// Returns a [`BoundedContext`] carrying both the resolved `name` and the
+/// [`ContextSource`] discriminator (RFC-038): `Declared` when the result
+/// came from an override file, `Heuristic` when it came from prefix
+/// stripping or the no-prefix fallback.
 #[must_use]
-pub fn compute_bounded_context(package_name: &str, overrides: &ConceptOverrides) -> String {
+pub fn compute_bounded_context(package_name: &str, overrides: &ConceptOverrides) -> BoundedContext {
     if let Some(meta) = overrides.lookup(package_name) {
-        return meta.name.clone();
+        return BoundedContext {
+            name: meta.name.clone(),
+            source: ContextSource::Declared,
+        };
     }
     for prefix in WELL_KNOWN_PREFIXES {
         if let Some(rest) = package_name.strip_prefix(prefix) {
             if !rest.is_empty() {
-                return rest.to_string();
+                return BoundedContext {
+                    name: rest.to_string(),
+                    source: ContextSource::Heuristic,
+                };
             }
         }
     }
-    package_name.to_string()
+    BoundedContext {
+        name: package_name.to_string(),
+        source: ContextSource::Heuristic,
+    }
 }
 
 /// Errors surfaced by [`load_concept_overrides`] — file-system access and
@@ -240,7 +267,7 @@ mod tests {
     #[test]
     fn heuristic_strips_domain_prefix() {
         assert_eq!(
-            compute_bounded_context("domain-trading", &empty()),
+            compute_bounded_context("domain-trading", &empty()).name,
             "trading"
         );
     }
@@ -248,7 +275,7 @@ mod tests {
     #[test]
     fn heuristic_strips_ports_prefix() {
         assert_eq!(
-            compute_bounded_context("ports-trading", &empty()),
+            compute_bounded_context("ports-trading", &empty()).name,
             "trading"
         );
     }
@@ -259,7 +286,7 @@ mod tests {
         // well-known prefix is stripped — deeper semantics live in the
         // override TOML).
         assert_eq!(
-            compute_bounded_context("adapters-postgres-trading", &empty()),
+            compute_bounded_context("adapters-postgres-trading", &empty()).name,
             "postgres-trading"
         );
     }
@@ -267,7 +294,7 @@ mod tests {
     #[test]
     fn heuristic_strips_application_prefix() {
         assert_eq!(
-            compute_bounded_context("application-live-trading", &empty()),
+            compute_bounded_context("application-live-trading", &empty()).name,
             "live-trading"
         );
     }
@@ -275,21 +302,24 @@ mod tests {
     #[test]
     fn heuristic_strips_use_cases_prefix() {
         assert_eq!(
-            compute_bounded_context("use-cases-backtest", &empty()),
+            compute_bounded_context("use-cases-backtest", &empty()).name,
             "backtest"
         );
     }
 
     #[test]
     fn heuristic_strips_qbot_prefix() {
-        assert_eq!(compute_bounded_context("qbot-mcp", &empty()), "mcp");
+        assert_eq!(compute_bounded_context("qbot-mcp", &empty()).name, "mcp");
     }
 
     #[test]
     fn heuristic_returns_full_name_when_no_prefix() {
-        assert_eq!(compute_bounded_context("cfdb-core", &empty()), "cfdb-core");
         assert_eq!(
-            compute_bounded_context("cfdb-extractor", &empty()),
+            compute_bounded_context("cfdb-core", &empty()).name,
+            "cfdb-core"
+        );
+        assert_eq!(
+            compute_bounded_context("cfdb-extractor", &empty()).name,
             "cfdb-extractor"
         );
     }
@@ -297,7 +327,7 @@ mod tests {
     #[test]
     fn heuristic_returns_full_name_for_bare_prefix() {
         // `domain-` with nothing after it should not collapse to empty string.
-        assert_eq!(compute_bounded_context("domain-", &empty()), "domain-");
+        assert_eq!(compute_bounded_context("domain-", &empty()).name, "domain-");
     }
 
     #[test]
@@ -314,7 +344,7 @@ mod tests {
         let overrides = ConceptOverrides { by_crate };
         // The heuristic would strip to "trading"; the override forces "portfolio".
         assert_eq!(
-            compute_bounded_context("domain-trading", &overrides),
+            compute_bounded_context("domain-trading", &overrides).name,
             "portfolio"
         );
     }
@@ -332,9 +362,42 @@ mod tests {
         );
         let overrides = ConceptOverrides { by_crate };
         assert_eq!(
-            compute_bounded_context("messenger", &overrides),
+            compute_bounded_context("messenger", &overrides).name,
             "cross-cutting"
         );
+    }
+
+    #[test]
+    fn declared_when_overridden() {
+        let mut by_crate = BTreeMap::new();
+        by_crate.insert(
+            "domain-trading".to_string(),
+            ContextMeta {
+                name: "trading".to_string(),
+                canonical_crate: None,
+                owning_rfc: None,
+            },
+        );
+        let overrides = ConceptOverrides { by_crate };
+        let bc = compute_bounded_context("domain-trading", &overrides);
+        assert_eq!(bc.name, "trading");
+        assert_eq!(bc.source, ContextSource::Declared);
+    }
+
+    #[test]
+    fn heuristic_when_prefix_stripped() {
+        // `domain-` is a well-known prefix; "domain-trading" -> "trading", source Heuristic.
+        let bc = compute_bounded_context("domain-trading", &ConceptOverrides::default());
+        assert_eq!(bc.name, "trading");
+        assert_eq!(bc.source, ContextSource::Heuristic);
+    }
+
+    #[test]
+    fn heuristic_when_no_prefix_match() {
+        // `cfdb-core` matches no prefix -> full name retained, source Heuristic.
+        let bc = compute_bounded_context("cfdb-core", &ConceptOverrides::default());
+        assert_eq!(bc.name, "cfdb-core");
+        assert_eq!(bc.source, ContextSource::Heuristic);
     }
 
     #[test]

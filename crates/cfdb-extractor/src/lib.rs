@@ -187,7 +187,7 @@ fn emit_crate_and_walk_targets(
     workspace_root: &Path,
 ) -> Result<(), ExtractError> {
     let crate_id = format!("crate:{}", package.name);
-    let bounded_context = compute_bounded_context(&package.name, overrides);
+    let bounded_context = compute_bounded_context(&package.name, overrides).name;
 
     // Heuristic-synthesised contexts also need a `:Context` node so
     // `BELONGS_TO` has a valid target. The override-declared ones are
