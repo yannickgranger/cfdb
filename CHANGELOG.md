@@ -2,6 +2,61 @@
 
 All notable changes to cfdb will be documented in this file.
 
+## [0.4.1] - 2026-04-26
+
+### 🚀 Features
+
+- *(cfdb-query)* Support standard escape sequences in string literals
+- *(cfdb-core)* Add ContextSource enum + :Context.source schema attr ([#300](https://github.com/yannickgranger/cfdb/issues/300))
+- *(cfdb-core)* Add parse_or_default reader helper for :Context.source ([#303](https://github.com/yannickgranger/cfdb/issues/303))
+- *(cfdb-concepts)* Compute_bounded_context returns BoundedContext ([#301](https://github.com/yannickgranger/cfdb/issues/301))
+- *(cfdb-extractor)* Emit :Context.source via per-context accumulator ([#302](https://github.com/yannickgranger/cfdb/issues/302))
+
+### 🐛 Bug Fixes
+
+- *(cfdb-query)* Replace unwrapped() with try_map for u32 parses — prevent overflow panic
+- *(cfdb-cli)* Add -- separator to git clone/fetch/worktree-add for user URLs
+- *(cfdb-extractor)* Emit IN_MODULE edges from :Item and :File to :Module
+- *(cfdb-query)* Wire recursive predicate through subquery_parser
+- *(cfdb-cli)* Separate exit code 30 (rule hits) from 1 (runtime error)
+- *(cfdb-extractor)* Emit real source-line numbers, not 0 ([#273](https://github.com/yannickgranger/cfdb/issues/273))
+- *(cfdb-hir-extractor)* Emit real source-line numbers on :CallSite
+- *(cfdb-extractor)* Synthesize :Item for referenced-but-not-walked qnames
+- *(cfdb-core)* Tag :Concept-[EQUIVALENT_TO]->:Concept as Provenance::Reserved
+
+### 🚜 Refactor
+
+- *(cfdb-extractor)* Route impl-method emission through emit_item_with_flags
+- *(cfdb-petgraph)* Extract require_keyspace + require_workspace helpers
+- *(cfdb-cli)* Extract compose::list_keyspace_names helper
+- *(cfdb-cli)* Collapse enrich-verb dispatch to single match
+- *(cfdb-extractor)* Extract insert_attr_metadata_props helper
+- *(cfdb-cli)* Extract output::emit_json helper
+- *(cfdb-extractor)* Extract emit_call_site_node_and_edge helper
+- *(cfdb-cli)* Extract compose::ensure_keyspace_exists
+- *(cfdb-cli)* Unify --format flag under OutputFormat enum
+- *(cfdb-extractor)* Direct syn::Visibility -> Visibility mapping
+
+### 📚 Documentation
+
+- *(cfdb-petgraph)* Remove rayon-parallelism claim from enrich_metrics
+- *(specs)* Add OutputFormat concept spec ([#273](https://github.com/yannickgranger/cfdb/issues/273) Pattern 1 [#4](https://github.com/yannickgranger/cfdb/issues/4))
+- Draft RFC-038 — :Context.source discriminator (R1 pending)
+- RFC-038 R2 — address B1 (cfdb-concepts→cfdb-core dep arc) + B2 (as_wire_str return type)
+- RFC-038 ratified — 4/4 RATIFY at R2
+- RFC-038 — fill issue numbers in landing trail ([#300](https://github.com/yannickgranger/cfdb/issues/300)/[#301](https://github.com/yannickgranger/cfdb/issues/301)/[#302](https://github.com/yannickgranger/cfdb/issues/302)/[#303](https://github.com/yannickgranger/cfdb/issues/303))
+- RFC-039 — foreign-item stubs for cross-workspace edge endpoints (ratified, 4/4)
+- Withdraw RFC-039 — wrong framing (foreign items are dependency surface, not stubs)
+
+### 🧪 Testing
+
+- *(cfdb-query)* Scar tests for out-of-scope keyword false positives
+- *(cfdb-query)* Expand negative parser corpus
+
+### ⚙️ Miscellaneous Tasks
+
+- *(cfdb-core)* Drop unused indexmap dep + correct lying allowlist comment
+- *(cfdb-query)* Drop unused regex dep + correct lying allowlist comment
 ## [0.4.0] - 2026-04-25
 
 ### 🚀 Features
