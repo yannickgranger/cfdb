@@ -86,23 +86,47 @@ else
     diff <(printf '%s\n' "$harness_labels") <(printf '%s\n' "$expected_labels") >&2 || true
 fi
 
-# --- 3. happy path — stub cfdb reports non-zero for every label → exit 0 ---
-cat > "$TMP/cfdb-all-present" <<'EOF'
+# Dispatch helper for the cfdb stubs — schema-describe returns a schema-shaped
+# JSON, query returns the count. Issue #307: edge-liveness.sh now calls
+# schema-describe to read reserved labels, so every stub must answer both
+# subcommands.
+make_stub() {
+    local stub_file="$1" count="$2" reserved_labels_csv="$3"
+    cat > "$stub_file" <<EOF
 #!/usr/bin/env bash
-# Stub that always reports count=7 regardless of label.
-printf '{\n  "rows": [\n    {\n      "n": 7\n    }\n  ]\n}\n'
+case "\$1" in
+    schema-describe)
+        IFS=',' read -ra reserved <<<"${reserved_labels_csv}"
+        printf '{"edges":['
+        first=1
+        for r in "\${reserved[@]}"; do
+            [ -z "\$r" ] && continue
+            [ \$first -eq 1 ] || printf ','
+            printf '{"label":"%s","provenance":"reserved"}' "\$r"
+            first=0
+        done
+        printf ']}'
+        ;;
+    query)
+        printf '{\n  "rows": [\n    {\n      "n": ${count}\n    }\n  ]\n}\n'
+        ;;
+    *)
+        echo "stub: unknown subcommand: \$1" >&2
+        exit 2
+        ;;
+esac
 EOF
-chmod +x "$TMP/cfdb-all-present"
+    chmod +x "$stub_file"
+}
+
+# --- 3. happy path — stub cfdb reports non-zero for every label → exit 0 ---
+make_stub "$TMP/cfdb-all-present" 7 ""
 assert_exit "happy path: every label has ≥1 instance → exit 0" 0 \
     env CFDB_BIN="$TMP/cfdb-all-present" CFDB_DB="$TMP/db" \
     CFDB_KEYSPACE="dummy" "$HARNESS"
 
 # --- 4. sad path — stub cfdb reports zero for every label → exit 1 ---
-cat > "$TMP/cfdb-all-zero" <<'EOF'
-#!/usr/bin/env bash
-printf '{\n  "rows": [\n    {\n      "n": 0\n    }\n  ]\n}\n'
-EOF
-chmod +x "$TMP/cfdb-all-zero"
+make_stub "$TMP/cfdb-all-zero" 0 ""
 assert_exit "sad path: every label has 0 instances → exit 1" 1 \
     env CFDB_BIN="$TMP/cfdb-all-zero" CFDB_DB="$TMP/db" \
     CFDB_KEYSPACE="dummy" "$HARNESS"
@@ -110,14 +134,24 @@ assert_exit "sad path: every label has 0 instances → exit 1" 1 \
 # --- 5. mixed path — one label zero, rest present → exit 1 ---
 cat > "$TMP/cfdb-one-zero" <<'EOF'
 #!/usr/bin/env bash
-# Return 0 only when the query names REGISTERS_PARAM, non-zero otherwise.
-# The query string is the last argument to `cfdb query`; grep it out.
-for arg in "$@"; do last="$arg"; done
-if printf '%s' "$last" | grep -q 'REGISTERS_PARAM'; then
-    printf '{\n  "rows": [\n    {\n      "n": 0\n    }\n  ]\n}\n'
-else
-    printf '{\n  "rows": [\n    {\n      "n": 3\n    }\n  ]\n}\n'
-fi
+case "$1" in
+    schema-describe)
+        printf '{"edges":[]}'
+        ;;
+    query)
+        # Return 0 only when the query names REGISTERS_PARAM, non-zero otherwise.
+        # The query string is the last argument to `cfdb query`; grep it out.
+        for arg in "$@"; do last="$arg"; done
+        if printf '%s' "$last" | grep -q 'REGISTERS_PARAM'; then
+            printf '{\n  "rows": [\n    {\n      "n": 0\n    }\n  ]\n}\n'
+        else
+            printf '{\n  "rows": [\n    {\n      "n": 3\n    }\n  ]\n}\n'
+        fi
+        ;;
+    *)
+        exit 2
+        ;;
+esac
 EOF
 chmod +x "$TMP/cfdb-one-zero"
 assert_exit "mixed path: one dormant label → exit 1" 1 \
@@ -137,6 +171,50 @@ fi
 assert_exit "missing cfdb binary → exit 2" 2 \
     env CFDB_BIN="$TMP/does-not-exist" CFDB_DB="$TMP/db" \
     CFDB_KEYSPACE="dummy" "$HARNESS"
+
+# --- 7. issue #307 — reserved label suppression (happy path) ---
+# Schema describer reports EQUIVALENT_TO as reserved. Every label query
+# returns 0. The script must skip EQUIVALENT_TO from the dormant list AND
+# every other label is also dormant — but the test only asserts the
+# suppression mechanic. We make every label reserved so all 18 are tagged.
+all_18="IN_CRATE,IN_MODULE,HAS_FIELD,HAS_VARIANT,HAS_PARAM,TYPE_OF,IMPLEMENTS,IMPLEMENTS_FOR,RETURNS,BELONGS_TO,CALLS,INVOKES_AT,EXPOSES,REGISTERS_PARAM,LABELED_AS,CANONICAL_FOR,EQUIVALENT_TO,REFERENCED_BY"
+make_stub "$TMP/cfdb-all-reserved" 0 "$all_18"
+assert_exit "issue #307: every label reserved + zero counts → exit 0" 0 \
+    env CFDB_BIN="$TMP/cfdb-all-reserved" CFDB_DB="$TMP/db" \
+    CFDB_KEYSPACE="dummy" "$HARNESS"
+if grep -q 'EQUIVALENT_TO.*0 (reserved)' "$TMP/stdout"; then
+    pass=$((pass + 1))
+    echo "PASS: reserved label is annotated '(reserved)' in informational table"
+else
+    fail=$((fail + 1))
+    echo "FAIL: reserved annotation missing from stdout" >&2
+    sed 's/^/    /' "$TMP/stdout" >&2
+fi
+
+# --- 8. issue #307 — narrow suppression (sad path) ---
+# Only EQUIVALENT_TO reserved. Every label still returns 0. The 17 non-reserved
+# labels remain dormant → exit 1. Forbidden move 5 enforcement: tagging only
+# EQUIVALENT_TO must NOT silence the others.
+make_stub "$TMP/cfdb-only-eq-reserved" 0 "EQUIVALENT_TO"
+assert_exit "issue #307: only EQUIVALENT_TO reserved + others zero → exit 1" 1 \
+    env CFDB_BIN="$TMP/cfdb-only-eq-reserved" CFDB_DB="$TMP/db" \
+    CFDB_KEYSPACE="dummy" "$HARNESS"
+if grep -q '^  - EQUIVALENT_TO$' "$TMP/stderr"; then
+    fail=$((fail + 1))
+    echo "FAIL: EQUIVALENT_TO appeared in MISSING — narrow suppression broken" >&2
+    sed 's/^/    /' "$TMP/stderr" >&2
+else
+    pass=$((pass + 1))
+    echo "PASS: EQUIVALENT_TO suppressed from MISSING; other dormants reported"
+fi
+if grep -q '^  - CALLS$' "$TMP/stderr"; then
+    pass=$((pass + 1))
+    echo "PASS: non-reserved CALLS still reported as dormant (forbidden move 5)"
+else
+    fail=$((fail + 1))
+    echo "FAIL: CALLS missing from stderr — suppression too wide" >&2
+    sed 's/^/    /' "$TMP/stderr" >&2
+fi
 
 echo
 echo "$pass passed, $fail failed"

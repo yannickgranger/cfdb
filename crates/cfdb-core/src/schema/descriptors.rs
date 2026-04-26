@@ -58,6 +58,16 @@ pub enum Provenance {
     /// BFS over `CALLS*` starting at `:EntryPoint` nodes. Added in #43-A
     /// as a new provenance tag for slice 43-G's attribute additions.
     EnrichReachability,
+    /// No producer in v0.x — reserved for a future implementation. Emitted by
+    /// the schema describer to mark labels (and, in future, attributes) that
+    /// are declared in the vocabulary but not yet wired to any extractor or
+    /// enrich pass. Suppresses the RFC-037 §3.7 edge-liveness "dormant label"
+    /// failure mode for labels whose absence is by design rather than by
+    /// drift. First user: `:Concept -[EQUIVALENT_TO]-> :Concept` (issue
+    /// #307). Distinct from the producer variants — if any of those changes
+    /// its semantics, `Reserved` does NOT change too: it represents a
+    /// fundamentally different relationship (no producer at all, by design).
+    Reserved,
 }
 
 /// Description of one attribute on a node or edge label: name, type hint,
@@ -86,9 +96,12 @@ pub struct NodeLabelDescriptor {
 }
 
 /// Description of one edge label — its canonical label, one-line meaning,
-/// attribute list, and the allowed source/target node labels. `from` and `to`
-/// are empty when the edge is polymorphic (e.g. `IN_CRATE` accepts any node
-/// that has a crate).
+/// attribute list, allowed source/target node labels, and the producer
+/// provenance. `from` and `to` are empty when the edge is polymorphic (e.g.
+/// `IN_CRATE` accepts any node that has a crate). `provenance` names the
+/// extractor or enrich pass that emits the edge — or [`Provenance::Reserved`]
+/// when the label is declared in the vocabulary without a current producer
+/// (issue #307); RFC-037 §3.7 edge-liveness check skips reserved labels.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EdgeLabelDescriptor {
     pub label: EdgeLabel,
@@ -99,6 +112,21 @@ pub struct EdgeLabelDescriptor {
     pub from: Vec<Label>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub to: Vec<Label>,
+    /// Producer of this edge label. Required field (always serializes), but
+    /// `#[serde(default)]` defaults to [`Provenance::Extractor`] for
+    /// keyspaces serialized before this field landed (issue #307). New
+    /// descriptor instances MUST set the field explicitly.
+    #[serde(default = "default_edge_provenance")]
+    pub provenance: Provenance,
+}
+
+/// Backward-compat default for [`EdgeLabelDescriptor::provenance`] — every
+/// pre-#307 edge descriptor was extractor-emitted, so `Extractor` is the safe
+/// default for serialized data missing the field. Newly written descriptors
+/// must set `provenance:` explicitly so `Provenance::Reserved` is never
+/// silently selected.
+fn default_edge_provenance() -> Provenance {
+    Provenance::Extractor
 }
 
 /// The self-describing schema document returned by [`super::schema_describe`].
@@ -145,6 +173,7 @@ mod tests {
             Provenance::EnrichGitHistory,
             Provenance::EnrichConcepts,
             Provenance::EnrichReachability,
+            Provenance::Reserved,
         ] {
             let json = serde_json::to_string(&p).expect("Provenance is a plain derived enum");
             let back: Provenance =
@@ -166,6 +195,11 @@ mod tests {
             serde_json::to_string(&Provenance::EnrichReachability)
                 .expect("Provenance is a plain derived enum"),
             "\"enrich_reachability\""
+        );
+        assert_eq!(
+            serde_json::to_string(&Provenance::Reserved)
+                .expect("Provenance is a plain derived enum"),
+            "\"reserved\""
         );
     }
 }

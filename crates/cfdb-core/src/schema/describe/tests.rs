@@ -152,3 +152,58 @@ fn schema_describe_round_trips_through_serde() {
         serde_json::from_str(&json).expect("round-trip of just-serialized SchemaDescribe");
     assert_eq!(d, back);
 }
+
+/// Issue #307 — `EQUIVALENT_TO` is reserved-by-design (no producer in v0.x,
+/// planned for Phase B). The descriptor's `provenance` MUST be
+/// `Provenance::Reserved` and the human-readable description MUST advertise
+/// the reservation so consumers can distinguish "no producer because
+/// reserved" from "no producer because we forgot."
+#[test]
+fn schema_describe_equivalent_to_is_reserved() {
+    let d = schema_describe();
+    let eq = d
+        .edges
+        .iter()
+        .find(|e| e.label.as_str() == "EQUIVALENT_TO")
+        .expect("EQUIVALENT_TO descriptor is present in schema_describe");
+    assert_eq!(
+        eq.provenance,
+        Provenance::Reserved,
+        "EQUIVALENT_TO must be tagged Provenance::Reserved (issue #307)"
+    );
+    assert!(
+        eq.description.contains("Reserved"),
+        "description must advertise reservation: {:?}",
+        eq.description
+    );
+    assert!(
+        eq.description.contains("#307"),
+        "description must reference issue #307: {:?}",
+        eq.description
+    );
+}
+
+/// Issue #307 — Forbidden move 5: only EQUIVALENT_TO carries the Reserved
+/// tag. The other dormant labels on cfdb-self (CALLS, EXPOSES,
+/// REGISTERS_PARAM, LABELED_AS, CANONICAL_FOR, REFERENCED_BY) have real
+/// producers in `cfdb-hir-extractor` or enrichment passes — they must NOT
+/// be silenced via the Reserved tag. This test locks the invariant: exactly
+/// one edge label is Reserved, and that one is EQUIVALENT_TO.
+#[test]
+fn schema_describe_only_equivalent_to_is_reserved() {
+    let d = schema_describe();
+    let reserved: Vec<&str> = d
+        .edges
+        .iter()
+        .filter(|e| e.provenance == Provenance::Reserved)
+        .map(|e| e.label.as_str())
+        .collect();
+    assert_eq!(
+        reserved,
+        vec!["EQUIVALENT_TO"],
+        "only EQUIVALENT_TO should carry Provenance::Reserved (issue #307); \
+         expanding the tag to other dormant labels is a Forbidden move — \
+         their proper fix is running the relevant enrich pass, not tagging \
+         them reserved"
+    );
+}
