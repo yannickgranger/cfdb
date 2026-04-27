@@ -16,15 +16,30 @@ The binary is stateless: it reads argv-supplied paths and emits a versioned JSON
 
 ## Usage
 
+The canonical entry point is the `all` subcommand — runs all 5 triggers internally and emits one merged envelope:
+
 ```bash
 check-prelude-triggers \
-  --from-ref <sha> --to-ref <sha> \
+  --from-ref develop --to-ref work-branch-tip \
+  all \
+    --context-map qbot-core/.cfdb/context-map.toml \
+    --financial-precision-crates qbot-core/.cfdb/financial-precision-crates.toml \
+    --pipeline-stages qbot-core/.cfdb/pipeline-stages.toml \
+    --workspace-root qbot-core \
+    --changed-paths /tmp/changed-paths.txt
+```
+
+Per-trigger subcommands remain available for debugging / single-trigger runs:
+
+```bash
+check-prelude-triggers \
+  --from-ref develop --to-ref work-branch-tip \
   c1-cross-context \
     --context-map qbot-core/.cfdb/context-map.toml \
     --changed-paths /tmp/changed-paths.txt
 ```
 
-Each subcommand emits one envelope; consumers run all 5 and merge. (See cfdb #335 for the planned `all` consolidator subcommand.)
+The `all` subcommand was added in cfdb #335 — `/discover` consumes one envelope per RFC-034 §4.2, so the consolidated form removes a 5-call + manual-merge step from skill-side wiring.
 
 ### Exit codes (RFC-034 §4.2 rust-systems Amendment 1)
 
