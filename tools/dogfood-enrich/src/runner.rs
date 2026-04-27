@@ -29,12 +29,9 @@ pub fn substitute_template(template: &str, threshold: Option<u32>) -> String {
     }
 }
 
-/// Errors that bubble up to the binary exit code.
-///
-/// Mapped to `EXIT_RUNTIME_ERROR` (1) by the binary. The
-/// `ViolationsRowsFound` variant is the only one that maps to
-/// `EXIT_VIOLATIONS` (30); a clean run produces `Ok(_)` with the
-/// `RunOutcome::Clean` variant.
+/// Errors that bubble up to `EXIT_RUNTIME_ERROR` (1) in the binary.
+/// Violation rows are not errors — they return `Ok(RunOutcome::Violations)`
+/// which `main.rs` maps to `EXIT_VIOLATIONS` (30).
 #[derive(Debug, Error)]
 pub enum RunnerError {
     #[error("template file not found: {0}")]
@@ -59,18 +56,26 @@ pub enum RunnerError {
     },
     #[error("subprocess {binary} terminated by signal (no exit code)")]
     SubprocessSignal { binary: String },
+    #[error("subprocess {binary} exited {exit} unexpectedly with --no-fail; stderr: {stderr}")]
+    SubprocessUnexpectedExit {
+        binary: String,
+        exit: i32,
+        stderr: String,
+    },
+    #[error("failed to parse row count from {binary} stdout: {stdout:?}")]
+    CountParse { binary: String, stdout: String },
 }
 
 /// Outcome of a successful subprocess invocation.
 ///
-/// `Clean` = zero violation rows (subprocess exit 0).
-/// `Violations` = at least one row found (subprocess exit 30).
-/// Any other subprocess exit (including 1) bubbles as `RunnerError`
-/// because it indicates a runtime error, not a violation finding.
+/// `Clean` = zero violation rows. `Violations` = ≥1 row found, with
+/// the count parsed from `cfdb violations --count-only` stdout. Any
+/// runtime error (subprocess fail, unparseable count) bubbles as
+/// `RunnerError` rather than being re-classified.
 #[derive(Debug, PartialEq, Eq)]
 pub enum RunOutcome {
     Clean,
-    Violations { row_count_or_unknown: i32 },
+    Violations { row_count: i32 },
 }
 
 /// Materialize a Cypher template to a tempfile and invoke
@@ -125,25 +130,21 @@ pub fn materialize_and_run(
             binary: cfdb_bin.display().to_string(),
         })?;
     if exit != 0 {
-        // `cfdb violations --no-fail` should always exit 0 unless a
-        // runtime error fires inside cfdb itself. Bubble as runtime
-        // error rather than re-classifying as a violation.
-        return Err(RunnerError::SubprocessSpawn {
+        return Err(RunnerError::SubprocessUnexpectedExit {
             binary: cfdb_bin.display().to_string(),
-            source: io::Error::other(format!(
-                "cfdb violations exited {exit} with --no-fail; stderr: {}",
-                String::from_utf8_lossy(&output.stderr)
-            )),
+            exit,
+            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
         });
     }
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let count: i32 = stdout.trim().parse().unwrap_or(0);
+    let count: i32 = stdout.trim().parse().map_err(|_| RunnerError::CountParse {
+        binary: cfdb_bin.display().to_string(),
+        stdout: stdout.clone().into_owned(),
+    })?;
     if count == 0 {
         Ok(RunOutcome::Clean)
     } else {
-        Ok(RunOutcome::Violations {
-            row_count_or_unknown: count,
-        })
+        Ok(RunOutcome::Violations { row_count: count })
     }
 }
 

@@ -52,36 +52,18 @@ pub const MIN_GIT_COVERAGE_PCT: u32 = 95;
 mod tests {
     use super::*;
 
-    /// Regression: thresholds must remain `u32` `pub const` so per-pass
-    /// issues can take their address / use them in `const` contexts and
-    /// so `cargo run --bin dogfood-enrich -- --print-threshold` (a
-    /// future op surface) sees a stable value.
+    /// Pin initial floor values + assert percentage bounds in one test.
+    /// A careless edit triggers a test failure (not a silent ratchet),
+    /// and a typo setting one to 250 fails the bounds check.
     #[test]
-    fn thresholds_are_const_u32() {
-        // If these compile, the consts are u32. The literal comparisons
-        // pin the initial floor values so a careless edit triggers a
-        // test failure (not a silent ratchet).
-        const _: u32 = MIN_BC_COVERAGE_PCT;
-        const _: u32 = MIN_REACHABILITY_PCT;
-        const _: u32 = MIN_METRICS_COVERAGE_PCT;
-        const _: u32 = MIN_GIT_COVERAGE_PCT;
-
-        assert_eq!(MIN_BC_COVERAGE_PCT, 95);
-        assert_eq!(MIN_REACHABILITY_PCT, 80);
-        assert_eq!(MIN_METRICS_COVERAGE_PCT, 95);
-        assert_eq!(MIN_GIT_COVERAGE_PCT, 95);
-    }
-
-    /// All ratio thresholds are valid percentages (0..=100). A future
-    /// edit that sets one to 250 (typo) would compile but is nonsense.
-    #[test]
-    fn thresholds_are_valid_percentages() {
-        for (name, value) in [
-            ("MIN_BC_COVERAGE_PCT", MIN_BC_COVERAGE_PCT),
-            ("MIN_REACHABILITY_PCT", MIN_REACHABILITY_PCT),
-            ("MIN_METRICS_COVERAGE_PCT", MIN_METRICS_COVERAGE_PCT),
-            ("MIN_GIT_COVERAGE_PCT", MIN_GIT_COVERAGE_PCT),
+    fn thresholds_pin_initial_values_and_are_valid_percentages() {
+        for (name, value, expected) in [
+            ("MIN_BC_COVERAGE_PCT", MIN_BC_COVERAGE_PCT, 95),
+            ("MIN_REACHABILITY_PCT", MIN_REACHABILITY_PCT, 80),
+            ("MIN_METRICS_COVERAGE_PCT", MIN_METRICS_COVERAGE_PCT, 95),
+            ("MIN_GIT_COVERAGE_PCT", MIN_GIT_COVERAGE_PCT, 95),
         ] {
+            assert_eq!(value, expected, "{name} initial floor moved");
             assert!(
                 value <= 100,
                 "{name} = {value} is not a valid percentage (>100)"

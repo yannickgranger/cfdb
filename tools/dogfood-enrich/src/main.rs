@@ -82,21 +82,14 @@ fn run(cli: Cli) -> Result<i32, String> {
     )
     .map_err(|e| format!("{e}"))?;
 
+    let short = pass.name.strip_prefix("enrich-").unwrap_or(pass.name);
     match outcome {
         runner::RunOutcome::Clean => {
-            println!(
-                "self-enrich-{}: 0 violations (invariant holds)",
-                pass.name.strip_prefix("enrich-").unwrap_or(pass.name)
-            );
+            println!("self-enrich-{short}: 0 violations (invariant holds)");
             Ok(EXIT_OK)
         }
-        runner::RunOutcome::Violations {
-            row_count_or_unknown,
-        } => {
-            eprintln!(
-                "self-enrich-{}: {row_count_or_unknown} violation row(s) — invariant FAILED",
-                pass.name.strip_prefix("enrich-").unwrap_or(pass.name)
-            );
+        runner::RunOutcome::Violations { row_count } => {
+            eprintln!("self-enrich-{short}: {row_count} violation row(s) — invariant FAILED");
             Ok(EXIT_VIOLATIONS)
         }
     }

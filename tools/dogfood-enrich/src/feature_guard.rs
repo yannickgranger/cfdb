@@ -59,17 +59,11 @@ pub enum GuardError {
     FeatureMissing { pass: String, warnings: Vec<String> },
 }
 
-/// Parse an `EnrichReport`-shaped JSON string and extract whether the
-/// pass actually ran. Pure function; no I/O. Used by the binary AND by
-/// unit tests (the impure caller does subprocess + JSON; this is the
-/// JSON half).
-pub fn parse_ran(json: &str) -> Result<bool, serde_json::Error> {
-    let report: EnrichReportSubset = serde_json::from_str(json)?;
-    Ok(report.ran)
-}
-
-/// Parse the full subset (ran + warnings) — used by the binary to
-/// surface the off-feature warnings in the FeatureMissing error.
+/// Parse an `EnrichReport`-shaped JSON string into `(ran, warnings)`.
+///
+/// Returned tuple lets the binary surface off-feature warnings in
+/// the `FeatureMissing` error message and lets tests assert both
+/// fields independently.
 pub fn parse_report(json: &str) -> Result<(bool, Vec<String>), serde_json::Error> {
     let report: EnrichReportSubset = serde_json::from_str(json)?;
     Ok((report.ran, report.warnings))
@@ -130,38 +124,41 @@ mod tests {
 
     /// `ran: true` parses cleanly.
     #[test]
-    fn parse_ran_returns_true_when_ran_true() {
+    fn parse_report_returns_true_when_ran_true() {
         let json = r#"{"verb":"enrich_concepts","ran":true,"facts_scanned":42,"attrs_written":10,"edges_written":5,"warnings":[]}"#;
-        assert!(parse_ran(json).expect("valid json"));
+        let (ran, _) = parse_report(json).expect("valid json");
+        assert!(ran);
     }
 
     /// `ran: false` parses cleanly (this is the off-feature path).
     #[test]
-    fn parse_ran_returns_false_when_ran_false() {
+    fn parse_report_returns_false_when_ran_false() {
         let json = r#"{"verb":"enrich_metrics","ran":false,"facts_scanned":0,"attrs_written":0,"edges_written":0,"warnings":["enrich_metrics: built without quality-metrics feature"]}"#;
-        assert!(!parse_ran(json).expect("valid json"));
+        let (ran, _) = parse_report(json).expect("valid json");
+        assert!(!ran);
     }
 
     /// Unknown extra fields are tolerated (forward-compat with future
     /// EnrichReport extensions).
     #[test]
-    fn parse_ran_ignores_unknown_fields() {
+    fn parse_report_ignores_unknown_fields() {
         let json = r#"{"ran":true,"some_future_field":"hello","another":42}"#;
-        assert!(parse_ran(json).expect("valid json"));
+        let (ran, _) = parse_report(json).expect("valid json");
+        assert!(ran);
     }
 
     /// Missing `ran` field is a parse error (we do not default to true).
     #[test]
-    fn parse_ran_errors_on_missing_field() {
+    fn parse_report_errors_on_missing_ran_field() {
         let json = r#"{"verb":"enrich_concepts","facts_scanned":42}"#;
-        assert!(parse_ran(json).is_err());
+        assert!(parse_report(json).is_err());
     }
 
     /// Malformed JSON is a parse error.
     #[test]
-    fn parse_ran_errors_on_malformed_json() {
+    fn parse_report_errors_on_malformed_json() {
         let json = r#"{"ran": tru"#;
-        assert!(parse_ran(json).is_err());
+        assert!(parse_report(json).is_err());
     }
 
     /// `parse_report` carries warnings forward so the FeatureMissing
