@@ -11,11 +11,13 @@
 //! - `1`  — runtime error: unknown pass, missing template, missing
 //!   feature (I5.1), subprocess fail, JSON parse error.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::Parser;
-use dogfood_enrich::{feature_guard, passes, runner, EXIT_OK, EXIT_RUNTIME_ERROR, EXIT_VIOLATIONS};
+use dogfood_enrich::{
+    feature_guard, grep_deprecated, passes, runner, EXIT_OK, EXIT_RUNTIME_ERROR, EXIT_VIOLATIONS,
+};
 
 #[derive(Debug, Parser)]
 #[command(name = "dogfood-enrich", about = "RFC-039 self-enrich dogfood harness")]
@@ -72,10 +74,16 @@ fn run(cli: Cli) -> Result<i32, String> {
     // Materialize template + run violations.
     let tempdir = tempfile::tempdir().map_err(|e| format!("failed to create tempdir: {e}"))?;
     let template_path = PathBuf::from(pass.query_template_path);
-    let outcome = runner::materialize_and_run(
+    let extra_owned = compute_extra_substitutions(pass.name, cli.workspace.as_deref())?;
+    let extra_borrows: Vec<(&str, &str)> = extra_owned
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+    let outcome = runner::materialize_and_run_with_substitutions(
         &cli.cfdb_bin,
         &template_path,
         pass.threshold,
+        &extra_borrows,
         &cli.db,
         &cli.keyspace,
         tempdir.path(),
@@ -93,4 +101,33 @@ fn run(cli: Cli) -> Result<i32, String> {
             Ok(EXIT_VIOLATIONS)
         }
     }
+}
+
+/// Compute per-pass extra placeholders that the runner must substitute
+/// before submitting the materialized template to `cfdb violations`.
+///
+/// Most passes return an empty map (their templates use only the
+/// `{{ threshold }}` placeholder). `enrich-deprecation` is the
+/// exception: its sentinel compares the extracted-graph count against
+/// a source-side ground truth, computed by walking `--workspace` and
+/// counting `#[deprecated]` attribute occurrences.
+///
+/// Errors propagate to `EXIT_RUNTIME_ERROR` (1) — a missing workspace
+/// or unreadable source file is a configuration problem, not a
+/// violation.
+fn compute_extra_substitutions(
+    pass_name: &str,
+    workspace: Option<&Path>,
+) -> Result<Vec<(String, String)>, String> {
+    if pass_name != "enrich-deprecation" {
+        return Ok(Vec::new());
+    }
+    let root = workspace.ok_or_else(|| {
+        "enrich-deprecation requires --workspace to compute the source-side \
+         #[deprecated] ground truth"
+            .to_string()
+    })?;
+    let count = grep_deprecated::count_deprecated_in_workspace(root)
+        .map_err(|e| format!("failed to grep #[deprecated] under {}: {e}", root.display()))?;
+    Ok(vec![("ground_truth_count".to_string(), count.to_string())])
 }

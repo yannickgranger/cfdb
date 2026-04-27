@@ -184,31 +184,42 @@ jobs:
           # in the CI log but does not fail the job.
           CFDB_BIN="$(pwd)/target/release/cfdb" bash ci/edge-liveness.sh
 
-      - name: Self-enrich dogfood scaffolding (RFC-039 §3.3, default-feature subset)
+      - name: Self-enrich dogfood (RFC-039 §3.3, default-feature subset)
         run: |
           cd repo
-          # Issue #342 — RFC-039 harness scaffolding ships the binary +
-          # ci/dogfood-determinism.sh; the 4 default-feature .cypher
-          # templates land in #343-#346 and the 3 nightly templates in
-          # #347-#349. At this stage the harness is exercised against
-          # an empty .cfdb/queries/self-enrich-*.cypher glob: the
-          # binary + determinism contract are asserted; per-pass
-          # invariants activate as templates ship.
+          # RFC-039 harness scaffolding shipped in #342; per-pass
+          # `.cfdb/queries/self-enrich-*.cypher` templates land in
+          # issues #343-#346 (default-feature) and #347-#349 (nightly,
+          # gated separately). As each template ships, the matching
+          # invocation below transitions from informational placeholder
+          # to a hard gate.
+          #
+          # Activation status:
+          #   #343 — enrich-deprecation: ACTIVE (template shipped, this issue)
+          #   #344 — enrich-rfc-docs:    placeholder
+          #   #345 — enrich-bounded-context: placeholder
+          #   #346 — enrich-concepts:    placeholder
           cargo build -p dogfood-enrich --release --bin dogfood-enrich
-          # Determinism harness — empty-glob-OK at scaffolding stage.
+          # Determinism harness — runs all shipped templates twice and
+          # diffs stdout per RFC §3.4 / I1.
           CFDB_BIN="$(pwd)/target/release/cfdb" \
             DOGFOOD_BIN="$(pwd)/target/release/dogfood-enrich" \
             bash ci/dogfood-determinism.sh
-          # Per-pass placeholder steps — the loop runs each default-
-          # feature pass through the harness. With no template file
-          # yet, dogfood-enrich exits 1 (template missing) which is
-          # the expected scaffolding-stage outcome and surfaces in the
-          # CI log without blocking. As Issues #343-#346 ship their
-          # .cypher templates the corresponding step transitions from
-          # "template missing" to "0 violations" (or exit 30 on a
-          # genuine invariant break).
-          for pass in enrich-deprecation enrich-rfc-docs enrich-bounded-context enrich-concepts; do
-            echo ">> self-${pass}"
+          # ACTIVE — #343: enrich-deprecation. Exit 30 on row → block
+          # merge. Exit 1 (runtime error) → block merge. Exit 0 → pass.
+          echo ">> self-enrich-deprecation (RFC-039 §7.2, ACTIVE)"
+          ./target/release/dogfood-enrich \
+            --pass enrich-deprecation \
+            --db .cfdb/db \
+            --keyspace cfdb-self \
+            --cfdb-bin "$(pwd)/target/release/cfdb" \
+            --workspace "$(pwd)"
+          # PLACEHOLDER — #344-#346 ship .cypher templates that
+          # transition these from "template missing" exit 1 (tolerated
+          # via `|| echo`) to a hard gate (drop the `||` clause when
+          # the matching issue ships).
+          for pass in enrich-rfc-docs enrich-bounded-context enrich-concepts; do
+            echo ">> self-${pass} (placeholder — template lands in subsequent issue)"
             ./target/release/dogfood-enrich \
               --pass "$pass" \
               --db .cfdb/db \
