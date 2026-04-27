@@ -11,6 +11,7 @@ members = [
     "crates/cfdb-cli",
     "crates/cfdb-recall",
     "tools/check-prelude-triggers",
+    "tools/dogfood-enrich",
 ]
 
 [workspace.package]

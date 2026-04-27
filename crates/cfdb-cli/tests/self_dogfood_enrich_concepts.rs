@@ -90,6 +90,7 @@ fn self_dogfood_cfdb_concept_and_labeled_as_coverage() {
         "cfdb-cli",
         "cfdb-recall",
         "check-prelude-triggers",
+        "dogfood-enrich",
     ]
     .into_iter()
     .collect();

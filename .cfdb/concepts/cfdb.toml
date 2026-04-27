@@ -27,4 +27,13 @@ crates = [
     # + shipped by the cfdb team and belongs to the `cfdb` bounded context
     # for ownership / concept-registry purposes (issue #127).
     "check-prelude-triggers",
+    # RFC-039 dogfood enrichment harness — lives at `tools/dogfood-enrich/`
+    # (same clean-arch boundary as check-prelude-triggers: zero `cfdb-*`
+    # code deps, shells out to the released CLI), owned + shipped by the
+    # cfdb team and belongs to the `cfdb` bounded context (issue #342).
+    # Without this entry the heuristic would mint a separate
+    # `dogfood-enrich` context, and shared fn-name segments (`run`, `main`,
+    # `parse_report`) would surface as `context_homonym` findings against
+    # cfdb crates.
+    "dogfood-enrich",
 ]
