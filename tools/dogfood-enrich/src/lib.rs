@@ -7,6 +7,7 @@
 //! The binary in `src/main.rs` is the CI entry point.
 
 pub mod feature_guard;
+pub mod grep_deprecated;
 pub mod passes;
 pub mod runner;
 pub mod thresholds;

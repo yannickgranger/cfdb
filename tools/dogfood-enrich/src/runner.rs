@@ -29,6 +29,24 @@ pub fn substitute_template(template: &str, threshold: Option<u32>) -> String {
     }
 }
 
+/// Substitute named placeholders of shape `{{ name }}` (single inner
+/// space, matching the existing `{{ threshold }}` convention) with the
+/// supplied values. Used by passes whose Cypher sentinel needs more
+/// than the threshold const — currently `enrich-deprecation`, which
+/// substitutes `{{ ground_truth_count }}` from the source-side grep.
+///
+/// Pure function. Multiple substitutions apply in input order; later
+/// substitutions see the result of earlier ones (intentional — the
+/// per-pass templates avoid placeholder names that overlap each other).
+pub fn substitute_named(template: &str, substitutions: &[(&str, &str)]) -> String {
+    let mut out = template.to_string();
+    for (name, value) in substitutions {
+        let placeholder = format!("{{{{ {name} }}}}");
+        out = out.replace(&placeholder, value);
+    }
+    out
+}
+
 /// Errors that bubble up to `EXIT_RUNTIME_ERROR` (1) in the binary.
 /// Violation rows are not errors — they return `Ok(RunOutcome::Violations)`
 /// which `main.rs` maps to `EXIT_VIOLATIONS` (30).
@@ -92,6 +110,37 @@ pub fn materialize_and_run(
     keyspace: &str,
     tempdir: &Path,
 ) -> Result<RunOutcome, RunnerError> {
+    materialize_and_run_with_substitutions(
+        cfdb_bin,
+        template_path,
+        threshold,
+        &[],
+        db,
+        keyspace,
+        tempdir,
+    )
+}
+
+/// Variant of [`materialize_and_run`] that also applies named
+/// `{{ key }}` substitutions after the threshold pass. Used by
+/// `enrich-deprecation` to inject `{{ ground_truth_count }}` from the
+/// source-side grep before submitting the materialized template to
+/// `cfdb violations`.
+///
+/// The threshold substitution runs first so a template that references
+/// both `{{ threshold }}` and a per-pass placeholder picks up the
+/// const value before the per-pass map is applied. None of the seven
+/// per-pass templates currently rely on this ordering — it is
+/// documented for future extensions.
+pub fn materialize_and_run_with_substitutions(
+    cfdb_bin: &Path,
+    template_path: &Path,
+    threshold: Option<u32>,
+    substitutions: &[(&str, &str)],
+    db: &Path,
+    keyspace: &str,
+    tempdir: &Path,
+) -> Result<RunOutcome, RunnerError> {
     let raw = std::fs::read_to_string(template_path).map_err(|source| {
         if source.kind() == io::ErrorKind::NotFound {
             RunnerError::TemplateMissing(template_path.to_path_buf())
@@ -102,7 +151,8 @@ pub fn materialize_and_run(
             }
         }
     })?;
-    let materialized = substitute_template(&raw, threshold);
+    let after_threshold = substitute_template(&raw, threshold);
+    let materialized = substitute_named(&after_threshold, substitutions);
     let tempfile_path = tempdir.join("self-enrich-materialized.cypher");
     std::fs::write(&tempfile_path, &materialized).map_err(|source| RunnerError::TempfileWrite {
         path: tempfile_path.clone(),
@@ -191,5 +241,40 @@ mod tests {
     fn substitute_template_no_placeholder_with_threshold() {
         let template = "MATCH (i:Item) RETURN i";
         assert_eq!(substitute_template(template, Some(95)), template);
+    }
+
+    /// `substitute_named` replaces a single named placeholder.
+    #[test]
+    fn substitute_named_replaces_one_placeholder() {
+        let template = "WHERE extracted < {{ ground_truth_count }} RETURN extracted";
+        let out = substitute_named(template, &[("ground_truth_count", "42")]);
+        assert_eq!(out, "WHERE extracted < 42 RETURN extracted");
+    }
+
+    /// `substitute_named` is a no-op when given an empty substitution
+    /// list — preserves backward compat for hard-equality passes.
+    #[test]
+    fn substitute_named_empty_list_is_passthrough() {
+        let template = "MATCH (i:Item) RETURN i";
+        assert_eq!(substitute_named(template, &[]), template);
+    }
+
+    /// `substitute_named` applies multiple distinct placeholders in
+    /// the order supplied.
+    #[test]
+    fn substitute_named_replaces_multiple_distinct_placeholders() {
+        let template = "{{ a }} and {{ b }}";
+        let out = substitute_named(template, &[("a", "alpha"), ("b", "beta")]);
+        assert_eq!(out, "alpha and beta");
+    }
+
+    /// `substitute_named` does not touch placeholders absent from the
+    /// substitution map — leaves them literal so an unbound key
+    /// surfaces as a Cypher parse error rather than silent removal.
+    #[test]
+    fn substitute_named_leaves_unmapped_placeholder_literal() {
+        let template = "{{ a }} and {{ unmapped }}";
+        let out = substitute_named(template, &[("a", "alpha")]);
+        assert_eq!(out, "alpha and {{ unmapped }}");
     }
 }

@@ -66,6 +66,7 @@ pub fn check_pass_ran(
     db: &Path,
     keyspace: &str,
     workspace: Option<&Path>,
+    cli_takes_workspace: bool,
 ) -> Result<(), GuardError> {
     let mut cmd = Command::new(cfdb_bin);
     cmd.arg(pass_name)
@@ -73,8 +74,10 @@ pub fn check_pass_ran(
         .arg(db)
         .arg("--keyspace")
         .arg(keyspace);
-    if let Some(ws) = workspace {
-        cmd.arg("--workspace").arg(ws);
+    if cli_takes_workspace {
+        if let Some(ws) = workspace {
+            cmd.arg("--workspace").arg(ws);
+        }
     }
     let output = cmd.output().map_err(|source| GuardError::Spawn {
         binary: cfdb_bin.display().to_string(),

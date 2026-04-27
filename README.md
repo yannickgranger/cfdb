@@ -141,6 +141,7 @@ See [`examples/queries/`](examples/queries/) for runnable queries, each with a h
 | `canonical-bypass-dead.cypher` | Bypass rule with dead-code verdict |
 | `canonical-unreachable.cypher` | Canonical resolver is unreachable from any entry point |
 | `signature-divergent.cypher` | Function signature drifts from declared canonical shape |
+| `const-table-overlap.cypher` | Const-literal tables overlap across crates — verdict ladder: `CONST_TABLE_DUPLICATE` (entries_hash equality) → `CONST_TABLE_SUBSET` (one set ⊂ other) → `CONST_TABLE_INTERSECTION_HIGH` (jaccard ≥ 0.5) |
 
 All examples are plain text — copy, adapt parameters, run.
 
@@ -174,6 +175,7 @@ Every PR runs cfdb against itself + against the companion at a pinned SHA. The g
 |---|---|---|---|
 | Self-hosted ban rules | `cfdb violations` against `examples/queries/arch-ban-*.cypher` | "Does cfdb's own code use forbidden patterns?" | Any new row under a ban rule |
 | Enrichment-pass postconditions | `tools/dogfood-enrich` against `.cfdb/queries/self-enrich-*.cypher` (per RFC-039) | "Did each enrichment pass write the attrs/edges its contract requires?" | Any non-zero violation row |
+| ↳ `enrich-deprecation` (#343) | Source-grep `#[deprecated]` count vs `:Item.is_deprecated = true` count | "Did the extractor see every `#[deprecated]` annotation in the workspace?" | Extracted count < source-grep count → exit 30 |
 | Determinism | `ci/determinism-check.sh` + `ci/dogfood-determinism.sh` | "Is `cfdb extract` byte-stable across two runs?" | sha256 / stdout mismatch |
 | Cross-dogfood | `ci/cross-dogfood.sh` against graph-specs-rust at pinned SHA | "Does cfdb produce zero findings on the companion?" | Any rule row → exit 30 |
 | Extractor recall | `cfdb-recall` (extractor vs `rustdoc --output-format=json`) | "Does the syn-based extractor see everything rustdoc sees?" | Recall ratio below per-crate threshold |

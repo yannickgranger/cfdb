@@ -650,6 +650,7 @@ dependencies = [
  "assert_cmd",
  "cfdb-core",
  "clap",
+ "regex",
  "serde",
  "serde_json",
  "tempfile",
