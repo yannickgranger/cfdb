@@ -1,3 +1,11 @@
 [workspace]
 resolver = "2"
-members = ["kraken_normalize", "oanda_pricing", "binance_exchange", "metric_client"]
+members = [
+    "kraken_normalize",
+    "oanda_pricing",
+    "binance_exchange",
+    "metric_client",
+    "kraken_session_ports",
+    "oanda_session_ports",
+    "mt5_jaccard_ports",
+]

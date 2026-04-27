@@ -130,6 +130,9 @@ impl<'a> Evaluator<'a> {
             "ends_with" => self.call_ends_with(args, bindings),
             "last_segment" => self.call_last_segment(args, bindings),
             "signature_divergent" => self.call_signature_divergent(args, bindings),
+            "entries_subset" => self.call_entries_subset(args, bindings),
+            "entries_jaccard" => self.call_entries_jaccard(args, bindings),
+            "overlap_verdict" => self.call_overlap_verdict(args, bindings),
             _ => None,
         }
     }
@@ -249,6 +252,237 @@ impl<'a> Evaluator<'a> {
             normalize_signature(&sa) != normalize_signature(&sb),
         ))
     }
+
+    /// `entries_subset(a, b) -> Bool` — RFC-040 §3.4.
+    ///
+    /// Returns `true` iff every element of JSON-array `a` is contained
+    /// in JSON-array `b`. The empty set is a subset of anything; equal
+    /// sets are subsets of each other. Operates on the
+    /// `:ConstTable.entries_normalized` wire shape (RFC-040 §3.4): a
+    /// JSON array of strings (e.g. `["EUR","USD"]`) or numbers
+    /// (e.g. `[1,42,100]`). Element type is inferred from the first
+    /// parsable element; mixed-element-type inputs return `false`
+    /// (treated as no overlap — RFC-040 §3.4 N2).
+    ///
+    /// # Type-mismatch behavior
+    ///
+    /// Non-string args (or non-JSON-array strings) return `None`,
+    /// matching the convention of the other hard-wired UDFs.
+    fn call_entries_subset(&self, args: &[Expr], bindings: &Bindings) -> Option<PropValue> {
+        let a = self.eval_expr(args.first()?, bindings)?;
+        let b = self.eval_expr(args.get(1)?, bindings)?;
+        let (PropValue::Str(sa), PropValue::Str(sb)) = (a, b) else {
+            return None;
+        };
+        Some(PropValue::Bool(entries_subset_impl(&sa, &sb)))
+    }
+
+    /// `entries_jaccard(a, b) -> Float` — RFC-040 §3.4.
+    ///
+    /// Returns `|a ∩ b| / |a ∪ b|`. Returns `0.0` when both inputs
+    /// are empty (avoid divide-by-zero). Operates on the
+    /// `:ConstTable.entries_normalized` wire shape (RFC-040 §3.4).
+    /// Mixed-element-type inputs return `0.0` (treated as no overlap
+    /// — RFC-040 §3.4 N2).
+    ///
+    /// # Type-mismatch behavior
+    ///
+    /// Non-string args (or non-JSON-array strings) return `None`.
+    fn call_entries_jaccard(&self, args: &[Expr], bindings: &Bindings) -> Option<PropValue> {
+        let a = self.eval_expr(args.first()?, bindings)?;
+        let b = self.eval_expr(args.get(1)?, bindings)?;
+        let (PropValue::Str(sa), PropValue::Str(sb)) = (a, b) else {
+            return None;
+        };
+        Some(PropValue::Float(entries_jaccard_impl(&sa, &sb)))
+    }
+
+    /// `overlap_verdict(a_normalized, b_normalized, a_hash, b_hash) -> Str`
+    /// — RFC-040 §3.4 precedence-decoder.
+    ///
+    /// Maps a `(a, b)` pair to one of `'CONST_TABLE_DUPLICATE'`,
+    /// `'CONST_TABLE_SUBSET'`, `'CONST_TABLE_INTERSECTION_HIGH'`, or
+    /// `'CONST_TABLE_NONE'` per the precedence ordering in RFC-040 §3.4:
+    ///
+    ///   1. DUPLICATE: `a_hash = b_hash` (entries_hash equality is the
+    ///      canonical set-equality key, RFC-040 §3.1).
+    ///   2. SUBSET: not duplicate AND `entries_subset(a, b)` OR
+    ///      `entries_subset(b, a)`.
+    ///   3. INTERSECTION_HIGH: not subset AND
+    ///      `entries_jaccard(a, b) >= 0.5`.
+    ///   4. otherwise: `'CONST_TABLE_NONE'`.
+    ///
+    /// Lives here (alongside `entries_subset` / `entries_jaccard`)
+    /// because the v0.1 Cypher subset has no `CASE WHEN` / `UNION`
+    /// (`crates/cfdb-query/src/parser/mod.rs` §316–432), so the
+    /// precedence-decoder MUST live in a UDF for the rule file to
+    /// emit a single `verdict` string column. The precedence semantics
+    /// are RFC-040-load-bearing — keeping them in one Rust function
+    /// (rather than reimplemented in every consumer query) is the
+    /// canonical-resolver pattern (RFC-035 §3.3).
+    fn call_overlap_verdict(&self, args: &[Expr], bindings: &Bindings) -> Option<PropValue> {
+        let a_norm = self.eval_expr(args.first()?, bindings)?;
+        let b_norm = self.eval_expr(args.get(1)?, bindings)?;
+        let a_hash = self.eval_expr(args.get(2)?, bindings)?;
+        let b_hash = self.eval_expr(args.get(3)?, bindings)?;
+        let (
+            PropValue::Str(a_norm),
+            PropValue::Str(b_norm),
+            PropValue::Str(a_hash),
+            PropValue::Str(b_hash),
+        ) = (a_norm, b_norm, a_hash, b_hash)
+        else {
+            return None;
+        };
+        Some(PropValue::Str(
+            overlap_verdict_impl(&a_norm, &b_norm, &a_hash, &b_hash).to_string(),
+        ))
+    }
+}
+
+/// Parsed JSON-array element set for the RFC-040 §3.4 overlap UDFs.
+///
+/// `entries_normalized` is JSON-array-as-string of either all strings
+/// (`["a","b"]`) or all numbers (`[1,2]`) — the element type is
+/// inferred from the first parseable element. Mixed-element-type
+/// inputs (e.g. `["a", 1]`) are forbidden by the wire contract; the
+/// UDFs treat them as `MixedOrInvalid` so the enclosing rule sees no
+/// overlap (RFC-040 §3.4 N2).
+#[derive(Debug, PartialEq, Eq)]
+enum NormalizedEntries {
+    Strs(std::collections::BTreeSet<String>),
+    Ints(std::collections::BTreeSet<i64>),
+    /// Empty input (`[]`) — distinct from MixedOrInvalid because empty
+    /// is a valid set (subset of anything; jaccard 0/0 → 0.0). The
+    /// element type is unknown but operations against another empty
+    /// or any populated set are well-defined.
+    Empty,
+    /// Either a parse error or a mixed-element-type input. Both UDFs
+    /// treat this as "no overlap" rather than propagating a parse
+    /// failure, because the wire contract guarantees well-formed
+    /// `entries_normalized`; a malformed value is best surfaced as
+    /// "no row matches" in the rule rather than an evaluator panic.
+    MixedOrInvalid,
+}
+
+/// Parse the `entries_normalized` JSON-array string into a sorted set
+/// suitable for set-relationship comparison. Element type is inferred
+/// from the first element; mixed-type or invalid input collapses to
+/// [`NormalizedEntries::MixedOrInvalid`].
+fn parse_entries_normalized(s: &str) -> NormalizedEntries {
+    let parsed: serde_json::Value = match serde_json::from_str(s) {
+        Ok(v) => v,
+        Err(_) => return NormalizedEntries::MixedOrInvalid,
+    };
+    let serde_json::Value::Array(items) = parsed else {
+        return NormalizedEntries::MixedOrInvalid;
+    };
+    if items.is_empty() {
+        return NormalizedEntries::Empty;
+    }
+    // Infer element type from the first element. Number elements are
+    // matched as i64 because the extractor emits decimal-stringified
+    // integers per RFC-040 §3.4; non-integral floats are not in the
+    // wire-shape vocabulary and collapse to MixedOrInvalid.
+    match &items[0] {
+        serde_json::Value::String(_) => {
+            let mut set = std::collections::BTreeSet::new();
+            for v in &items {
+                let serde_json::Value::String(s) = v else {
+                    return NormalizedEntries::MixedOrInvalid;
+                };
+                set.insert(s.clone());
+            }
+            NormalizedEntries::Strs(set)
+        }
+        serde_json::Value::Number(_) => {
+            let mut set = std::collections::BTreeSet::new();
+            for v in &items {
+                let serde_json::Value::Number(n) = v else {
+                    return NormalizedEntries::MixedOrInvalid;
+                };
+                let Some(i) = n.as_i64() else {
+                    return NormalizedEntries::MixedOrInvalid;
+                };
+                set.insert(i);
+            }
+            NormalizedEntries::Ints(set)
+        }
+        _ => NormalizedEntries::MixedOrInvalid,
+    }
+}
+
+/// `entries_subset` impl — true iff every element of `a` is in `b`.
+/// Empty is a subset of anything; equal sets are subsets of each
+/// other. Cross-element-type or invalid inputs return `false`.
+fn entries_subset_impl(a_json: &str, b_json: &str) -> bool {
+    let a = parse_entries_normalized(a_json);
+    let b = parse_entries_normalized(b_json);
+    match (a, b) {
+        (NormalizedEntries::Empty, _) => true,
+        (NormalizedEntries::MixedOrInvalid, _) | (_, NormalizedEntries::MixedOrInvalid) => false,
+        (NormalizedEntries::Strs(sa), NormalizedEntries::Strs(sb)) => sa.is_subset(&sb),
+        (NormalizedEntries::Ints(ia), NormalizedEntries::Ints(ib)) => ia.is_subset(&ib),
+        // Cross-element-type — no overlap by RFC-040 §3.4 N2. The
+        // empty-on-the-right case (e.g. Strs vs Empty) is `false`
+        // because a populated set is never a subset of empty; the
+        // empty-on-the-left case is handled by the first arm above.
+        (NormalizedEntries::Strs(_), NormalizedEntries::Ints(_))
+        | (NormalizedEntries::Ints(_), NormalizedEntries::Strs(_))
+        | (NormalizedEntries::Strs(_), NormalizedEntries::Empty)
+        | (NormalizedEntries::Ints(_), NormalizedEntries::Empty) => false,
+    }
+}
+
+/// `entries_jaccard` impl — `|a ∩ b| / |a ∪ b|`.
+/// Returns `0.0` if both inputs are empty (avoid divide-by-zero) and
+/// `0.0` for cross-element-type / invalid input.
+fn entries_jaccard_impl(a_json: &str, b_json: &str) -> f64 {
+    let a = parse_entries_normalized(a_json);
+    let b = parse_entries_normalized(b_json);
+    match (a, b) {
+        (NormalizedEntries::Empty, NormalizedEntries::Empty) => 0.0,
+        (NormalizedEntries::MixedOrInvalid, _) | (_, NormalizedEntries::MixedOrInvalid) => 0.0,
+        (NormalizedEntries::Strs(sa), NormalizedEntries::Strs(sb)) => jaccard_btree(&sa, &sb),
+        (NormalizedEntries::Ints(ia), NormalizedEntries::Ints(ib)) => jaccard_btree(&ia, &ib),
+        // Cross-element-type or empty-vs-populated — no overlap. The
+        // empty-vs-populated case returns 0.0 because |∩| = 0, |∪| =
+        // |populated|, ratio is 0.0.
+        (NormalizedEntries::Strs(_), NormalizedEntries::Ints(_))
+        | (NormalizedEntries::Ints(_), NormalizedEntries::Strs(_))
+        | (NormalizedEntries::Empty, NormalizedEntries::Strs(_))
+        | (NormalizedEntries::Empty, NormalizedEntries::Ints(_))
+        | (NormalizedEntries::Strs(_), NormalizedEntries::Empty)
+        | (NormalizedEntries::Ints(_), NormalizedEntries::Empty) => 0.0,
+    }
+}
+
+fn jaccard_btree<T: Ord>(
+    a: &std::collections::BTreeSet<T>,
+    b: &std::collections::BTreeSet<T>,
+) -> f64 {
+    let inter = a.intersection(b).count() as f64;
+    let union = a.union(b).count() as f64;
+    if union == 0.0 {
+        0.0
+    } else {
+        inter / union
+    }
+}
+
+/// `overlap_verdict` impl — RFC-040 §3.4 precedence-decoder.
+/// See [`Evaluator::call_overlap_verdict`] for the contract.
+fn overlap_verdict_impl(a_norm: &str, b_norm: &str, a_hash: &str, b_hash: &str) -> &'static str {
+    if a_hash == b_hash {
+        return "CONST_TABLE_DUPLICATE";
+    }
+    if entries_subset_impl(a_norm, b_norm) || entries_subset_impl(b_norm, a_norm) {
+        return "CONST_TABLE_SUBSET";
+    }
+    if entries_jaccard_impl(a_norm, b_norm) >= 0.5 {
+        return "CONST_TABLE_INTERSECTION_HIGH";
+    }
+    "CONST_TABLE_NONE"
 }
 
 /// Normalize a signature string for `signature_divergent` comparison —
@@ -420,5 +654,212 @@ mod last_segment_tests {
         };
         let actual = evaluator.eval_expr(&expr, &bindings);
         assert_eq!(actual, None);
+    }
+}
+
+#[cfg(test)]
+mod entries_overlap_tests {
+    //! Unit tests for the RFC-040 §3.4 overlap UDFs
+    //! (`entries_subset`, `entries_jaccard`, `overlap_verdict`).
+    //!
+    //! Pure-function impls (`entries_subset_impl`, `entries_jaccard_impl`,
+    //! `overlap_verdict_impl`) are exercised directly so the test surface
+    //! is independent of the dispatch wrapper. Dispatch wiring is
+    //! covered by the integration scar in
+    //! `crates/cfdb-cli/tests/const_table_overlap.rs`.
+    use super::{entries_jaccard_impl, entries_subset_impl, overlap_verdict_impl};
+
+    // ---- entries_subset --------------------------------------------------
+
+    #[test]
+    fn empty_is_subset_of_anything_str() {
+        assert!(entries_subset_impl("[]", r#"["EUR","USD"]"#));
+    }
+
+    #[test]
+    fn empty_is_subset_of_empty() {
+        assert!(entries_subset_impl("[]", "[]"));
+    }
+
+    #[test]
+    fn equal_str_sets_are_subsets_of_each_other() {
+        let a = r#"["EUR","GBP","USD"]"#;
+        let b = r#"["EUR","GBP","USD"]"#;
+        assert!(entries_subset_impl(a, b));
+        assert!(entries_subset_impl(b, a));
+    }
+
+    #[test]
+    fn strict_subset_str_returns_true_one_way() {
+        // ["EUR","USD"] ⊂ ["EUR","GBP","USD"]
+        let small = r#"["EUR","USD"]"#;
+        let big = r#"["EUR","GBP","USD"]"#;
+        assert!(entries_subset_impl(small, big));
+        // superset is NOT a subset of the smaller set
+        assert!(!entries_subset_impl(big, small));
+    }
+
+    #[test]
+    fn strict_subset_int_returns_true_one_way() {
+        // [1,2] ⊂ [1,2,3]
+        let small = "[1,2]";
+        let big = "[1,2,3]";
+        assert!(entries_subset_impl(small, big));
+        assert!(!entries_subset_impl(big, small));
+    }
+
+    #[test]
+    fn disjoint_str_sets_are_not_subsets() {
+        let a = r#"["EUR","USD"]"#;
+        let b = r#"["JPY","CHF"]"#;
+        assert!(!entries_subset_impl(a, b));
+        assert!(!entries_subset_impl(b, a));
+    }
+
+    #[test]
+    fn mixed_element_type_is_not_subset_either_way() {
+        // RFC-040 §3.4 N2 — mixed-type inputs return false.
+        let strs = r#"["1","2"]"#;
+        let ints = "[1,2]";
+        assert!(!entries_subset_impl(strs, ints));
+        assert!(!entries_subset_impl(ints, strs));
+    }
+
+    #[test]
+    fn invalid_json_is_not_subset_either_way() {
+        assert!(!entries_subset_impl("not json", r#"["a"]"#));
+        assert!(!entries_subset_impl(r#"["a"]"#, "not json"));
+    }
+
+    // ---- entries_jaccard -------------------------------------------------
+
+    #[test]
+    fn jaccard_of_two_empty_sets_is_zero() {
+        // RFC-040 §3.4 — divide-by-zero guard.
+        assert_eq!(entries_jaccard_impl("[]", "[]"), 0.0);
+    }
+
+    #[test]
+    fn jaccard_of_identical_str_sets_is_one() {
+        let a = r#"["EUR","GBP","USD"]"#;
+        let b = r#"["EUR","GBP","USD"]"#;
+        assert_eq!(entries_jaccard_impl(a, b), 1.0);
+    }
+
+    #[test]
+    fn jaccard_of_identical_int_sets_is_one() {
+        assert_eq!(entries_jaccard_impl("[1,2,3]", "[1,2,3]"), 1.0);
+    }
+
+    #[test]
+    fn jaccard_half_overlap_str_is_one_third() {
+        // {a,b} vs {b,c} → |∩|=1, |∪|=3, ratio = 1/3.
+        let a = r#"["a","b"]"#;
+        let b = r#"["b","c"]"#;
+        let j = entries_jaccard_impl(a, b);
+        assert!((j - (1.0 / 3.0)).abs() < 1e-12, "got {j}");
+    }
+
+    #[test]
+    fn jaccard_half_overlap_str_at_threshold() {
+        // {a,b,c} vs {b,c,d} → |∩|=2, |∪|=4, ratio = 0.5 (the RFC §3.4
+        // INTERSECTION_HIGH threshold). Pin the boundary value
+        // explicitly so a future refactor cannot drift it across 0.5.
+        let a = r#"["a","b","c"]"#;
+        let b = r#"["b","c","d"]"#;
+        let j = entries_jaccard_impl(a, b);
+        assert!((j - 0.5).abs() < 1e-12, "got {j}");
+        assert!(j >= 0.5);
+    }
+
+    #[test]
+    fn jaccard_disjoint_sets_is_zero() {
+        let a = r#"["EUR","USD"]"#;
+        let b = r#"["JPY","CHF"]"#;
+        assert_eq!(entries_jaccard_impl(a, b), 0.0);
+    }
+
+    #[test]
+    fn jaccard_subset_int_is_ratio_of_sizes() {
+        // [1,2] ⊂ [1,2,3,4] — |∩|=2, |∪|=4, ratio = 0.5.
+        let j = entries_jaccard_impl("[1,2]", "[1,2,3,4]");
+        assert!((j - 0.5).abs() < 1e-12, "got {j}");
+    }
+
+    #[test]
+    fn jaccard_mixed_element_types_is_zero() {
+        // RFC-040 §3.4 N2 — mixed-type inputs return 0.0.
+        let strs = r#"["1","2"]"#;
+        let ints = "[1,2]";
+        assert_eq!(entries_jaccard_impl(strs, ints), 0.0);
+        assert_eq!(entries_jaccard_impl(ints, strs), 0.0);
+    }
+
+    #[test]
+    fn jaccard_invalid_json_is_zero() {
+        assert_eq!(entries_jaccard_impl("not json", r#"["a"]"#), 0.0);
+        assert_eq!(entries_jaccard_impl(r#"["a"]"#, "not json"), 0.0);
+    }
+
+    #[test]
+    fn jaccard_empty_vs_populated_is_zero() {
+        // Empty vs populated: |∩|=0, |∪|=|populated|, ratio = 0.0.
+        assert_eq!(entries_jaccard_impl("[]", r#"["a","b"]"#), 0.0);
+        assert_eq!(entries_jaccard_impl(r#"["a","b"]"#, "[]"), 0.0);
+    }
+
+    // ---- overlap_verdict precedence -------------------------------------
+
+    #[test]
+    fn overlap_verdict_duplicate_when_hashes_equal() {
+        // hash equality is the canonical set-equality key (RFC-040 §3.1) —
+        // takes precedence over subset / jaccard regardless of normalized
+        // contents.
+        let v = overlap_verdict_impl(r#"["a"]"#, r#"["a"]"#, "deadbeef", "deadbeef");
+        assert_eq!(v, "CONST_TABLE_DUPLICATE");
+    }
+
+    #[test]
+    fn overlap_verdict_subset_when_strict_subset_and_hashes_differ() {
+        // Strict subset — different hashes (different sizes), one is a
+        // subset of the other.
+        let v = overlap_verdict_impl(r#"["a","b"]"#, r#"["a","b","c"]"#, "h_small", "h_big");
+        assert_eq!(v, "CONST_TABLE_SUBSET");
+    }
+
+    #[test]
+    fn overlap_verdict_subset_in_either_order() {
+        // a ⊃ b is also CONST_TABLE_SUBSET — the rule is symmetric on the
+        // pair; the verdict fires when either side is a subset of the
+        // other.
+        let v = overlap_verdict_impl(r#"["a","b","c"]"#, r#"["a","b"]"#, "h_big", "h_small");
+        assert_eq!(v, "CONST_TABLE_SUBSET");
+    }
+
+    #[test]
+    fn overlap_verdict_intersection_high_when_jaccard_at_threshold() {
+        // {a,b,c} vs {b,c,d} — jaccard 0.5, neither is a subset of the
+        // other. RFC-040 §3.4 third-tier verdict.
+        let v = overlap_verdict_impl(r#"["a","b","c"]"#, r#"["b","c","d"]"#, "h_left", "h_right");
+        assert_eq!(v, "CONST_TABLE_INTERSECTION_HIGH");
+    }
+
+    #[test]
+    fn overlap_verdict_none_when_jaccard_below_threshold() {
+        // {a,b,c,d} vs {c,e,f,g} — jaccard 1/7 ≈ 0.143, no subset
+        // relation, no hash match → NONE.
+        let v = overlap_verdict_impl(
+            r#"["a","b","c","d"]"#,
+            r#"["c","e","f","g"]"#,
+            "h_left",
+            "h_right",
+        );
+        assert_eq!(v, "CONST_TABLE_NONE");
+    }
+
+    #[test]
+    fn overlap_verdict_none_when_disjoint() {
+        let v = overlap_verdict_impl(r#"["EUR","USD"]"#, r#"["JPY","CHF"]"#, "h_left", "h_right");
+        assert_eq!(v, "CONST_TABLE_NONE");
     }
 }

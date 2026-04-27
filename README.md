@@ -141,6 +141,7 @@ See [`examples/queries/`](examples/queries/) for runnable queries, each with a h
 | `canonical-bypass-dead.cypher` | Bypass rule with dead-code verdict |
 | `canonical-unreachable.cypher` | Canonical resolver is unreachable from any entry point |
 | `signature-divergent.cypher` | Function signature drifts from declared canonical shape |
+| `const-table-overlap.cypher` | Const-literal tables overlap across crates — verdict ladder: `CONST_TABLE_DUPLICATE` (entries_hash equality) → `CONST_TABLE_SUBSET` (one set ⊂ other) → `CONST_TABLE_INTERSECTION_HIGH` (jaccard ≥ 0.5) |
 
 All examples are plain text — copy, adapt parameters, run.
 
