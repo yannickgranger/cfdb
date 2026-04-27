@@ -18,7 +18,7 @@ use check_prelude_triggers::{
         c1_cross_context, c3_port_signature, c7_financial_precision, c8_pipeline_stage,
         c9_workspace_cardinality, TriggerOutcome,
     },
-    LoadError,
+    validate_freshness, LoadError,
 };
 use clap::{Parser, Subcommand};
 
@@ -39,6 +39,12 @@ struct Cli {
     /// today; any other value fails fast.
     #[arg(long, global = true, default_value = "v1")]
     schema_version: String,
+    /// Refuse to emit an envelope when `--from-ref` equals `--to-ref`. Used by
+    /// `/ship` pre-flight to ensure the capture reflects a real diff and not
+    /// an issue-start snapshot. Default off — issue-start captures remain
+    /// valid for archaeology / dogfood replay use cases.
+    #[arg(long, global = true)]
+    require_fresh: bool,
     #[command(subcommand)]
     command: Command,
 }
@@ -94,6 +100,11 @@ fn main() -> ExitCode {
             "error: unknown --schema-version {:?}; only \"v1\" is recognized",
             cli.schema_version
         );
+        return ExitCode::from(1);
+    }
+
+    if let Err(msg) = validate_freshness(cli.require_fresh, &cli.from_ref, &cli.to_ref) {
+        eprintln!("error: {msg}");
         return ExitCode::from(1);
     }
 

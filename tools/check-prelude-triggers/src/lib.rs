@@ -25,3 +25,57 @@ pub mod triggers;
 pub use report::PreludeTriggerReport;
 pub use toml_io::LoadError;
 pub use trigger_id::TriggerId;
+
+/// Stderr message emitted when `--require-fresh` rejects a stale envelope.
+///
+/// Contract is stable: skill-side consumers (`/discover`, `/ship` pre-flight)
+/// match against this prefix to distinguish freshness rejections from other
+/// usage-class exit-1 failures.
+pub const STALE_REFS_MESSAGE: &str =
+    "from_ref equals to_ref; refresh required (RFC-034 §4.2 lower-bound semantic)";
+
+/// Validate that the diff is non-empty when the consumer demanded a fresh capture.
+///
+/// Used by `main()` before subcommand dispatch. When `require_fresh` is set
+/// AND `from_ref == to_ref`, returns `Err` carrying [`STALE_REFS_MESSAGE`];
+/// the caller emits the message on stderr and exits with code 1 (usage class).
+///
+/// When `require_fresh` is unset, the function is a no-op — the binary's
+/// pre-`/ship` `from_ref == to_ref` capture is still a valid use case for
+/// snapshot-taking at issue start. The flag opts a consumer into the stricter
+/// "this envelope must reflect a real diff" contract.
+pub fn validate_freshness(
+    require_fresh: bool,
+    from_ref: &str,
+    to_ref: &str,
+) -> Result<(), &'static str> {
+    if require_fresh && from_ref == to_ref {
+        return Err(STALE_REFS_MESSAGE);
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_freshness_rejects_equal_refs_when_required() {
+        let result = validate_freshness(true, "abc123", "abc123");
+        assert_eq!(result, Err(STALE_REFS_MESSAGE));
+    }
+
+    #[test]
+    fn validate_freshness_accepts_distinct_refs_when_required() {
+        let result = validate_freshness(true, "develop", "feature-tip");
+        assert_eq!(result, Ok(()));
+    }
+
+    #[test]
+    fn validate_freshness_is_noop_when_flag_unset() {
+        // Default behavior — issue-start snapshot capture (from_ref == to_ref)
+        // remains a valid use case until the consumer opts in to strictness.
+        let result = validate_freshness(false, "abc123", "abc123");
+        assert_eq!(result, Ok(()));
+    }
+}
