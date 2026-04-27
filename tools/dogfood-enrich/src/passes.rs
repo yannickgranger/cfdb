@@ -41,6 +41,15 @@ pub struct PassDef {
     pub threshold: Option<u32>,
     /// Cargo feature flag the parent `cfdb` binary must be built with.
     pub feature_required: FeatureGate,
+    /// Whether `cfdb enrich-<name>` itself accepts `--workspace`. The
+    /// harness binary always accepts `--workspace` (it may need it for
+    /// source-side ground truth, e.g. `enrich-deprecation`'s `#[deprecated]`
+    /// grep), but the CLI subcommand surface diverges per pass:
+    /// `EnrichDeprecation` and `EnrichReachability` operate on the
+    /// keyspace alone; the other five also re-read source and accept
+    /// `--workspace`. Forwarding `--workspace` to a subcommand that
+    /// doesn't declare it makes clap exit 2.
+    pub cli_takes_workspace: bool,
 }
 
 impl PassDef {
@@ -52,42 +61,49 @@ impl PassDef {
                 query_template_path: ".cfdb/queries/self-enrich-deprecation.cypher",
                 threshold: thresholds::DEPRECATION_THRESHOLD,
                 feature_required: FeatureGate::Default,
+                cli_takes_workspace: false,
             },
             PassDef {
                 name: "enrich-rfc-docs",
                 query_template_path: ".cfdb/queries/self-enrich-rfc-docs.cypher",
                 threshold: thresholds::RFC_DOCS_THRESHOLD,
                 feature_required: FeatureGate::Default,
+                cli_takes_workspace: true,
             },
             PassDef {
                 name: "enrich-bounded-context",
                 query_template_path: ".cfdb/queries/self-enrich-bounded-context.cypher",
                 threshold: thresholds::BC_COVERAGE_THRESHOLD,
                 feature_required: FeatureGate::Default,
+                cli_takes_workspace: true,
             },
             PassDef {
                 name: "enrich-concepts",
                 query_template_path: ".cfdb/queries/self-enrich-concepts.cypher",
                 threshold: thresholds::CONCEPTS_THRESHOLD,
                 feature_required: FeatureGate::Default,
+                cli_takes_workspace: true,
             },
             PassDef {
                 name: "enrich-reachability",
                 query_template_path: ".cfdb/queries/self-enrich-reachability.cypher",
                 threshold: thresholds::REACHABILITY_THRESHOLD,
                 feature_required: FeatureGate::Hir,
+                cli_takes_workspace: false,
             },
             PassDef {
                 name: "enrich-metrics",
                 query_template_path: ".cfdb/queries/self-enrich-metrics.cypher",
                 threshold: thresholds::METRICS_COVERAGE_THRESHOLD,
                 feature_required: FeatureGate::QualityMetrics,
+                cli_takes_workspace: true,
             },
             PassDef {
                 name: "enrich-git-history",
                 query_template_path: ".cfdb/queries/self-enrich-git-history.cypher",
                 threshold: thresholds::GIT_COVERAGE_THRESHOLD,
                 feature_required: FeatureGate::GitEnrich,
+                cli_takes_workspace: true,
             },
         ]
     }

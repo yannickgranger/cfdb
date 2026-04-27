@@ -35,7 +35,7 @@ jobs:
       - name: Setup
         run: |
           set -e
-          apt-get clean && apt-get update && apt-get install -y --no-install-recommends git build-essential libssl-dev pkg-config curl ca-certificates
+          apt-get clean && apt-get update && apt-get install -y --no-install-recommends git build-essential libssl-dev pkg-config curl ca-certificates jq
           mkdir -p /cache/cargo/registry /cache/cargo/git /cache/cargo/bin /cache/rustup ~/.cargo
           ln -sf /cache/cargo/registry ~/.cargo/registry
           ln -sf /cache/cargo/git ~/.cargo/git

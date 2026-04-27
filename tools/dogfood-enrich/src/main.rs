@@ -68,6 +68,7 @@ fn run(cli: Cli) -> Result<i32, String> {
         &cli.db,
         &cli.keyspace,
         cli.workspace.as_deref(),
+        pass.cli_takes_workspace,
     )
     .map_err(|e| format!("{e}"))?;
 
