@@ -21,20 +21,23 @@ dogfood-enrich --pass <name> --db <dir> --keyspace <ks> [--cfdb-bin <path>] [--w
 Per RFC-039 §3.5 council ratification:
 - **Not a `cfdb` subcommand:** CCP — CI-only policy thresholds change for different reasons than user-facing verbs (extract / scope / violations).
 - **Not in `cfdb-cli`:** SAP — `cfdb-cli` is highly efferent (Ce ≫ Ca); placing CI policy there would couple unrelated change-reasons.
-- **Standalone leaf binary:** `Ca = 0`, depends only on `cfdb-core` for shared types + `clap`/`serde`/`tempfile`/`thiserror`. Mirrors `tools/check-prelude-triggers/`.
+- **Standalone leaf binary:** `Ca = 0`, depends only on `cfdb-core` (for `EnrichReport` wire-form parsing) + `clap`/`serde`/`serde_json`/`tempfile`/`thiserror`. Mirrors `tools/check-prelude-triggers/`. Does NOT link `cfdb-cli` as a library (subprocess invocation only).
 
 ## Threshold consts
 
 `src/thresholds.rs`. Tightening is a separate reviewed PR per `CLAUDE.md` §6 row 5. **No baseline file. No allowlist file.** A PR proposing one is rejected on sight.
 
-| Pass | Const | Initial floor |
-|---|---|---|
-| `enrich-bounded-context` | `MIN_BC_COVERAGE_PCT` | 95 |
-| `enrich-reachability` | `MIN_REACHABILITY_PCT` | 80 |
-| `enrich-metrics` | `MIN_METRICS_COVERAGE_PCT` | 95 |
-| `enrich-git-history` | `MIN_GIT_COVERAGE_PCT` | 95 |
+Each of the 7 passes carries a `pub const … _THRESHOLD: Option<u32>`. Four are `Some(N)` (ratio passes); three are `None` (hard-equality sentinels).
 
-Three passes use hard-equality / count-equality sentinels rather than ratios (`enrich-deprecation`, `enrich-rfc-docs`, `enrich-concepts`); their `PassDef::threshold` is `None`.
+| Pass | Const | Value |
+|---|---|---|
+| `enrich-deprecation` | `DEPRECATION_THRESHOLD` | `None` (hard equality) |
+| `enrich-rfc-docs` | `RFC_DOCS_THRESHOLD` | `None` (hard equality) |
+| `enrich-bounded-context` | `BC_COVERAGE_THRESHOLD` | `Some(95)` |
+| `enrich-concepts` | `CONCEPTS_THRESHOLD` | `None` (hard equality) |
+| `enrich-reachability` | `REACHABILITY_THRESHOLD` | `Some(80)` |
+| `enrich-metrics` | `METRICS_COVERAGE_THRESHOLD` | `Some(95)` |
+| `enrich-git-history` | `GIT_COVERAGE_THRESHOLD` | `Some(95)` |
 
 ## I5.1 feature-presence guard
 

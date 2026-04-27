@@ -13,20 +13,8 @@ use std::io;
 use std::path::Path;
 use std::process::Command;
 
-use serde::Deserialize;
+use cfdb_core::enrich::EnrichReport;
 use thiserror::Error;
-
-/// The subset of `cfdb_core::enrich::EnrichReport` we care about. Kept
-/// local rather than imported from `cfdb-core` because the JSON wire
-/// form is the contract — depending on a Rust struct would couple this
-/// harness to in-process refactors of `EnrichReport` that don't change
-/// the wire shape.
-#[derive(Debug, Deserialize)]
-struct EnrichReportSubset {
-    ran: bool,
-    #[serde(default)]
-    warnings: Vec<String>,
-}
 
 #[derive(Debug, Error)]
 pub enum GuardError {
@@ -59,14 +47,13 @@ pub enum GuardError {
     FeatureMissing { pass: String, warnings: Vec<String> },
 }
 
-/// Parse an `EnrichReport`-shaped JSON string into `(ran, warnings)`.
-///
-/// Returned tuple lets the binary surface off-feature warnings in
-/// the `FeatureMissing` error message and lets tests assert both
-/// fields independently.
-pub fn parse_report(json: &str) -> Result<(bool, Vec<String>), serde_json::Error> {
-    let report: EnrichReportSubset = serde_json::from_str(json)?;
-    Ok((report.ran, report.warnings))
+/// Parse a `cfdb enrich-<pass>` JSON envelope into a typed
+/// [`EnrichReport`]. Wire-form contract guarded by the shared
+/// `cfdb-core` struct — `serde` tolerates unknown fields by default,
+/// so future additive extensions (new attrs/edges fields) parse cleanly
+/// without churning this harness.
+pub fn parse_report(json: &str) -> Result<EnrichReport, serde_json::Error> {
+    serde_json::from_str(json)
 }
 
 /// Invoke `cfdb enrich-<pass>` against the keyspace and verify the
@@ -104,15 +91,15 @@ pub fn check_pass_ran(
         });
     }
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let (ran, warnings) = parse_report(&stdout).map_err(|source| GuardError::JsonParse {
+    let report = parse_report(&stdout).map_err(|source| GuardError::JsonParse {
         binary: cfdb_bin.display().to_string(),
         stdout: stdout.clone().into_owned(),
         source,
     })?;
-    if !ran {
+    if !report.ran {
         return Err(GuardError::FeatureMissing {
             pass: pass_name.to_string(),
-            warnings,
+            warnings: report.warnings,
         });
     }
     Ok(())
@@ -124,27 +111,24 @@ mod tests {
 
     /// `ran: true` parses cleanly.
     #[test]
-    fn parse_report_returns_true_when_ran_true() {
+    fn parse_report_returns_ran_true() {
         let json = r#"{"verb":"enrich_concepts","ran":true,"facts_scanned":42,"attrs_written":10,"edges_written":5,"warnings":[]}"#;
-        let (ran, _) = parse_report(json).expect("valid json");
-        assert!(ran);
+        assert!(parse_report(json).expect("valid json").ran);
     }
 
     /// `ran: false` parses cleanly (this is the off-feature path).
     #[test]
-    fn parse_report_returns_false_when_ran_false() {
+    fn parse_report_returns_ran_false() {
         let json = r#"{"verb":"enrich_metrics","ran":false,"facts_scanned":0,"attrs_written":0,"edges_written":0,"warnings":["enrich_metrics: built without quality-metrics feature"]}"#;
-        let (ran, _) = parse_report(json).expect("valid json");
-        assert!(!ran);
+        assert!(!parse_report(json).expect("valid json").ran);
     }
 
-    /// Unknown extra fields are tolerated (forward-compat with future
-    /// EnrichReport extensions).
+    /// Unknown extra fields are tolerated (serde tolerates by default —
+    /// forward-compat with future EnrichReport extensions).
     #[test]
     fn parse_report_ignores_unknown_fields() {
-        let json = r#"{"ran":true,"some_future_field":"hello","another":42}"#;
-        let (ran, _) = parse_report(json).expect("valid json");
-        assert!(ran);
+        let json = r#"{"verb":"x","ran":true,"facts_scanned":0,"attrs_written":0,"edges_written":0,"warnings":[],"some_future_field":"hello"}"#;
+        assert!(parse_report(json).expect("valid json").ran);
     }
 
     /// Missing `ran` field is a parse error (we do not default to true).
@@ -165,20 +149,10 @@ mod tests {
     /// error can include them in the user-facing message.
     #[test]
     fn parse_report_carries_warnings() {
-        let json =
-            r#"{"ran":false,"warnings":["enrich_metrics: built without quality-metrics feature"]}"#;
-        let (ran, warnings) = parse_report(json).expect("valid json");
-        assert!(!ran);
-        assert_eq!(warnings.len(), 1);
-        assert!(warnings[0].contains("quality-metrics"));
-    }
-
-    /// `parse_report` defaults warnings to empty when absent.
-    #[test]
-    fn parse_report_defaults_warnings_to_empty() {
-        let json = r#"{"ran":true}"#;
-        let (ran, warnings) = parse_report(json).expect("valid json");
-        assert!(ran);
-        assert!(warnings.is_empty());
+        let json = r#"{"verb":"enrich_metrics","ran":false,"facts_scanned":0,"attrs_written":0,"edges_written":0,"warnings":["enrich_metrics: built without quality-metrics feature"]}"#;
+        let report = parse_report(json).expect("valid json");
+        assert!(!report.ran);
+        assert_eq!(report.warnings.len(), 1);
+        assert!(report.warnings[0].contains("quality-metrics"));
     }
 }

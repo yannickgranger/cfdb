@@ -648,6 +648,7 @@ name = "dogfood-enrich"
 version = "0.4.1"
 dependencies = [
  "assert_cmd",
+ "cfdb-core",
  "clap",
  "serde",
  "serde_json",
