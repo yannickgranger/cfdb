@@ -92,7 +92,13 @@ pub(crate) fn run(state: &mut KeyspaceState, workspace_root: &Path) -> EnrichRep
         }
     };
 
-    let attrs_written = write_attrs(state, &item_indices, &git_info);
+    // Canonicalize workspace_root for path-strip — `:Item.file` is an
+    // absolute path and the user-supplied --workspace may be relative
+    // (e.g. `.`); without canonicalization the strip_prefix below
+    // never matches and every item gets a Null timestamp.
+    let workspace_canon =
+        std::fs::canonicalize(workspace_root).unwrap_or_else(|_| workspace_root.to_path_buf());
+    let attrs_written = write_attrs(state, &item_indices, &git_info, &workspace_canon);
 
     EnrichReport {
         verb: VERB.into(),
@@ -196,13 +202,14 @@ fn write_attrs(
     state: &mut KeyspaceState,
     item_indices: &[petgraph::stable_graph::NodeIndex],
     git_info: &BTreeMap<String, GitInfo>,
+    workspace_root: &Path,
 ) -> u64 {
     let mut count: u64 = 0;
     for &idx in item_indices {
         let Some(node) = state.graph.node_weight_mut(idx) else {
             continue;
         };
-        count += write_attrs_one(node, git_info);
+        count += write_attrs_one(node, git_info, workspace_root);
     }
     count
 }
@@ -210,12 +217,30 @@ fn write_attrs(
 /// Write per-node attrs, returning the number of attrs written (always 3 —
 /// Null is still a write, since the classifier uses the presence of the key
 /// to gate confidence).
-fn write_attrs_one(node: &mut Node, git_info: &BTreeMap<String, GitInfo>) -> u64 {
+///
+/// `:Item.file` is an absolute path emitted by the extractor; `git_info`
+/// is keyed by paths relative to the repo root (the form `git diff` returns).
+/// The lookup strips `workspace_root` from the stored path before matching.
+/// Falls back to the absolute path if it isn't under `workspace_root` (which
+/// can happen for vendored deps or generated code outside the tree — those
+/// get a Null timestamp via the `None` branch below, the intended result).
+fn write_attrs_one(
+    node: &mut Node,
+    git_info: &BTreeMap<String, GitInfo>,
+    workspace_root: &Path,
+) -> u64 {
     let lookup = node
         .props
         .get("file")
         .and_then(PropValue::as_str)
-        .and_then(|p| git_info.get(p));
+        .and_then(|p| {
+            let path = std::path::Path::new(p);
+            let rel = path
+                .strip_prefix(workspace_root)
+                .map(|r| r.to_string_lossy().into_owned())
+                .unwrap_or_else(|_| p.to_string());
+            git_info.get(&rel)
+        });
 
     match lookup {
         Some(info) => {
@@ -371,6 +396,46 @@ mod tests {
             props.get(super::ATTR_COUNT),
             Some(&PropValue::Int(2)),
             "two commits touched src/lib.rs"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Regression — `:Item.file` is an ABSOLUTE path emitted by
+    // `cfdb-extractor`, but `git_info` is keyed by the RELATIVE form
+    // `git diff` returns. Without path-strip in `write_attrs_one`,
+    // every item gets a Null timestamp on real cfdb-self extracts —
+    // surfaced when #349's dogfood reported 100% null on cfdb-self
+    // despite `attrs_written: 5637`. Pin the fix.
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn absolute_file_path_strips_workspace_prefix_and_matches_git_info() {
+        let fx = GitFixture::new();
+        fx.write("src/lib.rs", "fn v1() {}\n");
+        fx.commit("src/lib.rs", "first", 1_700_000_000);
+
+        // Store the :Item with the ABSOLUTE file path the extractor
+        // actually emits (extractor walks via cargo_metadata which
+        // produces absolute paths). The pre-fix behavior would Null
+        // every attr because git_info is keyed by `src/lib.rs`, not
+        // `<workspace>/src/lib.rs`.
+        let absolute_file = fx.workspace.join("src/lib.rs");
+        let mut store = store_with_item(
+            &fx.workspace,
+            absolute_file.to_str().expect("utf8 path"),
+            "crate::v1",
+        );
+        let ks = Keyspace::new("test");
+        let report = store.enrich_git_history(&ks).expect("pass");
+
+        assert!(report.ran);
+        let props = get_item_props(&store, &ks, "crate::v1");
+        assert_eq!(
+            props.get(super::ATTR_TS),
+            Some(&PropValue::Int(1_700_000_000)),
+            "absolute :Item.file path must match git_info after \
+             workspace_root strip; pre-fix this returned Null \
+             (regression for #349 dogfood reporting 100% null)"
         );
     }
 
