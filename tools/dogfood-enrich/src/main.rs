@@ -16,7 +16,8 @@ use std::process::ExitCode;
 
 use clap::Parser;
 use dogfood_enrich::{
-    feature_guard, grep_deprecated, passes, runner, EXIT_OK, EXIT_RUNTIME_ERROR, EXIT_VIOLATIONS,
+    count_items, feature_guard, grep_deprecated, grep_rfc_docs, passes, runner, scan_concepts,
+    thresholds, EXIT_OK, EXIT_RUNTIME_ERROR, EXIT_VIOLATIONS,
 };
 
 #[derive(Debug, Parser)]
@@ -75,7 +76,13 @@ fn run(cli: Cli) -> Result<i32, String> {
     // Materialize template + run violations.
     let tempdir = tempfile::tempdir().map_err(|e| format!("failed to create tempdir: {e}"))?;
     let template_path = PathBuf::from(pass.query_template_path);
-    let extra_owned = compute_extra_substitutions(pass.name, cli.workspace.as_deref())?;
+    let extra_owned = compute_extra_substitutions(
+        pass.name,
+        cli.workspace.as_deref(),
+        &cli.cfdb_bin,
+        &cli.db,
+        &cli.keyspace,
+    )?;
     let extra_borrows: Vec<(&str, &str)> = extra_owned
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))
@@ -119,16 +126,78 @@ fn run(cli: Cli) -> Result<i32, String> {
 fn compute_extra_substitutions(
     pass_name: &str,
     workspace: Option<&Path>,
+    cfdb_bin: &Path,
+    db: &Path,
+    keyspace: &str,
 ) -> Result<Vec<(String, String)>, String> {
-    if pass_name != "enrich-deprecation" {
-        return Ok(Vec::new());
+    match pass_name {
+        "enrich-deprecation" => {
+            let root = workspace.ok_or_else(|| {
+                "enrich-deprecation requires --workspace to compute the source-side \
+                 #[deprecated] ground truth"
+                    .to_string()
+            })?;
+            let count = grep_deprecated::count_deprecated_in_workspace(root).map_err(|e| {
+                format!("failed to grep #[deprecated] under {}: {e}", root.display())
+            })?;
+            Ok(vec![("ground_truth_count".to_string(), count.to_string())])
+        }
+        "enrich-rfc-docs" => {
+            let root = workspace.ok_or_else(|| {
+                "enrich-rfc-docs requires --workspace to count docs/RFC-*.md files".to_string()
+            })?;
+            let count = grep_rfc_docs::count_rfc_md_files(root).map_err(|e| {
+                format!(
+                    "failed to count docs/RFC-*.md under {}: {e}",
+                    root.display()
+                )
+            })?;
+            Ok(vec![("ground_truth_count".to_string(), count.to_string())])
+        }
+        "enrich-concepts" => {
+            let root = workspace.ok_or_else(|| {
+                "enrich-concepts requires --workspace to scan .cfdb/concepts/*.toml".to_string()
+            })?;
+            let counts = scan_concepts::scan_concepts(root).map_err(|e| {
+                format!(
+                    "failed to scan .cfdb/concepts/*.toml under {}: {e}",
+                    root.display()
+                )
+            })?;
+            Ok(vec![
+                (
+                    "declared_context_count".to_string(),
+                    counts.distinct_context_names.to_string(),
+                ),
+                (
+                    "declared_canonical_crate_count".to_string(),
+                    counts.declared_canonical_crate_count.to_string(),
+                ),
+            ])
+        }
+        // Path B from #355 — keyspace-side ratio computation. The
+        // cfdb-query v0.1 subset has no arithmetic operators, so the
+        // ratio `nulls/total < threshold/100` is computed harness-side
+        // and substituted into the template as a flat absolute count.
+        "enrich-bounded-context" => {
+            let total = count_items::count_items_in_keyspace(cfdb_bin, db, keyspace)
+                .map_err(|e| format!("failed to count :Item nodes: {e}"))?;
+            let threshold_pct = thresholds::BC_COVERAGE_THRESHOLD.ok_or_else(|| {
+                "BC_COVERAGE_THRESHOLD must be Some — enrich-bounded-context is a ratio pass"
+                    .to_string()
+            })?;
+            // `nulls_threshold` is the maximum tolerated absolute count of
+            // `:Item` nodes whose `bounded_context` is empty. Integer
+            // division floors — at small fixture scale (10 items, 95%)
+            // this yields 0, so any single null fires the sentinel
+            // (#345 AC-3 contract).
+            let nulls_threshold =
+                total.saturating_mul(100usize.saturating_sub(threshold_pct as usize)) / 100;
+            Ok(vec![
+                ("total_items".to_string(), total.to_string()),
+                ("nulls_threshold".to_string(), nulls_threshold.to_string()),
+            ])
+        }
+        _ => Ok(Vec::new()),
     }
-    let root = workspace.ok_or_else(|| {
-        "enrich-deprecation requires --workspace to compute the source-side \
-         #[deprecated] ground truth"
-            .to_string()
-    })?;
-    let count = grep_deprecated::count_deprecated_in_workspace(root)
-        .map_err(|e| format!("failed to grep #[deprecated] under {}: {e}", root.display()))?;
-    Ok(vec![("ground_truth_count".to_string(), count.to_string())])
 }
