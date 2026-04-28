@@ -16,8 +16,8 @@ use std::process::ExitCode;
 
 use clap::Parser;
 use dogfood_enrich::{
-    feature_guard, grep_deprecated, grep_rfc_docs, passes, runner, scan_concepts, EXIT_OK,
-    EXIT_RUNTIME_ERROR, EXIT_VIOLATIONS,
+    count_items, feature_guard, grep_deprecated, grep_rfc_docs, passes, runner, scan_concepts,
+    thresholds, EXIT_OK, EXIT_RUNTIME_ERROR, EXIT_VIOLATIONS,
 };
 
 #[derive(Debug, Parser)]
@@ -76,7 +76,13 @@ fn run(cli: Cli) -> Result<i32, String> {
     // Materialize template + run violations.
     let tempdir = tempfile::tempdir().map_err(|e| format!("failed to create tempdir: {e}"))?;
     let template_path = PathBuf::from(pass.query_template_path);
-    let extra_owned = compute_extra_substitutions(pass.name, cli.workspace.as_deref())?;
+    let extra_owned = compute_extra_substitutions(
+        pass.name,
+        cli.workspace.as_deref(),
+        &cli.cfdb_bin,
+        &cli.db,
+        &cli.keyspace,
+    )?;
     let extra_borrows: Vec<(&str, &str)> = extra_owned
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))
@@ -120,6 +126,9 @@ fn run(cli: Cli) -> Result<i32, String> {
 fn compute_extra_substitutions(
     pass_name: &str,
     workspace: Option<&Path>,
+    cfdb_bin: &Path,
+    db: &Path,
+    keyspace: &str,
 ) -> Result<Vec<(String, String)>, String> {
     match pass_name {
         "enrich-deprecation" => {
@@ -164,6 +173,29 @@ fn compute_extra_substitutions(
                     "declared_canonical_crate_count".to_string(),
                     counts.declared_canonical_crate_count.to_string(),
                 ),
+            ])
+        }
+        // Path B from #355 — keyspace-side ratio computation. The
+        // cfdb-query v0.1 subset has no arithmetic operators, so the
+        // ratio `nulls/total < threshold/100` is computed harness-side
+        // and substituted into the template as a flat absolute count.
+        "enrich-bounded-context" => {
+            let total = count_items::count_items_in_keyspace(cfdb_bin, db, keyspace)
+                .map_err(|e| format!("failed to count :Item nodes: {e}"))?;
+            let threshold_pct = thresholds::BC_COVERAGE_THRESHOLD.ok_or_else(|| {
+                "BC_COVERAGE_THRESHOLD must be Some — enrich-bounded-context is a ratio pass"
+                    .to_string()
+            })?;
+            // `nulls_threshold` is the maximum tolerated absolute count of
+            // `:Item` nodes whose `bounded_context` is empty. Integer
+            // division floors — at small fixture scale (10 items, 95%)
+            // this yields 0, so any single null fires the sentinel
+            // (#345 AC-3 contract).
+            let nulls_threshold =
+                total.saturating_mul(100usize.saturating_sub(threshold_pct as usize)) / 100;
+            Ok(vec![
+                ("total_items".to_string(), total.to_string()),
+                ("nulls_threshold".to_string(), nulls_threshold.to_string()),
             ])
         }
         _ => Ok(Vec::new()),

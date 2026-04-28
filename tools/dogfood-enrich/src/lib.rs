@@ -6,6 +6,7 @@
 //! (template substitution, EnrichReport parsing, threshold lookup).
 //! The binary in `src/main.rs` is the CI entry point.
 
+pub mod count_items;
 pub mod feature_guard;
 pub mod grep_deprecated;
 pub mod grep_rfc_docs;
