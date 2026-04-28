@@ -27,7 +27,10 @@ use std::process::ExitCode;
 use clap::Parser;
 
 use cfdb_recall::adapters::{extractor, ground_truth};
-use cfdb_recall::{compute_recall, AuditList, PublicItem, RecallReport, DEFAULT_THRESHOLD};
+use cfdb_recall::{
+    compute_recall, threshold_for_crate, AuditList, PublicItem, RecallReport,
+    RECALL_THRESHOLD_TOTAL,
+};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -52,16 +55,54 @@ struct Cli {
     #[arg(long)]
     audit_list: Option<PathBuf>,
 
-    /// Recall threshold in the range [0.0, 1.0]. Defaults to 0.95 per
-    /// RFC-029 §13 Item 2. Raising above 0.95 requires editing the
-    /// constant in `lib.rs` and a reviewed PR.
-    #[arg(long, default_value_t = DEFAULT_THRESHOLD)]
-    threshold: f64,
+    /// Recall threshold in the range [0.0, 1.0]. If omitted, the
+    /// per-crate threshold is sourced from `threshold_for_crate` in
+    /// `cfdb_recall::thresholds` (defaults to
+    /// `RECALL_THRESHOLD_PER_CRATE`). Raising the floor requires editing
+    /// the constant in `crates/cfdb-recall/src/thresholds.rs` and a
+    /// reviewed PR. The PR-time slim build still uses
+    /// `DEFAULT_THRESHOLD` (RFC-029 §13 Item 2 = 0.95).
+    #[arg(long)]
+    threshold: Option<f64>,
 
     /// Where to write the human-readable gap report. If omitted, no file
     /// is written; the summary still goes to stdout.
     #[arg(long)]
     gaps_file: Option<PathBuf>,
+
+    /// Where to write the machine-readable per-crate + aggregate report
+    /// as JSON. Consumed by the nightly Gitea status workflow (#340) to
+    /// drive per-crate `recall/<crate>` and aggregate `recall/total`
+    /// commit statuses, and uploaded as the `recall-ratios.json`
+    /// workflow artifact (AC-2). If omitted, no file is written.
+    ///
+    /// Schema:
+    /// ```json
+    /// {
+    ///   "schema_version": 1,
+    ///   "crates": [
+    ///     {
+    ///       "name": "cfdb-core",
+    ///       "recall": 0.97,
+    ///       "threshold": 0.85,
+    ///       "passes": true,
+    ///       "matched": 97,
+    ///       "adjusted_denominator": 100,
+    ///       "missing_count": 3
+    ///     }
+    ///   ],
+    ///   "total": {
+    ///     "recall": 0.93,
+    ///     "threshold": 0.90,
+    ///     "passes": true,
+    ///     "matched": 350,
+    ///     "adjusted_denominator": 376
+    ///   }
+    /// }
+    /// ```
+    /// `recall` is `null` for crates with a vacuous (empty) denominator.
+    #[arg(long)]
+    json_out: Option<PathBuf>,
 }
 
 fn main() -> ExitCode {
@@ -115,7 +156,15 @@ fn main() -> ExitCode {
             .get(crate_name)
             .cloned()
             .unwrap_or_default();
-        let report = compute_recall(crate_name, &public, &extracted, &audit, cli.threshold);
+        // Per-crate threshold dispatch (#340): if `--threshold` is
+        // omitted, source the floor from `threshold_for_crate` so each
+        // crate gets its own const-driven floor. Explicit `--threshold`
+        // overrides the dispatch (preserves the v0.1 PR-time
+        // 0.95 invocation contract).
+        let threshold = cli
+            .threshold
+            .unwrap_or_else(|| threshold_for_crate(crate_name));
+        let report = compute_recall(crate_name, &public, &extracted, &audit, threshold);
         print_report(&report);
         if !report.passes() {
             any_failed = true;
@@ -127,6 +176,14 @@ fn main() -> ExitCode {
     if let Some(path) = cli.gaps_file.as_ref() {
         if let Err(e) = write_gaps_file(path, &reports) {
             eprintln!("cfdb-recall: failed to write gaps file {path:?}: {e}");
+            return ExitCode::from(2);
+        }
+    }
+
+    // ── Write recall-ratios.json if requested (#340) ─────────
+    if let Some(path) = cli.json_out.as_ref() {
+        if let Err(e) = write_json_out(path, &reports) {
+            eprintln!("cfdb-recall: failed to write json-out {path:?}: {e}");
             return ExitCode::from(2);
         }
     }
@@ -231,4 +288,65 @@ fn write_gaps_file(path: &std::path::Path, reports: &[RecallReport]) -> Result<(
     }
 
     std::fs::write(path, md)
+}
+
+/// Write the per-crate + aggregate report as JSON for the nightly Gitea
+/// status workflow (#340 AC-2 / AC-3). The aggregate threshold is sourced
+/// from [`RECALL_THRESHOLD_TOTAL`] in `cfdb_recall::thresholds`; per-crate
+/// thresholds are sourced from each [`RecallReport`]'s `threshold` field
+/// (which the workflow seeds from [`threshold_for_crate`]).
+///
+/// The schema is intentionally flat and version-tagged
+/// (`schema_version: 1`). Bumping it requires a coordinated edit to the
+/// workflow's jq parser.
+fn write_json_out(path: &std::path::Path, reports: &[RecallReport]) -> Result<(), std::io::Error> {
+    let crates: Vec<serde_json::Value> = reports
+        .iter()
+        .map(|r| {
+            let recall = r.recall();
+            serde_json::json!({
+                "name": r.crate_name,
+                // null when the denominator is empty (vacuous pass) — the
+                // workflow distinguishes this from a real failure.
+                "recall": recall,
+                "threshold": r.threshold,
+                "passes": r.passes(),
+                "matched": r.matched,
+                "adjusted_denominator": r.adjusted_denominator,
+                "total_public": r.total_public,
+                "missing_count": r.missing.len(),
+                "audited_count": r.audited.len(),
+            })
+        })
+        .collect();
+
+    // Aggregate: sum-of-numerators / sum-of-denominators. Crates with a
+    // vacuous (zero) denominator are skipped — they neither help nor
+    // hurt the aggregate ratio.
+    let agg_matched: usize = reports.iter().map(|r| r.matched).sum();
+    let agg_denom: usize = reports.iter().map(|r| r.adjusted_denominator).sum();
+    let agg_recall: Option<f64> = if agg_denom == 0 {
+        None
+    } else {
+        Some(agg_matched as f64 / agg_denom as f64)
+    };
+    let agg_passes = match agg_recall {
+        None => true, // vacuous — no surface to measure against
+        Some(r) => r >= RECALL_THRESHOLD_TOTAL,
+    };
+
+    let doc = serde_json::json!({
+        "schema_version": 1,
+        "crates": crates,
+        "total": {
+            "recall": agg_recall,
+            "threshold": RECALL_THRESHOLD_TOTAL,
+            "passes": agg_passes,
+            "matched": agg_matched,
+            "adjusted_denominator": agg_denom,
+        }
+    });
+
+    let bytes = serde_json::to_vec_pretty(&doc).map_err(std::io::Error::other)?;
+    std::fs::write(path, bytes)
 }
