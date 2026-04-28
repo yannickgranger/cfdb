@@ -33,15 +33,37 @@ use std::path::Path;
 use std::process::Command;
 
 /// Subprocess-invoke `cfdb query` and return the count of `:Item` nodes
-/// in the named keyspace.
+/// in the named keyspace. No kind filter — counts every `:Item`.
 pub fn count_items_in_keyspace(cfdb_bin: &Path, db: &Path, keyspace: &str) -> io::Result<usize> {
+    count_items_with_kind(cfdb_bin, db, keyspace, None)
+}
+
+/// Subprocess-invoke `cfdb query` and return the count of `:Item` nodes
+/// matching the given `kind` filter (e.g. `Some("fn")` for the
+/// reachability + metrics passes whose denominators are functions only).
+/// `None` matches every kind.
+///
+/// `kind` is interpolated into the Cypher source — caller MUST pass a
+/// hardcoded kind string (`"fn"`, `"struct"`, etc.), never user input.
+/// All current call sites in `compute_extra_substitutions` use
+/// compile-time string literals.
+pub fn count_items_with_kind(
+    cfdb_bin: &Path,
+    db: &Path,
+    keyspace: &str,
+    kind: Option<&str>,
+) -> io::Result<usize> {
+    let cypher = match kind {
+        Some(k) => format!("MATCH (i:Item) WHERE i.kind = \"{k}\" WITH count(i) AS n RETURN n"),
+        None => "MATCH (i:Item) WITH count(i) AS n RETURN n".to_string(),
+    };
     let output = Command::new(cfdb_bin)
         .arg("query")
         .arg("--db")
         .arg(db)
         .arg("--keyspace")
         .arg(keyspace)
-        .arg("MATCH (i:Item) WITH count(i) AS n RETURN n")
+        .arg(&cypher)
         .output()?;
 
     if !output.status.success() {

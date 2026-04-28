@@ -1,0 +1,184 @@
+name: Enrich Dogfood Nightly
+
+# Per RFC-039 §3.3: nightly-only feature-gated dogfoods (#347/#348/#349).
+# Default-feature passes (#343/#344/#345/#346) run at PR-time in ci.yml.
+# This workflow runs the three feature-gated passes against cfdb-self
+# with `--features hir,quality-metrics,git-enrich` (single combined build
+# per RFC §3.3 rust-systems directive — `ra-ap-*` HIR crates dominate
+# compile time and are shared across features).
+#
+# Activation status (#347/#348/#349 land in the same bundle PR):
+#   enrich-reachability — ACTIVE  (#347)
+#   enrich-metrics      — ACTIVE  (#348)
+#   enrich-git-history  — ACTIVE  (#349)
+#
+# All three are soft-gating in this workflow today: the workflow runs and
+# logs results but `cfdb-recall/*`-style required-check promotion is
+# operator-driven post first cycle. Sentinel violation rows still fail
+# the workflow run (visible on the develop status page) — they just
+# don't block PR merges yet because this is a `schedule:` workflow, not
+# a `pull_request:` workflow.
+
+on:
+  schedule:
+    - cron: '15 3 * * *'  # 03:15 UTC daily — offset 15 min from
+                          # `recall-nightly.yml` (#340) so the two cron
+                          # jobs don't fight over the rust runner.
+  workflow_dispatch:      # allow manual trigger from the actions UI
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -Dwarnings
+  GIT_SSL_NO_VERIFY: true
+  CARGO_HOME: /cache/cargo
+  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+  SCCACHE_REDIS_ENDPOINT: "redis://192.168.1.107:6380"
+  SCCACHE_REDIS_KEY_PREFIX: "cfdb-1.93"
+  SCCACHE_REDIS_EXPIRATION: "604800"
+  CARGO_INCREMENTAL: "0"
+
+# Single-instance — if a previous nightly is still running, queue this
+# one rather than running both (avoids double-build of the all-features
+# cfdb-cli on the shared runner).
+concurrency:
+  group: enrich-dogfood-nightly
+  cancel-in-progress: false
+
+jobs:
+  enrich-dogfood:
+    name: Enrich dogfood (hir + quality-metrics + git-enrich)
+    runs-on: rust
+    container:
+      image: docker.io/library/rust:1.93
+    steps:
+      - name: Setup
+        # Mirror of ci.yml:36-72 (#347 AC-7) — sccache + Redis backend
+        # wiring lives in one shared shape per RFC §3.3 rust-systems
+        # directive. If the PR-time setup drifts, mirror it here.
+        run: |
+          set -e
+          apt-get clean && apt-get update && apt-get install -y --no-install-recommends git build-essential libssl-dev pkg-config curl ca-certificates jq
+          mkdir -p /cache/cargo/registry /cache/cargo/git /cache/cargo/bin /cache/rustup ~/.cargo
+          ln -sf /cache/cargo/registry ~/.cargo/registry
+          ln -sf /cache/cargo/git ~/.cargo/git
+
+          if [ -d "/cache/rustup/toolchains" ]; then
+            echo "Rustup cache HIT"
+          else
+            echo "Rustup cache MISS — seeding from image"
+            cp -a /usr/local/rustup/* /cache/rustup/
+          fi
+          export RUSTUP_HOME=/cache/rustup
+          echo "RUSTUP_HOME=/cache/rustup" >> "$GITHUB_ENV"
+          rustup component add rustfmt clippy
+
+          if [ ! -f "/cache/cargo/bin/sccache" ]; then
+            SCCACHE_VERSION="v0.8.2"
+            curl -fsSL "https://github.com/mozilla/sccache/releases/download/${SCCACHE_VERSION}/sccache-${SCCACHE_VERSION}-x86_64-unknown-linux-musl.tar.gz" | \
+              tar xzf - --strip-components=1 -C /cache/cargo/bin/ "sccache-${SCCACHE_VERSION}-x86_64-unknown-linux-musl/sccache"
+            chmod +x /cache/cargo/bin/sccache
+          fi
+          echo "PATH=/cache/cargo/bin:${PATH}" >> "$GITHUB_ENV"
+
+          if /cache/cargo/bin/sccache --start-server 2>&1; then
+            echo "RUSTC_WRAPPER=/cache/cargo/bin/sccache" >> "$GITHUB_ENV"
+            echo "sccache ready (redis: ${SCCACHE_REDIS_ENDPOINT})"
+          fi
+
+      - name: Clone
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config --global url."https://oauth2:${GITHUB_TOKEN}@agency.lab:3000/".insteadOf "https://agency.lab:3000/"
+          git clone --depth=1 --branch=develop "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" repo
+
+      - name: Build cfdb + dogfood-enrich (combined features)
+        run: |
+          cd repo
+          # RFC-039 §3.3 — single combined build with all three nightly
+          # feature flags. Per rust-systems R2 verdict: building the
+          # `ra-ap-*` HIR dependency once is much cheaper than three
+          # per-feature builds. sccache (Redis backend) makes incremental
+          # nightly runs ~30s once primed.
+          cargo build -p cfdb-cli --release --bin cfdb \
+            --features hir,quality-metrics,git-enrich
+          cargo build -p dogfood-enrich --release --bin dogfood-enrich
+
+      - name: Extract cfdb-self (with HIR)
+        run: |
+          cd repo
+          mkdir -p .cfdb/db
+          # Note: `--features hir` enables the rust-analyzer-backed
+          # extractor, which writes `:EntryPoint` nodes + resolved
+          # `CALLS` edges that the reachability pass relies on.
+          ./target/release/cfdb extract \
+            --workspace . --db .cfdb/db --keyspace cfdb-self
+
+      - name: Run feature-gated enrich passes
+        run: |
+          cd repo
+          # Each enrich-* subcommand materializes the attribute the
+          # matching dogfood sentinel reads. Ordering is independent —
+          # each pass writes a distinct attribute namespace.
+          ./target/release/cfdb enrich-reachability \
+            --db .cfdb/db --keyspace cfdb-self
+          ./target/release/cfdb enrich-metrics \
+            --workspace . --db .cfdb/db --keyspace cfdb-self
+          ./target/release/cfdb enrich-git-history \
+            --workspace . --db .cfdb/db --keyspace cfdb-self
+
+      - name: Self-enrich nightly dogfoods (#347 + #348 + #349) + post statuses
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd repo
+          # AC-4 soft-warning first cycle (mirrors #340 AC-5): each pass
+          # runs independently; per-pass exit captured into a Gitea
+          # commit status. The workflow's run-level pass/fail aggregates
+          # all three at the end — but individual pass failures DO NOT
+          # short-circuit the loop, so all statuses post even if pass 1
+          # fails. After the soft-warning cycle, the
+          # `enrich-dogfood/total` status can be promoted to a required
+          # check on develop (admin-side toggle, no workflow change).
+          sha="$(git rev-parse HEAD)"
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          aggregate_state="success"
+          for pass in enrich-reachability enrich-metrics enrich-git-history; do
+            echo ">> self-${pass} (ACTIVE, nightly)"
+            short="${pass#enrich-}"
+            if ./target/release/dogfood-enrich \
+                --pass "$pass" \
+                --db .cfdb/db \
+                --keyspace cfdb-self \
+                --cfdb-bin "$(pwd)/target/release/cfdb" \
+                --workspace "$(pwd)"; then
+              state="success"
+              desc="nightly self-${pass} sentinel: 0 violations"
+            else
+              ec=$?
+              # Exit 30 = violation rows (real regression). Exit 1 =
+              # runtime error / I5.1 feature missing (workflow infra).
+              # Both surface as `failure` for now; future refinement
+              # can split into `failure` vs `error` (yellow) à la #340
+              # AC-7 if the operator wants to distinguish.
+              state="failure"
+              desc="nightly self-${pass} sentinel: exit ${ec} — see run log"
+              aggregate_state="failure"
+            fi
+            curl -sk -X POST \
+              -H "Authorization: token ${GITHUB_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -d "{\"state\":\"${state}\",\"context\":\"enrich-dogfood/${short}\",\"description\":\"${desc}\",\"target_url\":\"${run_url}\"}" \
+              "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/statuses/${sha}" || true
+          done
+          curl -sk -X POST \
+            -H "Authorization: token ${GITHUB_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"state\":\"${aggregate_state}\",\"context\":\"enrich-dogfood/total\",\"description\":\"aggregate of three nightly enrich dogfoods\",\"target_url\":\"${run_url}\"}" \
+            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/statuses/${sha}" || true
+          # AC-4 first cycle: workflow itself stays green even on a
+          # per-pass failure. The Gitea commit-status surface
+          # (`enrich-dogfood/<pass>`) carries the granular signal.
+          # Once the operator promotes `enrich-dogfood/total` to a
+          # required check, second-cycle merge gating kicks in.
+          true

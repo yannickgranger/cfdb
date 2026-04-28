@@ -180,24 +180,86 @@ fn compute_extra_substitutions(
         // ratio `nulls/total < threshold/100` is computed harness-side
         // and substituted into the template as a flat absolute count.
         "enrich-bounded-context" => {
-            let total = count_items::count_items_in_keyspace(cfdb_bin, db, keyspace)
-                .map_err(|e| format!("failed to count :Item nodes: {e}"))?;
-            let threshold_pct = thresholds::BC_COVERAGE_THRESHOLD.ok_or_else(|| {
-                "BC_COVERAGE_THRESHOLD must be Some — enrich-bounded-context is a ratio pass"
-                    .to_string()
-            })?;
-            // `nulls_threshold` is the maximum tolerated absolute count of
-            // `:Item` nodes whose `bounded_context` is empty. Integer
-            // division floors — at small fixture scale (10 items, 95%)
-            // this yields 0, so any single null fires the sentinel
-            // (#345 AC-3 contract).
-            let nulls_threshold =
-                total.saturating_mul(100usize.saturating_sub(threshold_pct as usize)) / 100;
-            Ok(vec![
-                ("total_items".to_string(), total.to_string()),
-                ("nulls_threshold".to_string(), nulls_threshold.to_string()),
-            ])
+            ratio_substitutions(
+                cfdb_bin,
+                db,
+                keyspace,
+                None, // every :Item, no kind filter
+                thresholds::BC_COVERAGE_THRESHOLD,
+                "BC_COVERAGE_THRESHOLD",
+            )
         }
+        // Same Path B shape — denominator is `:Item{kind:"fn"}` per
+        // RFC-039 §3.1 reachability + metrics rows. The kind filter is
+        // applied harness-side via `count_items_with_kind` so the
+        // sentinel template can read the matching `total_items`.
+        "enrich-reachability" => ratio_substitutions(
+            cfdb_bin,
+            db,
+            keyspace,
+            Some("fn"),
+            thresholds::REACHABILITY_THRESHOLD,
+            "REACHABILITY_THRESHOLD",
+        ),
+        "enrich-metrics" => ratio_substitutions(
+            cfdb_bin,
+            db,
+            keyspace,
+            Some("fn"),
+            thresholds::METRICS_COVERAGE_THRESHOLD,
+            "METRICS_COVERAGE_THRESHOLD",
+        ),
+        // Git-history denominator is every `:Item` (per RFC-039 §3.1
+        // git-history row) — same shape as bounded-context.
+        "enrich-git-history" => ratio_substitutions(
+            cfdb_bin,
+            db,
+            keyspace,
+            None,
+            thresholds::GIT_COVERAGE_THRESHOLD,
+            "GIT_COVERAGE_THRESHOLD",
+        ),
         _ => Ok(Vec::new()),
     }
+}
+
+/// Shared Path B (#355) helper for ratio passes — count `:Item` (or
+/// kind-filtered) in the keyspace, derive `nulls_threshold` from the
+/// passed threshold const, return both as substitutions for the
+/// `{{ total_items }}` and `{{ nulls_threshold }}` placeholders.
+///
+/// `kind` is `Some("fn")` for `enrich-reachability` + `enrich-metrics`
+/// (denominators are functions only) and `None` for the kind-agnostic
+/// passes (`enrich-bounded-context`, `enrich-git-history`).
+///
+/// `threshold` is the pre-validated `Option<u32>` from
+/// `thresholds::*_THRESHOLD`; the `name` parameter is just the const's
+/// identifier as a `&str` so the error message points the reader at the
+/// right line in `thresholds.rs` if a const accidentally drifts to None.
+fn ratio_substitutions(
+    cfdb_bin: &Path,
+    db: &Path,
+    keyspace: &str,
+    kind: Option<&str>,
+    threshold: Option<u32>,
+    threshold_name: &str,
+) -> Result<Vec<(String, String)>, String> {
+    let total = count_items::count_items_with_kind(cfdb_bin, db, keyspace, kind).map_err(|e| {
+        format!(
+            "failed to count :Item{}: {e}",
+            kind.map(|k| format!(" with kind={k}")).unwrap_or_default()
+        )
+    })?;
+    let threshold_pct = threshold.ok_or_else(|| {
+        format!("{threshold_name} must be Some — this is a ratio pass; check tools/dogfood-enrich/src/thresholds.rs")
+    })?;
+    // Integer floor — at small fixture scale the threshold floors to 0,
+    // so any single null fires the sentinel (#345 AC-3 contract; same
+    // math applies to all four ratio passes).
+    let nulls_threshold =
+        total.saturating_mul(100usize.saturating_sub(threshold_pct as usize)) / 100;
+    Ok(vec![
+        ("total_items".to_string(), total.to_string()),
+        ("nulls_threshold".to_string(), nulls_threshold.to_string()),
+    ])
 }
