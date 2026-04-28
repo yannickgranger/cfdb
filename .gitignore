@@ -20,3 +20,4 @@ council/
 # cfdb keyspace staleness tracker (per-worktree)
 .cfdb/current.sha
 .cfdb/db/
+examples/queries/fixtures/*/Cargo.lock
