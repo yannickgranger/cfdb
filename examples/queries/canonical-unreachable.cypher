@@ -1,3 +1,4 @@
+// smoke-skip: parameterized ($concept) — bound by RFC-cfdb §A1.1 ladder driver
 // canonical-unreachable.cypher — Pattern C (RFC-029 v0.2 §A1.4),
 // verdict: CANONICAL_UNREACHABLE.
 //

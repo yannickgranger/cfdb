@@ -143,6 +143,8 @@ See [`examples/queries/`](examples/queries/) for runnable queries, each with a h
 | `signature-divergent.cypher` | Function signature drifts from declared canonical shape |
 | `const-table-overlap.cypher` | Const-literal tables overlap across crates — verdict ladder: `CONST_TABLE_DUPLICATE` (entries_hash equality) → `CONST_TABLE_SUBSET` (one set ⊂ other) → `CONST_TABLE_INTERSECTION_HIGH` (jaccard ≥ 0.5) |
 
+All queries in this table are smoke-tested in CI against `cfdb-self` (#339, RFC-030 §3.2 liveness) — a parser regression or schema drift that breaks any of them blocks merge. Parameterized queries opt out via a `// smoke-skip: <reason>` header on line 1.
+
 All examples are plain text — copy, adapt parameters, run.
 
 ## Cypher subset

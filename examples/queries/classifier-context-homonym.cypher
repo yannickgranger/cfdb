@@ -1,3 +1,4 @@
+// smoke-skip: parameterized ($context) — bound by RFC-036 classifier suite
 // classifier-context-homonym.cypher — §A2.1 class 2 (ContextHomonym).
 //
 // Same last-segment name across distinct bounded contexts, with divergent
