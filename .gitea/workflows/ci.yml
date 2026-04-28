@@ -248,30 +248,34 @@ jobs:
           # to a hard gate.
           #
           # Activation status:
-          #   #343 — enrich-deprecation: ACTIVE (template shipped, this issue)
-          #   #344 — enrich-rfc-docs:    placeholder
-          #   #345 — enrich-bounded-context: placeholder
-          #   #346 — enrich-concepts:    placeholder
+          #   #343 — enrich-deprecation:     ACTIVE
+          #   #344 — enrich-rfc-docs:        ACTIVE (this PR)
+          #   #345 — enrich-bounded-context: placeholder (cfdb-query v0.1
+          #                                  grammar lacks arithmetic ops
+          #                                  needed for the ratio sentinel)
+          #   #346 — enrich-concepts:        ACTIVE (this PR)
           cargo build -p dogfood-enrich --release --bin dogfood-enrich
           # Determinism harness — runs all shipped templates twice and
           # diffs stdout per RFC §3.4 / I1.
           CFDB_BIN="$(pwd)/target/release/cfdb" \
             DOGFOOD_BIN="$(pwd)/target/release/dogfood-enrich" \
             bash ci/dogfood-determinism.sh
-          # ACTIVE — #343: enrich-deprecation. Exit 30 on row → block
-          # merge. Exit 1 (runtime error) → block merge. Exit 0 → pass.
-          echo ">> self-enrich-deprecation (RFC-039 §7.2, ACTIVE)"
-          ./target/release/dogfood-enrich \
-            --pass enrich-deprecation \
-            --db .cfdb/db \
-            --keyspace cfdb-self \
-            --cfdb-bin "$(pwd)/target/release/cfdb" \
-            --workspace "$(pwd)"
-          # PLACEHOLDER — #344-#346 ship .cypher templates that
-          # transition these from "template missing" exit 1 (tolerated
-          # via `|| echo`) to a hard gate (drop the `||` clause when
-          # the matching issue ships).
-          for pass in enrich-rfc-docs enrich-bounded-context enrich-concepts; do
+          # ACTIVE passes (#343/#344/#346). Exit 30 on row → block merge.
+          # Exit 1 (runtime error) → block merge. Exit 0 → pass.
+          for pass in enrich-deprecation enrich-rfc-docs enrich-concepts; do
+            echo ">> self-${pass} (ACTIVE)"
+            ./target/release/dogfood-enrich \
+              --pass "$pass" \
+              --db .cfdb/db \
+              --keyspace cfdb-self \
+              --cfdb-bin "$(pwd)/target/release/cfdb" \
+              --workspace "$(pwd)"
+          done
+          # PLACEHOLDER — #345 ships .cypher template; transitions when
+          # the cfdb-query subset gains arithmetic (or runner.rs adds a
+          # {{ total_items }} substitution path). Drop the `|| echo`
+          # clause when the matching issue ships.
+          for pass in enrich-bounded-context; do
             echo ">> self-${pass} (placeholder — template lands in subsequent issue)"
             ./target/release/dogfood-enrich \
               --pass "$pass" \

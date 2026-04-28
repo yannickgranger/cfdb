@@ -200,7 +200,7 @@ pub fn scan_concepts(workspace: &Path) -> io::Result<ConceptCounts> {
         if !file_type.is_file() {
             continue;
         }
-        if !path.extension().is_some_and(|ext| ext == "toml") {
+        if path.extension().is_none_or(|ext| ext != "toml") {
             continue;
         }
         let scan = scan_one_toml(&path)?;

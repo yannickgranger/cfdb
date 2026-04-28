@@ -8,8 +8,10 @@
 
 pub mod feature_guard;
 pub mod grep_deprecated;
+pub mod grep_rfc_docs;
 pub mod passes;
 pub mod runner;
+pub mod scan_concepts;
 pub mod thresholds;
 
 /// Exit code on zero violation rows.

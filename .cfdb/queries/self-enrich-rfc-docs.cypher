@@ -17,37 +17,52 @@
 //
 // # Sentinel pattern
 //
-// Cypher does not support multi-row conditional returns natively, so
-// the two invariants are encoded as a UNION of two single-row checks:
+// Both invariants evaluate in a single WHERE clause; the query returns
+// one row when EITHER sentinel fires:
 //
 //   - Sentinel (a) fires when the extracted :RfcDoc count is strictly
 //     less than the FS ground truth. This catches the case where an
 //     `RFC-NNN-*.md` file was added on disk but the extractor's
 //     RFC-doc producer did not pick it up (recall regression).
-//   - Sentinel (b) fires when there is at least one :RfcDoc node but
-//     zero outgoing REFERENCED_BY edges from any :Item. This catches
-//     the case where the RFC ingestion landed but the cross-reference
-//     producer is silently dead (edge regression).
+//   - Sentinel (b) fires when zero outgoing REFERENCED_BY edges exist
+//     into any :RfcDoc. This catches the case where the RFC ingestion
+//     landed but the cross-reference producer is silently dead.
 //
-// When both invariants hold, the UNION returns 0 rows and the harness
-// exits 0. Either invariant firing returns 1 row and the harness
-// exits 30.
+// When both invariants hold, the query returns 0 rows and the harness
+// exits 0. Either invariant firing returns 1 row → harness exits 30.
+//
+// # Why anchor on `:Item`, not `:RfcDoc`
+//
+// The cfdb-query Cypher subset evaluates `WITH count(d) AS k` over an
+// empty MATCH binding by emitting ZERO output rows (the SQL/relational
+// "no group => no row" rule, see
+// `crates/cfdb-petgraph/src/eval/with_clause.rs::group_and_aggregate`).
+// If we anchored on `MATCH (d:RfcDoc)` and the extractor emitted zero
+// `:RfcDoc` nodes (the catastrophic regression we MUST catch), the WITH
+// would produce zero rows and the WHERE would never fire — the sentinel
+// would silently pass on the failure mode it must detect.
+//
+// We therefore anchor on `MATCH (i:Item)` (cfdb-self always has
+// thousands of `:Item` nodes; the workspace having zero `:Item` is a
+// catastrophic extractor failure caught upstream) and use
+// `OPTIONAL MATCH (d:RfcDoc)` + `count(distinct d)` to count RFC docs
+// without losing the anchor row. UNION is NOT in the cfdb-query v0.1
+// subset (verified at `crates/cfdb-query/src/parser/`); the OR-of-
+// EXISTS pattern below is the equivalent shape, mirroring
+// `self-enrich-concepts.cypher`.
 //
 // # Direction-of-comparison rationale
 //
 //   - Extracted < ground_truth → extractor missed an RFC file. RED.
 //   - Extracted > ground_truth → harness's FS scan missed a file
-//     (false negative in `count_rfc_md_files`; e.g. a non-glob path
-//     traversal). This direction is NOT flagged here — the dogfood
-//     gate is about extractor recall, not source-text scan precision.
+//     (false negative in `count_rfc_md_files`). This direction is NOT
+//     flagged — the dogfood gate is about extractor recall, not
+//     source-text scan precision.
 //
 // # Output columns (when invariant fails)
 //
-//   sentinel        — 'rfc_doc_count' or 'referenced_by_edges'
-//   extracted_count — count of :RfcDoc nodes / REFERENCED_BY edges
-//   source_count    — substituted ground truth (sentinel a only;
-//                     placeholder 0 for sentinel b which has no FS
-//                     ground truth, only a strict-positive check)
+//   rfc_doc_count   — count of :RfcDoc nodes in the keyspace
+//   source_count    — substituted ground truth (FS scan)
 //
 // # Usage
 //
@@ -58,16 +73,9 @@
 //
 // Expected on cfdb-self: 0 rows. Any row is a recall regression.
 
-MATCH (d:RfcDoc)
-WITH count(d) AS rfc_doc_count
+MATCH (i:Item)
+OPTIONAL MATCH (d:RfcDoc)
+WITH count(distinct d) AS rfc_doc_count
 WHERE rfc_doc_count < {{ ground_truth_count }}
-RETURN 'rfc_doc_count' AS sentinel,
-       rfc_doc_count AS extracted_count,
-       {{ ground_truth_count }} AS source_count
-UNION
-MATCH ()-[e:REFERENCED_BY]->(:RfcDoc)
-WITH count(e) AS edge_count
-WHERE edge_count = 0
-RETURN 'referenced_by_edges' AS sentinel,
-       edge_count AS extracted_count,
-       0 AS source_count
+   OR NOT EXISTS { MATCH ()-[:REFERENCED_BY]->(:RfcDoc) }
+RETURN rfc_doc_count, {{ ground_truth_count }} AS source_count

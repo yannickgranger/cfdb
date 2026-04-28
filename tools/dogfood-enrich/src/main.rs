@@ -16,7 +16,8 @@ use std::process::ExitCode;
 
 use clap::Parser;
 use dogfood_enrich::{
-    feature_guard, grep_deprecated, passes, runner, EXIT_OK, EXIT_RUNTIME_ERROR, EXIT_VIOLATIONS,
+    feature_guard, grep_deprecated, grep_rfc_docs, passes, runner, scan_concepts, EXIT_OK,
+    EXIT_RUNTIME_ERROR, EXIT_VIOLATIONS,
 };
 
 #[derive(Debug, Parser)]
@@ -120,15 +121,51 @@ fn compute_extra_substitutions(
     pass_name: &str,
     workspace: Option<&Path>,
 ) -> Result<Vec<(String, String)>, String> {
-    if pass_name != "enrich-deprecation" {
-        return Ok(Vec::new());
+    match pass_name {
+        "enrich-deprecation" => {
+            let root = workspace.ok_or_else(|| {
+                "enrich-deprecation requires --workspace to compute the source-side \
+                 #[deprecated] ground truth"
+                    .to_string()
+            })?;
+            let count = grep_deprecated::count_deprecated_in_workspace(root).map_err(|e| {
+                format!("failed to grep #[deprecated] under {}: {e}", root.display())
+            })?;
+            Ok(vec![("ground_truth_count".to_string(), count.to_string())])
+        }
+        "enrich-rfc-docs" => {
+            let root = workspace.ok_or_else(|| {
+                "enrich-rfc-docs requires --workspace to count docs/RFC-*.md files".to_string()
+            })?;
+            let count = grep_rfc_docs::count_rfc_md_files(root).map_err(|e| {
+                format!(
+                    "failed to count docs/RFC-*.md under {}: {e}",
+                    root.display()
+                )
+            })?;
+            Ok(vec![("ground_truth_count".to_string(), count.to_string())])
+        }
+        "enrich-concepts" => {
+            let root = workspace.ok_or_else(|| {
+                "enrich-concepts requires --workspace to scan .cfdb/concepts/*.toml".to_string()
+            })?;
+            let counts = scan_concepts::scan_concepts(root).map_err(|e| {
+                format!(
+                    "failed to scan .cfdb/concepts/*.toml under {}: {e}",
+                    root.display()
+                )
+            })?;
+            Ok(vec![
+                (
+                    "declared_context_count".to_string(),
+                    counts.distinct_context_names.to_string(),
+                ),
+                (
+                    "declared_canonical_crate_count".to_string(),
+                    counts.declared_canonical_crate_count.to_string(),
+                ),
+            ])
+        }
+        _ => Ok(Vec::new()),
     }
-    let root = workspace.ok_or_else(|| {
-        "enrich-deprecation requires --workspace to compute the source-side \
-         #[deprecated] ground truth"
-            .to_string()
-    })?;
-    let count = grep_deprecated::count_deprecated_in_workspace(root)
-        .map_err(|e| format!("failed to grep #[deprecated] under {}: {e}", root.display()))?;
-    Ok(vec![("ground_truth_count".to_string(), count.to_string())])
 }
