@@ -1,3 +1,4 @@
+// smoke-skip: template-driven ({{ ground_truth_count }}) — substituted by tools/dogfood-enrich (RFC-039 §3.1)
 // self-enrich-deprecation.cypher — RFC-039 §3.1 / §7.2 dogfood sentinel.
 //
 // Asserts that every `#[deprecated]` attribute in the workspace source

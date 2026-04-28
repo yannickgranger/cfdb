@@ -1,3 +1,4 @@
+// smoke-skip: parameterized ($context) — bound by RFC-036 classifier suite
 // classifier-unwired.cypher — §A2.1 class 6 (Unwired).
 //
 // fn / method `:Item`s with `reachable_from_entry = false` that are NOT

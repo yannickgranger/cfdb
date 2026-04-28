@@ -172,6 +172,59 @@ jobs:
             ./target/release/cfdb violations --db .cfdb/db --keyspace cfdb-self --rule "$rule"
           done
 
+      - name: cfdb query smoke (RFC-030 §3.2 liveness)
+        run: |
+          cd repo
+          # Smoke-execute every shipped .cypher query against the cfdb-self
+          # keyspace produced by the previous step. v0.1 semantics: parse +
+          # execute only — row count is ignored, zero rows is a pass. The
+          # gate exists to catch parser regressions and SchemaVersion drift
+          # at PR time. Row-count invariants live in Phase B (#343-#349
+          # self-enrich-* dogfoods, EPIC #338).
+          #
+          # Skip protocol: a file whose first 5 lines contain a header line
+          # `// smoke-skip: <reason>` is bypassed. This is the AC-6 escape
+          # hatch (#339 issue body) for parameterized queries (e.g.
+          # list-callers.cypher binds $qname) and template-driven queries
+          # (e.g. self-enrich-deprecation.cypher substitutes
+          # {{ ground_truth_count }} via tools/dogfood-enrich). The skip
+          # rationale lives next to the query — no allowlist file (project
+          # CLAUDE.md §3 / §6 row 5).
+          #
+          # Glob-driven (AC-5) — a new .cypher in either directory is
+          # picked up on the next CI run with no allowlist edit.
+          fail=0
+          ran=0
+          skipped=0
+          start=$(date +%s)
+          for q in examples/queries/*.cypher .cfdb/queries/*.cypher; do
+            [ -f "$q" ] || continue
+            if head -5 "$q" | grep -q '^// smoke-skip:'; then
+              echo ">> $q (smoke-skip)"
+              skipped=$((skipped + 1))
+              continue
+            fi
+            echo ">> $q"
+            if ! ./target/release/cfdb query \
+                --db .cfdb/db --keyspace cfdb-self \
+                "$(cat "$q")" >/dev/null; then
+              fail=1
+            fi
+            ran=$((ran + 1))
+          done
+          elapsed=$(( $(date +%s) - start ))
+          echo "smoke: ran=$ran skipped=$skipped elapsed=${elapsed}s"
+          # AC-7 budget target: ≤30s on cfdb-self. Failure modes per AC-3
+          # are parse + evaluator errors only — time overrun is logged but
+          # does NOT block merge. Prescribed remediation (issue body):
+          # file a separate perf issue. Local measurement at 9a9fc42 was
+          # 81s wall-clock, ~21s pure-query, ~60s keyspace-reload overhead
+          # across 11 invocations — tracked in the perf follow-up.
+          if [ "$elapsed" -gt 30 ]; then
+            echo "smoke: NOTICE — elapsed ${elapsed}s exceeds AC-7 30s target; see perf follow-up" >&2
+          fi
+          [ "$fail" -eq 0 ]
+
       - name: Edge-liveness (RFC-037 §3.7 informational)
         continue-on-error: true
         run: |

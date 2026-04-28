@@ -1,3 +1,4 @@
+// smoke-skip: parameterized ($context) — bound by RFC-036 classifier suite
 // classifier-duplicated-feature.cypher — §A2.1 class 1 (DuplicatedFeature).
 //
 // Two independent implementations of the same concept **within the same
