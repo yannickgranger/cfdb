@@ -135,7 +135,8 @@ See [`examples/queries/`](examples/queries/) for runnable queries, each with a h
 | `arch-ban-reqwest-client-new.cypher` | Ban rule — forbid direct `reqwest::Client::new()` |
 | `list-callers.cypher` | Find every call site of a symbol matched by regex |
 | `hsb-by-name.cypher` | Horizontal split-brain by name |
-| `vertical-split-brain.cypher` | Vertical split-brain — two resolvers reachable from one entry point |
+| `vertical-split-brain.cypher` | Vertical split-brain — two resolvers reachable from one entry point (`fork` kind) |
+| `vertical-split-brain-drop.cypher` | Vertical split-brain — entry point registers wire key K, reachable resolver reads divergent key K' (`drop` kind, #297 Phase B) |
 | `canonical-bypass-reachable.cypher` | Bypass rule with live user-reachable verdict |
 | `canonical-bypass-caller.cypher` | Bypass rule scoped to caller regex |
 | `canonical-bypass-dead.cypher` | Bypass rule with dead-code verdict |

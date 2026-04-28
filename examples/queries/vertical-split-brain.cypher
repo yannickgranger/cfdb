@@ -45,9 +45,11 @@
 //   edges land (RFC addendum §A2.2 enrichment pass 3), replace the
 //   name-shape heuristic with a join on `a-[:LABELED_AS]->c<-[:LABELED_AS]-b`
 //   — same concept, different items, same entry point.
-// TODO(#44-followup-param): Once `:Param` + `REGISTERS_PARAM` edges
-//   land (RFC addendum §A2.2 enrichment pass 5), add the `drop` kind:
-//   entry point registers param K, reachable resolver reads K', K ≠ K'.
+// DONE(#297-Phase-B): the `drop` kind ships in
+//   `examples/queries/vertical-split-brain-drop.cypher` as a sibling
+//   query (the cfdb-query v0.1 subset has no `UNION`, so `fork` and
+//   `drop` cannot share a query body). `:Param` + `REGISTERS_PARAM`
+//   shipped via #209 (RFC-036 §3.1) and #219 (RFC-037 §3.1).
 // TODO(#44-followup-default): Once `::default()` impl fingerprints
 //   are emitted, add the `divergent_default` kind by joining on two
 //   `kind="fn"` items named `default` whose parent structs share a
