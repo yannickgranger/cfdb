@@ -273,6 +273,8 @@ dependencies = [
  "cfdb-concepts",
  "cfdb-core",
  "cfdb-extractor",
+ "cfdb-extractor-php",
+ "cfdb-extractor-ts",
  "cfdb-hir-extractor",
  "cfdb-hir-petgraph-adapter",
  "cfdb-lang",
@@ -323,6 +325,30 @@ dependencies = [
  "tempfile",
  "thiserror",
  "toml 0.8.23",
+]
+
+[[package]]
+name = "cfdb-extractor-php"
+version = "0.4.1"
+dependencies = [
+ "cfdb-core",
+ "cfdb-lang",
+ "tempfile",
+ "thiserror",
+ "tree-sitter",
+ "tree-sitter-php",
+]
+
+[[package]]
+name = "cfdb-extractor-ts"
+version = "0.4.1"
+dependencies = [
+ "cfdb-core",
+ "cfdb-lang",
+ "tempfile",
+ "thiserror",
+ "tree-sitter",
+ "tree-sitter-typescript",
 ]
 
 [[package]]
@@ -2967,6 +2993,44 @@ dependencies = [
  "tracing-core",
  "tracing-log",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "tree-sitter"
+version = "0.23.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0203df02a3b6dd63575cc1d6e609edc2181c9a11867a271b25cfd2abff3ec5ca"
+dependencies = [
+ "cc",
+ "regex",
+ "regex-syntax 0.8.10",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-language"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "009994f150cc0cd50ff54917d5bc8bffe8cad10ca10d81c34da2ec421ae61782"
+
+[[package]]
+name = "tree-sitter-php"
+version = "0.23.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f066e94e9272cfe4f1dcb07a1c50c66097eca648f2d7233d299c8ae9ed8c130c"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-typescript"
+version = "0.23.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c5f76ed8d947a75cc446d5fccd8b602ebf0cde64ccf2ffa434d873d7a575eff"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
 ]
 
 [[package]]

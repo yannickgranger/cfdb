@@ -1,0 +1,46 @@
+[package]
+name = "cfdb-extractor-ts"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# RFC-041 Phase 3 / issue #265 — TypeScript `LanguageProducer` MVP.
+#
+# This crate is the TypeScript-specific reference implementation of the
+# `cfdb_lang::LanguageProducer` trait. It walks a tsconfig.json-style
+# TS project (detector: tsconfig.json + package.json present) via
+# tree-sitter-typescript and emits the v0.1 cfdb fact set onto the
+# existing closed-set schema vocabulary in `cfdb-core::schema::labels`.
+#
+# TS → Rust closed-set `:Item.kind` mapping (per RFC-041 §4 Published
+# Language invariant — no new `:Item.kind` values from this slice):
+#
+#   TS module (file)        → :Module node
+#   TS interface            → :Item { kind: "trait" }   (contract w/o impl)
+#   TS type alias           → :Item { kind: "type" }    (exact semantic match)
+#   TS class                → :Item { kind: "struct" }  (stateful aggregate)
+#   TS exported function    → :Item { kind: "fn" }
+#   TS const | let | var    → :Item { kind: "const" }
+#
+# JSX components and `.tsx` files are deferred — the MVP uses
+# `LANGUAGE_TYPESCRIPT` only, NOT `LANGUAGE_TSX`. A future slice that
+# turns on TSX would need an additional walker pass and possibly a new
+# `:Item.kind` value (`jsx_component`) at a SchemaVersion patch.
+
+[dependencies]
+cfdb-core = { path = "../cfdb-core" }
+cfdb-lang = { path = "../cfdb-lang" }
+# Pinned at 0.23 to share the tree-sitter ABI with `cfdb-extractor-php`
+# — the workspace ships ONE tree-sitter version. tree-sitter 0.23 is
+# the ABI-paired host for tree-sitter-typescript 0.23; tree-sitter
+# 0.22 lacks the `From<LanguageFn> for Language` impl that
+# `LANGUAGE_TYPESCRIPT.into()` needs. Bumping either independently
+# risks a dual-grammar ABI mismatch — upgrade them together.
+tree-sitter = "0.23"
+tree-sitter-typescript = "0.23"
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

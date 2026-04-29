@@ -32,6 +32,17 @@ cfdb-lang = { path = "../cfdb-lang" }
 # slim build (`--no-default-features`) would still pull in
 # `cfdb-extractor`'s `syn` / `cargo_metadata` transitives.
 cfdb-extractor = { path = "../cfdb-extractor", optional = true }
+# RFC-041 Phase 2 (#264) — PHP `LanguageProducer`. Optional dep gated
+# behind `lang-php`; default-off so the slim build's anti-bloat
+# guarantee carries forward (no tree-sitter / tree-sitter-php in the
+# default dep tree).
+cfdb-extractor-php = { path = "../cfdb-extractor-php", optional = true }
+# RFC-041 Phase 3 (#265) — TypeScript `LanguageProducer`. Optional dep
+# gated behind `lang-typescript`; same anti-bloat rationale as the
+# PHP slot above. Both producers share tree-sitter 0.23 in the dep
+# graph — see `crates/cfdb-extractor-{php,ts}/Cargo.toml` for the
+# pinning rationale.
+cfdb-extractor-ts = { path = "../cfdb-extractor-ts", optional = true }
 clap.workspace = true
 # `check_predicate::{PredicateRunReport, PredicateRow}` derive Serialize for
 # `--format json` output. RFC-034 §3.1 Slice 3 / #147.
@@ -71,6 +82,14 @@ default = ["lang-rust"]
 # Future languages add `lang-php = ["dep:cfdb-extractor-php"]`,
 # `lang-typescript = ["dep:cfdb-extractor-ts"]` on the same pattern.
 lang-rust = ["dep:cfdb-extractor"]
+# RFC-041 Phase 2 (#264) — PHP `LanguageProducer`. Default-off; opt-in
+# via `cargo install cfdb-cli --features lang-php`. Pulls
+# `tree-sitter` + `tree-sitter-php` only when this feature is on.
+lang-php = ["dep:cfdb-extractor-php"]
+# RFC-041 Phase 3 (#265) — TypeScript `LanguageProducer`. Default-off;
+# opt-in via `--features lang-typescript`. Pulls `tree-sitter` +
+# `tree-sitter-typescript` only when on.
+lang-typescript = ["dep:cfdb-extractor-ts"]
 # Enables `cfdb extract --hir` — pulls HIR pipeline crates.
 hir = ["dep:cfdb-hir-extractor", "dep:cfdb-hir-petgraph-adapter"]
 # Enables `cfdb enrich-git-history` real implementation — pulls libgit2 via
