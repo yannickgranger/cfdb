@@ -1,15 +1,10 @@
 [package]
 name = "cfdb-extractor-php"
-# Hardcoded for the standalone-build phase per issue #264 brief
-# ("DO NOT touch Cargo.toml workspace members list. Integration
-# handles that."). The integration PR that adds this crate to the
-# workspace `members` array will replace these with `*.workspace =
-# true` lines so the crate inherits the canonical version table.
-version = "0.4.1"
-edition = "2021"
-rust-version = "1.85"
-license = "MIT OR Apache-2.0"
-publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
 
 # RFC-041 Phase 2 / issue #264 — PHP `LanguageProducer` MVP.
 #
@@ -19,47 +14,40 @@ publish = false
 # tree-sitter-php and emits the v0.1 cfdb fact set onto the existing
 # closed-set schema vocabulary in `cfdb-core::schema::labels`.
 #
-# **Schema mapping decision (RFC-041 §4 Published Language invariant).**
-# The closed-set `:Item.kind` values today are `struct` / `enum` /
-# `trait` / `fn` / `impl_block` / `const` / `static` / `type` / `mod` —
-# Rust-shaped. PHP's natural `class` / `interface` / `trait` /
-# `method` / `function` / `namespace` are NOT in that set, and Phase 2
+# Schema mapping decision (RFC-041 §4 Published Language invariant) —
+# the closed-set `:Item.kind` values today are `struct` / `enum` /
+# `trait` / `fn` / `impl_block` / `const` / `static` / `type` / `mod`
+# (Rust-shaped). PHP's natural `class` / `interface` / `trait` /
+# `method` / `function` / `namespace` are NOT in the set, and Phase 2
 # is NOT a schema-RFC slice (no `cfdb-core::SchemaVersion` patch, no
 # graph-specs lockstep). The MVP therefore maps:
 #
 #   PHP namespace          → :Module node (NOT :Item — :Module is a
 #                            structural-context node already in the
 #                            schema)
-#   PHP class | interface  → :Item { kind: "trait" }
-#         | trait            (closest fit — PHP traits ARE essentially
-#                             Rust traits + classes are aggregations
-#                             of trait-like contracts; mapping all
-#                             three to the same kind keeps queries
-#                             simple at the cost of homonymy)
+#   PHP class | interface  → :Item { kind: "trait" } (closest fit;
+#         | trait            mapping all three to the same kind keeps
+#                            queries simple at the cost of homonymy)
 #   PHP method | function  → :Item { kind: "fn" }
 #   PHP const              → :Item { kind: "const" } (reserved; MVP
 #                            does not yet emit class constants)
 #
-# This decision is visible in downstream cypher queries. The first
-# follow-up RFC will introduce dedicated `:Item.kind` values for PHP
-# (likely `class`, `interface`, `php_trait`) at a SchemaVersion bump.
+# Every emitted `:Item` carries a `php_construct` prop preserving the
+# original AST kind (`class` / `interface` / `trait` / `method` /
+# `function`), so cypher queries that need to disambiguate can. The
+# first follow-up RFC will introduce dedicated `:Item.kind` values for
+# PHP at a SchemaVersion patch.
 
 [dependencies]
 cfdb-core = { path = "../cfdb-core" }
 cfdb-lang = { path = "../cfdb-lang" }
-tree-sitter = "0.22"
-tree-sitter-php = "0.22"
-# Pinned during the standalone-build phase per issue #264 brief; the
-# integration PR will switch this back to `thiserror.workspace = true`
-# when the crate joins the workspace `members` array.
-thiserror = "2"
+# Pinned at 0.23 to share the tree-sitter ABI with `cfdb-extractor-ts`
+# — the workspace ships ONE tree-sitter version across all language
+# producers so consumers don't compile two copies. Bumping is a
+# coordinated chore PR per the existing ra-ap-* upgrade discipline.
+tree-sitter = "0.23"
+tree-sitter-php = "0.23"
+thiserror.workspace = true
 
 [dev-dependencies]
-tempfile = "3"
-
-# Standalone-build phase per issue #264 brief — empty [workspace]
-# table makes this crate ignore the parent `Cargo.toml`'s workspace
-# membership list (which the integration PR will own). Allows
-# `cargo check --manifest-path crates/cfdb-extractor-php/Cargo.toml`
-# to compile without touching the parent manifest.
-[workspace]
+tempfile.workspace = true

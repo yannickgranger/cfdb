@@ -46,14 +46,21 @@ pub(crate) fn available_producers() -> Vec<Box<dyn LanguageProducer>> {
     // `mut` is conditionally needed (only when at least one
     // `lang-*` feature is on); without the `cfg_attr` the slim
     // build emits an `unused_mut` warning on the empty `Vec::new()`.
-    #[cfg_attr(not(any(feature = "lang-rust")), allow(unused_mut))]
+    #[cfg_attr(
+        not(any(
+            feature = "lang-rust",
+            feature = "lang-php",
+            feature = "lang-typescript"
+        )),
+        allow(unused_mut)
+    )]
     let mut v: Vec<Box<dyn LanguageProducer>> = Vec::new();
     #[cfg(feature = "lang-rust")]
     v.push(Box::new(cfdb_extractor::RustProducer));
-    // Future producers (#264 PHP, #265 TypeScript) plug in here
-    // behind `#[cfg(feature = "lang-php")]` /
-    // `#[cfg(feature = "lang-typescript")]` per the META #266
-    // roadmap.
+    #[cfg(feature = "lang-php")]
+    v.push(Box::new(cfdb_extractor_php::PhpProducer));
+    #[cfg(feature = "lang-typescript")]
+    v.push(Box::new(cfdb_extractor_ts::TypeScriptProducer));
     v
 }
 
@@ -86,15 +93,44 @@ pub struct NoProducerDetected {
 mod tests {
     use super::*;
 
-    /// With default features (`lang-rust` on), the registry contains
-    /// exactly one producer named `"rust"`. Catches a feature-flag
-    /// regression that accidentally drops `lang-rust` from defaults.
+    /// With default features (`lang-rust` on, `lang-php` /
+    /// `lang-typescript` OFF), the registry contains exactly one
+    /// producer named `"rust"`. Catches a feature-flag regression
+    /// that accidentally drops `lang-rust` from defaults OR
+    /// accidentally promotes `lang-php` / `lang-typescript` into
+    /// the default set without a documented decision. Tightened in
+    /// RFC-041 Phase 2/3 (#264 / #265) bundle PR — when
+    /// `lang-rust + lang-php + lang-typescript` are all on (the
+    /// `--features lang-rust,lang-php,lang-typescript` build path),
+    /// the registry has 3 entries and this assertion would
+    /// false-positive; the cfg gates the test to default-only.
     #[test]
-    #[cfg(feature = "lang-rust")]
+    #[cfg(all(
+        feature = "lang-rust",
+        not(feature = "lang-php"),
+        not(feature = "lang-typescript")
+    ))]
     fn default_features_register_only_rust_producer() {
         let producers = available_producers();
         let names: Vec<&'static str> = producers.iter().map(|p| p.name()).collect();
         assert_eq!(names, vec!["rust"]);
+    }
+
+    /// Under the all-languages build (`--features lang-rust,lang-php,
+    /// lang-typescript`), the registry contains all three producers
+    /// in declaration order: `["rust", "php", "typescript"]`. Catches
+    /// a regression in `available_producers()` ordering or a missing
+    /// `#[cfg]` arm.
+    #[test]
+    #[cfg(all(
+        feature = "lang-rust",
+        feature = "lang-php",
+        feature = "lang-typescript"
+    ))]
+    fn all_languages_register_in_declaration_order() {
+        let producers = available_producers();
+        let names: Vec<&'static str> = producers.iter().map(|p| p.name()).collect();
+        assert_eq!(names, vec!["rust", "php", "typescript"]);
     }
 
     /// Under slim build (no `lang-*` feature), the registry is

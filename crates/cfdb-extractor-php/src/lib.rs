@@ -153,8 +153,13 @@ fn walk_file(path: &Path, emitter: &mut Emitter) -> Result<(), LanguageError> {
     let source = std::fs::read_to_string(path).map_err(LanguageError::Io)?;
 
     let mut parser = tree_sitter::Parser::new();
+    // tree-sitter-php 0.23+ exposes `LANGUAGE_PHP` as a `LanguageFn`
+    // constant instead of the legacy `language_php()` fn (the workspace
+    // pinned 0.23 to share the tree-sitter ABI with `cfdb-extractor-ts`
+    // — see this crate's Cargo.toml). `.into()` performs the
+    // `From<LanguageFn> for Language` conversion that 0.22 lacked.
     parser
-        .set_language(&tree_sitter_php::language_php())
+        .set_language(&tree_sitter_php::LANGUAGE_PHP.into())
         .map_err(|e| LanguageError::Parse {
             producer: PRODUCER_NAME,
             message: format!("set_language: {e}"),

@@ -18,6 +18,12 @@ crates = [
     "cfdb-query",
     "cfdb-petgraph",
     "cfdb-extractor",
+    # RFC-041 Phase 2 (#264) — PHP `LanguageProducer` MVP. Concrete
+    # producer-side analogue of cfdb-extractor; same operational
+    # bounded context per council-cfdb-wiring §B.1.2.
+    "cfdb-extractor-php",
+    # RFC-041 Phase 3 (#265) — TypeScript `LanguageProducer` MVP.
+    "cfdb-extractor-ts",
     "cfdb-hir-extractor",
     "cfdb-hir-petgraph-adapter",
     "cfdb-cli",

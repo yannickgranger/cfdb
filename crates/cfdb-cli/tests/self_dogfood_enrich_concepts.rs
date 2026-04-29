@@ -85,6 +85,11 @@ fn self_dogfood_cfdb_concept_and_labeled_as_coverage() {
         "cfdb-query",
         "cfdb-petgraph",
         "cfdb-extractor",
+        // RFC-041 Phase 2 / Phase 3 — concrete `LanguageProducer`
+        // impls for PHP (#264) and TypeScript (#265); same operational
+        // bounded context per council-cfdb-wiring §B.1.2.
+        "cfdb-extractor-php",
+        "cfdb-extractor-ts",
         "cfdb-hir-extractor",
         "cfdb-hir-petgraph-adapter",
         "cfdb-cli",
