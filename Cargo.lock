@@ -275,6 +275,7 @@ dependencies = [
  "cfdb-extractor",
  "cfdb-hir-extractor",
  "cfdb-hir-petgraph-adapter",
+ "cfdb-lang",
  "cfdb-petgraph",
  "cfdb-query",
  "clap",
@@ -313,6 +314,7 @@ dependencies = [
  "cargo_metadata 0.22.0",
  "cfdb-concepts",
  "cfdb-core",
+ "cfdb-lang",
  "proc-macro2",
  "serde",
  "serde_json",
@@ -352,6 +354,14 @@ dependencies = [
  "cfdb-core",
  "cfdb-hir-extractor",
  "cfdb-petgraph",
+]
+
+[[package]]
+name = "cfdb-lang"
+version = "0.4.1"
+dependencies = [
+ "cfdb-core",
+ "thiserror",
 ]
 
 [[package]]

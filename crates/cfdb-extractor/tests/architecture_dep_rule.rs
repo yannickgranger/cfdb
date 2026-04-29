@@ -19,6 +19,15 @@ const ALLOWED_DEPS: &[&str] = &[
     // (Issue #3 extraction). Pure-library crate, zero heavy deps —
     // cfdb-query will also depend on it (Conformist pattern).
     "cfdb-concepts",
+    // RFC-041 Phase 1 / Slice 41-B — cfdb-extractor is the concrete
+    // reference implementation of the `LanguageProducer` trait
+    // (`pub struct RustProducer`). The dep flows inward from the
+    // concrete producer to the producer-side seam crate; cfdb-lang
+    // sits in the inner ring next to cfdb-core (zero deps beyond
+    // cfdb-core + thiserror per RFC §3.2 SAP table). No producer-
+    // layer pollution risk: cfdb-lang owns no schema vocabulary and
+    // pulls no parser / store deps.
+    "cfdb-lang",
     // Rust source AST visitor.
     "syn",
     // Source-line spans — `span-locations` feature on `proc-macro2`

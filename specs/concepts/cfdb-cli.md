@@ -14,6 +14,10 @@ Selector for the four enrichment subcommands (`enrich-docs`, `enrich-metrics`, `
 
 Error returned by the `hir` feature's `extract_and_ingest_hir` composition (Issue #86 / slice 4). Wraps either a `cfdb_hir_extractor::HirError` or a `cfdb_core::store::StoreError`. Only compiled under `cfdb-cli`'s `hir` Cargo feature; default builds never see this type. Surfaced by `cfdb extract --hir --workspace <path>` and mapped to a `CfdbCliError::Usage` string at the CLI boundary.
 
+## NoProducerDetected
+
+Error returned by `cfdb extract` when no compiled-in `LanguageProducer` accepts the workspace — the `[]` arm of the dispatcher's match on `available_producers().filter(|p| p.detect(ws))` (RFC-041 §3.4 / Slice 41-C). Carries `workspace: String` (the path the user passed) + `compiled_in: Vec<&'static str>` (the names of producers that WERE compiled in, e.g. `["rust"]` on a default build, `[]` on a slim build). The structured payload lets the user diagnose without re-reading their feature flags: a slim build (`cargo install --no-default-features`) produces `compiled_in: []`, signalling that no `lang-*` feature was selected; a default build hitting an unsupported workspace produces `compiled_in: ["rust"]`, signalling the workspace is not a Rust workspace. Mapped via `#[from]` into `CfdbCliError::NoProducer`. Defined at `crates/cfdb-cli/src/lang.rs:75`.
+
 ## OutputFormat
 
 Canonical `--format` flag enum used by every cfdb subcommand that accepts an output-format selector. Replaces the per-handler split (`enum DiffFormat`, `enum ClassifyFormat`, three raw `match format { ... }` blocks) that EPIC #273 Pattern 1 #4 surfaced as cfdb-internal split-brain. Variants are `Text`, `Json`, `SortedJsonl`, `Table` — wire strings (`"text"`, `"json"`, `"sorted-jsonl"`, `"table"`) are stable round-trip via `FromStr` ↔ `as_wire()`. Each handler narrows to its accepted subset via `OutputFormat::require_one_of(&[..], cmd)`, which produces the unified `"<cmd>: --format `<got>` not supported; expected `<a>` or `<b>`"` rejection message. Pure value type — no I/O, no schema impact (the enum lives in `cfdb-cli` only; wire strings are not part of `SchemaVersion`).

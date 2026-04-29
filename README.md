@@ -124,6 +124,8 @@ Every node/edge carries provenance (`source_file`, `line`, `resolver` where rele
 
 `cfdb_core::SchemaVersion` is the wire contract. Downstream consumers (graph-specs-rust, custom backends) pin this version; breaking changes bump it in a reviewed PR.
 
+**Languages:** v0.1 ships **Rust** (the reference `LanguageProducer` per [RFC-041](docs/RFC-041-language-backend-trait.md)) — `cfdb-extractor` walks `Cargo.toml` workspaces via `syn`. PHP (#264) and TypeScript (#265) plug in behind the same trait via the META multi-language roadmap (#266). The `:Item.kind` enum is a schema-governed closed set; new languages introducing new `kind` values require a separate schema RFC + `SchemaVersion` patch + lockstep PR on graph-specs-rust per RFC-033 §4 I2.
+
 ## Example queries
 
 See [`examples/queries/`](examples/queries/) for runnable queries, each with a header comment explaining the pattern:

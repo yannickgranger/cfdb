@@ -46,7 +46,42 @@ fn extract_at_path(
     let ks = Keyspace::new(&ks_name);
 
     eprintln!("extract: walking {}", workspace.display());
-    let (nodes, edges) = cfdb_extractor::extract_workspace(workspace)?;
+
+    // RFC-041 Phase 1 / Slice 41-C dispatcher — replaces the direct
+    // `cfdb_extractor::extract_workspace` call with a producer-trait
+    // lookup. The composition root lives in `crate::lang`; this is
+    // the only call site that touches the registry. Slim builds
+    // (`--no-default-features`) hit the `[]` arm and surface
+    // `NoProducerDetected` cleanly.
+    let producers = crate::lang::available_producers();
+    let compiled_in: Vec<&'static str> = producers.iter().map(|p| p.name()).collect();
+    let matched: Vec<&dyn cfdb_lang::LanguageProducer> = producers
+        .iter()
+        .filter(|p| p.detect(workspace))
+        .map(|boxed| boxed.as_ref())
+        .collect();
+
+    let (nodes, edges) = match matched.as_slice() {
+        [] => {
+            return Err(crate::lang::NoProducerDetected {
+                workspace: workspace.display().to_string(),
+                compiled_in,
+            }
+            .into());
+        }
+        [single] => single.produce(workspace)?,
+        [first, rest @ ..] => {
+            let other_names: Vec<&'static str> = rest.iter().map(|p| p.name()).collect();
+            eprintln!(
+                "cfdb: polyglot workspace; v0.1 dispatch picks `{}` (also detected: {:?}). \
+                 A future `--lang` flag will let you override.",
+                first.name(),
+                other_names
+            );
+            first.produce(workspace)?
+        }
+    };
+
     eprintln!("extract: {} nodes, {} edges", nodes.len(), edges.len());
 
     let mut store = compose::empty_store();

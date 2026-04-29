@@ -18,7 +18,20 @@ cfdb-core = { path = "../cfdb-core" }
 cfdb-concepts = { path = "../cfdb-concepts" }
 cfdb-query = { path = "../cfdb-query" }
 cfdb-petgraph = { path = "../cfdb-petgraph" }
-cfdb-extractor = { path = "../cfdb-extractor" }
+# RFC-041 Phase 1 / Slice 41-C — `cfdb-lang` defines the
+# `LanguageProducer` trait that `crate::lang::available_producers()`
+# dispatches through. Unconditional dep — the trait is an inner-ring
+# port that every CLI build needs (the slim build still uses the
+# trait surface even when no producer is compiled in).
+cfdb-lang = { path = "../cfdb-lang" }
+# `cfdb-extractor` is the concrete Rust producer (`RustProducer` per
+# RFC-041 §3.3); `lang-rust` gates it. The `dep:` prefix is
+# load-bearing under resolver v2 — without it, the bare name in the
+# `[features]` block enables a *feature named `cfdb-extractor`* on
+# any dep that exposes one, NOT the optional dep itself, and the
+# slim build (`--no-default-features`) would still pull in
+# `cfdb-extractor`'s `syn` / `cargo_metadata` transitives.
+cfdb-extractor = { path = "../cfdb-extractor", optional = true }
 clap.workspace = true
 # `check_predicate::{PredicateRunReport, PredicateRow}` derive Serialize for
 # `--format json` output. RFC-034 §3.1 Slice 3 / #147.
@@ -47,7 +60,17 @@ cfdb-hir-extractor = { path = "../cfdb-hir-extractor", optional = true }
 cfdb-hir-petgraph-adapter = { path = "../cfdb-hir-petgraph-adapter", optional = true }
 
 [features]
-default = []
+default = ["lang-rust"]
+# RFC-041 Phase 1 / Slice 41-C — gates the Rust `LanguageProducer`
+# (`cfdb_extractor::RustProducer`). Default-on preserves backward-
+# compat for every existing consumer (`cargo install cfdb-cli`
+# behaves unchanged). Slim build (`cargo install cfdb-cli
+# --no-default-features`) drops `cfdb-extractor` and its `syn` /
+# `cargo_metadata` transitives entirely; the CLI's `extract` verb
+# returns `NoProducerDetected` cleanly at runtime in that build.
+# Future languages add `lang-php = ["dep:cfdb-extractor-php"]`,
+# `lang-typescript = ["dep:cfdb-extractor-ts"]` on the same pattern.
+lang-rust = ["dep:cfdb-extractor"]
 # Enables `cfdb extract --hir` — pulls HIR pipeline crates.
 hir = ["dep:cfdb-hir-extractor", "dep:cfdb-hir-petgraph-adapter"]
 # Enables `cfdb enrich-git-history` real implementation — pulls libgit2 via

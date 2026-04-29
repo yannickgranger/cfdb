@@ -83,11 +83,66 @@ pub enum ExtractError {
     Concepts(String),
 }
 
+// ---------------------------------------------------------------------------
+// `LanguageProducer` impl — RFC-041 Phase 1 / Slice 41-B.
+//
+// The trait surface lives in `cfdb-lang`; this crate provides the Rust
+// reference implementation. `cfdb-cli`'s `available_producers()` registry
+// (see `crates/cfdb-cli/src/lang.rs`) is the only place that names this
+// concrete type — every other consumer dispatches through
+// `&dyn cfdb_lang::LanguageProducer`.
+// ---------------------------------------------------------------------------
+
+/// Rust reference implementation of `cfdb_lang::LanguageProducer`.
+///
+/// Detects a Rust workspace by the presence of a `Cargo.toml` at the
+/// workspace root, then delegates to the legacy `extract_workspace`
+/// entry point. The `produce` impl wraps `ExtractError` into
+/// `LanguageError::Parse { producer: "rust", message: ... }` so callers
+/// who dispatch through `&dyn LanguageProducer` get a uniform error
+/// type.
+///
+/// The legacy public function `extract_workspace` is preserved verbatim
+/// (same signature, same `ExtractError` return) for backward-compat
+/// with qbot-core's `cargo install --git` consumer per RFC-041 §3.3 +
+/// EPIC #279. Its deprecation timeline is a deferred architectural
+/// decision (RFC-041 §6).
+pub struct RustProducer;
+
+impl cfdb_lang::LanguageProducer for RustProducer {
+    fn name(&self) -> &'static str {
+        "rust"
+    }
+
+    fn detect(&self, workspace_root: &Path) -> bool {
+        workspace_root.join("Cargo.toml").is_file()
+    }
+
+    fn produce(
+        &self,
+        workspace_root: &Path,
+    ) -> Result<(Vec<Node>, Vec<Edge>), cfdb_lang::LanguageError> {
+        extract_workspace(workspace_root).map_err(|e| cfdb_lang::LanguageError::Parse {
+            producer: "rust",
+            message: e.to_string(),
+        })
+    }
+}
+
 /// Extract all structural facts from a Rust workspace rooted at the given
 /// path. The path must contain a `Cargo.toml`.
 ///
 /// Returns `(nodes, edges)` in stable order: nodes sorted by `(label, id)`,
 /// edges by `(src, dst, label)`. The caller ingests both into a store.
+///
+/// # Backward-compat shim
+///
+/// This is the v0.1 entry point preserved verbatim for qbot-core's
+/// `cargo install --git` CI consumer (per EPIC #279 / RFC-041 §3.3).
+/// New code should dispatch via `&dyn cfdb_lang::LanguageProducer` —
+/// see [`RustProducer`] above. The two paths produce byte-identical
+/// fact sets; the trait method just wraps `ExtractError` into
+/// `LanguageError::Parse`.
 pub fn extract_workspace(workspace_root: &Path) -> Result<(Vec<Node>, Vec<Edge>), ExtractError> {
     let manifest = workspace_root.join("Cargo.toml");
     let metadata = MetadataCommand::new()
