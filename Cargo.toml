@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/cfdb-core",
     "crates/cfdb-concepts",
+    "crates/cfdb-lang",
     "crates/cfdb-query",
     "crates/cfdb-petgraph",
     "crates/cfdb-extractor",

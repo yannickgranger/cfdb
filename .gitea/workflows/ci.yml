@@ -142,6 +142,27 @@ jobs:
           cd repo
           cargo check -p cfdb-recall --no-default-features
 
+      - name: Check slim cfdb-cli (no language features) — RFC-041 Slice 41-C
+        run: |
+          cd repo
+          # RFC-041 Phase 1 / Slice 41-C invariant: with no `lang-*`
+          # features enabled, the CLI compiles WITHOUT pulling in
+          # `cfdb-extractor`'s `syn` / `cargo_metadata` / `ra-ap-*`
+          # transitives. The dispatcher's `available_producers()`
+          # returns an empty Vec; `cfdb extract --workspace <any>`
+          # surfaces `NoProducerDetected` cleanly at runtime.
+          # Mirrors the `cfdb-recall --no-default-features` pattern
+          # immediately above; see RFC §3.4 + §7 Slice 41-C.
+          cargo check -p cfdb-cli --no-default-features
+          # Belt-and-suspenders: prove `cfdb-extractor` is genuinely
+          # absent from the dep tree. `cargo tree` exits 0 when no
+          # match; grep -q exits 1 when no match — invert with `!`.
+          if cargo tree -p cfdb-cli --no-default-features 2>&1 | grep -q '^[│ ]*[├└]── cfdb-extractor '; then
+            echo "FAIL: cfdb-extractor leaked into the slim cfdb-cli dep tree"
+            cargo tree -p cfdb-cli --no-default-features
+            exit 1
+          fi
+
       - name: Determinism check (§12.1 G1)
         run: |
           cd repo

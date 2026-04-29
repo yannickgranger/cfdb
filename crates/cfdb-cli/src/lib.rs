@@ -17,6 +17,7 @@ mod enrich;
 mod error;
 #[cfg(feature = "hir")]
 mod hir;
+mod lang;
 mod output;
 mod param_resolver;
 mod scope;

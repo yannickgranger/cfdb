@@ -9,6 +9,13 @@ publish.workspace = true
 [dependencies]
 cfdb-core = { path = "../cfdb-core" }
 cfdb-concepts = { path = "../cfdb-concepts" }
+# RFC-041 §3.3 — `cfdb-extractor` becomes the concrete reference
+# implementation of the `LanguageProducer` trait (`pub struct
+# RustProducer`). The dep is unconditional from this crate; the
+# *consumer* `cfdb-cli` makes its dep on `cfdb-extractor` optional so
+# the slim build (`--no-default-features`) can drop the entire Rust
+# producer stack.
+cfdb-lang = { path = "../cfdb-lang" }
 syn.workspace = true
 # `span-locations` enables `proc_macro2::Span::start().line` so the
 # extractor can report real source-line numbers instead of 0 (#273 /
