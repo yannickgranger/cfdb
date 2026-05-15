@@ -11,7 +11,9 @@ fn schema_describe_covers_all_node_labels() {
     // `RfcDoc` appended per #43-A council round 1 synthesis (reservation
     // only — first emissions land in slice 43-D); `ConstTable` appended
     // per RFC-040 slice 1/5 (issue #323 reservation; first emissions land
-    // in slice 3/5, issue #325).
+    // in slice 3/5, issue #325); `Literal` appended per RFC-041 slice
+    // 041-A (issue #369 reservation; first emissions land in slice 041-B,
+    // issue #370).
     assert_eq!(
         labels,
         vec![
@@ -28,6 +30,7 @@ fn schema_describe_covers_all_node_labels() {
             "Context",
             "RfcDoc",
             "ConstTable",
+            "Literal",
         ]
     );
 }
@@ -118,6 +121,43 @@ fn schema_describe_item_deprecation_attrs_are_extractor_provenanced() {
             attr.provenance,
             Provenance::Extractor,
             "{name} is an extractor-time syntactic fact; any other provenance would mis-route the #48 classifier",
+        );
+    }
+}
+
+/// RFC-041 §3.1 (ddd lens, council 2026-05-15) — `:Literal` carries exactly
+/// `value`/`file`/`line`/`col`/`crate`/`is_test`, all `Extractor`-provenanced
+/// (the producer lands in slice 041-B, issue #370; the descriptor is reserved
+/// here with the `:ConstTable` precedent of an Extractor-tagged reservation).
+/// It MUST NOT carry a `kind` attr: that would be a three-way homonym against
+/// `:Item.kind` (declaration kind) and `:ConstTable.element_type`. Future
+/// non-string literals use `lit_syntax`, not `kind`.
+#[test]
+fn schema_describe_literal_attrs_match_rfc_041() {
+    let d = schema_describe();
+    let lit = d
+        .nodes
+        .iter()
+        .find(|n| n.label.as_str() == Label::LITERAL)
+        .expect("Literal node descriptor");
+    let mut names: Vec<&str> = lit.attributes.iter().map(|a| a.name.as_str()).collect();
+    names.sort_unstable();
+    assert_eq!(
+        names,
+        vec!["col", "crate", "file", "is_test", "line", "value"],
+        "RFC-041 §3.1 prescribes exactly these six attributes"
+    );
+    assert!(
+        !lit.attributes.iter().any(|a| a.name == "kind"),
+        "RFC-041 §3.1: :Literal MUST NOT carry a `kind` attr (three-way \
+         homonym vs :Item.kind / :ConstTable.element_type)"
+    );
+    for a in &lit.attributes {
+        assert_eq!(
+            a.provenance,
+            Provenance::Extractor,
+            "Literal attr {} is an extractor-time syntactic fact",
+            a.name,
         );
     }
 }

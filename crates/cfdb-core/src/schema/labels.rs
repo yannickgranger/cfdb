@@ -59,6 +59,20 @@ impl Label {
     /// `(:Item) -[:HAS_CONST_TABLE]-> (:ConstTable)` edge encodes parent →
     /// satellite ownership matching the established `HAS_*` family.
     pub const CONST_TABLE: &'static str = "ConstTable";
+    /// A single string literal occurring in production source
+    /// (`crates/*/src/**/*.rs`), modelled at the `:CallSite` abstraction
+    /// level (RFC-041). Carries `value` (raw inter-delimiter source bytes,
+    /// NOT `syn::LitStr::value()` — the `=~`-matches-`grep` invariant,
+    /// RFC-041 §3.1), `file`, `line`, `col`, `crate`, `is_test`. Node id is
+    /// `literal:<workspace-relative-file>:<line>:<col>` (collision-free by
+    /// Rust grammar; `:Literal` has no owning `:Item` in v0). Deliberately
+    /// NO `kind` attr — that is a three-way homonym vs `:Item.kind` and
+    /// `:ConstTable.element_type`; future non-string literals use
+    /// `lit_syntax`, not `kind` (ddd lens, council 2026-05-15). Reserved in
+    /// slice 041-A (issue #369); first emissions land in slice 041-B
+    /// (issue #370) via the `cfdb-extractor` `literal_visitor.rs` submodule.
+    /// Pre-V0_4_0 keyspaces carry zero `:Literal` nodes.
+    pub const LITERAL: &'static str = "Literal";
 
     pub fn new(s: impl Into<String>) -> Self {
         Self(s.into())
@@ -381,11 +395,34 @@ impl SchemaVersion {
         patch: 2,
     };
 
+    /// **v0.4.0 — RFC-041 slice 041-A (#369): `:Literal` fact type.**
+    /// Reserves the `:Literal` node label (one node per string literal in
+    /// production source) and its describer entry. No producer wired yet —
+    /// first emissions land in slice 041-B (issue #370) when the
+    /// `cfdb-extractor` `literal_visitor.rs` submodule walks `syn::Lit::Str`
+    /// alongside the existing `:CallSite` pass.
+    ///
+    /// **Additive and non-breaking within major 0 (G4).** A new fact type
+    /// is a capability boundary, so this is a minor bump (precedent: every
+    /// prior label-introducing epoch — V0_2_0 entry points, V0_3_0
+    /// schema-producer alignment). V0_3_2 readers loading a V0_4_0 keyspace
+    /// see no new facts (no producer until 041-B); once 041-B lands the new
+    /// `:Literal` nodes appear and V0_3_2 readers ignore the extra label.
+    ///
+    /// Paired lockstep `graph-specs-rust` cross-fixture bump per cfdb
+    /// CLAUDE.md §3 / RFC-033 §4 I5 lands in slice 041-D (issue #372) —
+    /// NOT this slice.
+    pub const V0_4_0: Self = Self {
+        major: 0,
+        minor: 4,
+        patch: 0,
+    };
+
     /// The schema version this build of cfdb-core writes and reads.
     /// Producers tag every keyspace persist with `CURRENT`. Consumers use
     /// `CURRENT.can_read(&file.schema_version)` to reject forward-
     /// incompatible graphs per G4.
-    pub const CURRENT: Self = Self::V0_3_2;
+    pub const CURRENT: Self = Self::V0_4_0;
 
     pub fn new(major: u16, minor: u16, patch: u16) -> Self {
         Self {
@@ -459,5 +496,31 @@ mod tests {
         let back: SchemaVersion =
             serde_json::from_str(&json).expect("round-trip of just-serialized SchemaVersion");
         assert_eq!(v, back);
+    }
+
+    // ---- RFC-041 slice 041-A (#369): :Literal vocabulary ------------------
+
+    #[test]
+    fn literal_label_serde_round_trip() {
+        let l = Label::new(Label::LITERAL);
+        let json = serde_json::to_string(&l).expect("Label is a transparent String newtype");
+        // #[serde(transparent)] flattens to a bare string.
+        assert_eq!(json, "\"Literal\"");
+        let back: Label = serde_json::from_str(&json).expect("round-trip of just-serialized Label");
+        assert_eq!(l, back);
+    }
+
+    #[test]
+    fn schema_version_v0_4_0_is_current_and_g4_monotonic() {
+        // RFC-041 §3.3: :Literal is purely additive ⇒ minor bump within
+        // major 0. CURRENT advances from V0_3_2 to V0_4_0.
+        assert_eq!(SchemaVersion::CURRENT, SchemaVersion::V0_4_0);
+        assert!(SchemaVersion::CURRENT > SchemaVersion::V0_3_2);
+        // Same major — additive within 0.x (G4).
+        assert_eq!(SchemaVersion::CURRENT.major, SchemaVersion::V0_3_2.major);
+        // A V0_4_0 reader can read a V0_3_2 graph (older minor, same major).
+        assert!(SchemaVersion::CURRENT.can_read(&SchemaVersion::V0_3_2));
+        // A V0_3_2 reader refuses a V0_4_0 graph (newer minor — G4 reject).
+        assert!(!SchemaVersion::V0_3_2.can_read(&SchemaVersion::CURRENT));
     }
 }

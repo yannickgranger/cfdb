@@ -40,5 +40,6 @@ fn node_descriptors() -> Vec<NodeLabelDescriptor> {
         nodes::context_node_descriptor(),
         nodes::rfc_doc_node_descriptor(),
         nodes::const_table_node_descriptor(),
+        nodes::literal_node_descriptor(),
     ]
 }
