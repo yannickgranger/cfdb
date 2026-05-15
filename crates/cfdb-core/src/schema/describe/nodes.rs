@@ -413,6 +413,47 @@ pub(super) fn const_table_node_descriptor() -> NodeLabelDescriptor {
     }
 }
 
+pub(super) fn literal_node_descriptor() -> NodeLabelDescriptor {
+    use Provenance::Extractor;
+    NodeLabelDescriptor {
+        label: Label::new(Label::LITERAL),
+        description: "A single string literal occurring in production source (`crates/*/src/**/*.rs`), modelled at the `:CallSite` abstraction level (RFC-041). Emitted by the `cfdb-extractor` `syn` walk for `syn::Lit::Str` occurrences; literals inside `#[cfg(test)]` modules / `#[test]` fns are flagged via the inherited `is_test` context (same predicate as `:Item.is_test`, never re-evaluated at the literal site). `value` is the RAW source bytes between the delimiters WITHOUT Rust escape decoding (NOT `syn::LitStr::value()`) so a Cypher `=~` matches what a developer would `grep` for in source (RFC-041 §3.1). Raw strings store inner bytes without the `r`/`#` delimiters; `cfg(feature=)` / `#[serde(default=)]` / `macro_rules!`-body literals are EXCLUDED (RFC-041 §6 — split-brain / syn-opaque). Deliberately NO `kind` attr — a three-way homonym vs `:Item.kind` and `:ConstTable.element_type`; future non-string literals use `lit_syntax` (RFC-041 §3.1, ddd lens). SchemaVersion v0.4.0+ (#369 reservation; #370 first emissions). Pre-V0_4_0 keyspaces carry zero `:Literal` nodes.".into(),
+        attributes: vec![
+            attr(
+                "col",
+                "int",
+                "1-indexed column of the literal's first delimiter.",
+                Extractor,
+            ),
+            attr("crate", "string", "Containing crate name.", Extractor),
+            attr(
+                "file",
+                "string",
+                "Source file relative to workspace root — same normalization as `:Item.file`.",
+                Extractor,
+            ),
+            attr(
+                "is_test",
+                "bool",
+                "True when the literal is inside a `#[cfg(test)]` module or `#[test]` fn. Inherited from the enclosing scope's test context via the exact same parameter-threading `:CallSite` uses (`attrs.rs` cfg/hash-test predicates + `is_in_test_mod` depth counter) — NOT a divergent reimplementation (RFC-041 §4 is_test fidelity invariant).",
+                Extractor,
+            ),
+            attr(
+                "line",
+                "int",
+                "1-indexed line of the literal's first delimiter.",
+                Extractor,
+            ),
+            attr(
+                "value",
+                "string",
+                "Raw source bytes between the delimiting quotes/pounds, WITHOUT Rust escape decoding (NOT `syn::LitStr::value()`). `\\n`/`\\t`/`\\\\` appear verbatim so a Cypher `=~ '\\\\n'` matches a source `\\n` (RFC-041 §3.1 — the `=~`-matches-`grep` invariant). Raw strings (`r#\"...\"#`) store the inner bytes without the `r`/`#` delimiters. Multiline literals store embedded newlines verbatim (documented edge — single-line-anchored `=~` dialects will not span them).",
+                Extractor,
+            ),
+        ],
+    }
+}
+
 pub(super) fn rfc_doc_node_descriptor() -> NodeLabelDescriptor {
     use Provenance::EnrichRfcDocs;
     NodeLabelDescriptor {
