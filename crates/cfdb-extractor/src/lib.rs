@@ -52,6 +52,7 @@ mod const_table;
 mod emitter;
 mod file_walker;
 mod item_visitor;
+mod literal_visitor;
 mod resolver;
 mod synthesize;
 mod type_render;
