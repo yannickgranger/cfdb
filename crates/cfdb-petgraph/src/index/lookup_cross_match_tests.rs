@@ -231,3 +231,170 @@ fn cross_match_skips_when_neither_side_is_target_var() {
     let bound = bound_from_map(&bound_map);
     assert!(candidates_from_index(&state, &np, Some(&pred), &BTreeMap::new(), &bound).is_none());
 }
+
+// --- Slice 6b: plain Property = Property cross-MATCH hint --------
+
+fn name_indexed_spec() -> IndexSpec {
+    IndexSpec {
+        entries: vec![
+            IndexEntry::Prop {
+                label: "Item".into(),
+                prop: "name".into(),
+                notes: "test — slice 6b prop-to-prop equi-join".into(),
+            },
+            IndexEntry::Prop {
+                label: "Item".into(),
+                prop: "bounded_context".into(),
+                notes: "test".into(),
+            },
+        ],
+    }
+}
+
+fn item_named(id: &str, name: &str, ctx: &str) -> Node {
+    Node::new(id, Label::new("Item"))
+        .with_prop("name", name)
+        .with_prop("bounded_context", ctx)
+}
+
+fn where_prop_eq(left_var: &str, left_prop: &str, right_var: &str, right_prop: &str) -> Predicate {
+    Predicate::Compare {
+        left: Expr::Property {
+            var: left_var.into(),
+            prop: left_prop.into(),
+        },
+        op: CompareOp::Eq,
+        right: Expr::Property {
+            var: right_var.into(),
+            prop: right_prop.into(),
+        },
+    }
+}
+
+#[test]
+fn cross_match_prop_eq_resolves_target_b_against_bound_a() {
+    let state = state_with_nodes(
+        name_indexed_spec(),
+        vec![
+            item_named("i:1", "Foo", "ctx_a"),
+            item_named("i:2", "Bar", "ctx_a"),
+            item_named("i:3", "Foo", "ctx_b"),
+            item_named("i:4", "Baz", "ctx_c"),
+        ],
+    );
+    let np = np_item("b");
+    let pred = where_prop_eq("a", "name", "b", "name");
+    let mut bound_map = BTreeMap::new();
+    bound_map.insert(("a", "name"), "Foo".to_string());
+    let bound = bound_from_map(&bound_map);
+    let got = candidates_from_index(&state, &np, Some(&pred), &BTreeMap::new(), &bound)
+        .expect("indexed prop-to-prop path");
+    assert_eq!(got.len(), 2, "i:1 and i:3 both have name=Foo");
+}
+
+#[test]
+fn cross_match_prop_eq_resolves_target_a_against_bound_b_commuted() {
+    let state = state_with_nodes(
+        name_indexed_spec(),
+        vec![
+            item_named("i:1", "Foo", "ctx_a"),
+            item_named("i:2", "Bar", "ctx_a"),
+            item_named("i:3", "Foo", "ctx_b"),
+        ],
+    );
+    let np = np_item("a");
+    let pred = where_prop_eq("a", "name", "b", "name");
+    let mut bound_map = BTreeMap::new();
+    bound_map.insert(("b", "name"), "Bar".to_string());
+    let bound = bound_from_map(&bound_map);
+    let got = candidates_from_index(&state, &np, Some(&pred), &BTreeMap::new(), &bound)
+        .expect("indexed prop-to-prop path");
+    assert_eq!(got.len(), 1, "only i:2 has name=Bar");
+}
+
+#[test]
+fn cross_match_prop_eq_falls_through_when_bound_var_unresolved() {
+    let state = state_with_nodes(name_indexed_spec(), vec![item_named("i:1", "Foo", "ctx")]);
+    let np = np_item("b");
+    let pred = where_prop_eq("a", "name", "b", "name");
+    let empty_map: BTreeMap<(&'static str, &'static str), IndexValue> = BTreeMap::new();
+    let bound = bound_from_map(&empty_map);
+    assert!(
+        candidates_from_index(&state, &np, Some(&pred), &BTreeMap::new(), &bound).is_none(),
+        "unresolved bound var must skip the cross-ref hint; no other hint → None"
+    );
+}
+
+#[test]
+fn cross_match_prop_eq_skips_when_prop_not_indexed() {
+    let spec_no_name = IndexSpec {
+        entries: vec![IndexEntry::Prop {
+            label: "Item".into(),
+            prop: "bounded_context".into(),
+            notes: "test".into(),
+        }],
+    };
+    let state = state_with_nodes(spec_no_name, vec![item_named("i:1", "Foo", "ctx")]);
+    let np = np_item("b");
+    let pred = where_prop_eq("a", "name", "b", "name");
+    let mut bound_map = BTreeMap::new();
+    bound_map.insert(("a", "name"), "Foo".to_string());
+    let bound = bound_from_map(&bound_map);
+    assert!(
+        candidates_from_index(&state, &np, Some(&pred), &BTreeMap::new(), &bound).is_none(),
+        "prop-to-prop hint must be rejected when (label, prop) isn't indexed"
+    );
+}
+
+#[test]
+fn cross_match_prop_eq_skips_when_props_differ() {
+    // `a.name = b.crate` — different props on the two sides cannot
+    // hash on one posting list even if both are individually indexed.
+    let spec_both = IndexSpec {
+        entries: vec![
+            IndexEntry::Prop {
+                label: "Item".into(),
+                prop: "name".into(),
+                notes: "test".into(),
+            },
+            IndexEntry::Prop {
+                label: "Item".into(),
+                prop: "crate".into(),
+                notes: "test".into(),
+            },
+        ],
+    };
+    let state = state_with_nodes(spec_both, vec![item_named("i:1", "Foo", "ctx")]);
+    let np = np_item("b");
+    let pred = where_prop_eq("a", "name", "b", "crate");
+    let mut bound_map = BTreeMap::new();
+    bound_map.insert(("a", "name"), "Foo".to_string());
+    let bound = bound_from_map(&bound_map);
+    assert!(
+        candidates_from_index(&state, &np, Some(&pred), &BTreeMap::new(), &bound).is_none(),
+        "different-prop equi-join must not produce a single-bucket hint"
+    );
+}
+
+#[test]
+fn cross_match_prop_eq_skips_when_both_sides_are_target_var() {
+    let state = state_with_nodes(name_indexed_spec(), vec![item_named("i:1", "Foo", "ctx")]);
+    let np = np_item("b");
+    let pred = where_prop_eq("b", "name", "b", "name");
+    let mut bound_map = BTreeMap::new();
+    bound_map.insert(("b", "name"), "Foo".to_string());
+    let bound = bound_from_map(&bound_map);
+    assert!(candidates_from_index(&state, &np, Some(&pred), &BTreeMap::new(), &bound).is_none());
+}
+
+#[test]
+fn cross_match_prop_eq_skips_when_neither_side_is_target_var() {
+    let state = state_with_nodes(name_indexed_spec(), vec![item_named("i:1", "Foo", "ctx")]);
+    let np = np_item("b");
+    let pred = where_prop_eq("a", "name", "c", "name");
+    let mut bound_map = BTreeMap::new();
+    bound_map.insert(("a", "name"), "Foo".to_string());
+    bound_map.insert(("c", "name"), "Foo".to_string());
+    let bound = bound_from_map(&bound_map);
+    assert!(candidates_from_index(&state, &np, Some(&pred), &BTreeMap::new(), &bound).is_none());
+}

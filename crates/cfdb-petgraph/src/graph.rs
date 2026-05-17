@@ -15,7 +15,7 @@ use indexmap::IndexMap;
 use petgraph::stable_graph::{NodeIndex, StableDiGraph};
 
 use crate::index::build::{entry_value_for_node, IndexTag, IndexValue};
-use crate::index::spec::IndexSpec;
+use crate::index::spec::{IndexEntry, IndexSpec};
 
 /// In-memory state for a single keyspace.
 ///
@@ -68,6 +68,16 @@ pub(crate) struct KeyspaceState {
     /// the G1 determinism invariant (RFC-035 §4). `canonical_dump.rs`
     /// does not touch this field.
     pub(crate) by_prop: BTreeMap<(Label, IndexTag), BTreeMap<IndexValue, BTreeSet<NodeIndex>>>,
+
+    /// Precomputed `Label.as_str() → {tag, …}` membership map derived
+    /// from `index_spec.entries` at construction. Lets the fast-path
+    /// hint walker (`index::lookup`) replace a per-row linear scan
+    /// over `entries` with a two-step `BTreeMap`/`BTreeSet` lookup
+    /// where both keys borrow `&str` (so no per-call allocation).
+    /// Kept in sync with `index_spec` because all construction routes
+    /// through [`Self::new_with_spec`] and `index_spec` is otherwise
+    /// not mutated post-construction.
+    pub(crate) indexed_pairs: BTreeMap<String, BTreeSet<IndexTag>>,
 }
 
 impl KeyspaceState {
@@ -81,6 +91,7 @@ impl KeyspaceState {
     /// populate [`Self::by_prop`] per RFC-035 §3.5. An empty spec is
     /// equivalent to [`Self::new`] — no index maintenance happens.
     pub(crate) fn new_with_spec(spec: IndexSpec) -> Self {
+        let indexed_pairs = indexed_pairs_for(&spec);
         Self {
             graph: StableDiGraph::new(),
             id_to_idx: IndexMap::new(),
@@ -89,6 +100,7 @@ impl KeyspaceState {
             ingest_warnings: Vec::new(),
             index_spec: spec,
             by_prop: BTreeMap::new(),
+            indexed_pairs,
         }
     }
 
@@ -253,6 +265,26 @@ impl KeyspaceState {
     pub(crate) fn has_edge_label(&self, label: &EdgeLabel) -> bool {
         self.edge_labels.contains(label)
     }
+}
+
+/// Project an [`IndexSpec`] to the `label → {tag, …}` membership map
+/// consumed by `index::lookup`. Built once at construction time so
+/// the per-row hint walker can replace its linear scan over `entries`
+/// with a two-step `BTreeMap`/`BTreeSet` lookup. Keys are owned
+/// `String` (label) and `IndexTag` (already `String`) to let the
+/// lookup borrow `&str` on the query side.
+fn indexed_pairs_for(spec: &IndexSpec) -> BTreeMap<String, BTreeSet<IndexTag>> {
+    let mut out: BTreeMap<String, BTreeSet<IndexTag>> = BTreeMap::new();
+    for entry in &spec.entries {
+        let (label, tag) = match entry {
+            IndexEntry::Prop { label, prop, .. } => (label.clone(), prop.clone()),
+            IndexEntry::Computed {
+                label, computed, ..
+            } => (label.clone(), computed.as_str().to_string()),
+        };
+        out.entry(label).or_default().insert(tag);
+    }
+    out
 }
 
 #[cfg(test)]
