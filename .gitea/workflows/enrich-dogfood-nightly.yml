@@ -110,9 +110,13 @@ jobs:
           mkdir -p .cfdb/db
           # Note: `--features hir` enables the rust-analyzer-backed
           # extractor, which writes `:EntryPoint` nodes + resolved
-          # `CALLS` edges that the reachability pass relies on.
+          # `CALLS` edges that the reachability pass relies on. The
+          # runtime `--hir` flag is required to actually invoke that
+          # pipeline — without it the extract is syn-only and the
+          # reachability + edge-liveness signals that follow are
+          # blind to HIR-resolved facts (issue #381).
           ./target/release/cfdb extract \
-            --workspace . --db .cfdb/db --keyspace cfdb-self
+            --workspace . --db .cfdb/db --keyspace cfdb-self --hir
 
       - name: Run feature-gated enrich passes
         run: |
