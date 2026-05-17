@@ -36,7 +36,11 @@
 //! (as the unit test below does) — useful for exercising the store's
 //! ingestion path without requiring a loaded `HirDatabase`.
 
-use cfdb_core::fact::{Edge, Node};
+use std::collections::{BTreeMap, BTreeSet};
+
+use cfdb_core::fact::{Edge, Node, PropValue};
+use cfdb_core::qname::{item_node_id, last_segment, qname_from_node_id};
+use cfdb_core::query::item_kind::ItemKind;
 use cfdb_core::schema::{EdgeLabel, Keyspace, Label};
 use cfdb_core::store::{StoreBackend, StoreError};
 use cfdb_hir_extractor::emit::{CallSiteEmitter, EmitStats};
@@ -67,7 +71,7 @@ impl CallSiteEmitter for PetgraphAdapter<'_> {
 
     fn ingest_resolved_call_sites(
         &mut self,
-        nodes: Vec<Node>,
+        mut nodes: Vec<Node>,
         edges: Vec<Edge>,
     ) -> Result<EmitStats, Self::Err> {
         let call_sites_emitted = nodes
@@ -91,6 +95,19 @@ impl CallSiteEmitter for PetgraphAdapter<'_> {
             .filter(|e| e.label.as_str() == EdgeLabel::EXPOSES)
             .count();
 
+        // Issue #388 — synthesize stub `:Item` nodes for CALLS dsts
+        // that don't yet have one. Without this, every HIR-resolved
+        // call to a foreign-crate callee (`std::vec::Vec::push`,
+        // `serde::Serialize::serialize`, …) is silently dropped by
+        // `cfdb_petgraph::graph::ingest_one_edge` ("unknown dst id ⇒
+        // skip"), collapsing call-graph recall by ~99.5% on cfdb-self
+        // observed at run 524. Symmetric to
+        // `cfdb-extractor::synthesize::synthesize_referenced_items`
+        // which handles the IMPLEMENTS/IMPLEMENTS_FOR/RETURNS/TYPE_OF
+        // family on the syn side; this is the parallel for CALLS on
+        // the HIR side.
+        synthesize_callee_stubs(&edges, &mut nodes, self.store, &self.keyspace);
+
         self.store.ingest_nodes(&self.keyspace, nodes)?;
         self.store.ingest_edges(&self.keyspace, edges)?;
 
@@ -101,6 +118,98 @@ impl CallSiteEmitter for PetgraphAdapter<'_> {
             entry_points_emitted,
             exposes_edges_emitted,
         })
+    }
+}
+
+/// Append a minimal stub `:Item` node to `nodes` for every CALLS
+/// edge dst id that is NOT already covered by either:
+///
+/// 1. A `:Item` node in the to-be-ingested `nodes` vec (rare for
+///    this adapter — HIR emits :CallSite + :EntryPoint, not :Item —
+///    but the check is cheap and future-proofs against new HIR-side
+///    :Item emissions).
+/// 2. An existing `:Item` in the store from a prior syn-side ingest
+///    (`PetgraphStore::has_node`, issue #388).
+///
+/// The stub carries only identity props (`qname`, `name`, `kind`,
+/// `crate`, `bounded_context`). Body-shaped props (`file`, `line`,
+/// `visibility`, `signature`, …) are deliberately omitted — their
+/// absence is the discriminator between "walked from source" and
+/// "referenced only" (RFC-039 withdrawal rationale; same convention
+/// used by `cfdb-extractor::synthesize::synthesize_referenced_items`).
+///
+/// `bounded_context` defaults to the crate name (first `::` segment
+/// of the qname). For HIR-resolved foreign callees this matches the
+/// `cfdb_concepts::compute_bounded_context` heuristic with empty
+/// overrides — the same value the syn-side synthesizer would write
+/// for a foreign reference. For an in-workspace callee that somehow
+/// missed syn extraction (conditional compilation, ...) the value
+/// may diverge from the workspace's override-configured context;
+/// acceptable degradation since this path should be rare.
+fn synthesize_callee_stubs(
+    edges: &[Edge],
+    nodes: &mut Vec<Node>,
+    store: &PetgraphStore,
+    keyspace: &Keyspace,
+) {
+    // Collect distinct CALLS dst ids needing synthesis. BTreeSet for
+    // deterministic stub order — appending to `nodes` in sorted-id
+    // order keeps the post-ingest by_label posting list stable
+    // across runs (G1 invariant).
+    let pending_ids: BTreeSet<&str> = nodes
+        .iter()
+        .filter(|n| n.label.as_str() == Label::ITEM)
+        .map(|n| n.id.as_str())
+        .collect();
+    let mut missing: BTreeSet<&str> = BTreeSet::new();
+    for edge in edges {
+        if edge.label.as_str() != EdgeLabel::CALLS {
+            continue;
+        }
+        let dst = edge.dst.as_str();
+        if pending_ids.contains(dst) {
+            continue;
+        }
+        if store.has_node(keyspace, dst) {
+            continue;
+        }
+        missing.insert(dst);
+    }
+    for dst_id in missing {
+        nodes.push(build_callee_stub(dst_id));
+    }
+}
+
+/// Build a stub `:Item` node from a node id of the form
+/// `item:<qname>`. Mirrors the prop shape produced by
+/// `cfdb-extractor::synthesize::synthesize_referenced_items` for
+/// the IMPLEMENTS/RETURNS/TYPE_OF family, with `kind = "fn"`
+/// (the most general callable value in `ItemKind`).
+fn build_callee_stub(node_id: &str) -> Node {
+    let qname = qname_from_node_id(node_id);
+    let name = last_segment(qname).to_string();
+    let crate_name = qname
+        .split_once("::")
+        .map(|(c, _)| c.to_string())
+        .unwrap_or_else(|| qname.to_string());
+
+    let mut props: BTreeMap<String, PropValue> = BTreeMap::new();
+    props.insert("qname".to_string(), PropValue::Str(qname.to_string()));
+    props.insert("name".to_string(), PropValue::Str(name));
+    props.insert(
+        "kind".to_string(),
+        PropValue::Str(ItemKind::Fn.to_extractor_str().to_string()),
+    );
+    props.insert(
+        "bounded_context".to_string(),
+        PropValue::Str(crate_name.clone()),
+    );
+    props.insert("crate".to_string(), PropValue::Str(crate_name));
+
+    Node {
+        id: item_node_id(qname),
+        label: Label::new(Label::ITEM),
+        props,
     }
 }
 
@@ -188,6 +297,138 @@ mod tests {
             .expect("empty ingest succeeds");
 
         assert_eq!(stats, EmitStats::default());
+    }
+
+    /// Build an `:Item` node fixture so a test can pre-populate the
+    /// store with a "syn-side already wrote this item" baseline.
+    fn item_node(qname: &str, crate_name: &str) -> Node {
+        let mut props = BTreeMap::new();
+        props.insert("qname".into(), PropValue::Str(qname.to_string()));
+        props.insert(
+            "name".into(),
+            PropValue::Str(last_segment(qname).to_string()),
+        );
+        props.insert("kind".into(), PropValue::Str("fn".to_string()));
+        props.insert("crate".into(), PropValue::Str(crate_name.to_string()));
+        props.insert(
+            "bounded_context".into(),
+            PropValue::Str(crate_name.to_string()),
+        );
+        // body-shaped prop — used by the test to prove the stub
+        // synthesizer didn't clobber a pre-existing :Item.
+        props.insert("file".into(), PropValue::Str("src/lib.rs".to_string()));
+        Node {
+            id: item_node_id(qname),
+            label: Label::new(Label::ITEM),
+            props,
+        }
+    }
+
+    /// Issue #388 — CALLS edge whose dst has no `:Item` triggers
+    /// stub synthesis. The stub carries identity props (qname, name,
+    /// kind=fn, crate, bounded_context) so the edge survives ingest.
+    #[test]
+    fn ingest_synthesizes_stub_item_for_unknown_calls_dst() {
+        let mut store = PetgraphStore::new();
+        // Pre-populate the caller `:Item` (would normally come from
+        // the syn-side walk). The stub-synthesis test focuses on
+        // the dst side; src-side recovery would be a separate
+        // concern.
+        store
+            .ingest_nodes(&keyspace(), vec![item_node("a::foo", "a")])
+            .expect("syn-side caller ingest succeeds");
+
+        let mut adapter = PetgraphAdapter::new(&mut store, keyspace());
+
+        // The CallSite's caller_qname references a foreign callee
+        // that has no :Item in the store yet.
+        let nodes = vec![hir_call_site(
+            "callsite:a::foo:std::vec::Vec::push:0",
+            "a::foo",
+            "std::vec::Vec::push",
+        )];
+        let edges = vec![
+            edge("item:a::foo", "item:std::vec::Vec::push", EdgeLabel::CALLS),
+            edge(
+                "item:a::foo",
+                "callsite:a::foo:std::vec::Vec::push:0",
+                EdgeLabel::INVOKES_AT,
+            ),
+        ];
+
+        adapter
+            .ingest_resolved_call_sites(nodes, edges)
+            .expect("ingest with stub synthesis succeeds");
+
+        // The stub must exist in the store under the synthesized id.
+        assert!(
+            store.has_node(&keyspace(), "item:std::vec::Vec::push"),
+            "stub :Item for foreign callee `std::vec::Vec::push` must be \
+             synthesized so the CALLS edge survives ingest (#388)",
+        );
+
+        // The CALLS edge must now be present (would have been
+        // dropped without the stub).
+        let (_, edges_in_store) = store.export(&keyspace()).expect("export");
+        let calls_landed = edges_in_store
+            .iter()
+            .any(|e| e.label.as_str() == EdgeLabel::CALLS && e.dst == "item:std::vec::Vec::push");
+        assert!(
+            calls_landed,
+            "CALLS edge to synthesized stub must survive ingest"
+        );
+    }
+
+    /// Issue #388 — when the CALLS dst :Item is ALREADY in the
+    /// store (from a prior syn-side ingest), the synthesizer must
+    /// NOT clobber it. Verify by reading back the pre-existing
+    /// body-shaped `file` prop after the HIR ingest.
+    #[test]
+    fn ingest_does_not_clobber_existing_calls_dst_item() {
+        let mut store = PetgraphStore::new();
+        // Pre-populate the store with an :Item that has a
+        // body-shaped `file` prop. Simulates the syn-side walk
+        // having already emitted this fn's full :Item.
+        store
+            .ingest_nodes(&keyspace(), vec![item_node("a::callee", "a")])
+            .expect("syn-side ingest succeeds");
+
+        let mut adapter = PetgraphAdapter::new(&mut store, keyspace());
+
+        // HIR side now ingests a CALLS edge whose dst is the
+        // existing :Item. No stub should be synthesized.
+        let nodes = vec![hir_call_site(
+            "callsite:a::caller:a::callee:0",
+            "a::caller",
+            "a::callee",
+        )];
+        let edges = vec![
+            edge("item:a::caller", "item:a::callee", EdgeLabel::CALLS),
+            edge(
+                "item:a::caller",
+                "callsite:a::caller:a::callee:0",
+                EdgeLabel::INVOKES_AT,
+            ),
+        ];
+
+        adapter
+            .ingest_resolved_call_sites(nodes, edges)
+            .expect("ingest with pre-existing dst succeeds");
+
+        // Read back the :Item and assert the body-shaped `file`
+        // prop is intact — the stub synthesizer must NOT have
+        // re-emitted a body-less stub that clobbered it.
+        let (nodes_after, _) = store.export(&keyspace()).expect("export");
+        let callee = nodes_after
+            .iter()
+            .find(|n| n.id == "item:a::callee")
+            .expect("pre-existing :Item still present");
+        assert_eq!(
+            callee.props.get("file").and_then(PropValue::as_str),
+            Some("src/lib.rs"),
+            "pre-existing :Item's body-shaped `file` prop must NOT be \
+             clobbered by stub synthesis (#388 idempotency invariant)",
+        );
     }
 
     #[test]
