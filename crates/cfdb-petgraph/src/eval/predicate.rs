@@ -384,31 +384,36 @@ fn parse_entries_normalized(s: &str) -> NormalizedEntries {
     // matched as i64 because the extractor emits decimal-stringified
     // integers per RFC-040 §3.4; non-integral floats are not in the
     // wire-shape vocabulary and collapse to MixedOrInvalid.
-    match &items[0] {
-        serde_json::Value::String(_) => {
-            let mut set = std::collections::BTreeSet::new();
-            for v in &items {
-                let serde_json::Value::String(s) = v else {
-                    return NormalizedEntries::MixedOrInvalid;
-                };
-                set.insert(s.clone());
-            }
-            NormalizedEntries::Strs(set)
+    //
+    // Decide kind via a snapshot of the first element (borrow ends at
+    // the matches!), then consume `items` by-value in each branch — the
+    // owned String / Number variants move into the result set with no
+    // clone, dropping the loop-clone flagged by quality-metrics.
+    let first_is_string = matches!(&items[0], serde_json::Value::String(_));
+    let first_is_number = matches!(&items[0], serde_json::Value::Number(_));
+    if first_is_string {
+        let mut set = std::collections::BTreeSet::new();
+        for v in items {
+            let serde_json::Value::String(s) = v else {
+                return NormalizedEntries::MixedOrInvalid;
+            };
+            set.insert(s);
         }
-        serde_json::Value::Number(_) => {
-            let mut set = std::collections::BTreeSet::new();
-            for v in &items {
-                let serde_json::Value::Number(n) = v else {
-                    return NormalizedEntries::MixedOrInvalid;
-                };
-                let Some(i) = n.as_i64() else {
-                    return NormalizedEntries::MixedOrInvalid;
-                };
-                set.insert(i);
-            }
-            NormalizedEntries::Ints(set)
+        NormalizedEntries::Strs(set)
+    } else if first_is_number {
+        let mut set = std::collections::BTreeSet::new();
+        for v in items {
+            let serde_json::Value::Number(n) = v else {
+                return NormalizedEntries::MixedOrInvalid;
+            };
+            let Some(i) = n.as_i64() else {
+                return NormalizedEntries::MixedOrInvalid;
+            };
+            set.insert(i);
         }
-        _ => NormalizedEntries::MixedOrInvalid,
+        NormalizedEntries::Ints(set)
+    } else {
+        NormalizedEntries::MixedOrInvalid
     }
 }
 

@@ -53,7 +53,7 @@ use ra_ap_hir::{
 use ra_ap_hir_ty::attach_db;
 use ra_ap_ide_db::line_index::LineIndex;
 use ra_ap_syntax::ast::{self, AstNode};
-use ra_ap_syntax::{SyntaxNode, TextSize};
+use ra_ap_syntax::{SyntaxKind, SyntaxNode, TextSize};
 use ra_ap_vfs::{Vfs, VfsPath};
 
 use crate::error::HirError;
@@ -182,51 +182,67 @@ fn walk_file<DB>(
 ) where
     DB: HirDatabase + Sized,
 {
+    // Dispatch on `SyntaxKind` so only the matching branch casts —
+    // `AstNode::cast` moves by value, and an `if let / else if` chain
+    // on `cast(descendant.clone())` flagged as a clone-in-loop in
+    // quality-metrics. Matching on kind first lets each branch consume
+    // `descendant` directly. Same pattern as `entry_point_emitter::scan_file`.
     for descendant in source_file.syntax().descendants() {
-        if let Some(method_call) = ast::MethodCallExpr::cast(descendant.clone()) {
-            if let Some(callee_fn) = sema.resolve_method_call(&method_call) {
-                // Source-line where the method-call expression starts.
-                // The `LineIndex::line_col` API returns a 0-indexed line;
-                // we store 1-indexed lines in the wire vocabulary (matching
-                // the syn extractor's `proc_macro2::Span::start().line`
-                // convention — see #291 / F-005). The receiver-token start
-                // mirrors syn's choice of `node.method.span().start().line`
-                // for consistency across resolvers when `foo\n .bar()`
-                // straddles two lines.
-                let offset: TextSize = method_call.syntax().text_range().start();
-                let line = line_index.line_col(offset).line as usize + 1;
-                emit_resolved_call(
-                    sema,
-                    method_call.syntax(),
-                    callee_fn,
-                    "method",
-                    file_path,
-                    line,
-                    counts,
-                    nodes,
-                    edges,
-                );
+        match descendant.kind() {
+            SyntaxKind::METHOD_CALL_EXPR => {
+                if let Some(method_call) = ast::MethodCallExpr::cast(descendant) {
+                    if let Some(callee_fn) = sema.resolve_method_call(&method_call) {
+                        // Source-line where the method-call expression
+                        // starts. The `LineIndex::line_col` API returns
+                        // a 0-indexed line; we store 1-indexed lines in
+                        // the wire vocabulary (matching the syn
+                        // extractor's `proc_macro2::Span::start().line`
+                        // convention — see #291 / F-005). The
+                        // receiver-token start mirrors syn's choice of
+                        // `node.method.span().start().line` for
+                        // consistency across resolvers when
+                        // `foo\n .bar()` straddles two lines.
+                        let offset: TextSize = method_call.syntax().text_range().start();
+                        let line = line_index.line_col(offset).line as usize + 1;
+                        emit_resolved_call(
+                            sema,
+                            method_call.syntax(),
+                            callee_fn,
+                            "method",
+                            file_path,
+                            line,
+                            counts,
+                            nodes,
+                            edges,
+                        );
+                    }
+                }
             }
-        } else if let Some(call_expr) = ast::CallExpr::cast(descendant) {
-            if let Some(callee_fn) = resolve_path_call(sema, &call_expr) {
-                // Same 1-indexed line convention as the method-call
-                // arm; offset is the start of the CallExpr (which
-                // covers `Foo::bar(args)` from the first segment of
-                // the path through the closing paren).
-                let offset: TextSize = call_expr.syntax().text_range().start();
-                let line = line_index.line_col(offset).line as usize + 1;
-                emit_resolved_call(
-                    sema,
-                    call_expr.syntax(),
-                    callee_fn,
-                    "fn",
-                    file_path,
-                    line,
-                    counts,
-                    nodes,
-                    edges,
-                );
+            SyntaxKind::CALL_EXPR => {
+                if let Some(call_expr) = ast::CallExpr::cast(descendant) {
+                    if let Some(callee_fn) = resolve_path_call(sema, &call_expr) {
+                        // Same 1-indexed line convention as the
+                        // method-call arm; offset is the start of the
+                        // CallExpr (which covers `Foo::bar(args)` from
+                        // the first segment of the path through the
+                        // closing paren).
+                        let offset: TextSize = call_expr.syntax().text_range().start();
+                        let line = line_index.line_col(offset).line as usize + 1;
+                        emit_resolved_call(
+                            sema,
+                            call_expr.syntax(),
+                            callee_fn,
+                            "fn",
+                            file_path,
+                            line,
+                            counts,
+                            nodes,
+                            edges,
+                        );
+                    }
+                }
             }
+            _ => {}
         }
     }
 }

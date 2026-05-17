@@ -174,50 +174,7 @@ fn scan_file<DB>(
             }
             SyntaxKind::FN => {
                 if let Some(fn_ast) = ast::Fn::cast(descendant) {
-                    // Precedence per RFC-042 §3.1 "Mutual exclusion /
-                    // precedence":
-                    //   1. `#[tool]` wins (MCP first, even inside tests/).
-                    //   2. Attribute-based test/bench wins over file-location.
-                    //   3. File-location fallback (tests/ → test, benches/ →
-                    //      bench) catches helper fns in test/bench targets.
-                    // All branches are mutually exclusive — exactly one
-                    // :EntryPoint per fn (no-duplicate invariant, §4).
-                    if has_tool_attr(&fn_ast) {
-                        if let Some((name, qname)) = fn_name_and_qname(sema, &fn_ast) {
-                            emit(nodes, edges, &qname, &name, "mcp_tool", file_path, None);
-                            // REGISTERS_PARAM for MCP `#[tool]` fns
-                            // (#219 / RFC-037 §3.1 MCP row — HIR-owned).
-                            // `ast::Fn` covers free fns AND impl methods;
-                            // kept HIR-side because :EntryPoint is emitted
-                            // here; syn-side emission would dangle src and
-                            // be dropped by cfdb-petgraph's ingest.
-                            emit_mcp_registers_param(&qname, &fn_ast, edges);
-                        }
-                    } else if has_test_attr(&fn_ast) {
-                        // RFC-042 §3.1 — attribute-based test detection.
-                        // No REGISTERS_PARAM; test fns are caller-graph
-                        // roots, not param-emitting surfaces.
-                        if let Some((name, qname)) = fn_name_and_qname(sema, &fn_ast) {
-                            emit(nodes, edges, &qname, &name, "test", file_path, None);
-                        }
-                    } else if has_bench_attr(&fn_ast) {
-                        // RFC-042 §3.1 — attribute-based bench detection.
-                        if let Some((name, qname)) = fn_name_and_qname(sema, &fn_ast) {
-                            emit(nodes, edges, &qname, &name, "bench", file_path, None);
-                        }
-                    } else if is_under_tests_dir(file_path) {
-                        // RFC-042 §3.1 — file-location fallback: any fn in
-                        // a `tests/` directory is reachable from the test
-                        // runner via the integration-test binary.
-                        if let Some((name, qname)) = fn_name_and_qname(sema, &fn_ast) {
-                            emit(nodes, edges, &qname, &name, "test", file_path, None);
-                        }
-                    } else if is_under_benches_dir(file_path) {
-                        // RFC-042 §3.1 — file-location fallback for benches.
-                        if let Some((name, qname)) = fn_name_and_qname(sema, &fn_ast) {
-                            emit(nodes, edges, &qname, &name, "bench", file_path, None);
-                        }
-                    }
+                    classify_fn_entry_point(sema, &fn_ast, file_path, nodes, edges);
                 }
             }
             SyntaxKind::CALL_EXPR => {
@@ -239,6 +196,65 @@ fn scan_file<DB>(
             }
             _ => {}
         }
+    }
+}
+
+/// Dispatch a single `ast::Fn` to its entry-point classification per
+/// RFC-042 §3.1 precedence:
+///
+///   1. `#[tool]` wins (MCP first, even inside `tests/`) — emits
+///      `kind=mcp_tool` AND REGISTERS_PARAM edges.
+///   2. Attribute-based test/bench wins over file-location.
+///   3. File-location fallback (`tests/` → test, `benches/` → bench)
+///      catches helper fns in test/bench targets without their own
+///      attribute.
+///
+/// All branches are mutually exclusive — exactly one `:EntryPoint`
+/// per fn (no-duplicate invariant, RFC-042 §4). Extracted from
+/// `scan_file`'s FN dispatch to keep the outer match arm within the
+/// complexity budget.
+fn classify_fn_entry_point<DB>(
+    sema: &Semantics<'_, DB>,
+    fn_ast: &ast::Fn,
+    file_path: &Path,
+    nodes: &mut Vec<Node>,
+    edges: &mut Vec<Edge>,
+) where
+    DB: HirDatabase + Sized,
+{
+    if has_tool_attr(fn_ast) {
+        if let Some((name, qname)) = fn_name_and_qname(sema, fn_ast) {
+            emit(nodes, edges, &qname, &name, "mcp_tool", file_path, None);
+            // REGISTERS_PARAM for MCP `#[tool]` fns (#219 / RFC-037
+            // §3.1 MCP row — HIR-owned). `ast::Fn` covers free fns AND
+            // impl methods; kept HIR-side because :EntryPoint is
+            // emitted here; syn-side emission would dangle src and be
+            // dropped by cfdb-petgraph's ingest.
+            emit_mcp_registers_param(&qname, fn_ast, edges);
+        }
+        return;
+    }
+    if let Some(kind) = test_bench_kind(fn_ast, file_path) {
+        if let Some((name, qname)) = fn_name_and_qname(sema, fn_ast) {
+            emit(nodes, edges, &qname, &name, kind, file_path, None);
+        }
+    }
+}
+
+/// Classify a non-`#[tool]` fn as `test` / `bench` / `None` per the
+/// RFC-042 §3.1 precedence below `#[tool]`: attribute first, then
+/// file-location.
+fn test_bench_kind(fn_ast: &ast::Fn, file_path: &Path) -> Option<&'static str> {
+    if has_test_attr(fn_ast) {
+        Some("test")
+    } else if has_bench_attr(fn_ast) {
+        Some("bench")
+    } else if is_under_tests_dir(file_path) {
+        Some("test")
+    } else if is_under_benches_dir(file_path) {
+        Some("bench")
+    } else {
+        None
     }
 }
 
