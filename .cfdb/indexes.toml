@@ -26,3 +26,8 @@ notes = "Scope-verb filter predicate (#169 / RFC-035 §3.6 fast path 2); low-car
 label = "Item"
 computed = "last_segment(qname)"
 notes = "Homonym-pair join key for context_homonym classifier rule (#48 class 2 / RFC-035 §3.6 cross-MATCH)."
+
+[[index]]
+label = "Item"
+prop = "name"
+notes = "Hash-join bucket for the slice-6b prop-to-prop equi-join — DuplicatedFeature joins on `a.name = b.name`. Without this entry the rule is O(n²) over `:Item` at scope time."

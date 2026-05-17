@@ -42,10 +42,18 @@ fn loads_cfdb_own_indexes_toml() {
         panic!("cfdb's own .cfdb/indexes.toml failed to parse: {e}");
     });
 
-    assert_eq!(
-        spec.entries.len(),
-        3,
-        "RFC-035 §3.2 prescribes three entries (qname, bounded_context, last_segment(qname))"
+    // RFC-035 §3.2 originally prescribed three entries (qname,
+    // bounded_context, last_segment(qname)); the slice-6b
+    // prop-to-prop fast path needs `Item.name` as well so
+    // `DuplicatedFeature` (and any future `a.<prop> = b.<prop>`
+    // rule) can hash-join instead of cartesian. Asserting `>= 4`
+    // — not `== 4` — keeps the test forward-compatible with any
+    // further index entries added for the same RFC.
+    assert!(
+        spec.entries.len() >= 4,
+        "RFC-035 §3.2 prescribes at least four entries \
+         (qname, bounded_context, name, last_segment(qname)); got {}",
+        spec.entries.len()
     );
 
     let kinds: Vec<&IndexEntry> = spec.entries.iter().collect();
@@ -63,6 +71,10 @@ fn loads_cfdb_own_indexes_toml() {
     assert!(
         prop_keys.contains(&"bounded_context"),
         "expected an Item.bounded_context index entry (RFC-035 §3.2 / #169)"
+    );
+    assert!(
+        prop_keys.contains(&"name"),
+        "expected an Item.name index entry (slice-6b prop-eq fast path / DuplicatedFeature)"
     );
 
     let computed_keys: Vec<ComputedKey> = kinds

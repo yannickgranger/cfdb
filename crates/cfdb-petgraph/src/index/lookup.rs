@@ -190,6 +190,24 @@ fn collect_where_hints<F>(
                     out.push((tag, value));
                 }
             }
+            // Slice 6b: a.prop = b.prop — plain property-to-property
+            // equi-join (e.g. `a.name = b.name`). Same composition
+            // shape as the slice-6 computed-key path but without a
+            // UDF: bucket the target by the bound side's raw prop
+            // value. Soundness: the bucket key is the exact value
+            // the WHERE clause already requires, so the
+            // post-narrowing predicate filter is still applied and
+            // no row that would have passed is dropped. Activates
+            // only when the `(label, prop)` pair is in the spec —
+            // narrowing without an index falls back to the label
+            // scan, same as slice 5.
+            if let Some((tag, value)) =
+                resolve_cross_ref_prop_hint(target_var, left, right, bound_var_prop)
+            {
+                if is_indexed_prop(spec, label, &tag) {
+                    out.push((tag, value));
+                }
+            }
         }
         // Non-Eq Compare, IN, Regex, NotExists, Ne, Or, Not — no
         // hint, and Or/Not in particular we explicitly do not
@@ -311,6 +329,55 @@ where
     let bound_value = bound_var_prop(bound_var, l_prop)?;
     let bucket = computed_key.evaluate(&bound_value).to_string();
     Some((computed_key.as_str().to_string(), bucket))
+}
+
+/// Recognise `Property{x, p} = Property{y, p}` in either order
+/// where exactly one of `{x, y}` is `target_var` and the other is
+/// resolvable through `bound_var_prop`. Emits a hint
+/// `(prop_name, bound_value)` — the bucket key is the bound side's
+/// raw value, so the target's posting list is narrowed to items
+/// that already satisfy the equi-join conjunct.
+///
+/// Returns `None` when the shape doesn't match, the two sides
+/// reference different props (`a.name = b.crate` is not a join we
+/// can hash on a single posting list), both sides reference the
+/// target, neither side references the target, or the bound side
+/// doesn't resolve.
+fn resolve_cross_ref_prop_hint<F>(
+    target_var: &str,
+    left: &Expr,
+    right: &Expr,
+    bound_var_prop: &F,
+) -> Option<(IndexTag, IndexValue)>
+where
+    F: Fn(&str, &str) -> Option<IndexValue>,
+{
+    let (l_var, l_prop) = unwrap_property(left)?;
+    let (r_var, r_prop) = unwrap_property(right)?;
+    // Both sides must reference the SAME prop — otherwise the Eq
+    // cannot be decided by a single posting-list lookup.
+    if l_prop != r_prop {
+        return None;
+    }
+    // Exactly one of the two vars must be the target; the other
+    // must be bound and resolvable.
+    let bound_var = match (l_var == target_var, r_var == target_var) {
+        (true, false) => r_var,
+        (false, true) => l_var,
+        _ => return None,
+    };
+    let bound_value = bound_var_prop(bound_var, l_prop)?;
+    Some((l_prop.to_string(), bound_value))
+}
+
+/// Recognise the `Property { var, prop }` shape and return the
+/// borrowed `(var, prop)` pair. Sibling of [`unwrap_computed_call`]
+/// for the plain prop-to-prop hint walker.
+fn unwrap_property(expr: &Expr) -> Option<(&str, &str)> {
+    let Expr::Property { var, prop } = expr else {
+        return None;
+    };
+    Some((var.as_str(), prop.as_str()))
 }
 
 /// Recognise the `Call { name, args: [Property { var, prop }] }`
