@@ -300,16 +300,19 @@ jobs:
               --workspace "$(pwd)"
           done
 
-      - name: Edge-liveness (RFC-037 §3.7 informational)
-        continue-on-error: true
+      - name: Edge-liveness (RFC-037 §3.7 blocking)
         run: |
           cd repo
           # Issue #222 — flag declared edge labels with zero instances in
-          # the cfdb-self keyspace. v0.3.0 policy: informational (log the
-          # output, do not block merge). v0.4.0: promote to blocking
-          # ban rule after one release cycle of observation. The step is
-          # marked continue-on-error so a dormant-label finding surfaces
-          # in the CI log but does not fail the job.
+          # the cfdb-self keyspace. Promoted to BLOCKING via #385 after
+          # one release cycle of green observation (RFC-037 §3.7's
+          # v0.4.0 promotion clause is now honored). Any future addition
+          # to `cfdb-core::EdgeLabel` without a producer that emits ≥1
+          # instance on cfdb-self now fails CI loudly — the ratchet is
+          # earned. To intentionally reserve a new label without a
+          # producer (Phase B reservations), mark its schema descriptor
+          # `Provenance::Reserved` per #307 — the script suppresses
+          # reserved labels from the failure exit.
           #
           # Placement: AFTER the self-enrich step (issue #383). The
           # enrichment-fed labels LABELED_AS / CANONICAL_FOR (emitted by
