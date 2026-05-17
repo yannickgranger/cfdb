@@ -359,43 +359,54 @@ fn scope_classifier_perf_at_default_scale() {
         println!("  {name:<20} rows={rows:<5} elapsed={elapsed:?}");
     }
 
-    // Per-rule budgets at default scale (1_000 items). These are
-    // sized to detect REGRESSIONS (≥3× slowdown over the current
-    // implementation), not to flake on CI noise — observed p95 on
-    // a quiet developer machine, multiplied by ~3 to absorb slow
-    // runners and concurrent build load.
+    // Per-rule budgets at default scale (1_000 items). Sized to
+    // detect REGRESSIONS — specifically, the fast-path-stopped-firing
+    // and regex-cache-disabled signatures — not to flake on CI noise.
     //
-    // Baseline (release, quiet, n=1_000), Apr 2026 post slice-6b
-    // + regex cache + intersect-order-by-size + slice-5 narrows
-    // on Item.reachable_from_entry + Item.is_test:
-    //   DuplicatedFeature   ~0.7 ms   → budget 10 ms  (slice-6b prop-eq)
-    //   ContextHomonym      ~0.5 ms   → budget 5 ms   (slice-6 last_segment)
-    //   UnfinishedRefactor  ~0.1 ms   → budget 5 ms
-    //   RandomScattering    ~4 ms     → budget 50 ms  (regex cache turned
-    //                                                  O(n²×compile) into O(n²×match);
-    //                                                  still cartesian but cheap per pair)
-    //   CanonicalBypass     ~0.001 ms → budget 5 ms   (no inputs without HIR)
-    //   Unwired             ~0.5 ms   → budget 10 ms
+    // Two baselines matter:
     //
-    // The two index-fast-path rules (`DuplicatedFeature`,
-    // `ContextHomonym`) get tight budgets so a regression dropping
-    // either hint fails loudly — at n=1_000 the un-indexed
-    // equivalent of each takes ~250 ms, so any breakage above
-    // ~10 ms means the fast path stopped firing.
+    //   - Dev (release, quiet developer machine, May 2026 post slice-6b
+    //     + regex cache + intersect-order-by-size + slice-5 narrows
+    //     on Item.reachable_from_entry + Item.is_test + indexed_pairs
+    //     membership map): used as the "this is healthy" reference.
+    //   - CI (Forgejo runner, observed Apr–May 2026 runs 521/522 on
+    //     this branch): consistently 12–20× slower than dev across
+    //     classifiers. This is steady-state shared-runner overhead,
+    //     not transient noise.
     //
-    // `RandomScattering` budget is tight at 50 ms because the
-    // regex cache makes per-pair eval cheap and the slice-5
-    // narrows shrink the cartesian — any regression that disables
-    // either the cache or the narrows fails loudly (pre-cache
-    // baseline at n=1_000 was 760 ms).
+    //   Rule                Dev p95     CI observed    Budget
+    //   DuplicatedFeature   ~0.7 ms      ~9 ms          50 ms
+    //   ContextHomonym      ~0.5 ms      ~8 ms          50 ms
+    //   UnfinishedRefactor  ~0.1 ms      ~1 ms          25 ms
+    //   RandomScattering    ~4 ms        ~80 ms        300 ms
+    //   CanonicalBypass     ~0.001 ms    ~0.01 ms      10 ms
+    //   Unwired             ~0.5 ms      ~6 ms          50 ms
+    //
+    // The budgets sit roughly 5–6× above observed CI and well below
+    // the regression signatures:
+    //
+    //   - Index-fast-path rules (`DuplicatedFeature`, `ContextHomonym`):
+    //     un-indexed equivalent at n=1_000 is ~250 ms, so the 50 ms
+    //     budget catches the "fast path stopped firing" breakage with
+    //     ≥5× margin.
+    //   - `RandomScattering`: regex-cache-disabled baseline at
+    //     n=1_000 was ~760 ms; pre-slice-5-narrow baseline was higher
+    //     still. The 300 ms budget catches either regression with
+    //     ≥2.5× margin.
+    //
+    // The wide CI/dev gap is steady-state shared-runner overhead, not
+    // transient noise — bumping below ~5× CI re-introduces flakes on
+    // contended runners. Bumping a budget without an evidence trail
+    // in this comment block and a referenced run id is a gate
+    // violation — see the failure message below.
     if n <= 1_500 {
         let budgets: [(&str, Duration); 6] = [
-            ("DuplicatedFeature", Duration::from_millis(10)),
-            ("ContextHomonym", Duration::from_millis(5)),
-            ("UnfinishedRefactor", Duration::from_millis(5)),
-            ("RandomScattering", Duration::from_millis(50)),
-            ("CanonicalBypass", Duration::from_millis(5)),
-            ("Unwired", Duration::from_millis(10)),
+            ("DuplicatedFeature", Duration::from_millis(50)),
+            ("ContextHomonym", Duration::from_millis(50)),
+            ("UnfinishedRefactor", Duration::from_millis(25)),
+            ("RandomScattering", Duration::from_millis(300)),
+            ("CanonicalBypass", Duration::from_millis(10)),
+            ("Unwired", Duration::from_millis(50)),
         ];
         for (name, budget) in budgets {
             let (_rows, elapsed) = timings

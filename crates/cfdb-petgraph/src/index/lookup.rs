@@ -58,7 +58,7 @@ use petgraph::stable_graph::NodeIndex;
 
 use crate::graph::KeyspaceState;
 use crate::index::build::{index_key_of, IndexTag, IndexValue};
-use crate::index::spec::{ComputedKey, IndexEntry, IndexSpec};
+use crate::index::spec::ComputedKey;
 
 /// Attempt to satisfy a `candidate_nodes` request through the
 /// inverted-index posting lists instead of a full `by_label` scan.
@@ -99,18 +99,18 @@ where
     F: Fn(&str, &str) -> Option<IndexValue>,
 {
     let label = np.label.as_ref()?;
-    if state.index_spec.entries.is_empty() {
+    if state.indexed_pairs.is_empty() {
         return None;
     }
 
     let mut hints: Vec<(IndexTag, IndexValue)> = Vec::new();
-    collect_pattern_hints(label, &state.index_spec, np, &mut hints);
+    collect_pattern_hints(label, &state.indexed_pairs, np, &mut hints);
 
     if let Some(pred) = where_clause {
         if let Some(var) = np.var.as_deref() {
             collect_where_hints(
                 label,
-                &state.index_spec,
+                &state.indexed_pairs,
                 var,
                 pred,
                 params,
@@ -136,14 +136,14 @@ where
 /// workspace metric scanner (same technique as `eval::pattern::unwind_row`).
 fn collect_pattern_hints(
     label: &Label,
-    spec: &IndexSpec,
+    indexed_pairs: &BTreeMap<String, BTreeSet<IndexTag>>,
     np: &NodePattern,
     out: &mut Vec<(IndexTag, IndexValue)>,
 ) {
     let fresh = np
         .props
         .iter()
-        .filter(|(prop, _)| is_indexed_prop(spec, label, prop))
+        .filter(|(prop, _)| is_indexed_pair(indexed_pairs, label, prop))
         .filter_map(|(prop, value)| index_key_of(value).map(|v| (prop.clone(), v)));
     out.extend(fresh);
 }
@@ -155,7 +155,7 @@ fn collect_pattern_hints(
 /// strictly narrows the candidate set.
 fn collect_where_hints<F>(
     label: &Label,
-    spec: &IndexSpec,
+    indexed_pairs: &BTreeMap<String, BTreeSet<IndexTag>>,
     target_var: &str,
     pred: &Predicate,
     params: &BTreeMap<String, Param>,
@@ -166,8 +166,24 @@ fn collect_where_hints<F>(
 {
     match pred {
         Predicate::And(a, b) => {
-            collect_where_hints(label, spec, target_var, a, params, bound_var_prop, out);
-            collect_where_hints(label, spec, target_var, b, params, bound_var_prop, out);
+            collect_where_hints(
+                label,
+                indexed_pairs,
+                target_var,
+                a,
+                params,
+                bound_var_prop,
+                out,
+            );
+            collect_where_hints(
+                label,
+                indexed_pairs,
+                target_var,
+                b,
+                params,
+                bound_var_prop,
+                out,
+            );
         }
         Predicate::Compare {
             left,
@@ -176,7 +192,7 @@ fn collect_where_hints<F>(
         } => {
             // Slice 5: a.prop = literal / $param.
             if let Some((prop, value)) = resolve_eq_hint(target_var, left, right, params) {
-                if is_indexed_prop(spec, label, &prop) {
+                if is_indexed_pair(indexed_pairs, label, &prop) {
                     out.push((prop, value));
                 }
             }
@@ -186,7 +202,7 @@ fn collect_where_hints<F>(
             if let Some((tag, value)) =
                 resolve_cross_ref_computed_hint(target_var, left, right, bound_var_prop)
             {
-                if is_indexed_computed(spec, label, &tag) {
+                if is_indexed_pair(indexed_pairs, label, &tag) {
                     out.push((tag, value));
                 }
             }
@@ -204,7 +220,7 @@ fn collect_where_hints<F>(
             if let Some((tag, value)) =
                 resolve_cross_ref_prop_hint(target_var, left, right, bound_var_prop)
             {
-                if is_indexed_prop(spec, label, &tag) {
+                if is_indexed_pair(indexed_pairs, label, &tag) {
                     out.push((tag, value));
                 }
             }
@@ -259,33 +275,28 @@ fn resolve_literal_value(expr: &Expr, params: &BTreeMap<String, Param>) -> Optio
     }
 }
 
-/// `(label, prop)` membership check against the spec. Only matches
-/// `IndexEntry::Prop` — computed keys go through
-/// [`is_indexed_computed`] which checks the `Computed` variant
-/// against its canonical tag string (e.g. `"last_segment(qname)"`).
-fn is_indexed_prop(spec: &IndexSpec, label: &Label, prop: &str) -> bool {
-    spec.entries.iter().any(|entry| match entry {
-        IndexEntry::Prop {
-            label: l,
-            prop: p,
-            notes: _,
-        } => l.as_str() == label.as_str() && p == prop,
-        IndexEntry::Computed { .. } => false,
-    })
-}
-
-/// `(label, computed_tag)` membership for cross-MATCH hints.
-/// `computed_tag` is the canonical string (`ComputedKey::as_str`),
-/// matching the `IndexTag` stored in `by_prop` for `IndexEntry::Computed`.
-fn is_indexed_computed(spec: &IndexSpec, label: &Label, computed_tag: &str) -> bool {
-    spec.entries.iter().any(|entry| match entry {
-        IndexEntry::Computed {
-            label: l,
-            computed,
-            notes: _,
-        } => l.as_str() == label.as_str() && computed.as_str() == computed_tag,
-        IndexEntry::Prop { .. } => false,
-    })
+/// `(label, tag)` membership check against the precomputed
+/// `KeyspaceState::indexed_pairs` map. Replaces the previous pair of
+/// linear-scan helpers (`is_indexed_prop` + `is_indexed_computed`)
+/// with a two-step `BTreeMap` lookup — both prop entries and
+/// computed-key entries land in the same map under their canonical
+/// tag string, so one membership check covers both shapes.
+///
+/// The map is built once at `KeyspaceState::new_with_spec` time
+/// (graph.rs `indexed_pairs_for`). The two-level shape lets the
+/// caller pass `&Label` and `&str` directly into `get` / `contains`
+/// via `Borrow<str>` on `String` — no per-call allocation. For
+/// ContextHomonym at n=1_000 the hint walker calls this hundreds of
+/// times per outer row; the linear scan over the production 6-entry
+/// spec was the bulk of the per-row hint-collection cost.
+fn is_indexed_pair(
+    indexed_pairs: &BTreeMap<String, BTreeSet<IndexTag>>,
+    label: &Label,
+    tag: &str,
+) -> bool {
+    indexed_pairs
+        .get(label.as_str())
+        .is_some_and(|tags| tags.contains(tag))
 }
 
 /// Recognise `Call(f, [Property{x, p}]) = Call(f, [Property{y, p}])`
