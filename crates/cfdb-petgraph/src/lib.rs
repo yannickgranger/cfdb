@@ -144,6 +144,22 @@ impl PetgraphStore {
             .expect("keyspace just inserted must be present")
     }
 
+    /// Does the given keyspace contain a node with this id? Returns
+    /// `false` if the keyspace doesn't exist yet — symmetric to
+    /// [`ingest_one_edge`]'s "unknown dst id ⇒ drop" treatment.
+    ///
+    /// Consumed by [`cfdb_hir_petgraph_adapter::PetgraphAdapter`] (issue
+    /// #388) to decide whether to synthesize a stub `:Item` for a
+    /// foreign-callee CALLS edge dst before ingest. Pure read; no
+    /// behavioral change to existing ingest semantics.
+    ///
+    /// [`ingest_one_edge`]: crate::graph::KeyspaceState
+    pub fn has_node(&self, keyspace: &Keyspace, id: &str) -> bool {
+        self.keyspaces
+            .get(keyspace)
+            .is_some_and(|state| state.id_to_idx.contains_key(id))
+    }
+
     /// Export the raw nodes and edges of a keyspace. Used by
     /// [`crate::persist::save`] to serialize the keyspace to disk. Returns
     /// facts in insertion order; the caller sorts for canonical output.
