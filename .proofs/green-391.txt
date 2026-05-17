@@ -1,0 +1,15 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running unittests src/lib.rs (target/debug/deps/cfdb_core-46023c36db9e910d)
+     Running tests/architecture_dep_rule.rs (target/debug/deps/architecture_dep_rule-b46162d33ed3060b)
+     Running unittests src/lib.rs (target/debug/deps/cfdb_hir_extractor-fd0b63419e15e5bf)
+     Running tests/arch_boundary.rs (target/debug/deps/arch_boundary-c2d60cb1dc620438)
+     Running tests/callsite_line.rs (target/debug/deps/callsite_line-26694c04fb9c0dce)
+     Running tests/entry_point.rs (target/debug/deps/entry_point-07f6d316f6325355)
+     Running tests/exclusion.rs (target/debug/deps/exclusion-c51e8d3de4607ce0)
+     Running tests/http_route.rs (target/debug/deps/http_route-f8ecbcb383101bcb)
+     Running tests/resolved_dispatch.rs (target/debug/deps/resolved_dispatch-a73ea22353e893ec)
+     Running tests/test_bench_entry.rs (target/debug/deps/test_bench_entry-3221644a61856bc0)
+     Running tests/v02_1_coverage.rs (target/debug/deps/v02_1_coverage-573ad6760b92e87a)
+   Doc-tests cfdb_core
+   Doc-tests cfdb_hir_extractor
+cargo test: 162 passed (13 suites, 1.38s)

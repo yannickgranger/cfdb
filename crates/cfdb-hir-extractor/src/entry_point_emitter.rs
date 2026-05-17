@@ -43,11 +43,13 @@ use crate::error::HirError;
 mod http_route;
 mod other_kinds;
 mod registers_param;
+mod test_bench;
 
 use registers_param::{
     emit_clap_enum_registers_param, emit_clap_struct_registers_param, emit_mcp_registers_param,
     has_clap_derive, has_tool_attr,
 };
+use test_bench::{has_bench_attr, has_test_attr, is_under_benches_dir, is_under_tests_dir};
 
 /// HTTP method verbs recognized on axum's `Router` and actix's `App`.
 /// `route` is overloaded (2-arg on axum / actix `App`, 1-arg on actix
@@ -172,6 +174,14 @@ fn scan_file<DB>(
             }
             SyntaxKind::FN => {
                 if let Some(fn_ast) = ast::Fn::cast(descendant) {
+                    // Precedence per RFC-042 §3.1 "Mutual exclusion /
+                    // precedence":
+                    //   1. `#[tool]` wins (MCP first, even inside tests/).
+                    //   2. Attribute-based test/bench wins over file-location.
+                    //   3. File-location fallback (tests/ → test, benches/ →
+                    //      bench) catches helper fns in test/bench targets.
+                    // All branches are mutually exclusive — exactly one
+                    // :EntryPoint per fn (no-duplicate invariant, §4).
                     if has_tool_attr(&fn_ast) {
                         if let Some((name, qname)) = fn_name_and_qname(sema, &fn_ast) {
                             emit(nodes, edges, &qname, &name, "mcp_tool", file_path, None);
@@ -182,6 +192,30 @@ fn scan_file<DB>(
                             // here; syn-side emission would dangle src and
                             // be dropped by cfdb-petgraph's ingest.
                             emit_mcp_registers_param(&qname, &fn_ast, edges);
+                        }
+                    } else if has_test_attr(&fn_ast) {
+                        // RFC-042 §3.1 — attribute-based test detection.
+                        // No REGISTERS_PARAM; test fns are caller-graph
+                        // roots, not param-emitting surfaces.
+                        if let Some((name, qname)) = fn_name_and_qname(sema, &fn_ast) {
+                            emit(nodes, edges, &qname, &name, "test", file_path, None);
+                        }
+                    } else if has_bench_attr(&fn_ast) {
+                        // RFC-042 §3.1 — attribute-based bench detection.
+                        if let Some((name, qname)) = fn_name_and_qname(sema, &fn_ast) {
+                            emit(nodes, edges, &qname, &name, "bench", file_path, None);
+                        }
+                    } else if is_under_tests_dir(file_path) {
+                        // RFC-042 §3.1 — file-location fallback: any fn in
+                        // a `tests/` directory is reachable from the test
+                        // runner via the integration-test binary.
+                        if let Some((name, qname)) = fn_name_and_qname(sema, &fn_ast) {
+                            emit(nodes, edges, &qname, &name, "test", file_path, None);
+                        }
+                    } else if is_under_benches_dir(file_path) {
+                        // RFC-042 §3.1 — file-location fallback for benches.
+                        if let Some((name, qname)) = fn_name_and_qname(sema, &fn_ast) {
+                            emit(nodes, edges, &qname, &name, "bench", file_path, None);
                         }
                     }
                 }
