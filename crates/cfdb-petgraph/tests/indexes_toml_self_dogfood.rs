@@ -43,16 +43,15 @@ fn loads_cfdb_own_indexes_toml() {
     });
 
     // RFC-035 §3.2 originally prescribed three entries (qname,
-    // bounded_context, last_segment(qname)); the slice-6b
-    // prop-to-prop fast path needs `Item.name` as well so
-    // `DuplicatedFeature` (and any future `a.<prop> = b.<prop>`
-    // rule) can hash-join instead of cartesian. Asserting `>= 4`
-    // — not `== 4` — keeps the test forward-compatible with any
-    // further index entries added for the same RFC.
+    // bounded_context, last_segment(qname)); slice-6b added
+    // `Item.name`; the classifier slice-5 narrows added
+    // `Item.reachable_from_entry` and `Item.is_test`. Asserting
+    // `>= 6` — not `== 6` — keeps the test forward-compatible
+    // with any further index entries added for the same RFC.
     assert!(
-        spec.entries.len() >= 4,
-        "RFC-035 §3.2 prescribes at least four entries \
-         (qname, bounded_context, name, last_segment(qname)); got {}",
+        spec.entries.len() >= 6,
+        "RFC-035 §3.2 prescribes at least six entries (qname, bounded_context, \
+         name, reachable_from_entry, is_test, last_segment(qname)); got {}",
         spec.entries.len()
     );
 

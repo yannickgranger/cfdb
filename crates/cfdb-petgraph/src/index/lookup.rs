@@ -419,39 +419,51 @@ fn match_computed_call_name(name: &str) -> Option<ComputedKey> {
 ///
 /// # Allocation discipline
 ///
-/// Returns a sorted `Vec<NodeIndex>`. The first posting list is
-/// materialised once (iterating the source `BTreeSet` in sorted
-/// order); each subsequent posting list is walked in place via
-/// `Vec::retain` + `BTreeSet::contains` (O(|acc| log |next|), zero
-/// new allocations per hint). This matters at the 21k-node posting-
-/// list scale #167 targets — a naive clone-then-intersect pass
-/// would triple-allocate each conjunct.
+/// Returns a sorted `Vec<NodeIndex>`. Posting lists are resolved up
+/// front and ordered by size, smallest first — materialising the
+/// smallest into `acc` and refining downward minimises peak
+/// allocation AND per-element `BTreeSet::contains` work. A naive
+/// "first-hint wins" seed would materialise a huge bucket
+/// (e.g. `is_test=false` posting list ≈ |Item|) before refining
+/// against a tiny one (e.g. `last_segment=Foo` ≈ 2 items),
+/// quadratic-allocating in the wrong direction.
+///
+/// A missing posting list (`lookup_posting` returns `None` for one
+/// of the hints) is a conclusive empty intersection — the spec
+/// claimed a particular `(label, tag, value)` is indexed but no
+/// node carries it, so there CANNOT be a row that satisfies the
+/// WHERE conjunct generating that hint.
 fn intersect(
     state: &KeyspaceState,
     label: &Label,
     hints: &[(IndexTag, IndexValue)],
 ) -> Vec<NodeIndex> {
-    let mut iter = hints.iter();
-    let Some((first_tag, first_value)) = iter.next() else {
-        // Defensive: `candidates_from_index` never calls us with an
-        // empty hint vec, but returning an empty Vec on misuse is
-        // preferable to an index panic.
+    // Resolve every posting list up front. If ANY hint has no
+    // posting list, the intersection is empty.
+    let mut postings: Vec<&BTreeSet<NodeIndex>> = Vec::with_capacity(hints.len());
+    for (tag, value) in hints {
+        match lookup_posting(state, label, tag, value) {
+            Some(set) => postings.push(set),
+            None => return Vec::new(),
+        }
+    }
+    if postings.is_empty() {
+        // Defensive: `candidates_from_index` never calls us with
+        // an empty hint vec.
         return Vec::new();
-    };
-    let mut acc: Vec<NodeIndex> = lookup_posting(state, label, first_tag, first_value)
-        .map(|set| set.iter().copied().collect())
-        .unwrap_or_default();
-    for (tag, value) in iter {
+    }
+    // Order smallest first so we materialise the tightest bucket
+    // into `acc` and the remaining (potentially huge) posting
+    // lists serve only as membership filters via `retain`.
+    postings.sort_by_key(|set| set.len());
+    let mut iter = postings.into_iter();
+    let first = iter.next().expect("non-empty after the early return");
+    let mut acc: Vec<NodeIndex> = first.iter().copied().collect();
+    for set in iter {
         if acc.is_empty() {
             break;
         }
-        match lookup_posting(state, label, tag, value) {
-            Some(set) => acc.retain(|idx| set.contains(idx)),
-            None => {
-                acc.clear();
-                break;
-            }
-        }
+        acc.retain(|idx| set.contains(idx));
     }
     acc
 }

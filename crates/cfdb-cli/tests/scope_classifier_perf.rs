@@ -101,6 +101,16 @@ fn production_index_spec() -> IndexSpec {
                 prop: "name".into(),
                 notes: "perf bench — slice-6b prop-eq bucket for DuplicatedFeature".into(),
             },
+            IndexEntry::Prop {
+                label: "Item".into(),
+                prop: "reachable_from_entry".into(),
+                notes: "perf bench — narrows RandomScattering candidates via slice-5".into(),
+            },
+            IndexEntry::Prop {
+                label: "Item".into(),
+                prop: "is_test".into(),
+                notes: "perf bench — every classifier filters is_test=false".into(),
+            },
             IndexEntry::Computed {
                 label: "Item".into(),
                 computed: ComputedKey::LastSegment,
@@ -355,12 +365,16 @@ fn scope_classifier_perf_at_default_scale() {
     // a quiet developer machine, multiplied by ~3 to absorb slow
     // runners and concurrent build load.
     //
-    // Baseline (release, quiet, n=1_000), Apr 2026 post slice-6b:
-    //   DuplicatedFeature   ~0.6 ms   → budget 10 ms (slice-6b prop-eq)
-    //   ContextHomonym      ~0.5 ms   → budget 5 ms (slice-6 last_segment)
+    // Baseline (release, quiet, n=1_000), Apr 2026 post slice-6b
+    // + regex cache + intersect-order-by-size + slice-5 narrows
+    // on Item.reachable_from_entry + Item.is_test:
+    //   DuplicatedFeature   ~0.7 ms   → budget 10 ms  (slice-6b prop-eq)
+    //   ContextHomonym      ~0.5 ms   → budget 5 ms   (slice-6 last_segment)
     //   UnfinishedRefactor  ~0.1 ms   → budget 5 ms
-    //   RandomScattering    ~800 ms   → budget 2500 ms (still O(n²): regex-extract)
-    //   CanonicalBypass     ~0.001 ms → budget 5 ms (no inputs without HIR)
+    //   RandomScattering    ~4 ms     → budget 50 ms  (regex cache turned
+    //                                                  O(n²×compile) into O(n²×match);
+    //                                                  still cartesian but cheap per pair)
+    //   CanonicalBypass     ~0.001 ms → budget 5 ms   (no inputs without HIR)
     //   Unwired             ~0.5 ms   → budget 10 ms
     //
     // The two index-fast-path rules (`DuplicatedFeature`,
@@ -369,17 +383,17 @@ fn scope_classifier_perf_at_default_scale() {
     // equivalent of each takes ~250 ms, so any breakage above
     // ~10 ms means the fast path stopped firing.
     //
-    // `RandomScattering` remains O(n²) because its join is on
-    // `regexp_extract(name, …)` and `regexp_extract` is not yet
-    // in the `match_computed_call_name` allowlist. The budget is
-    // wide enough to survive CI noise but still catches a
-    // fundamental shape change.
+    // `RandomScattering` budget is tight at 50 ms because the
+    // regex cache makes per-pair eval cheap and the slice-5
+    // narrows shrink the cartesian — any regression that disables
+    // either the cache or the narrows fails loudly (pre-cache
+    // baseline at n=1_000 was 760 ms).
     if n <= 1_500 {
         let budgets: [(&str, Duration); 6] = [
             ("DuplicatedFeature", Duration::from_millis(10)),
             ("ContextHomonym", Duration::from_millis(5)),
             ("UnfinishedRefactor", Duration::from_millis(5)),
-            ("RandomScattering", Duration::from_millis(2500)),
+            ("RandomScattering", Duration::from_millis(50)),
             ("CanonicalBypass", Duration::from_millis(5)),
             ("Unwired", Duration::from_millis(10)),
         ];

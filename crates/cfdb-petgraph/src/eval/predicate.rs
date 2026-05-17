@@ -7,7 +7,6 @@
 use cfdb_core::fact::PropValue;
 use cfdb_core::query::{CompareOp, Expr, Param, Predicate};
 use cfdb_core::result::RowValue;
-use regex::Regex;
 
 use super::{Binding, Bindings, Evaluator};
 
@@ -36,9 +35,9 @@ impl<'a> Evaluator<'a> {
                 let lv = self.eval_expr(left, bindings);
                 let pat = self.eval_expr(pattern, bindings);
                 match (lv, pat) {
-                    (Some(PropValue::Str(s)), Some(PropValue::Str(p))) => {
-                        Regex::new(&p).map(|re| re.is_match(&s)).unwrap_or(false)
-                    }
+                    (Some(PropValue::Str(s)), Some(PropValue::Str(p))) => self
+                        .compiled_regex(&p, |re| re.is_match(&s))
+                        .unwrap_or(false),
                     _ => false,
                 }
             }
@@ -143,10 +142,11 @@ impl<'a> Evaluator<'a> {
         let (PropValue::Str(text), PropValue::Str(pattern)) = (s, pat) else {
             return None;
         };
-        Regex::new(&pattern).ok().and_then(|re| {
+        self.compiled_regex(&pattern, |re| {
             re.find(&text)
                 .map(|m| PropValue::Str(m.as_str().to_string()))
         })
+        .flatten()
     }
 
     fn call_size(&self, args: &[Expr], bindings: &Bindings) -> Option<PropValue> {
