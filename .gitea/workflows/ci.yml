@@ -256,18 +256,6 @@ jobs:
           fi
           [ "$fail" -eq 0 ]
 
-      - name: Edge-liveness (RFC-037 §3.7 informational)
-        continue-on-error: true
-        run: |
-          cd repo
-          # Issue #222 — flag declared edge labels with zero instances in
-          # the cfdb-self keyspace. v0.3.0 policy: informational (log the
-          # output, do not block merge). v0.4.0: promote to blocking
-          # ban rule after one release cycle of observation. The step is
-          # marked continue-on-error so a dormant-label finding surfaces
-          # in the CI log but does not fail the job.
-          CFDB_BIN="$(pwd)/target/release/cfdb" bash ci/edge-liveness.sh
-
       - name: Self-enrich dogfood (RFC-039 §3.3, default-feature subset)
         run: |
           cd repo
@@ -296,6 +284,12 @@ jobs:
           # block merge. Exit 1 (runtime error) → block merge. Exit 0 →
           # pass. Nightly-only passes (#347/#348/#349) live in their
           # own workflow file gated on the matching feature flags.
+          # Side effect: each `dogfood-enrich --pass enrich-<name>` invokes
+          # `cfdb enrich-<name>` under the hood (feature_guard.rs), which
+          # mutates the keyspace with the pass's facts. The Edge-liveness
+          # step below reads the resulting end-of-pipeline state — see
+          # issue #383 for the ordering rationale (LABELED_AS / CANONICAL_FOR
+          # come from enrich-concepts, REFERENCED_BY from enrich-rfc-docs).
           for pass in enrich-deprecation enrich-rfc-docs enrich-bounded-context enrich-concepts; do
             echo ">> self-${pass} (ACTIVE)"
             ./target/release/dogfood-enrich \
@@ -305,6 +299,26 @@ jobs:
               --cfdb-bin "$(pwd)/target/release/cfdb" \
               --workspace "$(pwd)"
           done
+
+      - name: Edge-liveness (RFC-037 §3.7 informational)
+        continue-on-error: true
+        run: |
+          cd repo
+          # Issue #222 — flag declared edge labels with zero instances in
+          # the cfdb-self keyspace. v0.3.0 policy: informational (log the
+          # output, do not block merge). v0.4.0: promote to blocking
+          # ban rule after one release cycle of observation. The step is
+          # marked continue-on-error so a dormant-label finding surfaces
+          # in the CI log but does not fail the job.
+          #
+          # Placement: AFTER the self-enrich step (issue #383). The
+          # enrichment-fed labels LABELED_AS / CANONICAL_FOR (emitted by
+          # enrich-concepts) and REFERENCED_BY (emitted by enrich-rfc-docs)
+          # only populate post-enrich; reading the keyspace pre-enrich
+          # makes them dormant by construction. Running this step at
+          # end-of-pipeline measures what the full producer chain emits,
+          # which is also what downstream consumers see.
+          CFDB_BIN="$(pwd)/target/release/cfdb" bash ci/edge-liveness.sh
 
       - name: Cross-dogfood — cfdb on graph-specs-rust (RFC-033 §3.2)
         env:
