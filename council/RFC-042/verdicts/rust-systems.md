@@ -182,3 +182,57 @@ ORDER BY item.crate, item.qname
 | RS-1 | YES | §3.3 | Add "Trait surface impact" subsection specifying whether `EnrichBackend::enrich_reachability` gains the `entry_kind_filter` parameter (with ripple into `cfdb-core/src/enrich.rs:177` and all impls) or whether the production-filtered variant is a separate `PetgraphStore`-specific method not on the trait. |
 | RS-3 | NO | §3.1 | Add one sentence clarifying that `attr.meta().path()` for `#[cfg(test)]` yields path `cfg`, not `test` — the `test` token is an argument, not a path segment. |
 | RS-5 | NO | §3.1 or §2 | State explicitly: "All test/bench detection (attribute-based and file-location-based) requires `--features hir`; there is no syn-only partial path." |
+
+---
+
+## R2 verdict
+
+**Verdict:** RATIFY
+**Round:** 2
+**Date:** 2026-05-17
+
+### RS-1 (blocking) — RESOLVED
+
+The "Trait surface impact (council R1 §2 synthesis: Position B)" subsection at RFC §3.3 (lines 408-455) resolves the blocking finding completely and unambiguously.
+
+The key statements are verified:
+
+1. "RFC-042 does NOT change the `EnrichBackend` trait in `cfdb-core/src/enrich.rs:177`. The trait method signature `enrich_reachability(&mut self, keyspace: &Keyspace) -> Result<EnrichReport, StoreError>` is preserved verbatim." — Explicit. No trait change.
+
+2. The `ReachabilityFilter` enum is specified as `pub(crate)` inside `cfdb-petgraph/src/enrich/reachability.rs`. The stringly-typed `BTreeSet<&str>` is gone; the enum `{ All, ProductionOnly }` lives entirely within `cfdb-petgraph` and never crosses the crate boundary into `cfdb-core` or `cfdb-cli`.
+
+3. The composition root is unambiguous: `PetgraphStore::enrich_reachability` at `cfdb-petgraph/src/enrich_backend.rs:151-163` calls `reachability::run` twice internally. The CLI makes one call; both BFS passes happen inside that one call.
+
+4. The `EnrichReport.attrs_written` accounting is explicit: "sum of both passes' writes (2 passes × 2 attrs × N items = 4N writes vs 2N previously). Implementers MUST sum the per-pass counters." This eliminates the D3 concern I flagged.
+
+No further change is required on RS-1.
+
+### RS-3 (non-blocking) — RESOLVED
+
+The paragraph "**`#[cfg(test)]` safely does not fire** (council R1 §3 EDIT 4, rust-systems RS-3)" at RFC §3.1 is present and correct. The text: "The probe reads `attr.meta().path()`, which for `#[cfg(test)]` yields path segment `cfg` (not `test`). The `test` inside `cfg(...)` is a token-tree argument to `cfg`, not a path segment" — this is exactly what I requested.
+
+The added sentence "A fn carrying BOTH `#[cfg(test)] #[test]` triggers the probe on the `test` attribute and is classified `kind=test` — the intended behavior" goes beyond my request and correctly documents the non-obvious dual-attribute case. RESOLVED.
+
+### RS-5 (non-blocking) — RESOLVED
+
+RFC §2 "Ships" bullet (lines 103-109) now reads: "All new emission (`kind=test`, `kind=bench` via either attribute or file-location detection) requires `--features hir` on extraction, exactly as `kind=mcp_tool` does today. `cfdb-hir-extractor` is the sole producer; there is no syn-only partial path." RESOLVED.
+
+### RS-6 (non-blocking) — RESOLVED
+
+The paragraph at RFC §3.3 (lines 400-406): "A third option — a single multi-source BFS with per-visit kind-mask that accumulates both attribute sets in one traversal — is also viable and would halve the per-item visit cost. Option (A) is ratified for symmetry with the existing single-filter `enrich_reachability::run` signature (one filter, one pass, one report); the third option can be introduced as a perf optimization later without changing the public attribute schema." RESOLVED.
+
+### RS-2, RS-4, RS-7, RS-8 — confirmed carried from R1
+
+These were already accepted findings in R1 (RS-2: attribute walk is `ra_ap_syntax`, confirmed; RS-4: `#[bench]`+`#[test]` mutual exclusion, non-issue; RS-7: sort determinism via ep_id embedding, confirmed; RS-8: graph-specs-rust existing queries are safe from new attributes, confirmed). No R2 action needed.
+
+### D4 (graph-specs-rust Cypher) — accepted as synthesized
+
+The synthesized rule `arch-test-only-reachable-production-items.cypher` in SYNTHESIS-R1 §5 is a proper superset of the rust-systems D4 proposal. The base WHERE clause (`i.reachable_from_entry = true AND i.reachable_from_production_entry = false AND i.is_test = false`) matches my proposed logic. The zero-violation-from-day-one intent is preserved exactly as I recommended. The merged rule is strictly better than the single-lens version: it carries lens-specific narrowing comments so operators can triage findings by architectural layer. No objection.
+
+### Residual note (non-blocking, implementation-time only)
+
+One implementation detail warrants a note for the 042-B implementer, not requiring RFC text change: the `ReachabilityFilter::ProductionOnly` branch inside `reachability.rs::run` must construct the production seed set by filtering `entry_points` to those whose `kind` attribute is NOT in `{"test", "bench"}`. The attribute read is a string comparison on `node.props.get("kind")`. Given that `PropValue::Str` is the type at `emit()` in `entry_point_emitter.rs:352`, the filter is `node.props.get("kind").and_then(|v| if let PropValue::Str(s) = v { Some(s.as_str()) } else { None }).map(|k| k != "test" && k != "bench").unwrap_or(true)`. This is implementation guidance, not an RFC gap. The RFC correctly leaves this to the implementer ("Internal mapping `ProductionOnly → exclude {test, bench}` from the kind set lives inside `reachability.rs`").
+
+### Summary
+
+All R1 findings are resolved. RFC-042 as edited at commit `2583109` is **RATIFIED** from the rust-systems lens.

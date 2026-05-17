@@ -1,7 +1,8 @@
 # RFC-042 — test/bench :EntryPoint kinds + scope --production-only flag
 
-Status: DRAFT — council R1 incorporated 2026-05-17 (4/4 REQUEST CHANGES →
-8 EDITs applied per `council/RFC-042/SYNTHESIS-R1.md`). R2 review pending.
+Status: **RATIFIED** 2026-05-17 by 4/4 agent-teams council (R1 REQUEST CHANGES →
+8 EDITs applied → R2 unanimous RATIFY). See `council/RFC-042/RATIFIED.md`,
+`council/RFC-042/SYNTHESIS-R1.md`, `council/RFC-042/SYNTHESIS-R2.md`.
 Author: captain (a0 session 2026-05-17)
 Supersedes/relates: RFC-029 (v0.2 :EntryPoint vocabulary), RFC-032 (v0.2 extractor),
 RFC-037 (schema-producer alignment); originating issue `yg/cfdb#378`.
@@ -534,25 +535,83 @@ emits `kind=mcp_tool` (precedence rule §3.1 item 3).
 
 ## 5. Architect lenses
 
-Empty placeholders. Per cfdb CLAUDE.md §2.3, each lens is filled by the
-agent-teams council post-merge of this draft. The DRAFT status at the
-top of this file gates ratification on these verdicts.
+Council convened 2026-05-17 via `TeamCreate` per cfdb CLAUDE.md §2.3 (team
+`cfdb-rfc042-council`, four lens teammates). Round 1: 4/4 REQUEST CHANGES
+(see `council/RFC-042/SYNTHESIS-R1.md` for the 8 consolidated EDITs).
+Round 2 after EDITs applied: 4/4 RATIFY (see
+`council/RFC-042/SYNTHESIS-R2.md` and `council/RFC-042/RATIFIED.md`).
+Verdict files: `council/RFC-042/verdicts/<lens>.md`.
 
 ### 5.1 Clean architecture (`clean-arch`)
 
-**clean-arch verdict:** (pending — council post-merge)
+**clean-arch verdict: RATIFY** (R2, 2026-05-17). R1 raised port-purity
+concern (`BTreeSet<&str>` leaking CLI vocab into `cfdb-core` port) and
+composition-root ambiguity. R1 synthesis adopted Position B
+(PetgraphStore-internal dual-BFS, trait surface unchanged). R2
+verification: `mod enrich` at `crates/cfdb-petgraph/src/lib.rs:17` has
+no `pub` modifier; the entire enrich module is crate-private;
+`ReachabilityFilter` cannot be named by `cfdb-cli` or `cfdb-core`. Port
+boundary is structurally enforced, not by convention. Composition root
+unambiguously `PetgraphStore::enrich_reachability` (at
+`crates/cfdb-petgraph/src/enrich_backend.rs:151-163`). No objection to
+the merged D4 `arch-test-only-reachable-production-items.cypher`.
 
 ### 5.2 Domain-driven design (`ddd-specialist`)
 
-**ddd-specialist verdict:** (pending — council post-merge)
+**ddd-specialist verdict: RATIFY** (R2, 2026-05-17). R1 raised homonym
+gap (`:EntryPoint.kind="test"` vs `:Item.is_test`) and undescribed new
+`:Item` reachability attributes. R2 verification: the §3.2 Edit 1
+disambiguation sentence correctly names both concepts and their axes
+("entry surface" vs "compile scope") and redirects future query
+authors to `:Item.reachable_from_production_entry` rather than
+`is_test=true`. The two new attribute descriptors
+(`reachable_from_production_entry: bool`,
+`reachable_production_entry_count: i64`) use `Provenance::EnrichReachability`
+correctly (the existing variant at `descriptors.rs:60` already covers
+`enrich_reachability()`-produced attributes; the two new attrs are
+produced by the same pass's second invocation with
+`ReachabilityFilter::ProductionOnly`). Vocabulary unification of
+runtime-exposed and build-time-invoked entry-point kinds on the `kind`
+axis accepted. Tests tightenings carried verbatim in §7. The synthesis
+D4 zero-violation override accepted with one residual implementation
+note (companion PR must not silently ship as zero-violation if initial
+extract is non-zero).
 
 ### 5.3 SOLID + component principles (`solid-architect`)
 
-**solid-architect verdict:** (pending — council post-merge)
+**solid-architect verdict: RATIFY** (R2, 2026-05-17). R1 raised SRP/CCP
+(probes belong in `test_bench.rs` not `registers_param.rs`) and
+LSP/ISP (trait-surface impact ambiguous). R2 verification: §3.1 names
+`entry_point_emitter/test_bench.rs` as the probe destination with
+module-doc CCP rationale (vocabulary evolution vs param-edge wiring
+evolution); no REGISTERS_PARAM counterpart. §3.3 "Trait surface impact"
+subsection preserves `EnrichBackend::enrich_reachability` signature
+verbatim; `ReachabilityFilter` is `pub(crate)`. EDIT 8 sibling .cypher
+header-comment requirement is binding ("MUST" language). EnrichReport
+sum requirement is binding. No objection to merged D4 rule (covers ISP
+narrowing via documented lens-specific filter). Two non-blocking
+implementation notes for 042-B: verify `ReachabilityFilter` is not in
+any pub re-export; co-locate unit tests in
+`test_bench.rs #[cfg(test)] mod tests`.
 
 ### 5.4 Rust systems (`rust-systems`)
 
-**rust-systems verdict:** (pending — council post-merge)
+**rust-systems verdict: RATIFY** (R2, 2026-05-17). R1 raised one
+blocking finding (RS-1: trait-surface ambiguity) and three non-blocking
+documentation gaps (RS-3: cfg(test) handling, RS-5: feature-flag scope,
+RS-6: third BFS option). R2 verification: RS-1 fully resolved by §3.3
+"Trait surface impact" subsection — signature preserved verbatim,
+`ReachabilityFilter { All, ProductionOnly }` as `pub(crate)` enum
+inside `cfdb-petgraph/src/enrich/reachability.rs`, `PetgraphStore::
+enrich_reachability` calls `run` twice internally, `EnrichReport.
+attrs_written` sums both passes. RS-3 resolved (§3.1 explains
+`#[cfg(test)]` yields path segment `cfg` not `test`, plus dual-attribute
+case). RS-5 resolved (§2 Ships explicit feature-flag scope bullet). RS-6
+resolved (§3.3 acknowledges third option with deferral rationale).
+Other R1 findings (RS-2 segmentation strategy, RS-4 lint qualification,
+RS-7 sort determinism, RS-8 graph-specs cross-dogfood safety) accepted
+from R1 with no R2 action needed. One implementation-time note for
+042-B implementer (PropValue::Str extraction shape).
 
 ## 6. Non-goals
 

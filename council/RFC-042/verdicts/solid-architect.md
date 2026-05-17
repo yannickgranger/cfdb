@@ -357,3 +357,78 @@ ISP's "don't force users to depend on things they don't need" because the port l
 production context is not using the interface yet. RFC-042's `reachable_from_production_entry`
 attribute makes this distinction mechanically checkable for the first time, and graph-specs-rust's
 `ports/` layer is the natural first target because its trait surface is small and well-defined.
+
+---
+
+## R2 verdict — 2026-05-17
+
+**Verdict:** RATIFY
+**Round:** 2 (re-review after EDIT 3 + EDIT 1 applied at commit `2583109`)
+
+### CR1 — SRP/CCP probe location: RESOLVED
+
+RFC §3.1 "Probe semantics" paragraph now explicitly names the destination as
+`crates/cfdb-hir-extractor/src/entry_point_emitter/test_bench.rs` (NOT `registers_param.rs`),
+citing council R1 §3 EDIT 3 inline. The accompanying module-doc text is quoted verbatim in the
+RFC and correctly articulates the CCP separation argument: "they change for a different reason
+(vocabulary evolution vs param-edge wiring evolution)." The "no REGISTERS_PARAM counterpart"
+rationale is stated explicitly. CR1 is fully resolved.
+
+### CR2 — LSP/ISP trait surface: RESOLVED
+
+RFC §3.3 now carries the "Trait surface impact (council R1 §2 synthesis: Position B)" subsection
+with exact text. Key verifiable assertions in the updated RFC:
+
+- `EnrichBackend::enrich_reachability` signature `(&mut self, keyspace: &Keyspace) -> Result<EnrichReport, StoreError>`
+  preserved verbatim — confirmed against `cfdb-core/src/enrich.rs:177`.
+- `ReachabilityFilter` enum is explicitly `pub(crate)` — stays inside `cfdb-petgraph`, never
+  crosses the crate boundary.
+- `BTreeSet<&str>` / string-typed filter / CLI vocabulary: explicitly stated NOT to cross the
+  port. The ISP concern (caller shape leaking into the stable abstraction) is addressed.
+- CLI continues to make one `store.enrich_reachability(&ks)` call. Composition root is
+  unambiguous: `cfdb-petgraph/src/enrich_backend.rs:151-163`.
+- `EnrichReport.attrs_written` reporting the SUM of both passes is specified with the exact
+  arithmetic (4N vs. 2N previously) and the "MUST sum" implementer obligation is explicit.
+
+CR2 is fully resolved.
+
+### CRP query duplication hygiene: RESOLVED
+
+RFC §3.3 "Implementer note — sibling .cypher hygiene" mandates the one-line header comment in
+both `.cypher` files naming the sibling and the single point of divergence. The EDIT 8
+guidance is folded into the RFC text as a binding implementer constraint ("MUST carry", "MUST be
+applied to both files"). Non-blocking observation is fully addressed.
+
+### D3 dual-dogfood `#[cfg(test)]` clarification: RESOLVED
+
+RFC §3.1 "Probe semantics" paragraph explicitly addresses the `#[cfg(test)]` non-firing concern
+via EDIT 4 (rust-systems RS-3): the RFC explains that `#[cfg(test)]` yields path segment `cfg`
+not `test`, and that `test` inside `cfg(...)` is a token-tree argument, not a path segment.
+The self-dogfood lower-bound direction is now correct: `grep_count` counts only
+`#[test]` / `#[tokio::test]` / `#[given/when/then]` attributes, while file-location detection
+may emit MORE, never less (assertion: `emitted ≥ grep_count`).
+
+### D4 synthesized rule: NO OBJECTION
+
+The synthesized D4 rule in SYNTHESIS-R1.md §5 (`arch-test-only-reachable-production-items.cypher`)
+merges solid-architect's ISP-angle (`ports.*` trait narrowing) into the base rule as a documented
+comment. The rule body is a superset that covers the trait case (`kind IN ['fn', 'method', 'trait']`).
+The filed-at path (`.cfdb/queries/arch-test-only-reachable-production-items.cypher`) and zero-
+violation intent match the R1 proposal. No objection to the merged shape.
+
+### Remaining implementation risks (informational, not blocking)
+
+1. `ReachabilityFilter` visibility: the RFC names it `pub(crate)`. The enum is used by `run`
+   which is already `pub(crate)`. The implementer must ensure it does NOT appear in any
+   `pub use` re-export that would let it cross the `cfdb-petgraph` boundary accidentally.
+   This is an implementation hygiene item, not an RFC gap — the RFC text is unambiguous.
+
+2. Test placement for `has_test_attr` / `has_bench_attr` unit tests: SYNTHESIS-R1.md §4 prescribes
+   `crates/cfdb-hir-extractor/src/entry_point_emitter/test_bench.rs #[cfg(test)] mod tests`.
+   This is consistent with placing the test adjacent to the code it tests. The implementer
+   should confirm the `#[cfg(test)] mod tests` block goes in `test_bench.rs`, not in a separate
+   `tests/` file, to keep the probe + its tests co-located.
+
+Both items are informational signals for the implementer, not blockers for ratification.
+
+**RATIFY — solid-architect lens, R2.**

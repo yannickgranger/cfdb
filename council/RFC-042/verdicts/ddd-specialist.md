@@ -145,3 +145,51 @@ ORDER BY qname ASC
 **Intent:** cleanup-driving (finds existing findings that may warrant operator review).
 
 **Rationale:** The DDD lens concern is anaemic aggregates and vocabulary leakage. An item that the domain model exposes (`pub fn`) but that only test drivers call is a vocabulary fact: the concept exists (the fn is named and typed) but the production system never invokes it. In cfdb's own vocabulary terms, this is an item with `reachable_from_entry=true, reachable_from_production_entry=false, is_test=false` — a fact class that only becomes expressible after RFC-042 lands the dual-BFS. The proposed rule makes this fact class a first-class query in graph-specs-rust's ban suite. It is intentionally non-blocking (cleanup-driving) because test-ahead-of-production wiring is a legitimate development pattern, not an invariant violation. The rule produces an operator inventory, not a gate failure.
+
+---
+
+## R2 verdict
+
+**Verdict:** RATIFY
+**Round:** 2
+**Date:** 2026-05-17
+
+### R2.1 — Finding 1 resolved: homonym disambiguation is adequate
+
+RFC §3.2 "Edit 1" adds the following text to the `:EntryPoint.kind` descriptor (visible at lines 299-306 of the updated RFC):
+
+> "Note: `kind=\"test\"` on `:EntryPoint` is ORTHOGONAL to `:Item.is_test`. The former classifies the entry surface (this fn is an invocation root for the test runner). The latter classifies the item's compile scope (this item lives under `#[cfg(test)]`). A query that needs items reachable only from test entry points should match on `:EntryPoint{kind:\"test\"}`-reachability via the `:Item.reachable_from_production_entry` attribute, NOT on `:Item.is_test=true`."
+
+This is sufficient. The sentence correctly names the two concepts, their different axes ("entry surface" vs "compile scope"), and provides a concrete redirect to the right attribute for the canonical analyst query shape. A future query author reading `cfdb describe` will see the disambiguation inline on the `kind` descriptor and will not need to reason from first principles.
+
+### R2.2 — Finding 4 resolved: new `:Item` attributes adequately described
+
+RFC §3.2 "Edit 2" and "Edit 3" add `reachable_from_production_entry: bool` and `reachable_production_entry_count: i64` to the `:Item` node descriptor, both tagged `Provenance::EnrichReachability`.
+
+**Provenance tag correctness confirmed:** `Provenance::EnrichReachability` is the existing variant at `crates/cfdb-core/src/schema/descriptors.rs:60` — defined as "Written by `enrich_reachability()`, `:Item.reachable_from_entry`, `:Item.reachable_entry_count` from BFS over `CALLS*`." The two new attributes are produced by the same pass (second invocation with `ReachabilityFilter::ProductionOnly`), so the tag is correct and no new provenance variant is required.
+
+**Placement confirmed:** `item_node_descriptor()` at `crates/cfdb-core/src/schema/describe/nodes.rs:82-93` assembles item attributes via helpers, extending with `item_attrs_enrich_reachability()` at line 86. The natural implementation placement for the two new entries is therefore inside `item_attrs_enrich_reachability()` at `nodes.rs:151-157`, which the RFC's "alongside the existing `reachable_from_entry` row" instruction correctly implies. The attribute vec is then sorted at line 87, so insertion order does not matter. No additional placement specificity is required.
+
+**Description quality:** the RFC's prose for both new attrs names the semantic condition, the kind-filter exclusion ({test, bench}), the consuming query (`classifier-unwired-production.cypher`), and the CLI flag (`--production-only`). This meets the descriptor standard established by the existing `reachable_from_entry` row.
+
+### R2.3 — Tests prescription tightening confirmed
+
+RFC §7 updated slices 042-A and 042-B carry the synthesized prescriptions verbatim:
+
+- **042-A self dogfood:** "emitted count ≥ grep count (file-location detection may emit MORE, never less)" — the tightening from R1 is present.
+- **042-A target dogfood:** includes spot-audit confirmation that `JupiterCryptoBroker::new` is reached by at least one `:EntryPoint{kind:"test"}`.
+- **042-B target dogfood:** includes "spot-audit of ≥5 items reclassified from 'unwired (default)' to 'reached-from-test'."
+
+All three tightenings are reflected. No further action required from this lens.
+
+### R2.4 — D4 zero-violation override: noted, not objected
+
+The synthesis (SYNTHESIS-R1.md §5) overrides the ddd-specialist's cleanup-driving intent in favor of zero-violation-from-day-one, per clean-arch, solid-architect, and rust-systems consensus.
+
+The DDD lens does not object. The synthesis argument is sound: graph-specs-rust's domain is small enough that a clean initial extract is plausible, and a zero-violation policy is strictly stronger than cleanup-driving (it prevents drift rather than merely cataloging it). The concession in R1 ("could equally be policy if the initial extract is clean") is now the ratified position.
+
+One residual note for the implementation PR: if the initial extract of graph-specs-rust against post-042-B cfdb produces ANY non-zero rows on `arch-test-only-reachable-production-items.cypher`, the implementation PR MUST NOT ship the rule as zero-violation — it must either fix the findings in graph-specs-rust first (preferred, per §3 methodology) or switch to cleanup-driving and file a follow-up issue per the 30-minute rule. The synthesis §5 "Follow-up PR plan" bullet 2 covers this ("confirms zero rows OR catalogs the small initial finding set with operator-confirmed disposition per finding") — this residual note simply flags that the "OR" branch is not a silent fallback; it requires an explicit operator decision and a filed issue.
+
+### R2 summary
+
+All R1 change requests are satisfied. The RFC is correct in design and documentation. This lens RATIFIES RFC-042.

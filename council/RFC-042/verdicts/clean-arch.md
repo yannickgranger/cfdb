@@ -136,3 +136,33 @@ Concrete graph-specs-rust file at current HEAD: the `domain/src/diff.rs:23` `pub
 **Intent:** zero-violation policy from day one. The rule ships clean against graph-specs-rust: the domain is small and well-wired. Any future domain fn that tests reach but production does not will surface immediately, preventing the JupiterCryptoBroker failure mode (RFC §1 canonical example) from recurring in graph-specs-rust itself.
 
 **Rationale:** Clean architecture requires that the domain is exercised end-to-end through production entry points. A domain fn reachable only from tests signals a layer-purity regression: either the fn is test scaffolding masquerading as domain logic, or the production wiring was forgotten. RFC-042 makes this class of finding detectable for the first time. Shipping the rule at day one on graph-specs-rust is the correct clean-arch enforcement posture — zero-tolerance, not cleanup-driving, because graph-specs-rust's domain is small enough to be clean on the first extraction.
+
+---
+
+## R2 verdict
+
+**Verdict:** RATIFY
+**Round:** 2
+**Date:** 2026-05-17
+
+### R1 Finding 1 — port purity — RESOLVED
+
+R1 objected that `entry_kind_filter: Option<&BTreeSet<&str>>` would leak CLI vocabulary into the `EnrichBackend` port at `cfdb-core/src/enrich.rs:177`.
+
+Under Position B as now written in RFC §3.3 ("Trait surface impact" subsection, lines 408-455), the `BTreeSet<&str>` is explicitly forbidden from crossing the crate boundary. The `ReachabilityFilter` enum is `pub(crate)` inside `cfdb-petgraph/src/enrich/reachability.rs` — structural verification: `lib.rs:17` declares `mod enrich` (no `pub`), making the entire `enrich` module crate-private. No variant of `ReachabilityFilter` can be named by `cfdb-cli` or `cfdb-core`. The port method signature `enrich_reachability(&mut self, keyspace: &Keyspace)` at `cfdb-core/src/enrich.rs:177` is confirmed unchanged. The `BTreeSet<&str>` concern is structurally resolved — not by changing where the enum lives in the call stack, but by the crate visibility barrier.
+
+The clean-arch concern was never about which stack frame holds the loop — it was about whether a stringly-typed CLI concept crosses the port boundary. It does not. RESOLVED.
+
+### R1 Finding 2 — composition root ambiguity — RESOLVED (as predicted)
+
+The synthesis correctly assessed that Finding 2 becomes moot under Position B. With the dual-BFS fully internal to `PetgraphStore::enrich_reachability` (`cfdb-petgraph/src/enrich_backend.rs:151-163`), there is exactly one composition root and it is named explicitly in the updated RFC §3.3 text. The `cfdb-cli/src/enrich.rs:59` dispatch makes a single `store.enrich_reachability(&ks)` call — it neither sees nor orchestrates two passes. RESOLVED.
+
+### D4 merged rule — no objection
+
+The synthesized rule `arch-test-only-reachable-production-items.cypher` (SYNTHESIS-R1 §5) is a proper superset of the clean-arch lens's R1 `arch-domain-only-reached-from-tests.cypher` proposal. The merged rule removes the `crate =~ 'domain.*'` narrowing, broadening scope from "domain items only" to "any non-test fn/method/trait." This is strictly more powerful: the clean-arch lens's narrowing was a conservative starting point; the merged scope catches the same domain-layer violations plus adapter and application layer violations. The clean-arch lens notes that narrowing queries can always be derived from the broad rule by adding `AND i.crate =~ 'domain.*'` at query time, so the broader base rule is the correct permanent policy artifact. No objection to the merged shape.
+
+The `ORDER BY crate ASC, qname ASC` ordering (vs. R1 proposal's `ORDER BY qname ASC`) is consistent with the other graph-specs-rust rules (`arch-ban-unwrap-domain-ports.cypher` uses `RETURN caller.qname, caller.crate` without explicit ORDER) and is an improvement for operator readability. No objection.
+
+### Residual note — EnrichReport sum (non-blocking)
+
+RFC §3.3 now states: "Implementers MUST sum the per-pass counters; returning only one pass's count is a bug." This is correct and the clean-arch lens endorses it. The enforcement mechanism is the unit test prescribed in D2/042-B ("assert determinism: two sequential runs produce byte-identical attribute writes") which, if the sum is wrong, will surface a count discrepancy in the `EnrichReport`. No additional RFC text edit required.
