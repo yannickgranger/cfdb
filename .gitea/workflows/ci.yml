@@ -166,7 +166,12 @@ jobs:
       - name: Determinism check (§12.1 G1)
         run: |
           cd repo
-          cargo build --release -p cfdb-cli --bin cfdb
+          # `--features hir` builds the rust-analyzer-backed extractor so
+          # the downstream `cfdb self-audit` extract step can pass
+          # `--hir` and populate `CALLS` + `EXPOSES` in the `cfdb-self`
+          # keyspace. Without the feature, those edge labels report
+          # dormant in the edge-liveness step (issue #381).
+          cargo build --release -p cfdb-cli --bin cfdb --features hir
           CFDB_BIN="$(pwd)/target/release/cfdb" bash ci/determinism-check.sh "$(pwd)/spikes/qa5-utc-now"
 
       - name: Predicate determinism (RFC-034 §4.1)
@@ -184,7 +189,12 @@ jobs:
         run: |
           cd repo
           mkdir -p .cfdb/db
-          ./target/release/cfdb extract --workspace . --db .cfdb/db --keyspace cfdb-self
+          # `--hir` runs the HIR-resolved extractor after syn so the
+          # downstream edge-liveness step sees `CALLS` + `EXPOSES`
+          # populated (issue #381). Requires the binary to be built
+          # with `--features hir` — paired with the determinism-check
+          # step above.
+          ./target/release/cfdb extract --workspace . --db .cfdb/db --keyspace cfdb-self --hir
           # Run every arch-ban-*.cypher rule against cfdb's own source.
           # v0.1 semantics (RFC-030 §3.2 as amended): any non-empty match
           # blocks merge. Per-class routing awaits #48 (Finding classifier).
