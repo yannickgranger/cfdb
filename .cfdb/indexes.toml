@@ -41,3 +41,8 @@ notes = "Slice-5 narrow for RandomScattering / Unwired / CanonicalBypass — `re
 label = "Item"
 prop = "is_test"
 notes = "Slice-5 narrow — every classifier filters `is_test = false`. Low-cardinality bucket; intersect-by-size avoids materialising the huge `false` set when a smaller hint exists."
+
+[[index]]
+label = "Item"
+prop = "dup_cluster_id"
+notes = "Hash-join bucket for `.cfdb/queries/hsb-cluster.cypher` — the v2 HSB detector joins on `a.dup_cluster_id = b.dup_cluster_id` (RFC-036 §3.4 signal S1). Without this entry the rule falls back to label scan + per-pair Cartesian on `:Item` (~80k items on cfdb-self post-extract), regressed cfdb-self smoke from ~1s to ~8min. Populated by `enrich_metrics` (RFC-036 §3.3, slice #203) as `sha256(lex_sorted(member_qnames))` keyed by shared `signature_hash`; sparse — only items in a fingerprint-duplicate cluster carry the prop. Sparse-prop buckets are cheap to index."
