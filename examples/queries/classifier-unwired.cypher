@@ -52,6 +52,17 @@
 //   but noisy for the scope verb — the CLI orchestrator tags this
 //   shape explicitly in the warnings.
 //
+// # Recall improvements applied at enrichment time
+// - **#396 serde_default callees.** A `:CallSite{kind="serde_default"}`
+//   marks a fn referenced by `#[serde(default = "fn")]` whose runtime
+//   caller is serde's derived `Deserialize` impl — invisible to cfdb
+//   without proc-macro expansion (see #398). The `enrich_reachability`
+//   post-pass resolves `callee_path` to `:Item.qname` (exact /
+//   same-module / same-crate match) and flips `reachable_from_entry`
+//   on the resolved fn. This rule therefore does NOT need an explicit
+//   serde_default exclusion clause — the post-pass handles it before
+//   the query runs.
+//
 // # Determinism
 // `ORDER BY qname` — stable row order required by G1.
 

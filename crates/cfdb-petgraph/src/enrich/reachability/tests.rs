@@ -643,3 +643,238 @@ fn prod5_two_runs_with_mixed_kinds_are_byte_identical() {
         "dual-pass writes (All + ProductionOnly) must be byte-identical across runs"
     );
 }
+
+// ==================================================================
+// #396 — serde_default callee resolution post-pass
+// ==================================================================
+//
+// `:CallSite{kind="serde_default"}` carries a `callee_path` string
+// referencing a fn invoked by serde's derived `Deserialize` impl. The
+// derive expansion is invisible to cfdb (proc-macro server is disabled
+// per #398), so the BFS never reaches the callee through a normal call
+// chain. Without the post-pass, every `#[serde(default = "fn")]`
+// callee is flagged `unwired`.
+//
+// The post-pass walks every `:CallSite{kind="serde_default"}` node,
+// resolves `callee_path` against `:Item.qname` using
+// exact / same-module / same-crate candidate matching, and sets
+// `reachable_from_entry = true` (and, on the ProductionOnly pass,
+// `reachable_from_production_entry = true`) on the resolved item.
+// `reachable_entry_count` is intentionally NOT incremented — the count
+// semantic remains "distinct BFS-reaching entry points".
+
+fn serde_default_callsite(parent_qname: &str, field: &str, callee_path: &str) -> Node {
+    let mut props = Props::new();
+    props.insert("kind".into(), PropValue::Str("serde_default".into()));
+    props.insert("callee_path".into(), PropValue::Str(callee_path.into()));
+    props.insert("caller_qname".into(), PropValue::Str(parent_qname.into()));
+    props.insert("field".into(), PropValue::Str(field.into()));
+    Node {
+        id: format!("callsite:{parent_qname}.{field}:{callee_path}:0"),
+        label: Label::new(Label::CALL_SITE),
+        props,
+    }
+}
+
+fn invokes_at_edge(src: &str, dst: &str) -> Edge {
+    Edge {
+        src: src.into(),
+        dst: dst.into(),
+        label: EdgeLabel::new(EdgeLabel::INVOKES_AT),
+        props: Props::new(),
+    }
+}
+
+#[test]
+fn issue_396_serde_default_callee_with_exact_qname_match_becomes_reachable() {
+    let mut store = PetgraphStore::new();
+    let ks = Keyspace::new("test");
+    // Entry point E → load_config (reachable via BFS).
+    // AppConfig is a struct (NOT reached by BFS — types aren't called).
+    // AppConfig has #[serde(default = "myapp::config::default_url")] on
+    // the `url` field; callee_path is the FULLY-QUALIFIED form (the
+    // exact-match resolution strategy must catch this case).
+    // default_url itself has NO CALLS predecessor.
+    store
+        .ingest_nodes(
+            &ks,
+            vec![
+                entry_point_node("ep:E"),
+                item_node("myapp::load_config", "myapp"),
+                item_node("myapp::config::AppConfig", "myapp"),
+                item_node("myapp::config::default_url", "myapp"),
+                serde_default_callsite(
+                    "myapp::config::AppConfig",
+                    "url",
+                    "myapp::config::default_url",
+                ),
+            ],
+        )
+        .expect("ingest nodes");
+    store
+        .ingest_edges(
+            &ks,
+            vec![
+                exposes_edge("ep:E", "item:myapp::load_config"),
+                invokes_at_edge(
+                    "item:myapp::config::AppConfig",
+                    "callsite:myapp::config::AppConfig.url:myapp::config::default_url:0",
+                ),
+            ],
+        )
+        .expect("ingest edges");
+
+    store.enrich_reachability(&ks).expect("pass");
+
+    assert_eq!(
+        get_reachability(&store, &ks, "myapp::load_config"),
+        (true, 1),
+        "load_config reached by BFS from E"
+    );
+    assert_eq!(
+        get_reachability(&store, &ks, "myapp::config::AppConfig"),
+        (false, 0),
+        "AppConfig is a type, not in the call graph"
+    );
+    let (reachable, count) = get_reachability(&store, &ks, "myapp::config::default_url");
+    assert!(
+        reachable,
+        "default_url MUST be reachable via the serde_default post-pass (#396) — \
+         callee_path = exact qname match against :Item"
+    );
+    assert_eq!(
+        count, 0,
+        "reachable_entry_count stays at 0 — the post-pass marks the fn reachable \
+         without attributing it to any specific entry point"
+    );
+}
+
+#[test]
+fn issue_396_serde_default_callee_with_same_module_short_form_becomes_reachable() {
+    let mut store = PetgraphStore::new();
+    let ks = Keyspace::new("test");
+    // Author wrote #[serde(default = "default_url")] — the short form
+    // that assumes default_url is in the SAME MODULE as AppConfig.
+    // The same-module resolver must split AppConfig's qname on the
+    // last `::` to recover the module path, then prepend it to
+    // callee_path.
+    store
+        .ingest_nodes(
+            &ks,
+            vec![
+                entry_point_node("ep:E"),
+                item_node("myapp::load_config", "myapp"),
+                item_node("myapp::config::AppConfig", "myapp"),
+                item_node("myapp::config::default_url", "myapp"),
+                serde_default_callsite("myapp::config::AppConfig", "url", "default_url"),
+            ],
+        )
+        .expect("ingest nodes");
+    store
+        .ingest_edges(
+            &ks,
+            vec![
+                exposes_edge("ep:E", "item:myapp::load_config"),
+                invokes_at_edge(
+                    "item:myapp::config::AppConfig",
+                    "callsite:myapp::config::AppConfig.url:default_url:0",
+                ),
+            ],
+        )
+        .expect("ingest edges");
+
+    store.enrich_reachability(&ks).expect("pass");
+
+    let (reachable, _) = get_reachability(&store, &ks, "myapp::config::default_url");
+    assert!(
+        reachable,
+        "default_url MUST be reachable via the serde_default post-pass (#396) — \
+         same-module short-form resolution"
+    );
+}
+
+#[test]
+fn issue_396_serde_default_callee_unresolvable_does_not_panic() {
+    let mut store = PetgraphStore::new();
+    let ks = Keyspace::new("test");
+    // callee_path resolves to NO :Item — e.g. the callee is in a
+    // dependency crate not included in the workspace. The post-pass
+    // must skip silently, not panic.
+    store
+        .ingest_nodes(
+            &ks,
+            vec![
+                entry_point_node("ep:E"),
+                item_node("myapp::load_config", "myapp"),
+                item_node("myapp::config::AppConfig", "myapp"),
+                serde_default_callsite("myapp::config::AppConfig", "timestamp", "chrono::Utc::now"),
+            ],
+        )
+        .expect("ingest");
+    store
+        .ingest_edges(
+            &ks,
+            vec![
+                exposes_edge("ep:E", "item:myapp::load_config"),
+                invokes_at_edge(
+                    "item:myapp::config::AppConfig",
+                    "callsite:myapp::config::AppConfig.timestamp:chrono::Utc::now:0",
+                ),
+            ],
+        )
+        .expect("ingest");
+
+    // Must not panic. AppConfig stays unreachable (no caller).
+    store.enrich_reachability(&ks).expect("pass");
+    assert_eq!(
+        get_reachability(&store, &ks, "myapp::config::AppConfig"),
+        (false, 0)
+    );
+}
+
+#[test]
+fn issue_396_non_serde_default_callsite_is_ignored() {
+    let mut store = PetgraphStore::new();
+    let ks = Keyspace::new("test");
+    // A regular `:CallSite{kind="call"}` (from a normal fn body) must
+    // NOT be picked up by the serde_default post-pass — it would
+    // contaminate reachability with un-resolved textual callee paths.
+    let mut cs_props = Props::new();
+    cs_props.insert("kind".into(), PropValue::Str("call".into()));
+    cs_props.insert(
+        "callee_path".into(),
+        PropValue::Str("myapp::dead_fn".into()),
+    );
+    cs_props.insert(
+        "caller_qname".into(),
+        PropValue::Str("myapp::load_config".into()),
+    );
+    store
+        .ingest_nodes(
+            &ks,
+            vec![
+                entry_point_node("ep:E"),
+                item_node("myapp::load_config", "myapp"),
+                item_node("myapp::dead_fn", "myapp"),
+                Node {
+                    id: "callsite:myapp::load_config:myapp::dead_fn:0".into(),
+                    label: Label::new(Label::CALL_SITE),
+                    props: cs_props,
+                },
+            ],
+        )
+        .expect("ingest");
+    store
+        .ingest_edges(&ks, vec![exposes_edge("ep:E", "item:myapp::load_config")])
+        .expect("ingest");
+
+    store.enrich_reachability(&ks).expect("pass");
+
+    // dead_fn must stay unreachable — its callsite kind is "call",
+    // not "serde_default", so the post-pass must not touch it.
+    assert_eq!(
+        get_reachability(&store, &ks, "myapp::dead_fn"),
+        (false, 0),
+        "post-pass must scope its writes to kind=serde_default callsites"
+    );
+}

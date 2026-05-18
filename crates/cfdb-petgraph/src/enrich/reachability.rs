@@ -69,7 +69,9 @@ use petgraph::Direction;
 use crate::graph::KeyspaceState;
 
 pub(crate) const VERB: &str = "enrich_reachability";
-const ATTR_REACHABLE: &str = "reachable_from_entry";
+/// `reachable_from_entry` attr name — shared with
+/// [`super::attr_call_resolution`] so the post-pass writes the same prop.
+pub(crate) const ATTR_REACHABLE: &str = "reachable_from_entry";
 const ATTR_COUNT: &str = "reachable_entry_count";
 const ATTR_REACHABLE_PROD: &str = "reachable_from_production_entry";
 const ATTR_COUNT_PROD: &str = "reachable_production_entry_count";
@@ -138,13 +140,29 @@ pub(crate) fn run(state: &mut KeyspaceState, filter: ReachabilityFilter) -> Enri
     let filtered = filter_entry_points(state, &entry_points, filter);
     let seeds = collect_seeds(state, &filtered);
     let reach_count = accumulate_reach_counts(state, &seeds);
-    let attrs_written = write_item_attrs(state, &reach_count, filter);
+    let bfs_attrs = write_item_attrs(state, &reach_count, filter);
+
+    // #396 — serde_default callee post-pass. Closes the recall gap where
+    // fns referenced by `#[serde(default = "fn")]` are flagged unwired
+    // because cfdb cannot trace through proc-macro-expanded derive impls
+    // (see super::attr_call_resolution module doc + #398).
+    //
+    // The post-pass writes to whichever reach attr the current filter
+    // selected: `reachable_from_entry` for `All`, or
+    // `reachable_from_production_entry` for `ProductionOnly`. Serde
+    // deserialize callbacks are production code, so they belong in BOTH
+    // sets — by running the post-pass once per filter invocation we
+    // satisfy that without a separate dispatch.
+    let attr_call_attrs = super::attr_call_resolution::mark_serde_default_callees_reachable(
+        state,
+        filter.reach_attr(),
+    );
 
     EnrichReport {
         verb: VERB.into(),
         ran: true,
         facts_scanned: u64::try_from(entry_points.len()).unwrap_or(u64::MAX),
-        attrs_written,
+        attrs_written: bfs_attrs + attr_call_attrs,
         edges_written: 0,
         warnings: Vec::new(),
     }
