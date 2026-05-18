@@ -109,5 +109,45 @@ if [ "$A_ENRICH" != "$B_ENRICH" ]; then
   exit 1
 fi
 
+# ── HIR --hir determinism (RFC-043 / issue #418 / §4 I1) ─────────────
+#
+# Post-RFC-043 the proc-macro server is enabled by default (when the
+# sysroot ships `rust-analyzer-proc-macro-srv`). G1 byte-stability MUST
+# hold on the macro path too — two consecutive `cfdb extract --hir`
+# runs on cfdb's own workspace produce identical canonical dumps.
+#
+# cfdb-self is the corpus per RFC-043 §3.5: it carries `#[derive]` and
+# `#[tokio::test]` shapes that exercise the proc-macro arm without
+# needing a synthetic fixture.
+#
+# This block runs ONLY when the cfdb binary was built with the `hir`
+# feature. If `extract --hir` exits non-zero (feature absent), we skip
+# with an advisory message — the unconditional syn-only gate above is
+# still enforced.
+if [ -f "$CFDB_WS/Cargo.toml" ]; then
+  DB_HIR_A="$(mktemp -d)"
+  DB_HIR_B="$(mktemp -d)"
+  trap 'rm -rf "$DB_A" "$DB_B" "$DB_HIR_A" "$DB_HIR_B"' EXIT
+  HIR_KS="determinism-hir-fixture"
+
+  if "$CFDB_BIN" extract --workspace "$CFDB_WS" --db "$DB_HIR_A" --keyspace "$HIR_KS" --hir >/dev/null 2>&1; then
+    "$CFDB_BIN" extract --workspace "$CFDB_WS" --db "$DB_HIR_B" --keyspace "$HIR_KS" --hir >/dev/null
+
+    A_HIR_SHA="$("$CFDB_BIN" dump --db "$DB_HIR_A" --keyspace "$HIR_KS" | sha256sum | cut -d' ' -f1)"
+    B_HIR_SHA="$("$CFDB_BIN" dump --db "$DB_HIR_B" --keyspace "$HIR_KS" | sha256sum | cut -d' ' -f1)"
+
+    if [ "$A_HIR_SHA" != "$B_HIR_SHA" ]; then
+      echo "G1 VIOLATION (--hir): two consecutive --hir extractions produced different dumps" >&2
+      echo "  workspace: $CFDB_WS" >&2
+      echo "  run A sha: $A_HIR_SHA" >&2
+      echo "  run B sha: $B_HIR_SHA" >&2
+      exit 1
+    fi
+    echo "G1 OK (--hir): extract=$A_HIR_SHA  ($CFDB_WS)"
+  else
+    echo "G1 SKIP (--hir): cfdb binary lacks the \`hir\` Cargo feature; build via \`cargo build -p cfdb-cli --features hir\` to enable. Syn-only G1 still enforced."
+  fi
+fi
+
 echo "G1 OK: extract=$A_SHA  enrich-git-history=deterministic  ($WORKSPACE)"
 exit 0

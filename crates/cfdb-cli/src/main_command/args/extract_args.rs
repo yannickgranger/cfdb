@@ -34,6 +34,16 @@ pub(crate) struct ExtractArgs {
     /// to opt in (Issue #86 / slice 4).
     #[arg(long)]
     pub hir: bool,
+    /// Disable the proc-macro server during HIR extraction. By default
+    /// (`--hir` without this flag) cfdb passes `ProcMacroServerChoice::Sysroot`
+    /// to `ra_ap_load_cargo`, raising receiver-type-resolution recall on
+    /// `#[async_trait]` / `#[derive(Builder)]` / `#[tokio::test]` /
+    /// cucumber-step chains (RFC-043). Pass this flag to restore the
+    /// pre-RFC-043 syn-only resolution if a determinism break or
+    /// wall-clock budget overrun warrants the escape (RFC-043 §3.5).
+    /// Only meaningful with `--hir`.
+    #[arg(long)]
+    pub no_proc_macro: bool,
     /// Extract against a specific git revision. Accepts two forms:
     ///
     ///   1. `<sha|tag|branch>` — same-repo: requires `--workspace`

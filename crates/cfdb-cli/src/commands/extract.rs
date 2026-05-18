@@ -20,6 +20,7 @@ pub fn extract(
     db: PathBuf,
     keyspace: Option<String>,
     hir: bool,
+    no_proc_macro: bool,
     rev: Option<String>,
 ) -> Result<(), crate::CfdbCliError> {
     // The `Some(rev) if is_url_at_sha(rev)` guard is the SINGLE resolution
@@ -27,9 +28,11 @@ pub fn extract(
     // inside `extract_at_rev` or `extract_at_url_rev` — see the Wiring
     // Assertion in `.prescriptions/96.md`.
     match rev.as_deref() {
-        None => extract_at_path(&workspace, &db, keyspace, hir),
-        Some(rev) if is_url_at_sha(rev) => extract_at_url_rev(rev, &db, keyspace, hir),
-        Some(rev) => extract_at_rev(&workspace, rev, &db, keyspace, hir),
+        None => extract_at_path(&workspace, &db, keyspace, hir, no_proc_macro),
+        Some(rev) if is_url_at_sha(rev) => {
+            extract_at_url_rev(rev, &db, keyspace, hir, no_proc_macro)
+        }
+        Some(rev) => extract_at_rev(&workspace, rev, &db, keyspace, hir, no_proc_macro),
     }
 }
 
@@ -41,6 +44,7 @@ fn extract_at_path(
     db: &Path,
     keyspace: Option<String>,
     hir: bool,
+    no_proc_macro: bool,
 ) -> Result<(), crate::CfdbCliError> {
     let ks_name = keyspace.unwrap_or_else(|| workspace_basename(workspace));
     let ks = Keyspace::new(&ks_name);
@@ -89,7 +93,7 @@ fn extract_at_path(
     store.ingest_edges(&ks, edges)?;
 
     if hir {
-        extract_hir(&mut store, &ks, workspace)?;
+        extract_hir(&mut store, &ks, workspace, !no_proc_macro)?;
     }
 
     let path = compose::save_store(&store, &ks, db)?;
@@ -112,6 +116,7 @@ fn extract_at_rev(
     db: &Path,
     keyspace: Option<String>,
     hir: bool,
+    no_proc_macro: bool,
 ) -> Result<(), crate::CfdbCliError> {
     if !repo.join(".git").exists() && !repo.join(".git").is_file() {
         return Err(crate::CfdbCliError::Usage(format!(
@@ -133,7 +138,7 @@ fn extract_at_rev(
 
     // Run the normal extract against the temp worktree. If it fails, the
     // guard's Drop still removes the worktree.
-    let result = extract_at_path(worktree_guard.path(), db, Some(ks_name), hir);
+    let result = extract_at_path(worktree_guard.path(), db, Some(ks_name), hir, no_proc_macro);
 
     // Explicit remove so we surface removal errors rather than swallowing
     // them in Drop. If removal fails, we still return the extract result —
@@ -159,6 +164,7 @@ fn extract_at_url_rev(
     db: &Path,
     keyspace: Option<String>,
     hir: bool,
+    no_proc_macro: bool,
 ) -> Result<(), crate::CfdbCliError> {
     let (url, sha) = parse_url_at_sha(url_at_sha).ok_or_else(|| {
         crate::CfdbCliError::Usage(format!(
@@ -187,7 +193,7 @@ fn extract_at_url_rev(
     }
 
     let ks_name = keyspace.unwrap_or_else(|| short_rev(sha));
-    extract_at_path(&cache_dir, db, Some(ks_name), hir)
+    extract_at_path(&cache_dir, db, Some(ks_name), hir, no_proc_macro)
 }
 
 /// Ensure the parent directory exists and remove any half-populated cache
@@ -456,8 +462,9 @@ fn extract_hir(
     store: &mut cfdb_petgraph::PetgraphStore,
     ks: &Keyspace,
     workspace: &Path,
+    proc_macros: bool,
 ) -> Result<(), crate::CfdbCliError> {
-    crate::hir::extract_and_ingest_hir(store, ks, workspace)
+    crate::hir::extract_and_ingest_hir(store, ks, workspace, proc_macros)
         .map_err(|e| crate::CfdbCliError::from(format!("hir extract failed: {e}")))?;
     Ok(())
 }
@@ -467,6 +474,7 @@ fn extract_hir(
     _store: &mut cfdb_petgraph::PetgraphStore,
     _ks: &Keyspace,
     _workspace: &Path,
+    _proc_macros: bool,
 ) -> Result<(), crate::CfdbCliError> {
     Err(crate::CfdbCliError::from(
         "`--hir` requires the `hir` Cargo feature — rebuild with `cargo build -p cfdb-cli --features hir`".to_string(),

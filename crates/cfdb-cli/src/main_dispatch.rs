@@ -23,8 +23,9 @@ pub(crate) fn dispatch_core(cmd: Command) -> Result<(), CfdbCliError> {
             db,
             keyspace,
             hir,
+            no_proc_macro,
             rev,
-        }) => extract(workspace, db, keyspace, hir, rev),
+        }) => extract(workspace, db, keyspace, hir, no_proc_macro, rev),
         Command::Query {
             db,
             keyspace,

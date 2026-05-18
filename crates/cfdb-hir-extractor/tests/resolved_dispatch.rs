@@ -88,7 +88,8 @@ pub fn dispatch() -> &'static str {
 "#,
     );
 
-    let (db, vfs) = build_hir_database(root).expect("build_hir_database on hirfixture workspace");
+    let (db, vfs, _pm_client) =
+        build_hir_database(root, false).expect("build_hir_database on hirfixture workspace");
 
     let (nodes, edges) =
         extract_call_sites(&db, &vfs).expect("extract_call_sites succeeds on hirfixture");
@@ -243,7 +244,8 @@ pub fn use_en() -> &'static str {
 "#,
     );
 
-    let (db, vfs) = build_hir_database(root).expect("build_hir_database on traitfixture");
+    let (db, vfs, _pm_client) =
+        build_hir_database(root, false).expect("build_hir_database on traitfixture");
     let (nodes, edges) = extract_call_sites(&db, &vfs).expect("extract_call_sites on traitfixture");
 
     // HIR should resolve g.greet() in `dispatch<G>` to the trait
@@ -368,7 +370,8 @@ pub fn caller() -> i32 {
 "#,
     );
 
-    let (db, vfs) = build_hir_database(root).expect("build_hir_database on pathcallfixture");
+    let (db, vfs, _pm_client) =
+        build_hir_database(root, false).expect("build_hir_database on pathcallfixture");
     let (nodes, edges) =
         extract_call_sites(&db, &vfs).expect("extract_call_sites on pathcallfixture");
 

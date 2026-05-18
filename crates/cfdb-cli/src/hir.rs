@@ -21,16 +21,37 @@ use cfdb_petgraph::PetgraphStore;
 /// Run the HIR pipeline on `workspace_root` and ingest the resulting
 /// `:CallSite` / `CALLS` / `INVOKES_AT` / `:EntryPoint` / `EXPOSES`
 /// facts into `store` under `keyspace`.
+///
+/// `proc_macros` selects the loader policy (RFC-043): `true` enables
+/// `ProcMacroServerChoice::Sysroot` with a startup probe and silent
+/// fallback when the sysroot binary is missing; `false` restores the
+/// pre-RFC-043 syn-only behaviour.
 pub fn extract_and_ingest_hir(
     store: &mut PetgraphStore,
     keyspace: &Keyspace,
     workspace_root: &Path,
+    proc_macros: bool,
 ) -> Result<EmitStats, HirExtractError> {
     eprintln!(
         "extract --hir: loading HIR database for {}",
         workspace_root.display()
     );
-    let (db, vfs) = build_hir_database(workspace_root).map_err(HirExtractError::Hir)?;
+    // RFC-043 §4 I7: `_proc_macro_client` owns the proc-macro
+    // subprocess. It MUST outlive the salsa `db` because salsa keeps
+    // live references to expanders that the subprocess hosts. Dropping
+    // it before the VFS walk completes terminates the subprocess and
+    // breaks lazy macro expansion. The leading `_` silences the unused
+    // binding warning without freeing the handle.
+    let (db, vfs, _proc_macro_client) =
+        build_hir_database(workspace_root, proc_macros).map_err(HirExtractError::Hir)?;
+    eprintln!(
+        "extract --hir: proc-macros {}",
+        match (proc_macros, _proc_macro_client.is_some()) {
+            (true, true) => "active",
+            (true, false) => "requested but unavailable (syn-only fallback)",
+            (false, _) => "disabled (--no-proc-macro)",
+        }
+    );
 
     eprintln!("extract --hir: resolving call sites");
     let (mut nodes, mut edges) = extract_call_sites(&db, &vfs).map_err(HirExtractError::Hir)?;
