@@ -124,13 +124,20 @@
 // Both verified at `crates/cfdb-query/src/parser/`. So the rule lives
 // in a single MATCH clause whose patterns are joined by commas.
 
+// RFC-042 042-A (#391) added `:EntryPoint{kind=test|bench}`. Without
+// a kind filter the *1..8 BFS fans out from every #[test] fn, which
+// regressed cfdb-self smoke from 10s to 17+ min (#409 reproducer
+// observed 12 665 :EntryPoint nodes, mostly test). Drop-kind VSB is
+// a production drift signal — restrict seeds to production kinds.
+// Sibling vertical-split-brain.cypher carries the same restriction.
 MATCH (ep:EntryPoint)-[:REGISTERS_PARAM]->(wire),
       (ep)-[:EXPOSES]->(handler:Item),
       (handler)-[:CALLS*1..8]->(layer_k:Item),
       (handler)-[:CALLS*1..8]->(layer_kp1:Item),
       (layer_k)-[:HAS_PARAM]->(matched:Param),
       (layer_kp1)-[:HAS_PARAM]->(divergent:Param)
-WHERE matched.name = wire.name
+WHERE ep.kind IN ['cli_command', 'mcp_tool', 'http_route', 'cron_job', 'websocket']
+  AND matched.name = wire.name
   AND divergent.name <> wire.name
   AND layer_k.qname <> layer_kp1.qname
   AND layer_k.is_test = false

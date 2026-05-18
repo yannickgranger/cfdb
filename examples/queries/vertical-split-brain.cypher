@@ -106,10 +106,20 @@
 //   - Same bounded context → /sweep-epic (consolidate)
 //   - Cross context        → /operate-module (context-mapping decision)
 
+// RFC-042 042-A (#391) added `:EntryPoint{kind=test|bench}` so cfdb
+// reachability would no longer falsely flag BDD-only adapters as
+// unwired. Side-effect for THIS rule: every #[test] / #[bench] fn in
+// the workspace is now an :EntryPoint seed for the *1..8 BFS, which
+// turned the smoke-test wall-time from 10s to 17+ min on cfdb-self
+// (12 665 :EntryPoint nodes, mostly test). Resolver forks are a
+// production code-quality signal — test harnesses calling two
+// resolvers is NOT a Pattern B failure, it's just test scaffolding
+// exercising both. Restrict seeds to production kinds.
 MATCH (ep:EntryPoint)-[:EXPOSES]->(handler:Item),
       (handler)-[:CALLS*1..8]->(a:Item),
       (handler)-[:CALLS*1..8]->(b:Item)
-WHERE a.kind = 'fn'
+WHERE ep.kind IN ['cli_command', 'mcp_tool', 'http_route', 'cron_job', 'websocket']
+  AND a.kind = 'fn'
   AND b.kind = 'fn'
   AND a.qname < b.qname
   AND a.name =~ '^(\\w+)_(from|to|for|as)_(\\w+)$'
