@@ -85,7 +85,43 @@ pub(crate) fn load_store(
     db: &Path,
     keyspace: &str,
 ) -> Result<(PetgraphStore, Keyspace), CfdbCliError> {
-    load_store_with_workspace(db, keyspace, None)
+    // #409 closeout — auto-discover the workspace by walking up from
+    // `db` looking for `.cfdb/indexes.toml`. Without this, callers
+    // that don't accept a `--workspace` flag (notably `cfdb query`
+    // and `cfdb violations` — used by the CI smoke loop) miss the
+    // RFC-035 inverted-index narrow and fall back to full label-scan
+    // on every Cartesian classifier, which on a 25k-:Item keyspace
+    // turns sub-second queries into multi-minute hangs.
+    //
+    // The walk-up is anchored on `db` because the canonical layout is
+    // `<workspace>/.cfdb/db/<keyspace>.json` — so `db.ancestors()`
+    // will find `<workspace>` containing `.cfdb/indexes.toml` within
+    // a few steps. Non-canonical layouts (db far from workspace) get
+    // `None` and the legacy behaviour: empty index spec, label-scan
+    // fallback.
+    let auto_workspace = discover_workspace_from_db(db);
+    load_store_with_workspace(db, keyspace, auto_workspace)
+}
+
+/// Walk up from `db` searching for the first ancestor that holds
+/// `.cfdb/indexes.toml`. Returns that ancestor as the workspace root,
+/// or `None` if no ancestor contains the file (caller falls back to
+/// the empty-index spec). Issue #409 closeout — auto-discovery so
+/// `cfdb query`, `cfdb violations`, and other index-blind verbs pick
+/// up the index spec without a new `--workspace` CLI flag.
+///
+/// The search is bounded by [`Path::ancestors`] which terminates at
+/// the root of the file system; the indexes file is typically
+/// 1-2 hops above `db` (`<workspace>/.cfdb/db` → `<workspace>`), so
+/// the walk is cheap.
+fn discover_workspace_from_db(db: &Path) -> Option<PathBuf> {
+    let canonical = db.canonicalize().ok()?;
+    for ancestor in canonical.ancestors() {
+        if ancestor.join(INDEXES_TOML_PATH).is_file() {
+            return Some(ancestor.to_path_buf());
+        }
+    }
+    None
 }
 
 /// Variant that also attaches a workspace root to the store. Used by
