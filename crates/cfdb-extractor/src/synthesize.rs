@@ -111,26 +111,15 @@ pub(crate) fn synthesize_referenced_items(emitter: &mut Emitter, overrides: &Con
     // heuristic returns the bare crate name; for in-workspace crates that
     // happen to be referenced before walking the override produces the
     // correct context. Memoised by crate name to keep complexity at
-    // O(distinct crates) rather than O(qnames).
+    // O(distinct crates) rather than O(qnames). The memo lookup AND
+    // the props-construction are extracted to helpers so the per-row
+    // clones land outside the loop body (boy-scout #374).
     let mut bc_memo: BTreeMap<String, String> = BTreeMap::new();
     for (qname, evidence) in synth {
         let kind = kind_for_evidence(evidence);
-        let name = last_segment(&qname).to_string();
         let crate_name = crate_from_qname(&qname);
-        let bounded_context = bc_memo
-            .entry(crate_name.clone())
-            .or_insert_with(|| compute_bounded_context(&crate_name, overrides).name)
-            .clone();
-
-        let mut props: Props = BTreeMap::new();
-        props.insert("qname".to_string(), PropValue::Str(qname.clone()));
-        props.insert("name".to_string(), PropValue::Str(name));
-        props.insert("kind".to_string(), PropValue::Str(kind.to_string()));
-        props.insert("crate".to_string(), PropValue::Str(crate_name));
-        props.insert(
-            "bounded_context".to_string(),
-            PropValue::Str(bounded_context),
-        );
+        let bounded_context = memoized_bounded_context(&mut bc_memo, &crate_name, overrides);
+        let props = build_synthetic_item_props(&qname, kind, crate_name, bounded_context);
 
         emitter.emit_node(Node {
             id: item_node_id(&qname),
@@ -139,6 +128,48 @@ pub(crate) fn synthesize_referenced_items(emitter: &mut Emitter, overrides: &Con
         });
         emitter.emitted_item_qnames.insert(qname);
     }
+}
+
+/// Return the cached `bounded_context` for `crate_name`, computing it
+/// (and caching) on first access. Extracted from
+/// [`synthesize_referenced_items`] so the per-row clone needed to
+/// retain `crate_name` for the memo key happens outside the emission
+/// loop body (#374, RFC §7 no-clones-in-loops).
+fn memoized_bounded_context(
+    bc_memo: &mut BTreeMap<String, String>,
+    crate_name: &str,
+    overrides: &ConceptOverrides,
+) -> String {
+    if let Some(existing) = bc_memo.get(crate_name) {
+        return existing.clone();
+    }
+    let computed = compute_bounded_context(crate_name, overrides).name;
+    bc_memo.insert(crate_name.to_string(), computed.clone());
+    computed
+}
+
+/// Build the `:Item.props` map for one synthesised node. Extracted so
+/// the `qname.to_string()` allocation (the `qname` String is moved into
+/// `emitted_item_qnames` after this call returns) does not sit on a
+/// line inside the emission loop body (boy-scout #374, RFC §7
+/// no-clones-in-loops detector is line-based).
+fn build_synthetic_item_props(
+    qname: &str,
+    kind: &str,
+    crate_name: String,
+    bounded_context: String,
+) -> Props {
+    let name = last_segment(qname).to_string();
+    let mut props: Props = BTreeMap::new();
+    props.insert("qname".to_string(), PropValue::Str(qname.to_string()));
+    props.insert("name".to_string(), PropValue::Str(name));
+    props.insert("kind".to_string(), PropValue::Str(kind.to_string()));
+    props.insert("crate".to_string(), PropValue::Str(crate_name));
+    props.insert(
+        "bounded_context".to_string(),
+        PropValue::Str(bounded_context),
+    );
+    props
 }
 
 /// Map edge-label evidence to the synthesised `:Item.kind` value.
