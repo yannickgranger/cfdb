@@ -147,12 +147,15 @@ pub(super) fn item_attrs_enrich_git_history() -> Vec<AttributeDescriptor> {
 }
 
 /// `enrich_reachability`-provenance attributes on `:Item` — populated by
-/// slice 43-G (issue #110).
+/// slice 43-G (issue #110), extended by RFC-042 042-B (issue #392) with
+/// the production-only twin attrs that exclude `:EntryPoint{kind ∈ {test, bench}}`.
 pub(super) fn item_attrs_enrich_reachability() -> Vec<AttributeDescriptor> {
     use Provenance::EnrichReachability;
     vec![
         attr("reachable_entry_count", "int?", "Number of distinct `:EntryPoint` nodes reaching this item via `CALLS*` edges. Written by `enrich_reachability()` (RFC addendum §A2.2 row 5). `0` for items not reached from any entry point. Populated by slice 43-G (issue #110) — consumes `:EntryPoint` nodes from `cfdb-hir-extractor`. Reserved in slice 43-A.", EnrichReachability),
         attr("reachable_from_entry", "bool?", "True when at least one `:EntryPoint` reaches this item via `CALLS*`. Written by `enrich_reachability()`. When the keyspace has zero `:EntryPoint` nodes the pass returns `ran: false` rather than silently marking all items unreachable (clean-arch B3 degraded path). Populated by slice 43-G.", EnrichReachability),
+        attr("reachable_production_entry_count", "int?", "Number of distinct production `:EntryPoint` nodes (i.e. `kind ∉ {test, bench}`) reaching this item via `CALLS*` edges. Written by `enrich_reachability()`'s ProductionOnly pass (RFC-042 042-B / issue #392). `0` for items not reached from any production entry point. Used by `classifier-unwired-production.cypher` to surface code that is technically reached by tests/benches but has no production caller.", EnrichReachability),
+        attr("reachable_from_production_entry", "bool?", "True when at least one production `:EntryPoint` (i.e. `kind ∉ {test, bench}`) reaches this item via `CALLS*`. Written by `enrich_reachability()`'s ProductionOnly pass (RFC-042 042-B / issue #392). ORTHOGONAL to `:Item.is_test` — `is_test` is a compile-scope flag on the item itself, while `reachable_from_production_entry` is a graph property derived from `:EntryPoint.kind` filtering. An item with `is_test = false` may still have `reachable_from_production_entry = false` if all its reaching entries are test-kind (i.e. only test code exercises it).", EnrichReachability),
     ]
 }
 

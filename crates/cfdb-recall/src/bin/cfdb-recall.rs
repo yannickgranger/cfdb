@@ -20,8 +20,8 @@
 //! business-rule-shaped lives in the library and is tested there; this
 //! file only handles I/O orchestration and exit-code semantics.
 
-use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::Parser;
@@ -108,84 +108,20 @@ struct Cli {
 fn main() -> ExitCode {
     let cli = Cli::parse();
 
-    // ── Load audit list (optional) ───────────────────────────
-    let audit = match cli.audit_list.as_ref() {
-        None => AuditList::new(),
-        Some(path) => match load_audit_list(path) {
-            Ok(a) => a,
-            Err(e) => {
-                eprintln!("cfdb-recall: failed to load audit list {path:?}: {e}");
-                return ExitCode::from(2);
-            }
-        },
+    let audit = match load_audit_or_default(cli.audit_list.as_deref()) {
+        Ok(a) => a,
+        Err(code) => return code,
     };
-
-    // ── Extract items from the workspace ─────────────────────
-    let extracted_by_crate = match extractor::extract_and_project(&cli.workspace) {
+    let extracted_by_crate = match extract_workspace_items(&cli.workspace) {
         Ok(m) => m,
-        Err(e) => {
-            eprintln!(
-                "cfdb-recall: extractor failed on workspace {:?}: {e}",
-                cli.workspace
-            );
-            return ExitCode::from(2);
-        }
+        Err(code) => return code,
     };
-
-    // ── Run the gate for each named crate ────────────────────
-    let mut reports: Vec<RecallReport> = Vec::new();
-    let mut any_failed = false;
-    for crate_name in &cli.crates {
-        let manifest = cli
-            .workspace
-            .join("crates")
-            .join(crate_name)
-            .join("Cargo.toml");
-        let public = match ground_truth::build_public_api_for_manifest(&manifest) {
-            Ok(p) => p,
-            Err(e) => {
-                eprintln!("cfdb-recall: ground-truth build failed for {crate_name}: {e}");
-                return ExitCode::from(2);
-            }
-        };
-        // The extractor stores the `crate` node prop as the raw Cargo
-        // package name (hyphens preserved). Qnames inside the crate
-        // normalize hyphens to underscores because that is what rustc's
-        // module system does — but the top-level crate key does not.
-        let extracted = extracted_by_crate
-            .get(crate_name)
-            .cloned()
-            .unwrap_or_default();
-        // Per-crate threshold dispatch (#340): if `--threshold` is
-        // omitted, source the floor from `threshold_for_crate` so each
-        // crate gets its own const-driven floor. Explicit `--threshold`
-        // overrides the dispatch (preserves the v0.1 PR-time
-        // 0.95 invocation contract).
-        let threshold = cli
-            .threshold
-            .unwrap_or_else(|| threshold_for_crate(crate_name));
-        let report = compute_recall(crate_name, &public, &extracted, &audit, threshold);
-        print_report(&report);
-        if !report.passes() {
-            any_failed = true;
-        }
-        reports.push(report);
-    }
-
-    // ── Write KNOWN_GAPS.md if requested ─────────────────────
-    if let Some(path) = cli.gaps_file.as_ref() {
-        if let Err(e) = write_gaps_file(path, &reports) {
-            eprintln!("cfdb-recall: failed to write gaps file {path:?}: {e}");
-            return ExitCode::from(2);
-        }
-    }
-
-    // ── Write recall-ratios.json if requested (#340) ─────────
-    if let Some(path) = cli.json_out.as_ref() {
-        if let Err(e) = write_json_out(path, &reports) {
-            eprintln!("cfdb-recall: failed to write json-out {path:?}: {e}");
-            return ExitCode::from(2);
-        }
+    let (reports, any_failed) = match gather_crate_reports(&cli, &extracted_by_crate, &audit) {
+        Ok(r) => r,
+        Err(code) => return code,
+    };
+    if let Err(code) = emit_optional_outputs(&cli, &reports) {
+        return code;
     }
 
     if any_failed {
@@ -193,6 +129,106 @@ fn main() -> ExitCode {
     } else {
         ExitCode::from(0)
     }
+}
+
+/// Load the optional audit list at `path`, or return an empty list when
+/// none supplied. Maps load failure to `ExitCode(2)` (usage error).
+fn load_audit_or_default(path: Option<&Path>) -> Result<AuditList, ExitCode> {
+    let Some(path) = path else {
+        return Ok(AuditList::new());
+    };
+    load_audit_list(path).map_err(|e| {
+        eprintln!("cfdb-recall: failed to load audit list {path:?}: {e}");
+        ExitCode::from(2)
+    })
+}
+
+/// Run the extractor over `workspace` and project into per-crate item
+/// sets. Maps extractor failure to `ExitCode(2)` (usage error).
+fn extract_workspace_items(
+    workspace: &Path,
+) -> Result<BTreeMap<String, BTreeSet<PublicItem>>, ExitCode> {
+    extractor::extract_and_project(workspace).map_err(|e| {
+        eprintln!("cfdb-recall: extractor failed on workspace {workspace:?}: {e}");
+        ExitCode::from(2)
+    })
+}
+
+/// Build a `RecallReport` per named crate and report whether any failed.
+/// Returns `(reports, any_failed)` on success, `ExitCode(2)` on
+/// ground-truth build failure.
+fn gather_crate_reports(
+    cli: &Cli,
+    extracted_by_crate: &BTreeMap<String, BTreeSet<PublicItem>>,
+    audit: &AuditList,
+) -> Result<(Vec<RecallReport>, bool), ExitCode> {
+    let mut reports: Vec<RecallReport> = Vec::new();
+    let mut any_failed = false;
+    for crate_name in &cli.crates {
+        let report = build_crate_report(cli, crate_name, extracted_by_crate, audit)?;
+        print_report(&report);
+        if !report.passes() {
+            any_failed = true;
+        }
+        reports.push(report);
+    }
+    Ok((reports, any_failed))
+}
+
+/// Build the rustdoc ground-truth public API for `crate_name` and compute
+/// its `RecallReport` against the extractor's projection. Per-crate
+/// threshold dispatch (#340): if `--threshold` is omitted, source the
+/// floor from `threshold_for_crate` so each crate gets its own
+/// const-driven floor. Explicit `--threshold` overrides the dispatch
+/// (preserves the v0.1 PR-time 0.95 invocation contract).
+fn build_crate_report(
+    cli: &Cli,
+    crate_name: &str,
+    extracted_by_crate: &BTreeMap<String, BTreeSet<PublicItem>>,
+    audit: &AuditList,
+) -> Result<RecallReport, ExitCode> {
+    let manifest = cli
+        .workspace
+        .join("crates")
+        .join(crate_name)
+        .join("Cargo.toml");
+    let public = ground_truth::build_public_api_for_manifest(&manifest).map_err(|e| {
+        eprintln!("cfdb-recall: ground-truth build failed for {crate_name}: {e}");
+        ExitCode::from(2)
+    })?;
+    // The extractor stores the `crate` node prop as the raw Cargo
+    // package name (hyphens preserved). Qnames inside the crate
+    // normalize hyphens to underscores because that is what rustc's
+    // module system does — but the top-level crate key does not.
+    let extracted = extracted_by_crate
+        .get(crate_name)
+        .cloned()
+        .unwrap_or_default();
+    let threshold = cli
+        .threshold
+        .unwrap_or_else(|| threshold_for_crate(crate_name));
+    Ok(compute_recall(
+        crate_name, &public, &extracted, audit, threshold,
+    ))
+}
+
+/// Write the optional `KNOWN_GAPS.md` and `recall-ratios.json` outputs
+/// when their CLI paths are provided. Either failure maps to
+/// `ExitCode(2)`.
+fn emit_optional_outputs(cli: &Cli, reports: &[RecallReport]) -> Result<(), ExitCode> {
+    if let Some(path) = cli.gaps_file.as_ref() {
+        write_gaps_file(path, reports).map_err(|e| {
+            eprintln!("cfdb-recall: failed to write gaps file {path:?}: {e}");
+            ExitCode::from(2)
+        })?;
+    }
+    if let Some(path) = cli.json_out.as_ref() {
+        write_json_out(path, reports).map_err(|e| {
+            eprintln!("cfdb-recall: failed to write json-out {path:?}: {e}");
+            ExitCode::from(2)
+        })?;
+    }
+    Ok(())
 }
 
 fn load_audit_list(path: &std::path::Path) -> Result<AuditList, Box<dyn std::error::Error>> {

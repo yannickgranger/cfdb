@@ -159,7 +159,29 @@ impl EnrichBackend for PetgraphStore {
             .keyspaces
             .get_mut(keyspace)
             .expect("keyspace presence checked above");
-        Ok(crate::enrich::reachability::run(state))
+        // RFC-042 §3.2: two passes — first the All-kinds BFS that writes
+        // `reachable_from_entry`, then the ProductionOnly BFS that excludes
+        // `kind ∈ {test, bench}` and writes `reachable_from_production_entry`.
+        // The trait surface stays single-call (council R1 Position B); the
+        // dual-pass orchestration is encapsulated here.
+        use crate::enrich::reachability::ReachabilityFilter;
+        let pass_all = crate::enrich::reachability::run(state, ReachabilityFilter::All);
+        if !pass_all.ran {
+            // Degraded path (zero entry points) — Pass 2 would degrade the
+            // same way; surface the single warning and skip.
+            return Ok(pass_all);
+        }
+        let pass_prod = crate::enrich::reachability::run(state, ReachabilityFilter::ProductionOnly);
+        let mut warnings = pass_all.warnings;
+        warnings.extend(pass_prod.warnings);
+        Ok(cfdb_core::enrich::EnrichReport {
+            verb: pass_all.verb,
+            ran: pass_all.ran && pass_prod.ran,
+            facts_scanned: pass_all.facts_scanned,
+            attrs_written: pass_all.attrs_written + pass_prod.attrs_written,
+            edges_written: 0,
+            warnings,
+        })
     }
 
     fn enrich_metrics(

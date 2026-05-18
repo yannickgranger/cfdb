@@ -114,6 +114,7 @@ pub(crate) fn dispatch_typed(cmd: Command) -> Result<(), CfdbCliError> {
             output,
             keyspace,
             explain,
+            production_only,
         } => scope(
             &db,
             &context,
@@ -122,6 +123,7 @@ pub(crate) fn dispatch_typed(cmd: Command) -> Result<(), CfdbCliError> {
             output.as_deref(),
             keyspace.as_deref(),
             explain,
+            production_only,
         ),
         Command::CheckPredicate {
             db,
