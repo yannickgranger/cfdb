@@ -1,8 +1,11 @@
 //! Tests for the post-walk synthesis pass — extracted to a sibling file
 //! to keep `synthesize.rs` under the architecture god-file ceiling
 //! (RFC §7 no-ratchets — split-out by boy-scout during #396 land).
-
-#![cfg(test)]
+//!
+//! The parent `synthesize.rs` declares this module via
+//! `#[cfg(test)] mod tests;`, so this file does NOT carry its own
+//! `#![cfg(test)]` — that would be a duplicate-attribute clippy
+//! violation (rust-1.93 `clippy::duplicated_attributes`).
 
 use super::*;
 use cfdb_core::fact::Edge;

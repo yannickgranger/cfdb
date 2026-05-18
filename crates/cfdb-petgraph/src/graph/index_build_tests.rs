@@ -4,8 +4,11 @@
 //! (#400 slice 6.6). `KeyspaceState` stays `pub(crate)`; tests at the
 //! `PetgraphStore` level land when slice 7 #186 wires the composition
 //! root's `with_indexes` builder.
-
-#![cfg(test)]
+//!
+//! The parent `graph.rs` declares this module via
+//! `#[cfg(test)] mod index_build_tests;`, so this file does NOT carry
+//! its own `#![cfg(test)]` — that would be a duplicate-attribute
+//! clippy violation (rust-1.93 `clippy::duplicated_attributes`).
 
 use super::*;
 use crate::canonical_dump::canonical_dump;
