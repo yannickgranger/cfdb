@@ -841,7 +841,10 @@ fn issue_396_non_serde_default_callsite_is_ignored() {
     // contaminate reachability with un-resolved textual callee paths.
     let mut cs_props = Props::new();
     cs_props.insert("kind".into(), PropValue::Str("call".into()));
-    cs_props.insert("callee_path".into(), PropValue::Str("myapp::dead_fn".into()));
+    cs_props.insert(
+        "callee_path".into(),
+        PropValue::Str("myapp::dead_fn".into()),
+    );
     cs_props.insert(
         "caller_qname".into(),
         PropValue::Str("myapp::load_config".into()),
