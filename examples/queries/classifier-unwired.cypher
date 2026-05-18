@@ -1,6 +1,13 @@
 // smoke-skip: parameterized ($context) — bound by RFC-036 classifier suite
 // classifier-unwired.cypher — §A2.1 class 6 (Unwired).
 //
+// SIBLING: `classifier-unwired-production.cypher` (RFC-042 042-B / issue #392).
+// Single point of divergence: this file reads `:Item.reachable_from_entry`
+// (all entry kinds); the sibling reads `:Item.reachable_from_production_entry`
+// (kind ∈ {test, bench} excluded). The two files are kept structurally
+// identical so any future predicate change to "unwired" semantics MUST land
+// in both — solid-architect CRP hygiene (RFC §3.3 EDIT 8, MUST language).
+//
 // fn / method `:Item`s with `reachable_from_entry = false` that are NOT
 // themselves `:EntryPoint` handlers. Code that compiles but no user
 // action can trigger — either dead (delete) or orphan awaiting wiring.

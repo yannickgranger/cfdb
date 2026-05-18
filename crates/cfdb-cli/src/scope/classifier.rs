@@ -9,13 +9,24 @@ use super::helpers::{canonical_candidate_from_row, crates_for_context, finding_f
 use super::{
     CLASSIFIER_CANONICAL_BYPASS_CYPHER, CLASSIFIER_CONTEXT_HOMONYM_CYPHER,
     CLASSIFIER_DUPLICATED_FEATURE_CYPHER, CLASSIFIER_RANDOM_SCATTERING_CYPHER,
-    CLASSIFIER_UNFINISHED_REFACTOR_CYPHER, CLASSIFIER_UNWIRED_CYPHER, HSB_BY_NAME_CYPHER,
+    CLASSIFIER_UNFINISHED_REFACTOR_CYPHER, CLASSIFIER_UNWIRED_CYPHER,
+    CLASSIFIER_UNWIRED_PRODUCTION_CYPHER, HSB_BY_NAME_CYPHER,
 };
 
 /// Static list of (class, cypher source) pairs. Iteration order matches
 /// [`DebtClass::variants`] so the orchestrator run order is deterministic
 /// — load-bearing for G1.
-pub(super) fn classifier_rules() -> [(DebtClass, &'static str); 6] {
+///
+/// `production_only` (RFC-042 042-B / issue #392) swaps the
+/// `Unwired` cypher between the all-kinds default and the production-only
+/// variant. The two cyphers are structural siblings (RFC §3.3 EDIT 8) —
+/// the only difference is which reachability attr they read.
+pub(super) fn classifier_rules(production_only: bool) -> [(DebtClass, &'static str); 6] {
+    let unwired_cypher = if production_only {
+        CLASSIFIER_UNWIRED_PRODUCTION_CYPHER
+    } else {
+        CLASSIFIER_UNWIRED_CYPHER
+    };
     [
         (
             DebtClass::DuplicatedFeature,
@@ -34,7 +45,7 @@ pub(super) fn classifier_rules() -> [(DebtClass, &'static str); 6] {
             DebtClass::CanonicalBypass,
             CLASSIFIER_CANONICAL_BYPASS_CYPHER,
         ),
-        (DebtClass::Unwired, CLASSIFIER_UNWIRED_CYPHER),
+        (DebtClass::Unwired, unwired_cypher),
     ]
 }
 
