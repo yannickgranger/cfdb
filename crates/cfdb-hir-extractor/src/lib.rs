@@ -84,3 +84,7 @@ pub use call_site_emitter::extract_call_sites;
 pub use entry_point_emitter::extract_entry_points;
 pub use error::HirError;
 pub use hir_db::build_hir_database;
+// Re-export the upstream proc-macro client so callers can hold the
+// subprocess handle alongside the database without depending on
+// `ra_ap_proc_macro_api` directly (RFC-043 §4 I7).
+pub use ra_ap_proc_macro_api::ProcMacroClient;

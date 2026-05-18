@@ -129,6 +129,13 @@ fn build_and_enrich(tmp: &Path) -> (PathBuf, &'static str) {
             "--keyspace",
             ks,
             "--hir",
+            // Test exercises canonical-bypass detection logic, not
+            // proc-macro recall. RFC-043's default-on sysroot
+            // proc-macro server would otherwise pull the synthetic
+            // fixture's transitive dep graph into the keyspace and
+            // balloon test runtime; --no-proc-macro keeps the
+            // fixture-shaped extract that this test was designed for.
+            "--no-proc-macro",
         ])
         .assert()
         .success();

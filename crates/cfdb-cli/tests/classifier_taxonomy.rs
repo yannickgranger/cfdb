@@ -76,6 +76,13 @@ fn build_and_enrich(tmp: &Path) -> (PathBuf, &'static str, PathBuf) {
             "--keyspace",
             ks,
             "--hir",
+            // Test exercises classifier logic, not proc-macro recall.
+            // Without this flag the post-RFC-043 default would invoke
+            // the sysroot proc-macro server and pull the synthetic
+            // fixture's full transitive dep graph into the keyspace,
+            // exploding extract time (proc-macros are the right
+            // default for production but unnecessary cost here).
+            "--no-proc-macro",
         ])
         .assert()
         .success();

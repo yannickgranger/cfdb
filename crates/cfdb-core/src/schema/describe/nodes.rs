@@ -277,7 +277,7 @@ pub(super) fn call_site_node_descriptor() -> NodeLabelDescriptor {
         attributes: vec![
             attr("arg_count", "int", "Number of arguments at the call site.", Extractor),
             attr("callee_path", "string", "Best-effort path of the callee (may be unresolved).", Extractor),
-            attr("callee_resolved", "bool", "`true` when method dispatch / re-export / trait impl was resolved via HIR; `false` for textual-only syn-based extraction. SchemaVersion v0.1.3+ only. See Label::CALL_SITE discriminator contract.", Extractor),
+            attr("callee_resolved", "bool", "`true` when method dispatch / re-export / trait impl was resolved via HIR; `false` for textual-only syn-based extraction. SchemaVersion v0.1.3+ only. See Label::CALL_SITE discriminator contract. RFC-043: post-RFC-043 the predicate's epistemic precision improved — proc-macro-touched receivers (`#[async_trait]`, `#[derive(Builder)]`, `#[tokio::test]`, cucumber steps) can now resolve to `true` when the sysroot ships `rust-analyzer-proc-macro-srv`. There is no per-keyspace status flag (by design); consumers wishing to disambiguate pre/post-RFC-043 keyspaces must re-extract. The silent probe fallback (RFC-043 §3.3 case 1) produces a keyspace indistinguishable from `--no-proc-macro` — two keyspaces with identical `callee_resolved` distributions may have different recall depending on whether the sysroot had the binary at extract time.", Extractor),
             attr("caller_qname", "string", "Qualified name of the fn that contains this call.", Extractor),
             attr("file", "string", "Source file relative to workspace root.", Extractor),
             attr("is_test", "bool", "True when the enclosing item is under `#[cfg(test)]` or in `tests/`.", Extractor),
