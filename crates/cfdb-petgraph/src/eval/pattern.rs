@@ -27,9 +27,31 @@ impl<'a> Evaluator<'a> {
         np: &'e NodePattern,
         where_clause: Option<&'e Predicate>,
     ) -> BindingStream<'e> {
+        // Issue #409 fast path — when neither the NodePattern itself
+        // nor the top-level WHERE references any var OTHER than the
+        // pattern's own var, `candidate_nodes` is binding-independent:
+        // the result is identical for every incoming row, so we
+        // compute it ONCE up front and have the per-row closure borrow
+        // the cached vec. Without this lift, the post-cleanup
+        // qbot-core market_data scope ran the Cartesian classifier
+        // rules at O(outer × inner_lookup) and hung 40+ min at 96% CPU
+        // (issue #409). With the lift the inner leaf collapses to O(1)
+        // lookups per rule; explain traces show `(b:Item)` appearing
+        // ONCE rather than `outer_row_count` times.
+        if is_binding_independent_pattern(np, where_clause) {
+            let cached = self.candidate_nodes(np, where_clause, &Bindings::new());
+            return Box::new(table.flat_map(move |bindings| {
+                let mut out: Vec<Bindings> = Vec::new();
+                self.emit_node_bindings(&mut out, bindings, &cached, np);
+                out
+            }));
+        }
         // Per-row candidate_nodes — the incoming row's bindings pick
         // the cross-MATCH bucket (RFC-035 slice 6). Empty bindings
-        // collapse to slice-5 behaviour.
+        // collapse to slice-5 behaviour. This path runs when the
+        // pattern OR the WHERE references a foreign var (genuine
+        // cross-binding equi-join), where the candidate set IS
+        // binding-dependent and per-row narrowing is correct.
         Box::new(table.flat_map(move |bindings| {
             let candidates = self.candidate_nodes(np, where_clause, &bindings);
             let mut out: Vec<Bindings> = Vec::new();
@@ -266,6 +288,104 @@ fn unwind_row(
         );
         out.push(next);
     });
+}
+
+/// Static analysis for issue #409 — return `true` iff the candidate
+/// set produced by [`Evaluator::candidate_nodes`] is provably the same
+/// for every incoming binding row. The cached fast path in
+/// [`Evaluator::apply_node_pattern`] is only safe under this predicate.
+///
+/// The candidate set is independent iff:
+/// 1. The NodePattern's literal-prop map carries no var refs (always
+///    true today — `NodePattern.props` is `BTreeMap<String, PropValue>`
+///    of literals only).
+/// 2. No LEAF predicate inside the top-level WHERE simultaneously
+///    references `own_var` AND a foreign var. Such a predicate is a
+///    *cross-binding coupling* (e.g. `a.kind = b.kind`,
+///    `a.qname IN [b.qname]`) and is the only WHERE shape that lets
+///    `lookup::candidates_from_index` narrow `own_var`'s candidate set
+///    based on a foreign binding (RFC-035 §3.6 slice 6).
+///
+/// Predicates that mention only `own_var` (`b.kind = 'fn'`) or only
+/// foreign vars (`a.kind = 'fn'`) are NOT coupling — the foreign-only
+/// predicate is irrelevant to `own_var`'s candidate set, and the
+/// own-only predicate produces the same narrowed set on every row.
+/// Recursive `And` / `Or` / `Not` walked into their leaves.
+///
+/// `NotExists` subqueries are treated as coupling (conservative — the
+/// inner Query's binding scope is not analysed here).
+///
+/// **Why static, not dynamic.** Probing the bound-var closure to
+/// detect dependence at runtime would burn allocation on every row
+/// and require a fallback if the second row's binding diverged. The
+/// static walk runs once per query and is exact for the AST shapes
+/// the parser produces today.
+fn is_binding_independent_pattern(np: &NodePattern, where_clause: Option<&Predicate>) -> bool {
+    let own_var: Option<&str> = np.var.as_deref();
+    match where_clause {
+        None => true,
+        Some(pred) => !predicate_couples_own_to_foreign(pred, own_var),
+    }
+}
+
+/// `true` iff any leaf predicate references both `own_var` AND a
+/// foreign var on either side. Walks `And`/`Or`/`Not` into their
+/// leaves so a compound `(a.x = b.x) AND (b.kind = 'fn')` still trips
+/// the coupling flag on the first leaf.
+fn predicate_couples_own_to_foreign(pred: &Predicate, own_var: Option<&str>) -> bool {
+    match pred {
+        Predicate::And(a, b) | Predicate::Or(a, b) => {
+            predicate_couples_own_to_foreign(a, own_var)
+                || predicate_couples_own_to_foreign(b, own_var)
+        }
+        Predicate::Not(inner) => predicate_couples_own_to_foreign(inner, own_var),
+        Predicate::Compare { left, right, .. }
+        | Predicate::In { left, right }
+        | Predicate::Ne { left, right } => leaf_couples(left, right, own_var),
+        Predicate::Regex { left, pattern } => leaf_couples(left, pattern, own_var),
+        // Conservative — `NotExists { inner }` carries a Query whose
+        // bindings cannot be safely scoped without recursing into the
+        // inner pattern set. Treat as coupling so the per-row path
+        // runs (no false caching).
+        Predicate::NotExists { .. } => true,
+    }
+}
+
+/// Leaf coupling check: gather every var referenced across both sides
+/// of the predicate; coupling iff `own_var` appears AND any other var
+/// also appears.
+fn leaf_couples(
+    a: &cfdb_core::query::Expr,
+    b: &cfdb_core::query::Expr,
+    own_var: Option<&str>,
+) -> bool {
+    let mut vars: Vec<&str> = Vec::new();
+    collect_expr_vars_into(a, &mut vars);
+    collect_expr_vars_into(b, &mut vars);
+    let mentions_own = own_var.is_some_and(|v| vars.contains(&v));
+    let mentions_foreign = vars.iter().any(|v| Some(*v) != own_var);
+    mentions_own && mentions_foreign
+}
+
+/// Walk an [`Expr`] and push every referenced var name (from
+/// `Property` or bare `Var`) into `acc`. Literal / Param / List /
+/// Call walked recursively.
+fn collect_expr_vars_into<'e>(expr: &'e cfdb_core::query::Expr, acc: &mut Vec<&'e str>) {
+    use cfdb_core::query::Expr as E;
+    match expr {
+        E::Property { var, .. } | E::Var(var) => acc.push(var.as_str()),
+        E::Literal(_) | E::Param(_) => {}
+        E::List(items) => {
+            for item in items {
+                collect_expr_vars_into(item, acc);
+            }
+        }
+        E::Call { args, .. } => {
+            for arg in args {
+                collect_expr_vars_into(arg, acc);
+            }
+        }
+    }
 }
 
 pub(super) fn matches_existing(existing: &Binding, idx: NodeIndex) -> bool {

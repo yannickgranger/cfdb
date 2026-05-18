@@ -6,10 +6,27 @@
 //! paths) and which fell back to a full label scan.
 //!
 //! **Stability contract (for dogfood tests).** One [`ExplainRow`] per
-//! `candidate_nodes` invocation. Callers that run multi-MATCH queries
-//! get one row per pattern per binding row — aggregate via
+//! `candidate_nodes` invocation. For multi-MATCH queries the row count
+//! per pattern depends on whether the pattern's candidate set is
+//! provably binding-independent (#409 fast path in
+//! `eval::pattern::apply_node_pattern`):
+//!
+//! - **Binding-independent** (no foreign-var coupling in props or
+//!   WHERE) — `candidate_nodes` fires ONCE per query, regardless of
+//!   how many incoming binding rows the pattern sees. Cartesian
+//!   classifiers (`MATCH (a:Item), (b:Item)` with no cross-binding
+//!   WHERE) hit this path: explain trace shows `(b:Item)` exactly
+//!   once, not once per outer `a` row.
+//! - **Binding-dependent** (WHERE has a leaf predicate referencing
+//!   both `own_var` and a foreign var, e.g. `a.x = b.x`) —
+//!   `candidate_nodes` fires once per incoming binding row, as in the
+//!   pre-#409 behaviour.
+//!
+//! Aggregate via
 //! `.iter().filter(|r| matches!(r.hit, ExplainHit::Indexed)).count()`
-//! for the "indexed MATCH count" metric in the PR body.
+//! for the "indexed MATCH count" metric in the PR body. Dogfood tests
+//! that grep for per-row trace counts need to scope assertions to the
+//! pattern shape they cover.
 //!
 //! **Not serialized.** This channel is side-band from `QueryResult` so
 //! no explain rows leak into the canonical dump or the keyspace wire
