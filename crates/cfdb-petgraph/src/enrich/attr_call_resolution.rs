@@ -115,7 +115,10 @@ fn collect_resolutions(state: &KeyspaceState) -> BTreeMap<NodeIndex, NodeIndex> 
         let Some(callee_path) = cs_node.props.get("callee_path").and_then(PropValue::as_str) else {
             continue;
         };
-        let Some(caller_qname) = cs_node.props.get("caller_qname").and_then(PropValue::as_str)
+        let Some(caller_qname) = cs_node
+            .props
+            .get("caller_qname")
+            .and_then(PropValue::as_str)
         else {
             continue;
         };
@@ -224,8 +227,7 @@ mod tests {
     fn resolver_falls_back_to_same_module() {
         let mut state = KeyspaceState::new();
         state.ingest_nodes(vec![make_item("myapp::config::default_url")]);
-        let resolved =
-            resolve_callee_to_item(&state, "default_url", "myapp::config::AppConfig");
+        let resolved = resolve_callee_to_item(&state, "default_url", "myapp::config::AppConfig");
         assert!(resolved.is_some(), "same-module resolution must succeed");
     }
 
@@ -234,11 +236,8 @@ mod tests {
     fn resolver_falls_back_to_same_crate() {
         let mut state = KeyspaceState::new();
         state.ingest_nodes(vec![make_item("myapp::config::default_url")]);
-        let resolved = resolve_callee_to_item(
-            &state,
-            "config::default_url",
-            "myapp::main::AppConfig",
-        );
+        let resolved =
+            resolve_callee_to_item(&state, "config::default_url", "myapp::main::AppConfig");
         assert!(resolved.is_some(), "same-crate resolution must succeed");
     }
 

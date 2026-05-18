@@ -862,10 +862,7 @@ fn issue_396_non_serde_default_callsite_is_ignored() {
         )
         .expect("ingest");
     store
-        .ingest_edges(
-            &ks,
-            vec![exposes_edge("ep:E", "item:myapp::load_config")],
-        )
+        .ingest_edges(&ks, vec![exposes_edge("ep:E", "item:myapp::load_config")])
         .expect("ingest");
 
     store.enrich_reachability(&ks).expect("pass");
