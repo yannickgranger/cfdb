@@ -248,9 +248,17 @@ impl<'a> Evaluator<'a> {
         let (PropValue::Str(sa), PropValue::Str(sb)) = (a, b) else {
             return None;
         };
-        Some(PropValue::Bool(
-            normalize_signature(&sa) != normalize_signature(&sb),
-        ))
+        // #409 perf — was `normalize_signature(&sa) != normalize_signature(&sb)`,
+        // which allocated TWO new Strings per call. Hot path on
+        // signature-divergent.cypher: ~5M invocations per smoke run on
+        // cfdb-self drove the query to 542s wall-time in CI run 575.
+        // `signatures_differ_modulo_whitespace` walks both inputs once
+        // with no allocation, skipping whitespace runs as a single
+        // logical space — equivalent semantics, ~order-of-magnitude
+        // less constant-factor cost.
+        Some(PropValue::Bool(signatures_differ_modulo_whitespace(
+            &sa, &sb,
+        )))
     }
 
     /// `entries_subset(a, b) -> Bool` — RFC-040 §3.4.
@@ -342,7 +350,10 @@ impl<'a> Evaluator<'a> {
 
 mod udf;
 
-use udf::{entries_jaccard_impl, entries_subset_impl, normalize_signature, overlap_verdict_impl};
+use udf::{
+    entries_jaccard_impl, entries_subset_impl, overlap_verdict_impl,
+    signatures_differ_modulo_whitespace,
+};
 
 pub(super) fn compare_propvalues(
     op: CompareOp,

@@ -163,9 +163,16 @@ pub(super) fn overlap_verdict_impl(
 
 /// Normalize a signature string for `signature_divergent` comparison —
 /// trim outer whitespace and collapse any run of internal whitespace to
-/// a single ASCII space. See [`Evaluator::call_signature_divergent`]
+/// a single ASCII space. See [`super::Evaluator::call_signature_divergent`]
 /// for the rationale.
-pub(super) fn normalize_signature(s: &str) -> String {
+///
+/// **Test-only reference form.** The production UDF dispatches
+/// through [`signatures_differ_modulo_whitespace`] (equivalent
+/// semantics, zero allocation, #409). The normalize form is retained
+/// for the unit-test corpus that locks the normalization shape AND
+/// for the equivalence assertion in `signature_divergent_tests`.
+#[cfg(test)]
+fn normalize_signature(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut prev_ws = false;
     for c in s.trim().chars() {
@@ -180,6 +187,77 @@ pub(super) fn normalize_signature(s: &str) -> String {
         }
     }
     out
+}
+
+/// `signatures_differ_modulo_whitespace(a, b)` — equivalent to
+/// `normalize_signature(a) != normalize_signature(b)` but iterates
+/// both inputs once with zero heap allocation. Used by
+/// [`super::Evaluator::call_signature_divergent`] on the
+/// `signature-divergent.cypher` hot path (#409). Pre-fix wall-time
+/// on cfdb-self smoke was 542s for that one query; the double
+/// allocation per invocation was the dominant cost.
+///
+/// # Semantics (locked by `signature_divergent_tests`)
+///
+/// Two signatures are equivalent (returns `false` = not divergent)
+/// iff their non-whitespace characters are identical in order AND
+/// the presence/absence of whitespace between each adjacent pair of
+/// non-whitespace characters agrees. Outer whitespace is ignored.
+///
+/// # Algorithm
+///
+/// The `normalize_signature` form trims outer whitespace and
+/// collapses every internal whitespace run to a single space. Two
+/// such normalized strings are equal iff:
+///
+/// 1. Their non-whitespace characters are identical in order, AND
+/// 2. Between each adjacent pair of non-whitespace characters, both
+///    have either zero whitespace or some non-zero amount.
+///
+/// We decide both in one fused walk by stepping pairwise through
+/// `a.chars()` and `b.chars()` after `trim()`. Track each side's
+/// "had-whitespace-since-prev" state via [`skip_ws_run`]; at each
+/// non-whitespace step require both the character to match and the
+/// had-ws flags to agree.
+pub(super) fn signatures_differ_modulo_whitespace(a: &str, b: &str) -> bool {
+    let mut ai = a.trim().chars().peekable();
+    let mut bi = b.trim().chars().peekable();
+    loop {
+        let (a_ws, a_next) = skip_ws_run(&mut ai);
+        let (b_ws, b_next) = skip_ws_run(&mut bi);
+        // Disagreement on whether a whitespace gap appears here =
+        // divergent (one has `Foo Bar`, the other has `FooBar`).
+        if a_ws != b_ws {
+            return true;
+        }
+        match (a_next, b_next) {
+            (None, None) => return false,
+            (Some(ca), Some(cb)) if ca == cb => {
+                ai.next();
+                bi.next();
+            }
+            _ => return true,
+        }
+    }
+}
+
+/// Advance `iter` past a run of whitespace characters; return whether
+/// any whitespace was consumed and a peek at the next non-whitespace
+/// character (or `None` at end of input). Helper for
+/// [`signatures_differ_modulo_whitespace`].
+fn skip_ws_run<I: Iterator<Item = char>>(
+    iter: &mut std::iter::Peekable<I>,
+) -> (bool, Option<char>) {
+    let mut saw_ws = false;
+    while let Some(&c) = iter.peek() {
+        if c.is_whitespace() {
+            iter.next();
+            saw_ws = true;
+        } else {
+            return (saw_ws, Some(c));
+        }
+    }
+    (saw_ws, None)
 }
 
 #[cfg(test)]
@@ -218,6 +296,90 @@ mod signature_divergent_tests {
         let a = normalize_signature("fn() -> f64");
         let b = normalize_signature("fn() -> (f64, f64)");
         assert_ne!(a, b);
+    }
+
+    // ---- signatures_differ_modulo_whitespace (#409 hot-path fast path) ----
+    //
+    // The runtime UDF dispatches through this fn, not through the
+    // `normalize_signature` allocating form. The contract: for every
+    // (a, b) pair, `signatures_differ_modulo_whitespace(a, b) ==
+    // (normalize_signature(a) != normalize_signature(b))`. We lock
+    // that equivalence on a corpus that exercises every whitespace
+    // shape the extractor can emit today.
+    use super::signatures_differ_modulo_whitespace;
+
+    fn equivalent_to_normalize(a: &str, b: &str) -> bool {
+        let via_normalize = normalize_signature(a) != normalize_signature(b);
+        let via_fast = signatures_differ_modulo_whitespace(a, b);
+        assert_eq!(
+            via_normalize, via_fast,
+            "divergence equivalence broken: a={a:?}, b={b:?}, normalize_form={via_normalize}, fast_form={via_fast}"
+        );
+        via_fast
+    }
+
+    #[test]
+    fn fast_form_matches_normalize_on_identical() {
+        assert!(!equivalent_to_normalize(
+            "fn(i32) -> bool",
+            "fn(i32) -> bool"
+        ));
+    }
+
+    #[test]
+    fn fast_form_matches_normalize_on_outer_whitespace() {
+        assert!(!equivalent_to_normalize(
+            "  fn(i32) -> bool  ",
+            "fn(i32) -> bool"
+        ));
+    }
+
+    #[test]
+    fn fast_form_matches_normalize_on_collapsed_internal_whitespace() {
+        assert!(!equivalent_to_normalize(
+            "fn(i32,   String)  ->  bool",
+            "fn(i32, String) -> bool"
+        ));
+    }
+
+    #[test]
+    fn fast_form_matches_normalize_on_genuine_divergence() {
+        assert!(equivalent_to_normalize("fn() -> f64", "fn() -> (f64, f64)"));
+    }
+
+    #[test]
+    fn fast_form_distinguishes_present_vs_absent_whitespace_gap() {
+        // `Foo Bar` vs `FooBar` — normalize collapses one space, the
+        // other has none, so they differ after normalize → divergent.
+        assert!(equivalent_to_normalize("Foo Bar", "FooBar"));
+    }
+
+    #[test]
+    fn fast_form_tab_and_newline_equal_space() {
+        // The normalize form treats any is_whitespace() char as
+        // collapsible whitespace; the fast form must too.
+        assert!(!equivalent_to_normalize(
+            "fn(i32)\t->\nbool",
+            "fn(i32) -> bool"
+        ));
+    }
+
+    #[test]
+    fn fast_form_handles_empty_strings() {
+        assert!(!equivalent_to_normalize("", ""));
+        assert!(!equivalent_to_normalize("   ", ""));
+        assert!(equivalent_to_normalize("", "fn()"));
+    }
+
+    #[test]
+    fn fast_form_handles_unicode_signatures() {
+        // The normalize form uses `chars()` (Unicode scalars); the
+        // fast form must too.
+        assert!(!equivalent_to_normalize(
+            "fn(α: i32) -> β",
+            "fn(α: i32) -> β"
+        ));
+        assert!(equivalent_to_normalize("fn(α: i32)", "fn(β: i32)"));
     }
 }
 
