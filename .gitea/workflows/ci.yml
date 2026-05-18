@@ -235,12 +235,18 @@ jobs:
               skipped=$((skipped + 1))
               continue
             fi
-            echo ">> $q"
+            # Per-file timing to localise smoke wall-time regressions
+            # (post-#391 :EntryPoint{kind=test|bench} fan-out drove the
+            # smoke from 10s to 17m+; the per-file numbers are the only
+            # way to know which query owns the cost).
+            q_start=$(date +%s%N)
             if ! ./target/release/cfdb query \
                 --db .cfdb/db --keyspace cfdb-self \
                 "$(cat "$q")" >/dev/null; then
               fail=1
             fi
+            q_elapsed_ms=$(( ( $(date +%s%N) - q_start ) / 1000000 ))
+            echo ">> $q (${q_elapsed_ms}ms)"
             ran=$((ran + 1))
           done
           elapsed=$(( $(date +%s) - start ))
