@@ -37,6 +37,13 @@
 //! `lib.rs` keeps only the public entry point, the error type, and the
 //! shared [`Emitter`] sink that every submodule writes into.
 
+// RFC-044 §3.7 (slice 044-G): cfdb-core schema enums are `#[non_exhaustive]`.
+// Cross-crate `match` sites require `_ =>` arms by E0004; the deny below
+// auto-activates when the (nightly-only on rust 1.93)
+// `non_exhaustive_omitted_patterns` lint stabilises.
+#![allow(unknown_lints)]
+#![deny(non_exhaustive_omitted_patterns)]
+
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 

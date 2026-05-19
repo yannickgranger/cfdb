@@ -23,6 +23,7 @@ use crate::fact::PropValue;
 /// author-asserted in `.cfdb/concepts/<name>.toml`; `Heuristic` is auto-derived
 /// by `cfdb_concepts::compute_bounded_context` via crate-name prefix stripping.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum ContextSource {
     Declared,
     Heuristic,

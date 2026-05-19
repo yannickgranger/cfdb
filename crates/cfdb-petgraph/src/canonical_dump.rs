@@ -120,6 +120,12 @@ fn prop_value_to_json(p: &PropValue) -> Value {
             .unwrap_or(Value::Null),
         PropValue::Bool(b) => Value::Bool(*b),
         PropValue::Null => Value::Null,
+        // RFC-044 §3.7: cfdb-core's `PropValue` is `#[non_exhaustive]`.
+        // Surface unknown future variants as a sentinel string so the
+        // canonical dump is non-silent — a future variant addition is
+        // visible in `cfdb_dump.jsonl` and the G1 byte-stability check
+        // flags it as a diff.
+        _ => Value::String(format!("unsupported_propvalue:{:?}", p)),
     }
 }
 

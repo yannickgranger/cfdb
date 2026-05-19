@@ -49,10 +49,13 @@
 use std::collections::BTreeMap;
 
 use cfdb_concepts::{compute_bounded_context, ConceptOverrides};
-use cfdb_core::fact::{Node, PropValue, Props};
-use cfdb_core::qname::{item_node_id, last_segment, qname_from_node_id};
+use cfdb_core::fact::{Node, Props};
+use cfdb_core::qname::{item_node_id, qname_from_node_id};
 use cfdb_core::query::item_kind::ItemKind;
 use cfdb_core::schema::{EdgeLabel, Label};
+
+#[cfg(test)]
+use cfdb_core::fact::PropValue;
 
 use crate::emitter::Emitter;
 
@@ -119,7 +122,7 @@ pub(crate) fn synthesize_referenced_items(emitter: &mut Emitter, overrides: &Con
         let kind = kind_for_evidence(evidence);
         let crate_name = crate_from_qname(&qname);
         let bounded_context = memoized_bounded_context(&mut bc_memo, &crate_name, overrides);
-        let props = build_synthetic_item_props(&qname, kind, crate_name, bounded_context);
+        let props = build_synthetic_item_props(&qname, kind, &crate_name, &bounded_context);
 
         emitter.emit_node(Node {
             id: item_node_id(&qname),
@@ -148,28 +151,18 @@ fn memoized_bounded_context(
     computed
 }
 
-/// Build the `:Item.props` map for one synthesised node. Extracted so
-/// the `qname.to_string()` allocation (the `qname` String is moved into
-/// `emitted_item_qnames` after this call returns) does not sit on a
-/// line inside the emission loop body (boy-scout #374, RFC §7
-/// no-clones-in-loops detector is line-based).
+/// Build the `:Item.props` map for one synthesised node. Routes through
+/// the canonical `cfdb_core::fact::build_item_props` so the property-key
+/// vocabulary is single-sourced workspace-wide (#421 boy-scout: closes
+/// the split-brain flagged by `audit-split-brain` against
+/// `cfdb-hir-petgraph-adapter::build_callee_stub`).
 fn build_synthetic_item_props(
     qname: &str,
     kind: &str,
-    crate_name: String,
-    bounded_context: String,
+    crate_name: &str,
+    bounded_context: &str,
 ) -> Props {
-    let name = last_segment(qname).to_string();
-    let mut props: Props = BTreeMap::new();
-    props.insert("qname".to_string(), PropValue::Str(qname.to_string()));
-    props.insert("name".to_string(), PropValue::Str(name));
-    props.insert("kind".to_string(), PropValue::Str(kind.to_string()));
-    props.insert("crate".to_string(), PropValue::Str(crate_name));
-    props.insert(
-        "bounded_context".to_string(),
-        PropValue::Str(bounded_context),
-    );
-    props
+    cfdb_core::fact::build_item_props(qname, kind, crate_name, bounded_context)
 }
 
 /// Map edge-label evidence to the synthesised `:Item.kind` value.

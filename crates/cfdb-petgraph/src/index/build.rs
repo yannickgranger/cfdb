@@ -47,6 +47,11 @@ pub(crate) fn index_key_of(pv: &PropValue) -> Option<IndexValue> {
         PropValue::Int(n) => Some(n.to_string()),
         PropValue::Bool(b) => Some(b.to_string()),
         PropValue::Float(_) | PropValue::Null => None,
+        // RFC-044 §3.7: `PropValue` is `#[non_exhaustive]`. Future unknown
+        // variants are treated as not-indexable (same as Float/Null) so the
+        // posting list stays correct under variant addition; the variant's
+        // existence in fact data will still appear via canonical_dump.
+        _ => None,
     }
 }
 

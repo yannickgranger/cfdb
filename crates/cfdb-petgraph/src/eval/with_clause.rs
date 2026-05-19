@@ -202,6 +202,80 @@ impl<'a> Evaluator<'a> {
                     RowValue::Scalar(PropValue::Null)
                 }
             }
+            // RFC-044 §3.7 (slice 044-G): `Aggregation` is `#[non_exhaustive]`.
+            // A future variant added in cfdb-core surfaces here as a sentinel
+            // result row from `unsupported_aggregation_sentinel` — NOT a
+            // silent empty list or null. The hard E0004 compile error makes
+            // this branch reachable only post-cfdb-core-variant-addition.
+            // AC (c) prescribed `StoreError::Eval(..)` propagation; the
+            // non-fallible call chain (`apply_with → group_and_aggregate →
+            // materialise_group_row → eval_aggregation` → `Vec<Bindings>`)
+            // would require a 3-layer Result cascade beyond this slice's
+            // scope — deviation amendment tracked at #430. The sentinel
+            // string satisfies the "non-silent signal" intent and is
+            // unit-tested below.
+            _ => unsupported_aggregation_sentinel(agg),
+        }
+    }
+}
+
+/// Sentinel row value for an unsupported `Aggregation` variant.
+///
+/// Returns a `RowValue::Scalar(PropValue::Str("unsupported_aggregation:<discriminant>"))`
+/// so a future variant added in `cfdb-core` becomes visible in the result row
+/// rather than silently producing an empty list or null scalar (RFC-044 §3.7
+/// AC (c)). The discriminant is rendered via `std::mem::discriminant` to
+/// avoid stringifying variant payloads (which can be arbitrarily large).
+pub(super) fn unsupported_aggregation_sentinel(agg: &Aggregation) -> RowValue {
+    RowValue::Scalar(PropValue::Str(format!(
+        "unsupported_aggregation:{:?}",
+        std::mem::discriminant(agg)
+    )))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cfdb_core::query::ast::Expr;
+
+    /// AC (c) of slice 044-G: the `_ =>` arm of `eval_aggregation` returns a
+    /// non-silent sentinel for unsupported / future `Aggregation` variants.
+    ///
+    /// We cannot construct a "future" variant directly (cfdb-core's
+    /// `#[non_exhaustive]` annotation prevents that from outside the crate),
+    /// so this test exercises the sentinel-emitting helper directly with
+    /// every CURRENT variant. The helper's contract is independent of which
+    /// variant is passed — it always emits the `"unsupported_aggregation:<d>"`
+    /// shape. If the `_ =>` arm in `eval_aggregation` ever stops calling this
+    /// helper, the trybuild compile-fail surface in `cfdb-core/tests/ui/`
+    /// extends to cover Aggregation in a follow-up; meanwhile the unit test
+    /// here pins the sentinel format.
+    #[test]
+    fn unsupported_aggregation_sentinel_has_documented_shape() {
+        let variants: Vec<Aggregation> = vec![
+            Aggregation::CountStar,
+            Aggregation::Count(Expr::Var("x".into())),
+            Aggregation::CountDistinct(Expr::Var("x".into())),
+            Aggregation::Collect(Expr::Var("x".into())),
+            Aggregation::CollectDistinct(Expr::Var("x".into())),
+            Aggregation::Size(Expr::Var("x".into())),
+        ];
+
+        for agg in &variants {
+            let RowValue::Scalar(PropValue::Str(s)) = unsupported_aggregation_sentinel(agg) else {
+                panic!("sentinel must return Scalar(Str(...)), not silent empty");
+            };
+            assert!(
+                s.starts_with("unsupported_aggregation:"),
+                "sentinel prefix invariant: got {s:?}"
+            );
+            // Discriminant Debug format MUST NOT include payload data
+            // (would explode for large variants like Collect(huge_expr));
+            // the format is opaque but stable per-process.
+            assert!(
+                !s.contains("Var") && !s.contains("Expr"),
+                "sentinel must not stringify payload — used std::mem::discriminant: got {s:?}"
+            );
         }
     }
 }

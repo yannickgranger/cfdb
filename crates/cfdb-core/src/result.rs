@@ -23,6 +23,7 @@ pub type Row = BTreeMap<String, RowValue>;
 /// `COLLECT DISTINCT` can produce lists.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
+#[non_exhaustive]
 pub enum RowValue {
     Scalar(PropValue),
     List(Vec<PropValue>),
@@ -71,6 +72,7 @@ pub struct Warning {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum WarningKind {
     /// A node label in the query is not present in the schema.
     UnknownLabel,

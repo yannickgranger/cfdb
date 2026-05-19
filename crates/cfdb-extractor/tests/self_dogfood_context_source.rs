@@ -140,6 +140,10 @@ fn context_source_matches_declared_toml_set() {
         match source {
             ContextSource::Declared => declared_count += 1,
             ContextSource::Heuristic => heuristic_count += 1,
+            // RFC-044 §3.7: `ContextSource` is `#[non_exhaustive]`; any
+            // future variant fails the test loudly so the dogfood assertion
+            // can't drift silently.
+            _ => panic!("unexpected ContextSource variant: {source:?}"),
         }
     }
 

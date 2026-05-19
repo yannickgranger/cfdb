@@ -56,6 +56,9 @@ regex = "1"
 indexmap = "2"
 tempfile = "3"
 assert_cmd = "2"
+# trybuild — compile-fail tests for `#[non_exhaustive]` annotation enforcement
+# (slice 044-G / RFC-044 §3.7). Spawns cargo as a subprocess; pure dev-dep.
+trybuild = "1"
 
 # URL → cache-key hashing for `cfdb extract --rev <url>@<sha>` (Option W,
 # issue #96 / RFC-032 §A1.7). Pure-Rust, small footprint, zero system deps.

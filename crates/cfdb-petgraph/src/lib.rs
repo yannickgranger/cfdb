@@ -12,6 +12,16 @@
 //! NOTE on pathological-shape lint (study 001 §4.2): v0.1 delegates that check
 //! to `cfdb-query::shape_lint` — callers run the lint at parse time and
 //! decide whether to call `execute`. The evaluator does not re-run the lint.
+//!
+//! RFC-044 §3.7 (slice 044-G): cfdb-core schema enums are `#[non_exhaustive]`.
+//! Cross-crate `match` sites on those enums require a `_ =>` arm by hard
+//! compile error (E0004). The `non_exhaustive_omitted_patterns` lint further
+//! tightens this at the wildcard-arm boundary; we deny it preemptively so the
+//! attribute auto-activates when the lint stabilises (currently nightly-only
+//! on rust 1.93; `allow(unknown_lints)` keeps the attribute inert on stable).
+
+#![allow(unknown_lints)]
+#![deny(non_exhaustive_omitted_patterns)]
 
 mod canonical_dump;
 mod enrich;
