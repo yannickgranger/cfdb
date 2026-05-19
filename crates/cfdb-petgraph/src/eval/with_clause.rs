@@ -262,9 +262,7 @@ mod tests {
         ];
 
         for agg in &variants {
-            let RowValue::Scalar(PropValue::Str(s)) =
-                unsupported_aggregation_sentinel(agg)
-            else {
+            let RowValue::Scalar(PropValue::Str(s)) = unsupported_aggregation_sentinel(agg) else {
                 panic!("sentinel must return Scalar(Str(...)), not silent empty");
             };
             assert!(
