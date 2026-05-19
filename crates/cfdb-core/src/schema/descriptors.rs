@@ -21,6 +21,7 @@ use super::labels::{EdgeLabel, Label, SchemaVersion};
 /// [`super::schema_describe`].
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum Provenance {
     /// Structural fact walked directly from the `syn` AST or `cargo_metadata`
     /// during `extract()`. Available immediately after extract — no enrichment

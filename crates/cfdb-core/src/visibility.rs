@@ -33,6 +33,7 @@ use std::str::FromStr;
 /// Visibility of a Rust item as it appears in `:Item.visibility` (RFC-033
 /// §7 Group A1 / Issue #35).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum Visibility {
     Public,
     CrateLocal,

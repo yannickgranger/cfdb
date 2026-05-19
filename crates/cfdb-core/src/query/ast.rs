@@ -217,7 +217,13 @@ pub enum ProjectionValue {
 }
 
 /// Supported aggregations for v0.1.
+///
+/// `#[non_exhaustive]` per RFC-044 §3.7 (slice 044-G): downstream evaluators
+/// must include a `_ =>` arm returning `StoreError::Eval("unsupported
+/// aggregation: <name>")` so adding a new variant in cfdb-core cannot silently
+/// produce empty results in older evaluators (`with_clause.rs::eval_aggregation`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum Aggregation {
     /// `COUNT(*)` — count all bindings.
     CountStar,

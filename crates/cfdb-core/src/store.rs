@@ -22,6 +22,7 @@ use crate::schema::{Keyspace, SchemaVersion};
 /// Errors produced by a backend during ingest, evaluation, or snapshot ops.
 /// Intentionally small — parser errors live in cfdb-query, not here.
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum StoreError {
     #[error("keyspace not found: {0}")]
     UnknownKeyspace(Keyspace),

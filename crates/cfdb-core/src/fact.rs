@@ -16,6 +16,7 @@ use crate::schema::{EdgeLabel, Label};
 /// the JSONL dump is byte-stable across implementations.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
+#[non_exhaustive]
 pub enum PropValue {
     Str(String),
     Int(i64),
