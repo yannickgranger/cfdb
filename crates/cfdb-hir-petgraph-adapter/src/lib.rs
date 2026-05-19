@@ -36,10 +36,10 @@
 //! (as the unit test below does) — useful for exercising the store's
 //! ingestion path without requiring a loaded `HirDatabase`.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
-use cfdb_core::fact::{Edge, Node, PropValue};
-use cfdb_core::qname::{item_node_id, last_segment, qname_from_node_id};
+use cfdb_core::fact::{Edge, Node};
+use cfdb_core::qname::{item_node_id, qname_from_node_id};
 use cfdb_core::query::item_kind::ItemKind;
 use cfdb_core::schema::{EdgeLabel, Keyspace, Label};
 use cfdb_core::store::{StoreBackend, StoreError};
@@ -184,27 +184,23 @@ fn synthesize_callee_stubs(
 /// `item:<qname>`. Mirrors the prop shape produced by
 /// `cfdb-extractor::synthesize::synthesize_referenced_items` for
 /// the IMPLEMENTS/RETURNS/TYPE_OF family, with `kind = "fn"`
-/// (the most general callable value in `ItemKind`).
+/// (the most general callable value in `ItemKind`). Routes through
+/// `cfdb_core::fact::build_item_props` so the prop vocabulary is
+/// single-sourced (#421 boy-scout: closes the split-brain flagged by
+/// `audit-split-brain` against `cfdb-extractor::synthesize`).
 fn build_callee_stub(node_id: &str) -> Node {
     let qname = qname_from_node_id(node_id);
-    let name = last_segment(qname).to_string();
     let crate_name = qname
         .split_once("::")
         .map(|(c, _)| c.to_string())
         .unwrap_or_else(|| qname.to_string());
 
-    let mut props: BTreeMap<String, PropValue> = BTreeMap::new();
-    props.insert("qname".to_string(), PropValue::Str(qname.to_string()));
-    props.insert("name".to_string(), PropValue::Str(name));
-    props.insert(
-        "kind".to_string(),
-        PropValue::Str(ItemKind::Fn.to_extractor_str().to_string()),
+    let props = cfdb_core::fact::build_item_props(
+        qname,
+        ItemKind::Fn.to_extractor_str(),
+        &crate_name,
+        &crate_name,
     );
-    props.insert(
-        "bounded_context".to_string(),
-        PropValue::Str(crate_name.clone()),
-    );
-    props.insert("crate".to_string(), PropValue::Str(crate_name));
 
     Node {
         id: item_node_id(qname),
@@ -300,23 +296,17 @@ mod tests {
     }
 
     /// Build an `:Item` node fixture so a test can pre-populate the
-    /// store with a "syn-side already wrote this item" baseline.
+    /// store with a "syn-side already wrote this item" baseline. Uses
+    /// the canonical `cfdb_core::fact::build_item_props` helper (single
+    /// source of truth for the 5-key Item.props shape) and tacks on the
+    /// `file` prop used by the test to prove the stub synthesizer
+    /// didn't clobber a pre-existing :Item.
     fn item_node(qname: &str, crate_name: &str) -> Node {
-        let mut props = BTreeMap::new();
-        props.insert("qname".into(), PropValue::Str(qname.to_string()));
+        let mut props = cfdb_core::fact::build_item_props(qname, "fn", crate_name, crate_name);
         props.insert(
-            "name".into(),
-            PropValue::Str(last_segment(qname).to_string()),
+            "file".into(),
+            cfdb_core::fact::PropValue::Str("src/lib.rs".to_string()),
         );
-        props.insert("kind".into(), PropValue::Str("fn".to_string()));
-        props.insert("crate".into(), PropValue::Str(crate_name.to_string()));
-        props.insert(
-            "bounded_context".into(),
-            PropValue::Str(crate_name.to_string()),
-        );
-        // body-shaped prop — used by the test to prove the stub
-        // synthesizer didn't clobber a pre-existing :Item.
-        props.insert("file".into(), PropValue::Str("src/lib.rs".to_string()));
         Node {
             id: item_node_id(qname),
             label: Label::new(Label::ITEM),
