@@ -11,52 +11,70 @@ use std::collections::BTreeSet;
 
 const CARGO_TOML: &str = include_str!("../Cargo.toml");
 
-/// The complete allowed dependency set for cfdb-recall.
-const ALLOWED_DEPS: &[&str] = &[
-    // The hub — shared Node/Edge/Keyspace types.
-    "cfdb-core",
-    // The subject under test — the recall gate measures extractor output
-    // against rustdoc ground truth.
-    "cfdb-extractor",
-    // Serialization for report emission and audit-list parsing.
-    "serde",
-    "serde_json",
-    "thiserror",
-    // Parsed ground-truth data model — kept ungated because
-    // `project_rustdoc_paths` is a pure function in the public library
-    // API and consumers need `Crate`/`ItemKind` in their signatures.
-    "rustdoc-types",
-    // Optional deps — gated behind the `runner` feature so slim library
-    // consumers do not pay their compile cost. The Cargo.toml parser in
-    // this test captures names from `[dependencies]` whether or not the
-    // entry carries `optional = true`, so these still belong in the
-    // allowlist.
-    "clap",
-    "rustdoc-json",
-];
+/// Inert workspace dep-direction declaration — single source of truth for the
+/// allow/forbid graph (RFC-044 §3.3 / #422). Consumed via `include_str!`; the
+/// per-crate reader below is intentionally self-contained (no shared Rust
+/// crate, no new dev-dep — clean-arch R1 / no-monolith), the same accepted
+/// duplication as `parse_dependency_names()`.
+const DEP_RULES: &str = include_str!("../../../.cfdb/workspace-dep-rules.toml");
 
-/// Crates that MUST NEVER appear in cfdb-recall's `[dependencies]` section.
-const FORBIDDEN_DEPS: &[&str] = &[
-    // Parser layer — recall measurement does not execute queries.
-    "cfdb-query",
-    // Store backends — recall is a pure data comparison; no graph store
-    // is involved.
-    "cfdb-petgraph",
-    "cfdb-store-petgraph",
-    "cfdb-store-lbug",
-    // Sibling extractor variants — cfdb-recall operates on the canonical
-    // extractor only.
-    "cfdb-hir-extractor",
-    // Entry-point CLI — cfdb-cli depends on cfdb-recall (or will), not
-    // the reverse.
-    "cfdb-cli",
-    "cfdb-http",
-    // Async runtimes and HTTP layers belong in entry-point crates only.
-    "tokio",
-    "axum",
-    "hyper",
-    "reqwest",
-];
+/// This crate's section name in the inert rules file.
+const CRATE_SECTION: &str = "cfdb-recall";
+
+/// Read the `allowed` and `forbidden` arrays for `crate_name` from `DEP_RULES`.
+/// Line-oriented reader over hand-authored TOML (one quoted entry per array
+/// line); returns `(allowed, forbidden)`.
+fn dep_rules_for(crate_name: &str) -> (BTreeSet<String>, BTreeSet<String>) {
+    let header = format!("[{crate_name}]");
+    let mut allowed = BTreeSet::new();
+    let mut forbidden = BTreeSet::new();
+    let mut in_section = false;
+    // 0 = neither array, 1 = inside `allowed`, 2 = inside `forbidden`.
+    let mut bucket = 0u8;
+
+    for raw in DEP_RULES.lines() {
+        let line = raw.trim();
+        if line.starts_with('#') || line.is_empty() {
+            continue;
+        }
+        if line.starts_with('[') {
+            in_section = line == header;
+            bucket = 0;
+            continue;
+        }
+        if !in_section {
+            continue;
+        }
+        if line.starts_with("allowed") {
+            bucket = 1;
+            continue;
+        }
+        if line.starts_with("forbidden") {
+            bucket = 2;
+            continue;
+        }
+        if line.starts_with(']') {
+            bucket = 0;
+            continue;
+        }
+        if let (Some(start), Some(end)) = (line.find('"'), line.rfind('"')) {
+            if end > start {
+                let name = line[start + 1..end].to_string();
+                match bucket {
+                    1 => {
+                        allowed.insert(name);
+                    }
+                    2 => {
+                        forbidden.insert(name);
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    (allowed, forbidden)
+}
 
 fn parse_dependency_names() -> BTreeSet<String> {
     let mut names = BTreeSet::new();
@@ -91,11 +109,27 @@ fn parse_dependency_names() -> BTreeSet<String> {
 }
 
 #[test]
+fn workspace_dep_rules_section_loaded() {
+    // Non-vacuity guard: a broken include_str! path or drifted section name
+    // would yield empty lists and make every assertion below pass vacuously.
+    let (allowed, forbidden) = dep_rules_for(CRATE_SECTION);
+    assert!(
+        !allowed.is_empty() && !forbidden.is_empty(),
+        "no `[{CRATE_SECTION}]` allow/forbid rows parsed from \
+         .cfdb/workspace-dep-rules.toml — check the include_str! path and section name"
+    );
+    assert!(
+        allowed.contains("cfdb-core") && forbidden.contains("cfdb-cli"),
+        "expected sentinel rows missing — rules file shape changed unexpectedly"
+    );
+}
+
+#[test]
 fn cfdb_recall_has_no_forbidden_dependencies() {
     let deps = parse_dependency_names();
-    let forbidden: Vec<&str> = FORBIDDEN_DEPS
+    let (_, forbidden_rules) = dep_rules_for(CRATE_SECTION);
+    let forbidden: Vec<&String> = forbidden_rules
         .iter()
-        .copied()
         .filter(|name| deps.contains(*name))
         .collect();
 
@@ -111,17 +145,15 @@ fn cfdb_recall_has_no_forbidden_dependencies() {
 #[test]
 fn cfdb_recall_dependencies_are_all_whitelisted() {
     let deps = parse_dependency_names();
-    let allowed: BTreeSet<&str> = ALLOWED_DEPS.iter().copied().collect();
-    let unknown: Vec<&String> = deps
-        .iter()
-        .filter(|d| !allowed.contains(d.as_str()))
-        .collect();
+    let (allowed, _) = dep_rules_for(CRATE_SECTION);
+    let unknown: Vec<&String> = deps.iter().filter(|d| !allowed.contains(*d)).collect();
 
     assert!(
         unknown.is_empty(),
         "cfdb-recall/Cargo.toml [dependencies] contains crates not in the CLEAN-3 whitelist: {unknown:?}\n\
-         Allowed: {ALLOWED_DEPS:?}\n\
-         Update ALLOWED_DEPS in this test AND justify why the crate is recall-layer in a comment."
+         Allowed: {allowed:?}\n\
+         Update the [cfdb-recall] section of .cfdb/workspace-dep-rules.toml AND \
+         justify why the crate is recall-layer in a comment there."
     );
 }
 

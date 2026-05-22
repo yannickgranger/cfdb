@@ -1,0 +1,180 @@
+# .cfdb/workspace-dep-rules.toml — inert workspace dependency-direction declaration.
+#
+# RFC-044 §3.3 (slice 044-C / #422). Single source of truth for the per-crate
+# `[dependencies]` allow/forbid graph that enforces RFC-029 §8 CLEAN-3 (the
+# dependency arrow points inward toward cfdb-core).
+#
+# Before this file, each crate's `tests/architecture_dep_rule.rs` carried its
+# own `ALLOWED_DEPS` / `FORBIDDEN_DEPS` const arrays — 5 siloed lists that
+# drifted independently. This file DRYs the *data*; each per-crate test
+# `include_str!`s it and applies only its own `[<crate>]` section.
+#
+# This is NOT a shared Rust crate and NOT a `[dev-dependencies]` package
+# (clean-arch R1 / no-monolith directive §I1): it is inert data consumed via
+# `include_str!`. Each test file remains individually compilable with zero new
+# dependencies — they each carry a small self-contained reader, the same
+# accepted duplication as their `parse_dependency_names()` Cargo.toml parser.
+#
+# `allowed` = the complete set permitted in that crate's `[dependencies]`.
+# Adding a crate dependency requires adding it here with a justifying comment.
+# `forbidden` = crates that MUST NEVER appear — each depends on the crate (so
+# listing it would invert Clean Architecture / create a cycle) or is a heavy
+# layer (syn / ra-ap-* / async-http) that belongs only in its own adapter.
+
+[cfdb-core]
+# The workspace hub. RFC-029 §8: depends on NO concrete store, parser,
+# extractor, or wire-form crate. Carries only serialisation + error derives.
+allowed = [
+  "serde",       # every domain type is serialisable for round-trip
+  "serde_json",  # PropValue::Json + dynamic Cypher params
+  "thiserror",   # foundation error story
+]
+forbidden = [
+  "cfdb-petgraph",       # impls StoreBackend — depends on cfdb-core
+  "cfdb-store-petgraph",
+  "cfdb-store-lbug",
+  "cfdb-query",          # parser: cfdb-query -> cfdb-core, never reverse
+  "cfdb-extractor",      # producers of Node/Edge facts
+  "cfdb-hir-extractor",
+  "cfdb-cli",            # wire-form / entry points
+  "cfdb-http",
+  "syn",                 # heavy parser/IR — extractor-only
+  "proc-macro2",
+  "quote",
+  "ra-ap-hir",           # rust-analyzer HIR — cfdb-hir-extractor-only
+  "ra-ap-syntax",
+  "ra-ap-ide",
+  "ra-ap-ide-db",
+  "ra-ap-base-db",
+  "tokio",               # async runtimes / HTTP — entry-point-only
+  "axum",
+  "hyper",
+  "reqwest",
+]
+
+[cfdb-extractor]
+# Walks a Rust workspace via syn + cargo_metadata, emits Node/Edge facts.
+# RFC-029 §8: depends ONLY on cfdb-core plus source-analysis tooling.
+allowed = [
+  "cfdb-core",       # the hub — produces Node/Edge defined there
+  "cfdb-concepts",   # shared .cfdb/concepts loader + bounded-context resolver
+  "cfdb-lang",       # RFC-041: RustProducer impls the LanguageProducer seam
+  "syn",             # Rust AST visitor
+  "proc-macro2",     # span-locations feature for real :Item.line (#273)
+  "cargo_metadata",  # workspace/crate metadata
+  "toml",            # .cfdb/concepts/*.toml override config
+  "serde",           # emit surface
+  "serde_json",      # :ConstTable wire-stable JSON arrays (RFC-040 #325)
+  "sha2",            # :ConstTable.entries_hash (RFC-040 #325)
+  "thiserror",
+]
+forbidden = [
+  "cfdb-query",          # query parsing is not the extractor's concern
+  "cfdb-petgraph",       # extractor emits facts, does not store them
+  "cfdb-store-petgraph",
+  "cfdb-store-lbug",
+  "cfdb-hir-extractor",  # parallel adapter, not a base
+  "cfdb-recall",         # entry points depend on extractors, not reverse
+  "cfdb-cli",
+  "cfdb-http",
+  "chumsky",             # Cypher parser combinator
+  "tokio",
+  "axum",
+  "hyper",
+  "reqwest",
+]
+
+[cfdb-petgraph]
+# Concrete StoreBackend. RFC-029 §8: depends ONLY on cfdb-core (trait + data
+# model) and its own infrastructure (petgraph) + feature-gated enrichment I/O.
+allowed = [
+  "cfdb-core",      # the hub — impls StoreBackend defined there
+  "petgraph",       # the backend itself
+  "serde",
+  "serde_json",
+  "thiserror",
+  "regex",          # predicate evaluator (regexp_extract)
+  "indexmap",       # stable-order binding tables (determinism G1)
+  "git2",           # enrich_git_history (feature git-enrich, #105)
+  "cfdb-concepts",  # enrich_bounded_context shares compute_bounded_context
+  "toml",           # .cfdb/indexes.toml loader (RFC-035 #180)
+  "syn",            # enrich_metrics re-parse (feature quality-metrics, #203 / CP6)
+  "sha2",           # dup_cluster_id hash (feature quality-metrics, #203)
+]
+forbidden = [
+  "cfdb-query",          # query text parsing is not the backend's concern
+  "cfdb-extractor",      # different axis (code->facts); CP6 forbids this edge
+  "cfdb-hir-extractor",
+  "cfdb-store-petgraph",  # sibling backends don't know each other
+  "cfdb-store-lbug",
+  "cfdb-recall",          # entry points
+  "cfdb-cli",
+  "cfdb-http",
+  "proc-macro2",          # NB: syn is ALLOWED (CP6) but its proc-macro
+  "quote",                #     siblings stay out of the backend
+  "ra-ap-hir",
+  "ra-ap-syntax",
+  "tokio",
+  "axum",
+  "hyper",
+  "reqwest",
+]
+
+[cfdb-query]
+# Parser + builder layer. RFC-029 §8: depends on cfdb-core to produce a Query
+# AST; MUST NOT depend on any sibling adapter or entry-point crate.
+allowed = [
+  "cfdb-core",   # the hub — produces Query AST nodes defined there
+  "serde",
+  "serde_json",
+  "thiserror",
+  "chumsky",     # parser combinator (RFC-029 §10.2)
+  "toml",        # SkillRoutingTable parses .cfdb/skill-routing.toml (#48)
+]
+forbidden = [
+  "cfdb-petgraph",        # must not bind query parsing to a backend
+  "cfdb-store-petgraph",
+  "cfdb-store-lbug",
+  "cfdb-extractor",       # different axis (code->facts)
+  "cfdb-hir-extractor",
+  "cfdb-recall",          # depend on cfdb-query, never reverse
+  "cfdb-cli",
+  "cfdb-http",
+  "syn",                  # heavy extractor crates have no place in the parser
+  "proc-macro2",
+  "quote",
+  "ra-ap-hir",
+  "ra-ap-syntax",
+  "tokio",
+  "axum",
+  "hyper",
+  "reqwest",
+]
+
+[cfdb-recall]
+# Recall gate: compares cfdb-extractor output to rustdoc-json ground truth.
+# RFC-029 §13: one step above the extractor — depends on cfdb-core AND
+# cfdb-extractor (the subject under test), plus rustdoc tooling.
+allowed = [
+  "cfdb-core",       # shared Node/Edge/Keyspace types
+  "cfdb-extractor",  # subject under test
+  "serde",
+  "serde_json",
+  "thiserror",
+  "rustdoc-types",   # parsed ground-truth model (ungated public API)
+  "clap",            # runner feature
+  "rustdoc-json",    # runner feature
+]
+forbidden = [
+  "cfdb-query",          # recall does not execute queries
+  "cfdb-petgraph",       # pure data comparison, no graph store
+  "cfdb-store-petgraph",
+  "cfdb-store-lbug",
+  "cfdb-hir-extractor",  # canonical extractor only
+  "cfdb-cli",            # cfdb-cli depends on cfdb-recall, not reverse
+  "cfdb-http",
+  "tokio",
+  "axum",
+  "hyper",
+  "reqwest",
+]
