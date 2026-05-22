@@ -7,66 +7,79 @@
 //! infrastructure types leak into the foundation layer.
 //!
 //! This test parses cfdb-core's own `Cargo.toml` at compile time and asserts
-//! that no forbidden crate appears in `[dependencies]`. The whitelist is the
-//! complete allowed set — anything new must be added explicitly with a
-//! comment justifying why it is hub-foundational.
+//! that no forbidden crate appears in `[dependencies]`. The allow/forbid lists
+//! are NOT inlined here — they live in the inert workspace-level declaration
+//! `.cfdb/workspace-dep-rules.toml` (RFC-044 §3.3 / #422), the single source
+//! of truth shared by all five per-crate dep-rule tests.
 
 use std::collections::BTreeSet;
 
 const CARGO_TOML: &str = include_str!("../Cargo.toml");
 
-/// The complete allowed dependency set for cfdb-core. Adding to this list is
-/// a deliberate architectural choice and requires updating both the comment
-/// here and RFC-029 §8 if the additional crate is foundational.
-const ALLOWED_DEPS: &[&str] = &[
-    // Serde derives — every domain type is serialisable so cfdb-cli, RPC
-    // wrappers, and snapshot tooling can round-trip facts and reports.
-    "serde",
-    // Property-bag values (PropValue::Json) and arbitrary Cypher params need
-    // a dynamic JSON value type. Pulling in serde_json here keeps it out of
-    // every downstream crate's signatures.
-    "serde_json",
-    // Error type derives. Foundation crates always need an error story.
-    "thiserror",
-];
+/// Inert workspace dep-direction declaration — single source of truth for the
+/// allow/forbid graph (RFC-044 §3.3 / #422). Consumed via `include_str!`; the
+/// per-crate reader below is intentionally self-contained (no shared Rust
+/// crate, no new dev-dep — clean-arch R1 / no-monolith), the same accepted
+/// duplication as `parse_dependency_names()`.
+const DEP_RULES: &str = include_str!("../../../.cfdb/workspace-dep-rules.toml");
 
-/// Crates that MUST NEVER appear in cfdb-core's `[dependencies]` section.
-/// Each one represents a layer that depends on cfdb-core, so listing it here
-/// would create a dependency cycle. The list is exhaustive for v0.1 and
-/// should grow whenever a new sibling crate is added to the cfdb workspace.
-const FORBIDDEN_DEPS: &[&str] = &[
-    // Concrete store implementations — they impl `StoreBackend`, so cfdb-core
-    // depending on them would invert Clean Architecture.
-    "cfdb-petgraph",
-    "cfdb-store-petgraph",
-    "cfdb-store-lbug",
-    // Parser layer — converts text into `Query` AST defined in cfdb-core.
-    // The arrow points cfdb-query → cfdb-core, never the other way.
-    "cfdb-query",
-    // Extractor layer — produces `Node`/`Edge` facts defined in cfdb-core.
-    "cfdb-extractor",
-    "cfdb-hir-extractor",
-    // Wire-form layer — clap / axum surface that consumes the trait.
-    "cfdb-cli",
-    "cfdb-http",
-    // Heavy parser/IR crates that have NO business in a foundation crate.
-    // syn pulls in proc-macro2 + quote + unicode-ident; ra-ap-* pulls in the
-    // entire rust-analyzer HIR. Both belong in their respective extractor
-    // crates only.
-    "syn",
-    "proc-macro2",
-    "quote",
-    "ra-ap-hir",
-    "ra-ap-syntax",
-    "ra-ap-ide",
-    "ra-ap-ide-db",
-    "ra-ap-base-db",
-    // Async runtimes and HTTP layers belong in cfdb-cli / cfdb-http only.
-    "tokio",
-    "axum",
-    "hyper",
-    "reqwest",
-];
+/// This crate's section name in the inert rules file.
+const CRATE_SECTION: &str = "cfdb-core";
+
+/// Read the `allowed` and `forbidden` arrays for `crate_name` from `DEP_RULES`.
+/// Line-oriented reader over hand-authored TOML (one quoted entry per array
+/// line); returns `(allowed, forbidden)`.
+fn dep_rules_for(crate_name: &str) -> (BTreeSet<String>, BTreeSet<String>) {
+    let header = format!("[{crate_name}]");
+    let mut allowed = BTreeSet::new();
+    let mut forbidden = BTreeSet::new();
+    let mut in_section = false;
+    // 0 = neither array, 1 = inside `allowed`, 2 = inside `forbidden`.
+    let mut bucket = 0u8;
+
+    for raw in DEP_RULES.lines() {
+        let line = raw.trim();
+        if line.starts_with('#') || line.is_empty() {
+            continue;
+        }
+        if line.starts_with('[') {
+            in_section = line == header;
+            bucket = 0;
+            continue;
+        }
+        if !in_section {
+            continue;
+        }
+        if line.starts_with("allowed") {
+            bucket = 1;
+            continue;
+        }
+        if line.starts_with("forbidden") {
+            bucket = 2;
+            continue;
+        }
+        if line.starts_with(']') {
+            bucket = 0;
+            continue;
+        }
+        if let (Some(start), Some(end)) = (line.find('"'), line.rfind('"')) {
+            if end > start {
+                let name = line[start + 1..end].to_string();
+                match bucket {
+                    1 => {
+                        allowed.insert(name);
+                    }
+                    2 => {
+                        forbidden.insert(name);
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    (allowed, forbidden)
+}
 
 /// Parse the `[dependencies]` section of cfdb-core's Cargo.toml and return
 /// the set of dependency names. Inline-table form (`name = { ... }`) and
@@ -106,11 +119,28 @@ fn parse_dependency_names() -> BTreeSet<String> {
 }
 
 #[test]
+fn workspace_dep_rules_section_loaded() {
+    // Non-vacuity guard: if the `include_str!` path breaks or the section name
+    // drifts, both lists come back empty and every other assertion below would
+    // pass vacuously. This test fails loudly instead.
+    let (allowed, forbidden) = dep_rules_for(CRATE_SECTION);
+    assert!(
+        !allowed.is_empty() && !forbidden.is_empty(),
+        "no `[{CRATE_SECTION}]` allow/forbid rows parsed from \
+         .cfdb/workspace-dep-rules.toml — check the include_str! path and section name"
+    );
+    assert!(
+        allowed.contains("serde") && forbidden.contains("cfdb-cli"),
+        "expected sentinel rows missing — rules file shape changed unexpectedly"
+    );
+}
+
+#[test]
 fn cfdb_core_has_no_forbidden_dependencies() {
     let deps = parse_dependency_names();
-    let forbidden: Vec<&str> = FORBIDDEN_DEPS
+    let (_, forbidden_rules) = dep_rules_for(CRATE_SECTION);
+    let forbidden: Vec<&String> = forbidden_rules
         .iter()
-        .copied()
         .filter(|name| deps.contains(*name))
         .collect();
 
@@ -125,19 +155,16 @@ fn cfdb_core_has_no_forbidden_dependencies() {
 #[test]
 fn cfdb_core_dependencies_are_all_whitelisted() {
     let deps = parse_dependency_names();
-    let allowed: BTreeSet<&str> = ALLOWED_DEPS.iter().copied().collect();
-    let unknown: Vec<&String> = deps
-        .iter()
-        .filter(|d| !allowed.contains(d.as_str()))
-        .collect();
+    let (allowed, _) = dep_rules_for(CRATE_SECTION);
+    let unknown: Vec<&String> = deps.iter().filter(|d| !allowed.contains(*d)).collect();
 
     assert!(
         unknown.is_empty(),
         "cfdb-core/Cargo.toml [dependencies] contains crates not in the CLEAN-3 whitelist: {unknown:?}\n\
-         Allowed: {ALLOWED_DEPS:?}\n\
+         Allowed: {allowed:?}\n\
          Adding a new dependency to cfdb-core is a deliberate architectural choice. \
-         Update ALLOWED_DEPS in this test AND document why the crate is hub-foundational \
-         in the comment above the constant."
+         Update the [cfdb-core] section of .cfdb/workspace-dep-rules.toml AND document \
+         why the crate is hub-foundational in a comment there."
     );
 }
 
