@@ -101,8 +101,8 @@ fn scope_rejects_unknown_context() {
     );
     assert_eq!(
         out.status.code(),
-        Some(1),
-        "runtime error for unknown context must exit 1"
+        Some(2),
+        "Usage error (unknown context) must exit 2 per RFC-044 §3.6 exit-code contract"
     );
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
@@ -263,8 +263,8 @@ fn scope_rejects_format_table_in_v01() {
     );
     assert_eq!(
         out.status.code(),
-        Some(1),
-        "--format table must exit 1 (runtime error) in v0.1"
+        Some(2),
+        "--format table must exit 2 (Usage error) per RFC-044 §3.6 exit-code contract"
     );
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(

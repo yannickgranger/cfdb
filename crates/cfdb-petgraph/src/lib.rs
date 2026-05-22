@@ -12,6 +12,16 @@
 //! NOTE on pathological-shape lint (study 001 §4.2): v0.1 delegates that check
 //! to `cfdb-query::shape_lint` — callers run the lint at parse time and
 //! decide whether to call `execute`. The evaluator does not re-run the lint.
+//!
+//! RFC-044 §3.7 (slice 044-G): cfdb-core schema enums are `#[non_exhaustive]`.
+//! Cross-crate `match` sites on those enums require a `_ =>` arm by hard
+//! compile error (E0004). The `non_exhaustive_omitted_patterns` lint further
+//! tightens this at the wildcard-arm boundary; we deny it preemptively so the
+//! attribute auto-activates when the lint stabilises (currently nightly-only
+//! on rust 1.93; `allow(unknown_lints)` keeps the attribute inert on stable).
+
+#![allow(unknown_lints)]
+#![deny(non_exhaustive_omitted_patterns)]
 
 mod canonical_dump;
 mod enrich;
@@ -142,6 +152,22 @@ impl PetgraphStore {
         self.keyspaces
             .get_mut(keyspace)
             .expect("keyspace just inserted must be present")
+    }
+
+    /// Does the given keyspace contain a node with this id? Returns
+    /// `false` if the keyspace doesn't exist yet — symmetric to
+    /// [`ingest_one_edge`]'s "unknown dst id ⇒ drop" treatment.
+    ///
+    /// Consumed by [`cfdb_hir_petgraph_adapter::PetgraphAdapter`] (issue
+    /// #388) to decide whether to synthesize a stub `:Item` for a
+    /// foreign-callee CALLS edge dst before ingest. Pure read; no
+    /// behavioral change to existing ingest semantics.
+    ///
+    /// [`ingest_one_edge`]: crate::graph::KeyspaceState
+    pub fn has_node(&self, keyspace: &Keyspace, id: &str) -> bool {
+        self.keyspaces
+            .get(keyspace)
+            .is_some_and(|state| state.id_to_idx.contains_key(id))
     }
 
     /// Export the raw nodes and edges of a keyspace. Used by

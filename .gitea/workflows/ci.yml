@@ -35,7 +35,7 @@ jobs:
       - name: Setup
         run: |
           set -e
-          apt-get clean && apt-get update && apt-get install -y --no-install-recommends git build-essential libssl-dev pkg-config curl ca-certificates
+          apt-get clean && apt-get update && apt-get install -y --no-install-recommends git build-essential libssl-dev pkg-config curl ca-certificates jq
           mkdir -p /cache/cargo/registry /cache/cargo/git /cache/cargo/bin /cache/rustup ~/.cargo
           ln -sf /cache/cargo/registry ~/.cargo/registry
           ln -sf /cache/cargo/git ~/.cargo/git
@@ -142,10 +142,36 @@ jobs:
           cd repo
           cargo check -p cfdb-recall --no-default-features
 
+      - name: Check slim cfdb-cli (no language features) — RFC-041 Slice 41-C
+        run: |
+          cd repo
+          # RFC-041 Phase 1 / Slice 41-C invariant: with no `lang-*`
+          # features enabled, the CLI compiles WITHOUT pulling in
+          # `cfdb-extractor`'s `syn` / `cargo_metadata` / `ra-ap-*`
+          # transitives. The dispatcher's `available_producers()`
+          # returns an empty Vec; `cfdb extract --workspace <any>`
+          # surfaces `NoProducerDetected` cleanly at runtime.
+          # Mirrors the `cfdb-recall --no-default-features` pattern
+          # immediately above; see RFC §3.4 + §7 Slice 41-C.
+          cargo check -p cfdb-cli --no-default-features
+          # Belt-and-suspenders: prove `cfdb-extractor` is genuinely
+          # absent from the dep tree. `cargo tree` exits 0 when no
+          # match; grep -q exits 1 when no match — invert with `!`.
+          if cargo tree -p cfdb-cli --no-default-features 2>&1 | grep -q '^[│ ]*[├└]── cfdb-extractor '; then
+            echo "FAIL: cfdb-extractor leaked into the slim cfdb-cli dep tree"
+            cargo tree -p cfdb-cli --no-default-features
+            exit 1
+          fi
+
       - name: Determinism check (§12.1 G1)
         run: |
           cd repo
-          cargo build --release -p cfdb-cli --bin cfdb
+          # `--features hir` builds the rust-analyzer-backed extractor so
+          # the downstream `cfdb self-audit` extract step can pass
+          # `--hir` and populate `CALLS` + `EXPOSES` in the `cfdb-self`
+          # keyspace. Without the feature, those edge labels report
+          # dormant in the edge-liveness step (issue #381).
+          cargo build --release -p cfdb-cli --bin cfdb --features hir
           CFDB_BIN="$(pwd)/target/release/cfdb" bash ci/determinism-check.sh "$(pwd)/spikes/qa5-utc-now"
 
       - name: Predicate determinism (RFC-034 §4.1)
@@ -163,7 +189,12 @@ jobs:
         run: |
           cd repo
           mkdir -p .cfdb/db
-          ./target/release/cfdb extract --workspace . --db .cfdb/db --keyspace cfdb-self
+          # `--hir` runs the HIR-resolved extractor after syn so the
+          # downstream edge-liveness step sees `CALLS` + `EXPOSES`
+          # populated (issue #381). Requires the binary to be built
+          # with `--features hir` — paired with the determinism-check
+          # step above.
+          ./target/release/cfdb extract --workspace . --db .cfdb/db --keyspace cfdb-self --hir
           # Run every arch-ban-*.cypher rule against cfdb's own source.
           # v0.1 semantics (RFC-030 §3.2 as amended): any non-empty match
           # blocks merge. Per-class routing awaits #48 (Finding classifier).
@@ -172,16 +203,130 @@ jobs:
             ./target/release/cfdb violations --db .cfdb/db --keyspace cfdb-self --rule "$rule"
           done
 
-      - name: Edge-liveness (RFC-037 §3.7 informational)
-        continue-on-error: true
+      - name: cfdb query smoke (RFC-030 §3.2 liveness)
+        run: |
+          cd repo
+          # Smoke-execute every shipped .cypher query against the cfdb-self
+          # keyspace produced by the previous step. v0.1 semantics: parse +
+          # execute only — row count is ignored, zero rows is a pass. The
+          # gate exists to catch parser regressions and SchemaVersion drift
+          # at PR time. Row-count invariants live in Phase B (#343-#349
+          # self-enrich-* dogfoods, EPIC #338).
+          #
+          # Skip protocol: a file whose first 5 lines contain a header line
+          # `// smoke-skip: <reason>` is bypassed. This is the AC-6 escape
+          # hatch (#339 issue body) for parameterized queries (e.g.
+          # list-callers.cypher binds $qname) and template-driven queries
+          # (e.g. self-enrich-deprecation.cypher substitutes
+          # {{ ground_truth_count }} via tools/dogfood-enrich). The skip
+          # rationale lives next to the query — no allowlist file (project
+          # CLAUDE.md §3 / §6 row 5).
+          #
+          # Glob-driven (AC-5) — a new .cypher in either directory is
+          # picked up on the next CI run with no allowlist edit.
+          fail=0
+          ran=0
+          skipped=0
+          start=$(date +%s)
+          for q in examples/queries/*.cypher .cfdb/queries/*.cypher; do
+            [ -f "$q" ] || continue
+            if head -5 "$q" | grep -q '^// smoke-skip:'; then
+              echo ">> $q (smoke-skip)"
+              skipped=$((skipped + 1))
+              continue
+            fi
+            # Per-file timing to localise smoke wall-time regressions
+            # (post-#391 :EntryPoint{kind=test|bench} fan-out drove the
+            # smoke from 10s to 17m+; the per-file numbers are the only
+            # way to know which query owns the cost).
+            q_start=$(date +%s%N)
+            if ! ./target/release/cfdb query \
+                --db .cfdb/db --keyspace cfdb-self \
+                "$(cat "$q")" >/dev/null; then
+              fail=1
+            fi
+            q_elapsed_ms=$(( ( $(date +%s%N) - q_start ) / 1000000 ))
+            echo ">> $q (${q_elapsed_ms}ms)"
+            ran=$((ran + 1))
+          done
+          elapsed=$(( $(date +%s) - start ))
+          echo "smoke: ran=$ran skipped=$skipped elapsed=${elapsed}s"
+          # AC-7 budget target: ≤30s on cfdb-self. Failure modes per AC-3
+          # are parse + evaluator errors only — time overrun is logged but
+          # does NOT block merge. Prescribed remediation (issue body):
+          # file a separate perf issue. Local measurement at 9a9fc42 was
+          # 81s wall-clock, ~21s pure-query, ~60s keyspace-reload overhead
+          # across 11 invocations — tracked in the perf follow-up.
+          if [ "$elapsed" -gt 30 ]; then
+            echo "smoke: NOTICE — elapsed ${elapsed}s exceeds AC-7 30s target; see perf follow-up" >&2
+          fi
+          [ "$fail" -eq 0 ]
+
+      - name: Self-enrich dogfood (RFC-039 §3.3, default-feature subset)
+        run: |
+          cd repo
+          # RFC-039 harness scaffolding shipped in #342; per-pass
+          # `.cfdb/queries/self-enrich-*.cypher` templates land in
+          # issues #343-#346 (default-feature) and #347-#349 (nightly,
+          # gated separately). As each template ships, the matching
+          # invocation below transitions from informational placeholder
+          # to a hard gate.
+          #
+          # Activation status:
+          #   #343 — enrich-deprecation:     ACTIVE
+          #   #344 — enrich-rfc-docs:        ACTIVE (this PR)
+          #   #345 — enrich-bounded-context: ACTIVE (this PR — #355 Path B
+          #                                  via {{ total_items }} +
+          #                                  {{ nulls_threshold }} harness
+          #                                  substitution)
+          #   #346 — enrich-concepts:        ACTIVE (this PR)
+          cargo build -p dogfood-enrich --release --bin dogfood-enrich
+          # Determinism harness — runs all shipped templates twice and
+          # diffs stdout per RFC §3.4 / I1.
+          CFDB_BIN="$(pwd)/target/release/cfdb" \
+            DOGFOOD_BIN="$(pwd)/target/release/dogfood-enrich" \
+            bash ci/dogfood-determinism.sh
+          # All four default-feature passes are ACTIVE. Exit 30 on row →
+          # block merge. Exit 1 (runtime error) → block merge. Exit 0 →
+          # pass. Nightly-only passes (#347/#348/#349) live in their
+          # own workflow file gated on the matching feature flags.
+          # Side effect: each `dogfood-enrich --pass enrich-<name>` invokes
+          # `cfdb enrich-<name>` under the hood (feature_guard.rs), which
+          # mutates the keyspace with the pass's facts. The Edge-liveness
+          # step below reads the resulting end-of-pipeline state — see
+          # issue #383 for the ordering rationale (LABELED_AS / CANONICAL_FOR
+          # come from enrich-concepts, REFERENCED_BY from enrich-rfc-docs).
+          for pass in enrich-deprecation enrich-rfc-docs enrich-bounded-context enrich-concepts; do
+            echo ">> self-${pass} (ACTIVE)"
+            ./target/release/dogfood-enrich \
+              --pass "$pass" \
+              --db .cfdb/db \
+              --keyspace cfdb-self \
+              --cfdb-bin "$(pwd)/target/release/cfdb" \
+              --workspace "$(pwd)"
+          done
+
+      - name: Edge-liveness (RFC-037 §3.7 blocking)
         run: |
           cd repo
           # Issue #222 — flag declared edge labels with zero instances in
-          # the cfdb-self keyspace. v0.3.0 policy: informational (log the
-          # output, do not block merge). v0.4.0: promote to blocking
-          # ban rule after one release cycle of observation. The step is
-          # marked continue-on-error so a dormant-label finding surfaces
-          # in the CI log but does not fail the job.
+          # the cfdb-self keyspace. Promoted to BLOCKING via #385 after
+          # one release cycle of green observation (RFC-037 §3.7's
+          # v0.4.0 promotion clause is now honored). Any future addition
+          # to `cfdb-core::EdgeLabel` without a producer that emits ≥1
+          # instance on cfdb-self now fails CI loudly — the ratchet is
+          # earned. To intentionally reserve a new label without a
+          # producer (Phase B reservations), mark its schema descriptor
+          # `Provenance::Reserved` per #307 — the script suppresses
+          # reserved labels from the failure exit.
+          #
+          # Placement: AFTER the self-enrich step (issue #383). The
+          # enrichment-fed labels LABELED_AS / CANONICAL_FOR (emitted by
+          # enrich-concepts) and REFERENCED_BY (emitted by enrich-rfc-docs)
+          # only populate post-enrich; reading the keyspace pre-enrich
+          # makes them dormant by construction. Running this step at
+          # end-of-pipeline measures what the full producer chain emits,
+          # which is also what downstream consumers see.
           CFDB_BIN="$(pwd)/target/release/cfdb" bash ci/edge-liveness.sh
 
       - name: Cross-dogfood — cfdb on graph-specs-rust (RFC-033 §3.2)

@@ -62,7 +62,8 @@ pub(crate) fn compute_dup_cluster_ids(items: &[FnItem]) -> BTreeMap<String, Stri
 /// part of the external API.
 pub(crate) fn hash_cluster(members_unsorted: &[String]) -> String {
     let mut sorted: Vec<&str> = members_unsorted.iter().map(String::as_str).collect();
-    sorted.sort_unstable();
+    // Stable `sort` (not `sort_unstable`) per RFC-029 §12.1 G1 determinism rule.
+    sorted.sort();
     let joined = sorted.join("\n");
     let digest = Sha256::digest(joined.as_bytes());
     hex_encode(&digest)

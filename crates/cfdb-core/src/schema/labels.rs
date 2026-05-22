@@ -50,6 +50,29 @@ impl Label {
     /// `:RfcDoc` nodes carry `path` (string, workspace-relative) and
     /// optional `title` (string, from the first `# ` heading).
     pub const RFC_DOC: &'static str = "RfcDoc";
+    /// A literal const slice/array recognized by the extractor as a "table"
+    /// of values (RFC-040). Carries `qname`, `name`, `crate`, `module_qpath`,
+    /// `element_type` (closed-set wire string ∈ `{"str", "u32", "i32",
+    /// "u64", "i64"}`), `entry_count`, `entries_hash`, `entries_normalized`,
+    /// `entries_sample`, `is_test`. Reserved in slice 1/5 (issue #323);
+    /// first emissions land in slice 3/5 (issue #325). The
+    /// `(:Item) -[:HAS_CONST_TABLE]-> (:ConstTable)` edge encodes parent →
+    /// satellite ownership matching the established `HAS_*` family.
+    pub const CONST_TABLE: &'static str = "ConstTable";
+    /// A single string literal occurring in production source
+    /// (`crates/*/src/**/*.rs`), modelled at the `:CallSite` abstraction
+    /// level (RFC-041). Carries `value` (raw inter-delimiter source bytes,
+    /// NOT `syn::LitStr::value()` — the `=~`-matches-`grep` invariant,
+    /// RFC-041 §3.1), `file`, `line`, `col`, `crate`, `is_test`. Node id is
+    /// `literal:<workspace-relative-file>:<line>:<col>` (collision-free by
+    /// Rust grammar; `:Literal` has no owning `:Item` in v0). Deliberately
+    /// NO `kind` attr — that is a three-way homonym vs `:Item.kind` and
+    /// `:ConstTable.element_type`; future non-string literals use
+    /// `lit_syntax`, not `kind` (ddd lens, council 2026-05-15). Reserved in
+    /// slice 041-A (issue #369); first emissions land in slice 041-B
+    /// (issue #370) via the `cfdb-extractor` `literal_visitor.rs` submodule.
+    /// Pre-V0_4_0 keyspaces carry zero `:Literal` nodes.
+    pub const LITERAL: &'static str = "Literal";
 
     pub fn new(s: impl Into<String>) -> Self {
         Self(s.into())
@@ -84,6 +107,11 @@ impl EdgeLabel {
     pub const HAS_FIELD: &'static str = "HAS_FIELD";
     pub const HAS_VARIANT: &'static str = "HAS_VARIANT";
     pub const HAS_PARAM: &'static str = "HAS_PARAM";
+    /// `(:Item{kind="const"}) -[:HAS_CONST_TABLE]-> (:ConstTable)`. Reserved
+    /// in slice 1/5 (issue #323) per RFC-040 §3.2; first emissions land in
+    /// slice 3/5 (issue #325). Direction is parent → satellite, matching
+    /// the rest of the `HAS_*` family.
+    pub const HAS_CONST_TABLE: &'static str = "HAS_CONST_TABLE";
     pub const TYPE_OF: &'static str = "TYPE_OF";
     pub const IMPLEMENTS: &'static str = "IMPLEMENTS";
     pub const IMPLEMENTS_FOR: &'static str = "IMPLEMENTS_FOR";
@@ -348,11 +376,53 @@ impl SchemaVersion {
         patch: 1,
     };
 
+    /// **v0.3.2 — RFC-040 slice 1/5 schema declaration (#323).** Reserves
+    /// the `:ConstTable` node label, the `HAS_CONST_TABLE` edge label, and
+    /// the corresponding describer entries. No producer wired yet — first
+    /// emissions land in slice 3/5 (issue #325) when the extractor walks
+    /// `visit_item_const` and recognizes literal slice/array tables.
+    ///
+    /// **Additive and non-breaking within 0.3.x.** V0_3_1 readers loading
+    /// a V0_3_2 keyspace see no new facts (no producer yet); once slice 3
+    /// lands the new nodes / edges appear and V0_3_1 readers ignore the
+    /// extra labels.
+    ///
+    /// Paired lockstep `graph-specs-rust` cross-fixture bump per cfdb
+    /// CLAUDE.md §3 / RFC-033 §4 I2 lands in slice 5/5 (issue #327).
+    pub const V0_3_2: Self = Self {
+        major: 0,
+        minor: 3,
+        patch: 2,
+    };
+
+    /// **v0.4.0 — RFC-041 slice 041-A (#369): `:Literal` fact type.**
+    /// Reserves the `:Literal` node label (one node per string literal in
+    /// production source) and its describer entry. No producer wired yet —
+    /// first emissions land in slice 041-B (issue #370) when the
+    /// `cfdb-extractor` `literal_visitor.rs` submodule walks `syn::Lit::Str`
+    /// alongside the existing `:CallSite` pass.
+    ///
+    /// **Additive and non-breaking within major 0 (G4).** A new fact type
+    /// is a capability boundary, so this is a minor bump (precedent: every
+    /// prior label-introducing epoch — V0_2_0 entry points, V0_3_0
+    /// schema-producer alignment). V0_3_2 readers loading a V0_4_0 keyspace
+    /// see no new facts (no producer until 041-B); once 041-B lands the new
+    /// `:Literal` nodes appear and V0_3_2 readers ignore the extra label.
+    ///
+    /// Paired lockstep `graph-specs-rust` cross-fixture bump per cfdb
+    /// CLAUDE.md §3 / RFC-033 §4 I5 lands in slice 041-D (issue #372) —
+    /// NOT this slice.
+    pub const V0_4_0: Self = Self {
+        major: 0,
+        minor: 4,
+        patch: 0,
+    };
+
     /// The schema version this build of cfdb-core writes and reads.
     /// Producers tag every keyspace persist with `CURRENT`. Consumers use
     /// `CURRENT.can_read(&file.schema_version)` to reject forward-
     /// incompatible graphs per G4.
-    pub const CURRENT: Self = Self::V0_3_1;
+    pub const CURRENT: Self = Self::V0_4_0;
 
     pub fn new(major: u16, minor: u16, patch: u16) -> Self {
         Self {
@@ -376,55 +446,4 @@ impl fmt::Display for SchemaVersion {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn schema_version_compat() {
-        let reader = SchemaVersion::new(0, 1, 0);
-        assert!(reader.can_read(&SchemaVersion::new(0, 1, 0)));
-        assert!(!reader.can_read(&SchemaVersion::new(0, 1, 1))); // newer minor: no
-        assert!(!reader.can_read(&SchemaVersion::new(1, 0, 0))); // different major: no
-    }
-
-    // ---- Serde round-trip tests (#3625 AC) ---------------------------------
-
-    #[test]
-    fn label_serde_round_trip() {
-        let l = Label::new(Label::ITEM);
-        let json = serde_json::to_string(&l).expect("Label is a transparent String newtype");
-        // #[serde(transparent)] flattens to a bare string.
-        assert_eq!(json, "\"Item\"");
-        let back: Label = serde_json::from_str(&json).expect("round-trip of just-serialized Label");
-        assert_eq!(l, back);
-    }
-
-    #[test]
-    fn edge_label_serde_round_trip() {
-        let e = EdgeLabel::new(EdgeLabel::CALLS);
-        let json = serde_json::to_string(&e).expect("EdgeLabel is a transparent String newtype");
-        assert_eq!(json, "\"CALLS\"");
-        let back: EdgeLabel =
-            serde_json::from_str(&json).expect("round-trip of just-serialized EdgeLabel");
-        assert_eq!(e, back);
-    }
-
-    #[test]
-    fn keyspace_serde_round_trip() {
-        let k = Keyspace::new("qbot-core");
-        let json = serde_json::to_string(&k).expect("Keyspace is a transparent String newtype");
-        assert_eq!(json, "\"qbot-core\"");
-        let back: Keyspace =
-            serde_json::from_str(&json).expect("round-trip of just-serialized Keyspace");
-        assert_eq!(k, back);
-    }
-
-    #[test]
-    fn schema_version_serde_round_trip() {
-        let v = SchemaVersion::V0_1_0;
-        let json = serde_json::to_string(&v).expect("SchemaVersion has a plain derived Serialize");
-        let back: SchemaVersion =
-            serde_json::from_str(&json).expect("round-trip of just-serialized SchemaVersion");
-        assert_eq!(v, back);
-    }
-}
+mod tests;

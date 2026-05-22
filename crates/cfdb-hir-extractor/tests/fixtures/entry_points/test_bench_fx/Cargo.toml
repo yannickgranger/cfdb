@@ -1,0 +1,20 @@
+[package]
+name = "test_bench_fx"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"
+
+[[test]]
+name = "bdd"
+path = "tests/bdd.rs"
+
+[[bench]]
+name = "bench"
+path = "benches/bench.rs"
+harness = false

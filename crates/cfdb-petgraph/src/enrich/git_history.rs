@@ -92,7 +92,13 @@ pub(crate) fn run(state: &mut KeyspaceState, workspace_root: &Path) -> EnrichRep
         }
     };
 
-    let attrs_written = write_attrs(state, &item_indices, &git_info);
+    // Canonicalize workspace_root for path-strip — `:Item.file` is an
+    // absolute path and the user-supplied --workspace may be relative
+    // (e.g. `.`); without canonicalization the strip_prefix below
+    // never matches and every item gets a Null timestamp.
+    let workspace_canon =
+        std::fs::canonicalize(workspace_root).unwrap_or_else(|_| workspace_root.to_path_buf());
+    let attrs_written = write_attrs(state, &item_indices, &git_info, &workspace_canon);
 
     EnrichReport {
         verb: VERB.into(),
@@ -196,13 +202,14 @@ fn write_attrs(
     state: &mut KeyspaceState,
     item_indices: &[petgraph::stable_graph::NodeIndex],
     git_info: &BTreeMap<String, GitInfo>,
+    workspace_root: &Path,
 ) -> u64 {
     let mut count: u64 = 0;
     for &idx in item_indices {
         let Some(node) = state.graph.node_weight_mut(idx) else {
             continue;
         };
-        count += write_attrs_one(node, git_info);
+        count += write_attrs_one(node, git_info, workspace_root);
     }
     count
 }
@@ -210,12 +217,30 @@ fn write_attrs(
 /// Write per-node attrs, returning the number of attrs written (always 3 —
 /// Null is still a write, since the classifier uses the presence of the key
 /// to gate confidence).
-fn write_attrs_one(node: &mut Node, git_info: &BTreeMap<String, GitInfo>) -> u64 {
+///
+/// `:Item.file` is an absolute path emitted by the extractor; `git_info`
+/// is keyed by paths relative to the repo root (the form `git diff` returns).
+/// The lookup strips `workspace_root` from the stored path before matching.
+/// Falls back to the absolute path if it isn't under `workspace_root` (which
+/// can happen for vendored deps or generated code outside the tree — those
+/// get a Null timestamp via the `None` branch below, the intended result).
+fn write_attrs_one(
+    node: &mut Node,
+    git_info: &BTreeMap<String, GitInfo>,
+    workspace_root: &Path,
+) -> u64 {
     let lookup = node
         .props
         .get("file")
         .and_then(PropValue::as_str)
-        .and_then(|p| git_info.get(p));
+        .and_then(|p| {
+            let path = std::path::Path::new(p);
+            let rel = path
+                .strip_prefix(workspace_root)
+                .map(|r| r.to_string_lossy().into_owned())
+                .unwrap_or_else(|_| p.to_string());
+            git_info.get(&rel)
+        });
 
     match lookup {
         Some(info) => {
@@ -243,257 +268,4 @@ fn write_attrs_one(node: &mut Node, git_info: &BTreeMap<String, GitInfo>) -> u64
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-mod tests {
-    use std::path::Path;
-
-    use cfdb_core::enrich::EnrichBackend;
-    use cfdb_core::fact::{Node, PropValue, Props};
-    use cfdb_core::schema::{Keyspace, Label};
-    use cfdb_core::store::StoreBackend;
-
-    use crate::PetgraphStore;
-
-    // ------------------------------------------------------------------
-    // Fixture builders — a tempdir + a fresh git repo + one or more files
-    // committed along a linear history.
-    // ------------------------------------------------------------------
-
-    struct GitFixture {
-        _tmp: tempfile::TempDir,
-        workspace: std::path::PathBuf,
-        repo: git2::Repository,
-    }
-
-    impl GitFixture {
-        fn new() -> Self {
-            let tmp = tempfile::tempdir().expect("tempdir");
-            let workspace = tmp.path().to_path_buf();
-            let repo = git2::Repository::init(&workspace).expect("git init");
-            let mut cfg = repo.config().expect("repo.config");
-            cfg.set_str("user.name", "Test Author").expect("cfg name");
-            cfg.set_str("user.email", "test@example.com")
-                .expect("cfg email");
-            GitFixture {
-                _tmp: tmp,
-                workspace,
-                repo,
-            }
-        }
-
-        fn write(&self, rel: &str, contents: &str) {
-            let path = self.workspace.join(rel);
-            if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent).expect("mkdirs");
-            }
-            std::fs::write(&path, contents).expect("write file");
-        }
-
-        fn commit(&self, rel: &str, message: &str, time: i64) -> git2::Oid {
-            let mut index = self.repo.index().expect("index");
-            index.add_path(Path::new(rel)).expect("add_path");
-            index.write().expect("index.write");
-            let tree_oid = index.write_tree().expect("write_tree");
-            let tree = self.repo.find_tree(tree_oid).expect("find_tree");
-            let parents: Vec<git2::Commit<'_>> = match self.repo.head() {
-                Ok(head) => vec![head.peel_to_commit().expect("peel_to_commit")],
-                Err(_) => Vec::new(),
-            };
-            let parent_refs: Vec<&git2::Commit<'_>> = parents.iter().collect();
-            let sig =
-                git2::Signature::new("Test Author", "test@example.com", &git2::Time::new(time, 0))
-                    .expect("sig");
-            self.repo
-                .commit(Some("HEAD"), &sig, &sig, message, &tree, &parent_refs)
-                .expect("commit")
-        }
-    }
-
-    fn store_with_item(workspace: &Path, file_path: &str, item_qname: &str) -> PetgraphStore {
-        let mut store = PetgraphStore::new().with_workspace(workspace);
-        let ks = Keyspace::new("test");
-        let mut props = Props::new();
-        props.insert("qname".into(), PropValue::Str(item_qname.to_string()));
-        props.insert("file".into(), PropValue::Str(file_path.to_string()));
-        let node = Node {
-            id: format!("item:{item_qname}"),
-            label: Label::new(Label::ITEM),
-            props,
-        };
-        store.ingest_nodes(&ks, vec![node]).expect("ingest_nodes");
-        store
-    }
-
-    fn get_item_props(store: &PetgraphStore, keyspace: &Keyspace, qname: &str) -> Props {
-        let (nodes, _edges) = store.export(keyspace).expect("export");
-        nodes
-            .into_iter()
-            .find(|n| {
-                n.props
-                    .get("qname")
-                    .and_then(PropValue::as_str)
-                    .is_some_and(|q| q == qname)
-            })
-            .unwrap_or_else(|| panic!("item {qname} not found"))
-            .props
-    }
-
-    // ------------------------------------------------------------------
-    // AC-2: two-commit fixture — counts + last-ts + last-author correct.
-    // ------------------------------------------------------------------
-
-    #[test]
-    fn ac2_two_commit_fixture_writes_correct_attrs() {
-        let fx = GitFixture::new();
-        fx.write("src/lib.rs", "fn v1() {}\n");
-        fx.commit("src/lib.rs", "first", 1_700_000_000);
-        fx.write("src/lib.rs", "fn v2() {}\n");
-        fx.commit("src/lib.rs", "second", 1_700_000_100);
-
-        let mut store = store_with_item(&fx.workspace, "src/lib.rs", "crate::v2");
-        let ks = Keyspace::new("test");
-        let report = store.enrich_git_history(&ks).expect("pass");
-
-        assert!(report.ran, "pass should run: {:?}", report.warnings);
-        assert_eq!(report.attrs_written, 3, "one :Item × three attrs");
-
-        let props = get_item_props(&store, &ks, "crate::v2");
-        assert_eq!(
-            props.get(super::ATTR_TS),
-            Some(&PropValue::Int(1_700_000_100)),
-            "most recent commit timestamp"
-        );
-        assert_eq!(
-            props.get(super::ATTR_AUTHOR),
-            Some(&PropValue::Str("test@example.com".into())),
-            "committer email"
-        );
-        assert_eq!(
-            props.get(super::ATTR_COUNT),
-            Some(&PropValue::Int(2)),
-            "two commits touched src/lib.rs"
-        );
-    }
-
-    // ------------------------------------------------------------------
-    // AC-3: untracked-file fixture — attrs all Null, no panic.
-    // ------------------------------------------------------------------
-
-    #[test]
-    fn ac3_untracked_file_gets_null_attrs() {
-        let fx = GitFixture::new();
-        fx.write("src/tracked.rs", "fn tracked() {}\n");
-        fx.commit("src/tracked.rs", "initial", 1_700_000_000);
-        fx.write("src/untracked.rs", "fn untracked() {}\n");
-
-        let mut store = store_with_item(&fx.workspace, "src/untracked.rs", "crate::untracked");
-        let ks = Keyspace::new("test");
-        let report = store.enrich_git_history(&ks).expect("pass");
-
-        assert!(report.ran);
-        let props = get_item_props(&store, &ks, "crate::untracked");
-        assert_eq!(props.get(super::ATTR_TS), Some(&PropValue::Null));
-        assert_eq!(props.get(super::ATTR_AUTHOR), Some(&PropValue::Null));
-        assert_eq!(props.get(super::ATTR_COUNT), Some(&PropValue::Null));
-    }
-
-    // ------------------------------------------------------------------
-    // AC-6: determinism — two runs produce identical canonical dumps.
-    // ------------------------------------------------------------------
-
-    #[test]
-    fn ac6_two_runs_produce_identical_canonical_dumps() {
-        let fx = GitFixture::new();
-        fx.write("src/a.rs", "a\n");
-        fx.commit("src/a.rs", "a1", 1_700_000_000);
-        fx.write("src/b.rs", "b\n");
-        fx.commit("src/b.rs", "b1", 1_700_000_100);
-        fx.write("src/a.rs", "a2\n");
-        fx.commit("src/a.rs", "a2", 1_700_000_200);
-
-        let mut store1 = store_with_item(&fx.workspace, "src/a.rs", "crate::a");
-        let mut store2 = store_with_item(&fx.workspace, "src/a.rs", "crate::a");
-        let ks = Keyspace::new("test");
-
-        store1.enrich_git_history(&ks).expect("run 1");
-        store2.enrich_git_history(&ks).expect("run 2");
-
-        let dump1 = store1.canonical_dump(&ks).expect("dump 1");
-        let dump2 = store2.canonical_dump(&ks).expect("dump 2");
-        assert_eq!(dump1, dump2, "two runs must be byte-identical (G1)");
-    }
-
-    // ------------------------------------------------------------------
-    // Degraded paths: workspace not in a git repo.
-    // ------------------------------------------------------------------
-
-    #[test]
-    fn workspace_not_a_git_repo_writes_nulls_with_warning() {
-        let tmp = tempfile::tempdir().expect("tempdir");
-        let mut store = store_with_item(tmp.path(), "src/lib.rs", "crate::x");
-        let ks = Keyspace::new("test");
-        let report = store.enrich_git_history(&ks).expect("pass");
-
-        assert!(report.ran, "still ran — not an error, just degraded");
-        assert!(
-            report
-                .warnings
-                .iter()
-                .any(|w| w.contains("not inside a git repository")),
-            "warning must name the repo issue: {:?}",
-            report.warnings
-        );
-        let props = get_item_props(&store, &ks, "crate::x");
-        assert_eq!(props.get(super::ATTR_TS), Some(&PropValue::Null));
-    }
-
-    #[test]
-    fn empty_keyspace_returns_ran_true_with_zero_counters() {
-        let fx = GitFixture::new();
-        fx.write("src/lib.rs", "fn _x() {}\n");
-        fx.commit("src/lib.rs", "initial", 1_700_000_000);
-
-        let mut store = PetgraphStore::new().with_workspace(&fx.workspace);
-        let ks = Keyspace::new("test");
-        store.ingest_nodes(&ks, Vec::new()).expect("ingest empty");
-        let report = store.enrich_git_history(&ks).expect("pass");
-
-        assert!(report.ran);
-        assert_eq!(report.attrs_written, 0);
-        assert_eq!(report.facts_scanned, 0);
-    }
-
-    #[test]
-    fn unknown_keyspace_returns_err() {
-        let fx = GitFixture::new();
-        let mut store = PetgraphStore::new().with_workspace(&fx.workspace);
-        let ks = Keyspace::new("never_ingested");
-        let err = store
-            .enrich_git_history(&ks)
-            .expect_err("unknown keyspace must error");
-        let msg = format!("{err:?}");
-        assert!(msg.contains("UnknownKeyspace"), "{msg}");
-    }
-
-    #[test]
-    fn no_workspace_root_returns_degraded_report() {
-        let mut store = PetgraphStore::new();
-        let ks = Keyspace::new("test");
-        let mut props = Props::new();
-        props.insert("qname".into(), PropValue::Str("crate::y".into()));
-        props.insert("file".into(), PropValue::Str("src/lib.rs".into()));
-        let node = Node {
-            id: "item:crate::y".into(),
-            label: Label::new(Label::ITEM),
-            props,
-        };
-        store.ingest_nodes(&ks, vec![node]).expect("ingest");
-        let report = store.enrich_git_history(&ks).expect("pass");
-
-        assert!(!report.ran, "no workspace_root → ran=false");
-        assert!(
-            report.warnings.iter().any(|w| w.contains("workspace_root")),
-            "warning must name the missing root: {:?}",
-            report.warnings
-        );
-    }
-}
+mod tests;

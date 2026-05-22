@@ -11,55 +11,70 @@ use std::collections::BTreeSet;
 
 const CARGO_TOML: &str = include_str!("../Cargo.toml");
 
-/// The complete allowed dependency set for cfdb-extractor.
-const ALLOWED_DEPS: &[&str] = &[
-    // The hub — cfdb-extractor produces `Node`/`Edge` types defined in cfdb-core.
-    "cfdb-core",
-    // Shared `.cfdb/concepts/*.toml` loader + crate→bounded-context resolver
-    // (Issue #3 extraction). Pure-library crate, zero heavy deps —
-    // cfdb-query will also depend on it (Conformist pattern).
-    "cfdb-concepts",
-    // Rust source AST visitor.
-    "syn",
-    // Source-line spans — `span-locations` feature on `proc-macro2`
-    // makes `Span::start().line` available so the extractor reports
-    // real `:Item.line` / `:CallSite.line` instead of 0 (#273 / F-005).
-    // proc-macro2 is already a transitive dep of `syn`; we name it
-    // directly to opt into the feature flag, which is source-analysis
-    // tooling — same layer as `syn`.
-    "proc-macro2",
-    // Workspace/crate metadata resolution.
-    "cargo_metadata",
-    // Concept override config (`.cfdb/concepts/*.toml`).
-    "toml",
-    // Serialization for emit surface.
-    "serde",
-    "thiserror",
-];
+/// Inert workspace dep-direction declaration — single source of truth for the
+/// allow/forbid graph (RFC-044 §3.3 / #422). Consumed via `include_str!`; the
+/// per-crate reader below is intentionally self-contained (no shared Rust
+/// crate, no new dev-dep — clean-arch R1 / no-monolith), the same accepted
+/// duplication as `parse_dependency_names()`.
+const DEP_RULES: &str = include_str!("../../../.cfdb/workspace-dep-rules.toml");
 
-/// Crates that MUST NEVER appear in cfdb-extractor's `[dependencies]` section.
-const FORBIDDEN_DEPS: &[&str] = &[
-    // Parser layer — query text parsing is not the extractor's concern.
-    "cfdb-query",
-    // Store backends — cfdb-extractor emits facts; it does not store them.
-    "cfdb-petgraph",
-    "cfdb-store-petgraph",
-    "cfdb-store-lbug",
-    // Sibling extractor — the HIR extractor variant is a parallel adapter,
-    // not a base.
-    "cfdb-hir-extractor",
-    // Entry points depend on extractors, never the reverse.
-    "cfdb-recall",
-    "cfdb-cli",
-    "cfdb-http",
-    // Parser combinator — the extractor doesn't parse Cypher.
-    "chumsky",
-    // Async runtimes and HTTP layers belong in entry-point crates only.
-    "tokio",
-    "axum",
-    "hyper",
-    "reqwest",
-];
+/// This crate's section name in the inert rules file.
+const CRATE_SECTION: &str = "cfdb-extractor";
+
+/// Read the `allowed` and `forbidden` arrays for `crate_name` from `DEP_RULES`.
+/// Line-oriented reader over hand-authored TOML (one quoted entry per array
+/// line); returns `(allowed, forbidden)`.
+fn dep_rules_for(crate_name: &str) -> (BTreeSet<String>, BTreeSet<String>) {
+    let header = format!("[{crate_name}]");
+    let mut allowed = BTreeSet::new();
+    let mut forbidden = BTreeSet::new();
+    let mut in_section = false;
+    // 0 = neither array, 1 = inside `allowed`, 2 = inside `forbidden`.
+    let mut bucket = 0u8;
+
+    for raw in DEP_RULES.lines() {
+        let line = raw.trim();
+        if line.starts_with('#') || line.is_empty() {
+            continue;
+        }
+        if line.starts_with('[') {
+            in_section = line == header;
+            bucket = 0;
+            continue;
+        }
+        if !in_section {
+            continue;
+        }
+        if line.starts_with("allowed") {
+            bucket = 1;
+            continue;
+        }
+        if line.starts_with("forbidden") {
+            bucket = 2;
+            continue;
+        }
+        if line.starts_with(']') {
+            bucket = 0;
+            continue;
+        }
+        if let (Some(start), Some(end)) = (line.find('"'), line.rfind('"')) {
+            if end > start {
+                let name = line[start + 1..end].to_string();
+                match bucket {
+                    1 => {
+                        allowed.insert(name);
+                    }
+                    2 => {
+                        forbidden.insert(name);
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    (allowed, forbidden)
+}
 
 fn parse_dependency_names() -> BTreeSet<String> {
     let mut names = BTreeSet::new();
@@ -94,11 +109,27 @@ fn parse_dependency_names() -> BTreeSet<String> {
 }
 
 #[test]
+fn workspace_dep_rules_section_loaded() {
+    // Non-vacuity guard: a broken include_str! path or drifted section name
+    // would yield empty lists and make every assertion below pass vacuously.
+    let (allowed, forbidden) = dep_rules_for(CRATE_SECTION);
+    assert!(
+        !allowed.is_empty() && !forbidden.is_empty(),
+        "no `[{CRATE_SECTION}]` allow/forbid rows parsed from \
+         .cfdb/workspace-dep-rules.toml — check the include_str! path and section name"
+    );
+    assert!(
+        allowed.contains("cfdb-core") && forbidden.contains("cfdb-cli"),
+        "expected sentinel rows missing — rules file shape changed unexpectedly"
+    );
+}
+
+#[test]
 fn cfdb_extractor_has_no_forbidden_dependencies() {
     let deps = parse_dependency_names();
-    let forbidden: Vec<&str> = FORBIDDEN_DEPS
+    let (_, forbidden_rules) = dep_rules_for(CRATE_SECTION);
+    let forbidden: Vec<&String> = forbidden_rules
         .iter()
-        .copied()
         .filter(|name| deps.contains(*name))
         .collect();
 
@@ -114,17 +145,15 @@ fn cfdb_extractor_has_no_forbidden_dependencies() {
 #[test]
 fn cfdb_extractor_dependencies_are_all_whitelisted() {
     let deps = parse_dependency_names();
-    let allowed: BTreeSet<&str> = ALLOWED_DEPS.iter().copied().collect();
-    let unknown: Vec<&String> = deps
-        .iter()
-        .filter(|d| !allowed.contains(d.as_str()))
-        .collect();
+    let (allowed, _) = dep_rules_for(CRATE_SECTION);
+    let unknown: Vec<&String> = deps.iter().filter(|d| !allowed.contains(*d)).collect();
 
     assert!(
         unknown.is_empty(),
         "cfdb-extractor/Cargo.toml [dependencies] contains crates not in the CLEAN-3 whitelist: {unknown:?}\n\
-         Allowed: {ALLOWED_DEPS:?}\n\
-         Update ALLOWED_DEPS in this test AND justify why the crate is extractor-layer in a comment."
+         Allowed: {allowed:?}\n\
+         Update the [cfdb-extractor] section of .cfdb/workspace-dep-rules.toml AND \
+         justify why the crate is extractor-layer in a comment there."
     );
 }
 

@@ -7,7 +7,6 @@
 use cfdb_core::fact::PropValue;
 use cfdb_core::query::{CompareOp, Expr, Param, Predicate};
 use cfdb_core::result::RowValue;
-use regex::Regex;
 
 use super::{Binding, Bindings, Evaluator};
 
@@ -36,9 +35,9 @@ impl<'a> Evaluator<'a> {
                 let lv = self.eval_expr(left, bindings);
                 let pat = self.eval_expr(pattern, bindings);
                 match (lv, pat) {
-                    (Some(PropValue::Str(s)), Some(PropValue::Str(p))) => {
-                        Regex::new(&p).map(|re| re.is_match(&s)).unwrap_or(false)
-                    }
+                    (Some(PropValue::Str(s)), Some(PropValue::Str(p))) => self
+                        .compiled_regex(&p, |re| re.is_match(&s))
+                        .unwrap_or(false),
                     _ => false,
                 }
             }
@@ -130,6 +129,9 @@ impl<'a> Evaluator<'a> {
             "ends_with" => self.call_ends_with(args, bindings),
             "last_segment" => self.call_last_segment(args, bindings),
             "signature_divergent" => self.call_signature_divergent(args, bindings),
+            "entries_subset" => self.call_entries_subset(args, bindings),
+            "entries_jaccard" => self.call_entries_jaccard(args, bindings),
+            "overlap_verdict" => self.call_overlap_verdict(args, bindings),
             _ => None,
         }
     }
@@ -140,10 +142,11 @@ impl<'a> Evaluator<'a> {
         let (PropValue::Str(text), PropValue::Str(pattern)) = (s, pat) else {
             return None;
         };
-        Regex::new(&pattern).ok().and_then(|re| {
+        self.compiled_regex(&pattern, |re| {
             re.find(&text)
                 .map(|m| PropValue::Str(m.as_str().to_string()))
         })
+        .flatten()
     }
 
     fn call_size(&self, args: &[Expr], bindings: &Bindings) -> Option<PropValue> {
@@ -245,32 +248,112 @@ impl<'a> Evaluator<'a> {
         let (PropValue::Str(sa), PropValue::Str(sb)) = (a, b) else {
             return None;
         };
-        Some(PropValue::Bool(
-            normalize_signature(&sa) != normalize_signature(&sb),
+        // #409 perf — was `normalize_signature(&sa) != normalize_signature(&sb)`,
+        // which allocated TWO new Strings per call. Hot path on
+        // signature-divergent.cypher: ~5M invocations per smoke run on
+        // cfdb-self drove the query to 542s wall-time in CI run 575.
+        // `signatures_differ_modulo_whitespace` walks both inputs once
+        // with no allocation, skipping whitespace runs as a single
+        // logical space — equivalent semantics, ~order-of-magnitude
+        // less constant-factor cost.
+        Some(PropValue::Bool(signatures_differ_modulo_whitespace(
+            &sa, &sb,
+        )))
+    }
+
+    /// `entries_subset(a, b) -> Bool` — RFC-040 §3.4.
+    ///
+    /// Returns `true` iff every element of JSON-array `a` is contained
+    /// in JSON-array `b`. The empty set is a subset of anything; equal
+    /// sets are subsets of each other. Operates on the
+    /// `:ConstTable.entries_normalized` wire shape (RFC-040 §3.4): a
+    /// JSON array of strings (e.g. `["EUR","USD"]`) or numbers
+    /// (e.g. `[1,42,100]`). Element type is inferred from the first
+    /// parsable element; mixed-element-type inputs return `false`
+    /// (treated as no overlap — RFC-040 §3.4 N2).
+    ///
+    /// # Type-mismatch behavior
+    ///
+    /// Non-string args (or non-JSON-array strings) return `None`,
+    /// matching the convention of the other hard-wired UDFs.
+    fn call_entries_subset(&self, args: &[Expr], bindings: &Bindings) -> Option<PropValue> {
+        let a = self.eval_expr(args.first()?, bindings)?;
+        let b = self.eval_expr(args.get(1)?, bindings)?;
+        let (PropValue::Str(sa), PropValue::Str(sb)) = (a, b) else {
+            return None;
+        };
+        Some(PropValue::Bool(entries_subset_impl(&sa, &sb)))
+    }
+
+    /// `entries_jaccard(a, b) -> Float` — RFC-040 §3.4.
+    ///
+    /// Returns `|a ∩ b| / |a ∪ b|`. Returns `0.0` when both inputs
+    /// are empty (avoid divide-by-zero). Operates on the
+    /// `:ConstTable.entries_normalized` wire shape (RFC-040 §3.4).
+    /// Mixed-element-type inputs return `0.0` (treated as no overlap
+    /// — RFC-040 §3.4 N2).
+    ///
+    /// # Type-mismatch behavior
+    ///
+    /// Non-string args (or non-JSON-array strings) return `None`.
+    fn call_entries_jaccard(&self, args: &[Expr], bindings: &Bindings) -> Option<PropValue> {
+        let a = self.eval_expr(args.first()?, bindings)?;
+        let b = self.eval_expr(args.get(1)?, bindings)?;
+        let (PropValue::Str(sa), PropValue::Str(sb)) = (a, b) else {
+            return None;
+        };
+        Some(PropValue::Float(entries_jaccard_impl(&sa, &sb)))
+    }
+
+    /// `overlap_verdict(a_normalized, b_normalized, a_hash, b_hash) -> Str`
+    /// — RFC-040 §3.4 precedence-decoder.
+    ///
+    /// Maps a `(a, b)` pair to one of `'CONST_TABLE_DUPLICATE'`,
+    /// `'CONST_TABLE_SUBSET'`, `'CONST_TABLE_INTERSECTION_HIGH'`, or
+    /// `'CONST_TABLE_NONE'` per the precedence ordering in RFC-040 §3.4:
+    ///
+    ///   1. DUPLICATE: `a_hash = b_hash` (entries_hash equality is the
+    ///      canonical set-equality key, RFC-040 §3.1).
+    ///   2. SUBSET: not duplicate AND `entries_subset(a, b)` OR
+    ///      `entries_subset(b, a)`.
+    ///   3. INTERSECTION_HIGH: not subset AND
+    ///      `entries_jaccard(a, b) >= 0.5`.
+    ///   4. otherwise: `'CONST_TABLE_NONE'`.
+    ///
+    /// Lives here (alongside `entries_subset` / `entries_jaccard`)
+    /// because the v0.1 Cypher subset has no `CASE WHEN` / `UNION`
+    /// (`crates/cfdb-query/src/parser/mod.rs` §316–432), so the
+    /// precedence-decoder MUST live in a UDF for the rule file to
+    /// emit a single `verdict` string column. The precedence semantics
+    /// are RFC-040-load-bearing — keeping them in one Rust function
+    /// (rather than reimplemented in every consumer query) is the
+    /// canonical-resolver pattern (RFC-035 §3.3).
+    fn call_overlap_verdict(&self, args: &[Expr], bindings: &Bindings) -> Option<PropValue> {
+        let a_norm = self.eval_expr(args.first()?, bindings)?;
+        let b_norm = self.eval_expr(args.get(1)?, bindings)?;
+        let a_hash = self.eval_expr(args.get(2)?, bindings)?;
+        let b_hash = self.eval_expr(args.get(3)?, bindings)?;
+        let (
+            PropValue::Str(a_norm),
+            PropValue::Str(b_norm),
+            PropValue::Str(a_hash),
+            PropValue::Str(b_hash),
+        ) = (a_norm, b_norm, a_hash, b_hash)
+        else {
+            return None;
+        };
+        Some(PropValue::Str(
+            overlap_verdict_impl(&a_norm, &b_norm, &a_hash, &b_hash).to_string(),
         ))
     }
 }
 
-/// Normalize a signature string for `signature_divergent` comparison —
-/// trim outer whitespace and collapse any run of internal whitespace to
-/// a single ASCII space. See [`Evaluator::call_signature_divergent`]
-/// for the rationale.
-fn normalize_signature(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut prev_ws = false;
-    for c in s.trim().chars() {
-        if c.is_whitespace() {
-            if !prev_ws {
-                out.push(' ');
-                prev_ws = true;
-            }
-        } else {
-            out.push(c);
-            prev_ws = false;
-        }
-    }
-    out
-}
+mod udf;
+
+use udf::{
+    entries_jaccard_impl, entries_subset_impl, overlap_verdict_impl,
+    signatures_differ_modulo_whitespace,
+};
 
 pub(super) fn compare_propvalues(
     op: CompareOp,
@@ -308,117 +391,4 @@ pub(super) fn compare_propvalues(
 }
 
 #[cfg(test)]
-mod signature_divergent_tests {
-    use super::normalize_signature;
-
-    #[test]
-    fn trim_outer_whitespace() {
-        assert_eq!(normalize_signature("  fn() -> ()  "), "fn() -> ()");
-    }
-
-    #[test]
-    fn collapse_internal_whitespace() {
-        assert_eq!(
-            normalize_signature("fn(i32,   String)  ->  bool"),
-            "fn(i32, String) -> bool"
-        );
-    }
-
-    #[test]
-    fn identical_normalized_strings_are_not_divergent() {
-        let a = normalize_signature("fn(i32) -> bool");
-        let b = normalize_signature("fn(i32) -> bool");
-        assert_eq!(a, b);
-    }
-
-    #[test]
-    fn whitespace_only_difference_is_not_divergent() {
-        let a = normalize_signature("fn(i32) -> bool");
-        let b = normalize_signature("fn(i32)  ->   bool");
-        assert_eq!(a, b);
-    }
-
-    #[test]
-    fn different_types_are_divergent() {
-        let a = normalize_signature("fn() -> f64");
-        let b = normalize_signature("fn() -> (f64, f64)");
-        assert_ne!(a, b);
-    }
-}
-
-#[cfg(test)]
-mod last_segment_tests {
-    use std::collections::BTreeMap;
-
-    use cfdb_core::fact::PropValue;
-    use cfdb_core::query::{Expr, Param};
-
-    use crate::eval::Evaluator;
-    use crate::graph::KeyspaceState;
-
-    /// AC4 — the `last_segment(...)` Cypher UDF MUST delegate to
-    /// `cfdb_core::qname::last_segment` (the RFC-035 §3.3 invariant
-    /// owner) byte-for-byte. Routing the dispatch through the
-    /// canonical helper closes the read-side of the §3.3 invariant
-    /// (the write-side closed in slice 3 via `ComputedKey::evaluate`).
-    ///
-    /// Canary set extends the slice 3 self-dogfood inputs with edge
-    /// cases (single-segment, leading/trailing separator, single-`:`
-    /// non-qname inputs). The canonical helper splits at the LAST
-    /// `::` and returns the trailing segment (or the whole input
-    /// when no `::` is present). Pinning these here surfaces any
-    /// future divergence between the UDF and the canonical helper
-    /// loudly rather than via a downstream Cypher query mismatch.
-    #[test]
-    fn call_last_segment_agrees_with_canonical_owner_byte_for_byte() {
-        let state = KeyspaceState::new();
-        let params: BTreeMap<String, Param> = BTreeMap::new();
-        let evaluator = Evaluator::new(&state, &params);
-        let bindings: BTreeMap<String, crate::eval::Binding> = BTreeMap::new();
-
-        let inputs = [
-            "foo::bar::baz",
-            "foo",
-            "",
-            "cfdb_extractor::item_visitor::ItemVisitor::emit_item",
-            "single_segment",
-            "::leading_separator",
-            "trailing_separator::",
-            "cfdb_core::qname::last_segment",
-        ];
-
-        for input in inputs {
-            let expr = Expr::Call {
-                name: "last_segment".into(),
-                args: vec![Expr::Literal(PropValue::Str(input.to_string()))],
-            };
-            let actual = evaluator.eval_expr(&expr, &bindings);
-            let expected = Some(PropValue::Str(
-                cfdb_core::qname::last_segment(input).to_string(),
-            ));
-            assert_eq!(
-                actual, expected,
-                "Cypher last_segment UDF diverged from canonical \
-                 cfdb_core::qname::last_segment on input {input:?}"
-            );
-        }
-    }
-
-    /// The UDF preserves the `Option<PropValue>` surface — non-string
-    /// inputs return `None` (the `?`-on-type-mismatch path shared with
-    /// the other UDFs in this dispatcher).
-    #[test]
-    fn call_last_segment_returns_none_on_non_string_input() {
-        let state = KeyspaceState::new();
-        let params: BTreeMap<String, Param> = BTreeMap::new();
-        let evaluator = Evaluator::new(&state, &params);
-        let bindings: BTreeMap<String, crate::eval::Binding> = BTreeMap::new();
-
-        let expr = Expr::Call {
-            name: "last_segment".into(),
-            args: vec![Expr::Literal(PropValue::Int(42))],
-        };
-        let actual = evaluator.eval_expr(&expr, &bindings);
-        assert_eq!(actual, None);
-    }
-}
+mod tests;

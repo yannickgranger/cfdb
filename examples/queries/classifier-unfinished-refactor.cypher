@@ -1,3 +1,4 @@
+// smoke-skip: parameterized ($context) — bound by RFC-036 classifier suite
 // classifier-unfinished-refactor.cypher — §A2.1 class 3 (UnfinishedRefactor).
 //
 // Items marked `#[deprecated]` still present in the tree. A deprecation

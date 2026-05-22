@@ -9,6 +9,13 @@ publish.workspace = true
 [dependencies]
 cfdb-core = { path = "../cfdb-core" }
 cfdb-concepts = { path = "../cfdb-concepts" }
+# RFC-041 §3.3 — `cfdb-extractor` becomes the concrete reference
+# implementation of the `LanguageProducer` trait (`pub struct
+# RustProducer`). The dep is unconditional from this crate; the
+# *consumer* `cfdb-cli` makes its dep on `cfdb-extractor` optional so
+# the slim build (`--no-default-features`) can drop the entire Rust
+# producer stack.
+cfdb-lang = { path = "../cfdb-lang" }
 syn.workspace = true
 # `span-locations` enables `proc_macro2::Span::start().line` so the
 # extractor can report real source-line numbers instead of 0 (#273 /
@@ -17,9 +24,21 @@ syn.workspace = true
 proc-macro2.workspace = true
 cargo_metadata.workspace = true
 serde.workspace = true
+serde_json.workspace = true
+# RFC-040 §3.3 — `:ConstTable.entries_hash` is sha256 over the canonical-
+# sorted entry sequence. The dep is workspace-known
+# (`Cargo.toml:58`) but was not transitive through `cfdb-cli`'s
+# persistence layer (R2 absorbed rust-systems B2 correction); a direct
+# dep line on the extractor is the minimum-impact wiring.
+sha2.workspace = true
 thiserror.workspace = true
 toml.workspace = true
 
 [dev-dependencies]
-serde_json.workspace = true
 tempfile.workspace = true
+# RFC-044 §3.2 / #428 — `tests/signatures.rs` renders the pinned
+# `extract_workspace` signature via `quote::quote!`. `syn` + `toml` are
+# already runtime deps above; only `quote` is test-additional. Dev-dep
+# edge ⇒ does not enter the production dep graph or trip the
+# `architecture_dep_rule` scan (which reads `[dependencies]` only).
+quote.workspace = true

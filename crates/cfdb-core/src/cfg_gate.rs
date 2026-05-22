@@ -34,6 +34,7 @@ use std::str::FromStr;
 ///
 /// See module-level docs for the wire shape and scope limitations.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum CfgGate {
     /// `feature = "x"` — leaf predicate.
     Feature(String),

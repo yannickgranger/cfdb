@@ -1,3 +1,4 @@
+// smoke-skip: parameterized ($caller_regex, $canonical_callee_name, $concept) — bound by RFC-cfdb §A1.1 bypass driver
 // canonical-bypass-caller.cypher — Pattern C (RFC-029 v0.2 §A1.4), verdict:
 // CANONICAL_CALLER.
 //

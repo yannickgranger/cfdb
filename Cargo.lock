@@ -267,20 +267,25 @@ dependencies = [
 
 [[package]]
 name = "cfdb-cli"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "assert_cmd",
  "cfdb-concepts",
  "cfdb-core",
  "cfdb-extractor",
+ "cfdb-extractor-php",
+ "cfdb-extractor-ts",
  "cfdb-hir-extractor",
  "cfdb-hir-petgraph-adapter",
+ "cfdb-lang",
  "cfdb-petgraph",
  "cfdb-query",
  "clap",
+ "quote",
  "serde",
  "serde_json",
  "sha2",
+ "syn",
  "tempfile",
  "thiserror",
  "toml 0.8.23",
@@ -288,7 +293,7 @@ dependencies = [
 
 [[package]]
 name = "cfdb-concepts"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "cfdb-core",
  "serde",
@@ -299,23 +304,31 @@ dependencies = [
 
 [[package]]
 name = "cfdb-core"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
+ "quote",
  "serde",
  "serde_json",
+ "sha2",
+ "syn",
  "thiserror",
+ "toml 0.8.23",
+ "trybuild",
 ]
 
 [[package]]
 name = "cfdb-extractor"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "cargo_metadata 0.22.0",
  "cfdb-concepts",
  "cfdb-core",
+ "cfdb-lang",
  "proc-macro2",
+ "quote",
  "serde",
  "serde_json",
+ "sha2",
  "syn",
  "tempfile",
  "thiserror",
@@ -323,10 +336,36 @@ dependencies = [
 ]
 
 [[package]]
-name = "cfdb-hir-extractor"
-version = "0.4.0"
+name = "cfdb-extractor-php"
+version = "0.4.1"
 dependencies = [
  "cfdb-core",
+ "cfdb-lang",
+ "tempfile",
+ "thiserror",
+ "tree-sitter",
+ "tree-sitter-php",
+]
+
+[[package]]
+name = "cfdb-extractor-ts"
+version = "0.4.1"
+dependencies = [
+ "cfdb-core",
+ "cfdb-lang",
+ "tempfile",
+ "thiserror",
+ "tree-sitter",
+ "tree-sitter-typescript",
+]
+
+[[package]]
+name = "cfdb-hir-extractor"
+version = "0.4.1"
+dependencies = [
+ "cfdb-core",
+ "cfdb-extractor",
+ "quote",
  "ra-ap-rustc_type_ir 0.161.0",
  "ra_ap_base_db",
  "ra_ap_edition",
@@ -340,22 +379,35 @@ dependencies = [
  "ra_ap_project_model",
  "ra_ap_syntax",
  "ra_ap_vfs",
+ "syn",
  "tempfile",
  "thiserror",
+ "toml 0.8.23",
 ]
 
 [[package]]
 name = "cfdb-hir-petgraph-adapter"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "cfdb-core",
  "cfdb-hir-extractor",
  "cfdb-petgraph",
+ "quote",
+ "syn",
+ "toml 0.8.23",
+]
+
+[[package]]
+name = "cfdb-lang"
+version = "0.4.1"
+dependencies = [
+ "cfdb-core",
+ "thiserror",
 ]
 
 [[package]]
 name = "cfdb-petgraph"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "cfdb-concepts",
  "cfdb-core",
@@ -375,7 +427,7 @@ dependencies = [
 
 [[package]]
 name = "cfdb-query"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "cfdb-core",
  "chumsky",
@@ -387,7 +439,7 @@ dependencies = [
 
 [[package]]
 name = "cfdb-recall"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "cfdb-core",
  "cfdb-extractor",
@@ -414,8 +466,9 @@ checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
 name = "check-prelude-triggers"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
+ "assert_cmd",
  "clap",
  "regex",
  "serde",
@@ -642,6 +695,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aeda16ab4059c5fd2a83f2b9c9e9c981327b18aa8e3b313f7e6563799d4f093e"
 
 [[package]]
+name = "dogfood-enrich"
+version = "0.4.1"
+dependencies = [
+ "assert_cmd",
+ "cfdb-core",
+ "clap",
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
 name = "drop_bomb"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -796,6 +863,12 @@ dependencies = [
  "log",
  "url",
 ]
+
+[[package]]
+name = "glob"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 
 [[package]]
 name = "hash32"
@@ -2662,6 +2735,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "target-triple"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "591ef38edfb78ca4771ee32cf494cb8771944bee237a9b91fc9c1424ac4b777b"
+
+[[package]]
 name = "temp-dir"
 version = "0.1.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2678,6 +2757,15 @@ dependencies = [
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "termcolor"
+version = "1.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "06794f8f6c5c898b3275aebefa6b8a1cb24cd2c6c79397ab15774837a0bc5755"
+dependencies = [
+ "winapi-util",
 ]
 
 [[package]]
@@ -2944,10 +3032,63 @@ dependencies = [
 ]
 
 [[package]]
+name = "tree-sitter"
+version = "0.23.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0203df02a3b6dd63575cc1d6e609edc2181c9a11867a271b25cfd2abff3ec5ca"
+dependencies = [
+ "cc",
+ "regex",
+ "regex-syntax 0.8.10",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-language"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "009994f150cc0cd50ff54917d5bc8bffe8cad10ca10d81c34da2ec421ae61782"
+
+[[package]]
+name = "tree-sitter-php"
+version = "0.23.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f066e94e9272cfe4f1dcb07a1c50c66097eca648f2d7233d299c8ae9ed8c130c"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-typescript"
+version = "0.23.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c5f76ed8d947a75cc446d5fccd8b602ebf0cde64ccf2ffa434d873d7a575eff"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
 name = "triomphe"
 version = "0.1.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dd69c5aa8f924c7519d6372789a74eac5b94fb0f8fcf0d4a97eb0bfc3e785f39"
+
+[[package]]
+name = "trybuild"
+version = "1.0.116"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "47c635f0191bd3a2941013e5062667100969f8c4e9cd787c14f977265d73616e"
+dependencies = [
+ "glob",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "target-triple",
+ "termcolor",
+ "toml 1.1.2+spec-1.1.0",
+]
 
 [[package]]
 name = "typed-arena"

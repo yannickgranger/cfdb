@@ -5,6 +5,7 @@
 
 use std::str::FromStr;
 
+use crate::main_exit::findings_exit;
 use cfdb_cli::{
     check, check_predicate, classify, diff, drop_keyspace_cmd, dump, emit_json, enrich, export,
     extract, list_callers, list_items_matching, list_keyspaces, query, scope, snapshots,
@@ -23,8 +24,9 @@ pub(crate) fn dispatch_core(cmd: Command) -> Result<(), CfdbCliError> {
             db,
             keyspace,
             hir,
+            no_proc_macro,
             rev,
-        }) => extract(workspace, db, keyspace, hir, rev),
+        }) => extract(workspace, db, keyspace, hir, no_proc_macro, rev),
         Command::Query {
             db,
             keyspace,
@@ -45,7 +47,9 @@ pub(crate) fn dispatch_core(cmd: Command) -> Result<(), CfdbCliError> {
                 // exit 1 (runtime error). Aligns with `ci/cross-dogfood.sh`
                 // convention so CI scripts can disambiguate "extractor blew
                 // up" from "rule found rows." See main.rs `Exit codes` doc.
-                std::process::exit(30);
+                // Routed through `findings_exit()` (main_exit.rs) — the single
+                // authorised site for the 30 exit so the contract is auditable.
+                findings_exit();
             }
             Ok(())
         }
@@ -59,7 +63,8 @@ pub(crate) fn dispatch_core(cmd: Command) -> Result<(), CfdbCliError> {
             if rows_found > 0 && !no_fail {
                 // Exit 30 = "rule rows returned, gate failure" — see the
                 // sibling site in `Command::Violations` above for rationale.
-                std::process::exit(30);
+                // Routed through `findings_exit()` (main_exit.rs).
+                findings_exit();
             }
             Ok(())
         }
@@ -114,6 +119,7 @@ pub(crate) fn dispatch_typed(cmd: Command) -> Result<(), CfdbCliError> {
             output,
             keyspace,
             explain,
+            production_only,
         } => scope(
             &db,
             &context,
@@ -122,6 +128,7 @@ pub(crate) fn dispatch_typed(cmd: Command) -> Result<(), CfdbCliError> {
             output.as_deref(),
             keyspace.as_deref(),
             explain,
+            production_only,
         ),
         Command::CheckPredicate {
             db,
@@ -137,7 +144,8 @@ pub(crate) fn dispatch_typed(cmd: Command) -> Result<(), CfdbCliError> {
             if report.row_count > 0 && !no_fail {
                 // Exit 30 = "rule rows returned, gate failure" — see the
                 // sibling site in `Command::Violations` above for rationale.
-                std::process::exit(30);
+                // Routed through `findings_exit()` (main_exit.rs).
+                findings_exit();
             }
             Ok(())
         }

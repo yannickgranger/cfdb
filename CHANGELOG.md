@@ -2,7 +2,7 @@
 
 All notable changes to cfdb will be documented in this file.
 
-## [0.4.1] - 2026-04-26
+## [0.5.0] - 2026-05-22
 
 ### 🚀 Features
 
@@ -11,6 +11,41 @@ All notable changes to cfdb will be documented in this file.
 - *(cfdb-core)* Add parse_or_default reader helper for :Context.source ([#303](https://github.com/yannickgranger/cfdb/issues/303))
 - *(cfdb-concepts)* Compute_bounded_context returns BoundedContext ([#301](https://github.com/yannickgranger/cfdb/issues/301))
 - *(cfdb-extractor)* Emit :Context.source via per-context accumulator ([#302](https://github.com/yannickgranger/cfdb/issues/302))
+- *(cfdb-core)* :ConstTable + HAS_CONST_TABLE schema declaration (RFC-040 1/5)
+- *(cfdb-extractor)* Const_table pure recognizer + ElementType (RFC-040 2/5)
+- *(cfdb-extractor)* Emit :ConstTable + HAS_CONST_TABLE (RFC-040 3/5)
+- *(examples/queries)* Const-table-overlap.cypher detector — DUPLICATE branch (RFC-040 4/5)
+- *([#334](https://github.com/yannickgranger/cfdb/issues/334))* --require-fresh flag refuses from_ref == to_ref
+- *([#335](https://github.com/yannickgranger/cfdb/issues/335))* `check-prelude-triggers all` consolidator subcommand
+- *([#342](https://github.com/yannickgranger/cfdb/issues/342))* Tools/dogfood-enrich harness scaffolding
+- *(cfdb-petgraph)* Entries_subset / entries_jaccard / overlap_verdict UDFs + SUBSET/INTERSECTION_HIGH branches ([#332](https://github.com/yannickgranger/cfdb/issues/332))
+- *([#344](https://github.com/yannickgranger/cfdb/issues/344))* Self-enrich-rfc-docs cypher template + grep_rfc_docs helper
+- *([#346](https://github.com/yannickgranger/cfdb/issues/346))* Self-enrich-concepts cypher template + scan_concepts helper
+- *([#345](https://github.com/yannickgranger/cfdb/issues/345))* Self-enrich-bounded-context via Path B ([#355](https://github.com/yannickgranger/cfdb/issues/355)) — fold into Phase B bundle
+- *([#340](https://github.com/yannickgranger/cfdb/issues/340))* Nightly cfdb-recall ratios as Gitea commit status (Phase C)
+- *([#347](https://github.com/yannickgranger/cfdb/issues/347))* Self-enrich-reachability cypher template
+- *([#348](https://github.com/yannickgranger/cfdb/issues/348))* Self-enrich-metrics cypher template
+- *([#349](https://github.com/yannickgranger/cfdb/issues/349))* Self-enrich-git-history cypher template
+- *([#297](https://github.com/yannickgranger/cfdb/issues/297) Phase B)* Self-enrich vertical-split-brain `drop` kind
+- *([#263](https://github.com/yannickgranger/cfdb/issues/263))* RFC-041 Phase 1 bundle — LanguageProducer trait + RustProducer + dispatcher + slim build
+- *([#264](https://github.com/yannickgranger/cfdb/issues/264))* PHP LanguageProducer MVP — tree-sitter-php walker + fixture + 5 tests
+- *([#265](https://github.com/yannickgranger/cfdb/issues/265))* TypeScript LanguageProducer MVP — tree-sitter-typescript walker + fixture + 5 tests
+- *([#264](https://github.com/yannickgranger/cfdb/issues/264) + [#265](https://github.com/yannickgranger/cfdb/issues/265))* PHP + TypeScript LanguageProducer MVPs (RFC-041 Phase 2 + Phase 3)
+- *(cfdb-core)* :Literal label + SchemaVersion v0.4.0 minor bump ([#369](https://github.com/yannickgranger/cfdb/issues/369))
+- *(cfdb-extractor)* Emit :Literal nodes per string literal (closes [#370](https://github.com/yannickgranger/cfdb/issues/370))
+- *(cfdb-hir-extractor)* Resolve ast::CallExpr path-calls via Semantics::resolve_path (closes [#387](https://github.com/yannickgranger/cfdb/issues/387))
+- *(cfdb-hir-extractor [#391](https://github.com/yannickgranger/cfdb/issues/391))* :EntryPoint{kind=test|bench} emission
+- *(cfdb-petgraph [#392](https://github.com/yannickgranger/cfdb/issues/392))* :Item.reachable_from_production_entry dual-BFS + cfdb scope --production-only
+- *(cfdb-petgraph)* Serde_default callee post-pass marks reachable_from_entry (closes [#396](https://github.com/yannickgranger/cfdb/issues/396))
+- *(cfdb-hir-extractor)* Enable proc-macro server (RFC-043 / 043-A)
+- *(cfdb-core [#421](https://github.com/yannickgranger/cfdb/issues/421))* #[non_exhaustive] on 9 schema enums + downstream gate
+- *(cfdb [#422](https://github.com/yannickgranger/cfdb/issues/422))* 044-C single-site discipline (dep-rules TOML + composition-root + slim-cli guards)
+- *(cfdb [#423](https://github.com/yannickgranger/cfdb/issues/423))* 044-E determinism propagation (5 sibling crates + 2 cfdb-petgraph fixes)
+- *(cfdb-core [#424](https://github.com/yannickgranger/cfdb/issues/424))* 044-A schema vocabulary completeness (specs + version lockstep + narrative freeze)
+- *(cfdb-cli [#426](https://github.com/yannickgranger/cfdb/issues/426))* 044-F centralized CLI exit-code contract
+- *(cfdb [#427](https://github.com/yannickgranger/cfdb/issues/427))* 044-H frozen RFC §4 invariant catalog (6 arch-ban-rfc-*.cypher rules)
+- *(cfdb [#425](https://github.com/yannickgranger/cfdb/issues/425))* 044-D qname stability (cross-extractor parity fixture + production item: migration)
+- *(cfdb [#428](https://github.com/yannickgranger/cfdb/issues/428))* 044-B integration-seam signature pinning (frozen tests/signatures.toml per crate)
 
 ### 🐛 Bug Fixes
 
@@ -23,6 +58,19 @@ All notable changes to cfdb will be documented in this file.
 - *(cfdb-hir-extractor)* Emit real source-line numbers on :CallSite
 - *(cfdb-extractor)* Synthesize :Item for referenced-but-not-walked qnames
 - *(cfdb-core)* Tag :Concept-[EQUIVALENT_TO]->:Concept as Provenance::Reserved
+- *([#342](https://github.com/yannickgranger/cfdb/issues/342))* Address verify-issue AC gaps — cfdb-core dep + 7 thresholds
+- *([#342](https://github.com/yannickgranger/cfdb/issues/342))* Assign dogfood-enrich crate to cfdb bounded context
+- *(ci, dogfood-enrich)* Jq install + per-pass --workspace forwarding ([#343](https://github.com/yannickgranger/cfdb/issues/343))
+- *(cfdb-hir-petgraph-adapter)* Synthesize stub :Item for unknown CALLS dsts (closes [#388](https://github.com/yannickgranger/cfdb/issues/388))
+- *(boy-scout [#374](https://github.com/yannickgranger/cfdb/issues/374))* Extract loop body to hoist 3 clones out of synthesize.rs
+- *(boy-scout [#374](https://github.com/yannickgranger/cfdb/issues/374))* Split synthesize.rs tests to sibling file
+- *(cfdb-petgraph [#400](https://github.com/yannickgranger/cfdb/issues/400))* Split graph.rs inline tests to sibling file (slice 6.6)
+- *([#396](https://github.com/yannickgranger/cfdb/issues/396))* Drop duplicate #![cfg(test)] from sibling test files
+- *(examples/queries)* Restrict VSB rules to production :EntryPoint kinds
+- *(indexes)* Add Item.dup_cluster_id — closes hsb-cluster smoke 8min regression
+- *(cfdb-cli)* Auto-discover .cfdb/indexes.toml from db path (closes [#409](https://github.com/yannickgranger/cfdb/issues/409) for real)
+- *(fmt [#421](https://github.com/yannickgranger/cfdb/issues/421))* Rustfmt on with_clause.rs after sentinel helper extraction
+- *(boy-scout [#421](https://github.com/yannickgranger/cfdb/issues/421))* Extract canonical build_item_props to cfdb-core
 
 ### 🚜 Refactor
 
@@ -36,6 +84,15 @@ All notable changes to cfdb will be documented in this file.
 - *(cfdb-cli)* Extract compose::ensure_keyspace_exists
 - *(cfdb-cli)* Unify --format flag under OutputFormat enum
 - *(cfdb-extractor)* Direct syn::Visibility -> Visibility mapping
+- *([#342](https://github.com/yannickgranger/cfdb/issues/342))* Simplify pass — error variants, dead-code removal
+- *(cfdb-extractor)* Split const_table.rs (724 LOC) and item_visitor/emit.rs (694 LOC) ([#350](https://github.com/yannickgranger/cfdb/issues/350))
+- *(cfdb-hir-extractor [#391](https://github.com/yannickgranger/cfdb/issues/391))* Extract classify_fn_entry_point to lower scan_file complexity
+- *(cfdb-recall [#394](https://github.com/yannickgranger/cfdb/issues/394))* Extract 4 helpers from main() to drop complexity 18 → <15
+- *(cfdb-core [#400](https://github.com/yannickgranger/cfdb/issues/400))* Split schema/labels.rs tests to sibling file
+- *(cfdb-extractor-ts [#400](https://github.com/yannickgranger/cfdb/issues/400))* Extract AST emission to emit.rs
+- *(cfdb-extractor [#400](https://github.com/yannickgranger/cfdb/issues/400))* Split lib.rs tests to sibling file
+- *(cfdb-petgraph [#400](https://github.com/yannickgranger/cfdb/issues/400))* Split git_history.rs tests to sibling file
+- *(cfdb-petgraph [#400](https://github.com/yannickgranger/cfdb/issues/400))* Split predicate.rs into udf + tests siblings
 
 ### 📚 Documentation
 
@@ -47,16 +104,47 @@ All notable changes to cfdb will be documented in this file.
 - RFC-038 — fill issue numbers in landing trail ([#300](https://github.com/yannickgranger/cfdb/issues/300)/[#301](https://github.com/yannickgranger/cfdb/issues/301)/[#302](https://github.com/yannickgranger/cfdb/issues/302)/[#303](https://github.com/yannickgranger/cfdb/issues/303))
 - RFC-039 — foreign-item stubs for cross-workspace edge endpoints (ratified, 4/4)
 - Withdraw RFC-039 — wrong framing (foreign items are dependency surface, not stubs)
+- RFC-040 ratified — :ConstTable + const-table-overlap detector (4/4 R2)
+- RFC-039 ratified — dogfood 7 enrichment passes (4/4 RATIFY at R2)
+- *(specs/tools)* Dogfood-enrich.md — pub type spec entries ([#342](https://github.com/yannickgranger/cfdb/issues/342))
+- RFC-041 — pluggable LanguageProducer trait (Phase 1 of META [#266](https://github.com/yannickgranger/cfdb/issues/266))
+- *(rfc)* RFC-041 :Literal fact type — RATIFIED 4/4
+- *(rfc-042)* R1 council incorporated — 8 EDITs applied
+- RFC-043 — enable proc-macro server in cfdb-hir-extractor (RATIFIED 4/4)
+- RFC-044 — broaden graph-specs coverage of cfdb's critical contracts (RATIFIED 4/4)
+
+### ⚡ Performance
+
+- *(scope)* Slice-6b prop-to-prop cross-MATCH fast path
+- *(scope)* Cache compiled regex, order intersects by size, narrow on reachable+is_test
+- *(scope)* Precompute index membership; widen perf budgets for CI
+- *(cfdb-petgraph [#409](https://github.com/yannickgranger/cfdb/issues/409))* Cache binding-independent candidate sets across cartesian MATCH leaves
+- *(cfdb-petgraph)* Zero-alloc signature_divergent — closes signature-divergent.cypher 9min smoke regression
+
+### 🎨 Styling
+
+- Cargo fmt for [#396](https://github.com/yannickgranger/cfdb/issues/396) — line-break normalization
+- Cargo fmt for [#396](https://github.com/yannickgranger/cfdb/issues/396) tests — line-break callee_path insert
 
 ### 🧪 Testing
 
 - *(cfdb-query)* Scar tests for out-of-scope keyword false positives
 - *(cfdb-query)* Expand negative parser corpus
+- *(cfdb-extractor)* Synthetic-workspace :Literal correctness gate (closes [#371](https://github.com/yannickgranger/cfdb/issues/371))
 
 ### ⚙️ Miscellaneous Tasks
 
 - *(cfdb-core)* Drop unused indexmap dep + correct lying allowlist comment
 - *(cfdb-query)* Drop unused regex dep + correct lying allowlist comment
+- *([#343](https://github.com/yannickgranger/cfdb/issues/343))* Self-enrich-deprecation dogfood
+- *([#339](https://github.com/yannickgranger/cfdb/issues/339))* Smoke-test every shipped .cypher query against cfdb-self
+- *([#338](https://github.com/yannickgranger/cfdb/issues/338))* Activate [#344](https://github.com/yannickgranger/cfdb/issues/344) + [#346](https://github.com/yannickgranger/cfdb/issues/346) default-feature dogfoods (Phase B bundle)
+- Re-trigger after PR [#354](https://github.com/yannickgranger/cfdb/issues/354) body update for [#240](https://github.com/yannickgranger/cfdb/issues/240) gate
+- *([#338](https://github.com/yannickgranger/cfdb/issues/338))* Activate Phase B nightly trio ([#347](https://github.com/yannickgranger/cfdb/issues/347)+[#348](https://github.com/yannickgranger/cfdb/issues/348)+[#349](https://github.com/yannickgranger/cfdb/issues/349)) + fix git-history path bug
+- Enable HIR in cfdb-self extract (closes [#381](https://github.com/yannickgranger/cfdb/issues/381))
+- Run self-enrich before edge-liveness so enrichment-fed labels populate (closes [#383](https://github.com/yannickgranger/cfdb/issues/383))
+- Promote edge-liveness step to blocking (closes [#385](https://github.com/yannickgranger/cfdb/issues/385))
+- *(smoke)* Add per-file timing to RFC-030 §3.2 liveness loop
 ## [0.4.0] - 2026-04-25
 
 ### 🚀 Features

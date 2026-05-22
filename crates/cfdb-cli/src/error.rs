@@ -18,8 +18,34 @@ use thiserror::Error;
 pub enum CfdbCliError {
     /// Extractor failure walking the target workspace — bad Cargo.toml,
     /// unreadable `.rs` file, syn parse error, cargo metadata failure.
+    ///
+    /// Feature-gated on `lang-rust` because `cfdb-extractor` is now
+    /// an optional dep (RFC-041 Phase 1 / Slice 41-C); slim builds
+    /// (`--no-default-features`) drop the variant entirely. New code
+    /// dispatches via the `LanguageProducer` trait and surfaces
+    /// failures as [`CfdbCliError::Lang`] instead — `Extract` survives
+    /// only for backward-compat with consumers that may still hold a
+    /// `cfdb_extractor::ExtractError` directly (e.g. via the legacy
+    /// `cfdb_extractor::extract_workspace` public shim).
+    #[cfg(feature = "lang-rust")]
     #[error("extract failed: {0}")]
     Extract(#[from] cfdb_extractor::ExtractError),
+
+    /// `LanguageProducer` failure surfaced through the dispatcher
+    /// (RFC-041 §3.4). Every dispatch through `&dyn LanguageProducer`
+    /// returns `cfdb_lang::LanguageError`, which `?`-propagates here
+    /// — this is the variant new code paths land on.
+    #[error("language producer failed: {0}")]
+    Lang(#[from] cfdb_lang::LanguageError),
+
+    /// `cfdb extract` was invoked but no compiled-in producer
+    /// accepted the workspace. Carries the workspace path + the
+    /// names of producers that WERE compiled in (so the user can
+    /// diagnose: typical cause is a slim build without the right
+    /// `lang-*` feature). Mapped via `#[from]` from
+    /// [`crate::lang::NoProducerDetected`].
+    #[error(transparent)]
+    NoProducer(#[from] crate::lang::NoProducerDetected),
 
     /// Any `StoreBackend` method (ingest / execute / dump / enrich /
     /// drop_keyspace) OR `cfdb_petgraph::persist::{save, load}` — both

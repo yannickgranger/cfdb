@@ -43,6 +43,11 @@ const CLASSIFIER_CANONICAL_BYPASS_CYPHER: &str =
     include_str!("../../../examples/queries/classifier-canonical-bypass.cypher");
 const CLASSIFIER_UNWIRED_CYPHER: &str =
     include_str!("../../../examples/queries/classifier-unwired.cypher");
+/// RFC-042 042-B (#392): production-only variant of the Unwired rule,
+/// reads `:Item.reachable_from_production_entry` instead of
+/// `:Item.reachable_from_entry`. Selected when `cfdb scope --production-only`.
+const CLASSIFIER_UNWIRED_PRODUCTION_CYPHER: &str =
+    include_str!("../../../examples/queries/classifier-unwired-production.cypher");
 
 /// `cfdb scope --context <name>` — emit the structured §A3.3 infection
 /// inventory for a single bounded context (council-cfdb-wiring RATIFIED
@@ -68,6 +73,7 @@ const CLASSIFIER_UNWIRED_CYPHER: &str =
 /// - `loc_per_crate`: approximated as `COUNT(:Item)` per `:Item.crate`
 ///   restricted to the requested context. True LOC requires
 ///   `cfdb-hir-extractor` (v0.2); a warning documents the approximation.
+#[allow(clippy::too_many_arguments)] // 8 args — clap Scope destructure passes each named flag through; bundling into a struct buys nothing here, sibling `classify` follows the same pattern.
 pub fn scope(
     db: &Path,
     context: &str,
@@ -76,6 +82,7 @@ pub fn scope(
     output: Option<&Path>,
     keyspace: Option<&str>,
     explain: bool,
+    production_only: bool,
 ) -> Result<(), crate::CfdbCliError> {
     // EPIC #273 Pattern 1 #4: scope accepts only `json` in v0.1. The
     // `tests/scope.rs::scope_rejects_format_table_in_v01` substring assert
@@ -109,7 +116,7 @@ pub fn scope(
     } else {
         ExplainSink::disabled()
     };
-    let inventory = build_scope_inventory(&store, &ks, context, &ks_name, &sink)?;
+    let inventory = build_scope_inventory(&store, &ks, context, &ks_name, &sink, production_only)?;
     if explain {
         for row in sink.drain() {
             eprintln!("{}", row.format_line());
@@ -128,6 +135,7 @@ fn build_scope_inventory(
     context: &str,
     ks_name: &str,
     sink: &ExplainSink,
+    production_only: bool,
 ) -> Result<ScopeInventory, crate::CfdbCliError> {
     let (findings_in_context, loc_per_crate) = query_findings_in_context(store, ks, context, sink)?;
 
@@ -139,7 +147,9 @@ fn build_scope_inventory(
     inventory.canonical_candidates.sort();
 
     // Issue #48 — populate each class bucket via its classifier rule.
-    populate_findings_by_class(store, ks, context, &mut inventory, sink)?;
+    // RFC-042 042-B (#392): `production_only` swaps the Unwired classifier
+    // cypher to the production-only variant.
+    populate_findings_by_class(store, ks, context, &mut inventory, sink, production_only)?;
 
     attach_scope_warnings(&mut inventory);
     Ok(inventory)
@@ -158,8 +168,9 @@ pub(crate) fn populate_findings_by_class(
     context: &str,
     inventory: &mut ScopeInventory,
     sink: &ExplainSink,
+    production_only: bool,
 ) -> Result<(), crate::CfdbCliError> {
-    for (class, cypher) in classifier::classifier_rules() {
+    for (class, cypher) in classifier::classifier_rules(production_only) {
         let findings = run_classifier_rule(store, ks, context, cypher, sink)?;
         if let Some(bucket) = inventory.findings_by_class.get_mut(&class) {
             bucket.extend(findings);
@@ -190,7 +201,10 @@ pub(crate) fn populate_findings_by_class_restricted(
     inventory: &mut ScopeInventory,
     sink: &ExplainSink,
 ) -> Result<(), crate::CfdbCliError> {
-    populate_findings_by_class(store, ks, context, inventory, sink)?;
+    // `cfdb classify` does not surface a --production-only flag (RFC-042 042-B
+    // §3.3 scoped the flag to `cfdb scope` only). Pass `false` here to use the
+    // legacy all-kinds Unwired cypher.
+    populate_findings_by_class(store, ks, context, inventory, sink, false)?;
     retain_findings_by_qname(inventory, restrict_to);
     Ok(())
 }

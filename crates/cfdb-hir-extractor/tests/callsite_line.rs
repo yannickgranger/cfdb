@@ -106,8 +106,8 @@ edition = "2021"
     );
     write(root, "hirfixture/src/lib.rs", FIXTURE_LIB_RS);
 
-    let (db, vfs) =
-        build_hir_database(root).expect("build_hir_database on hirfixture for line scar");
+    let (db, vfs, _pm_client) =
+        build_hir_database(root, false).expect("build_hir_database on hirfixture for line scar");
     let (nodes, _edges) =
         extract_call_sites(&db, &vfs).expect("extract_call_sites on hirfixture for line scar");
 

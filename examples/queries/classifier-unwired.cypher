@@ -1,4 +1,12 @@
+// smoke-skip: parameterized ($context) — bound by RFC-036 classifier suite
 // classifier-unwired.cypher — §A2.1 class 6 (Unwired).
+//
+// SIBLING: `classifier-unwired-production.cypher` (RFC-042 042-B / issue #392).
+// Single point of divergence: this file reads `:Item.reachable_from_entry`
+// (all entry kinds); the sibling reads `:Item.reachable_from_production_entry`
+// (kind ∈ {test, bench} excluded). The two files are kept structurally
+// identical so any future predicate change to "unwired" semantics MUST land
+// in both — solid-architect CRP hygiene (RFC §3.3 EDIT 8, MUST language).
 //
 // fn / method `:Item`s with `reachable_from_entry = false` that are NOT
 // themselves `:EntryPoint` handlers. Code that compiles but no user
@@ -43,6 +51,17 @@
 //   non-test fn surfaces as "unwired". This is correct for a library
 //   but noisy for the scope verb — the CLI orchestrator tags this
 //   shape explicitly in the warnings.
+//
+// # Recall improvements applied at enrichment time
+// - **#396 serde_default callees.** A `:CallSite{kind="serde_default"}`
+//   marks a fn referenced by `#[serde(default = "fn")]` whose runtime
+//   caller is serde's derived `Deserialize` impl — invisible to cfdb
+//   without proc-macro expansion (see #398). The `enrich_reachability`
+//   post-pass resolves `callee_path` to `:Item.qname` (exact /
+//   same-module / same-crate match) and flips `reachable_from_entry`
+//   on the resolved fn. This rule therefore does NOT need an explicit
+//   serde_default exclusion clause — the post-pass handles it before
+//   the query runs.
 //
 // # Determinism
 // `ORDER BY qname` — stable row order required by G1.

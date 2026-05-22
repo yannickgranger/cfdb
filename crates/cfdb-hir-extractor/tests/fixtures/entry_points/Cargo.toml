@@ -6,6 +6,7 @@ members = [
     "http_fx",
     "cron_fx",
     "ws_fx",
+    "test_bench_fx",
 ]
 
 # Fixture workspace for `tests/v02_1_coverage.rs` (Issue #126, RFC-029

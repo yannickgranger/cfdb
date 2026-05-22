@@ -20,14 +20,17 @@
 //! business-rule-shaped lives in the library and is tested there; this
 //! file only handles I/O orchestration and exit-code semantics.
 
-use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::Parser;
 
 use cfdb_recall::adapters::{extractor, ground_truth};
-use cfdb_recall::{compute_recall, AuditList, PublicItem, RecallReport, DEFAULT_THRESHOLD};
+use cfdb_recall::{
+    compute_recall, threshold_for_crate, AuditList, PublicItem, RecallReport,
+    RECALL_THRESHOLD_TOTAL,
+};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -52,83 +55,73 @@ struct Cli {
     #[arg(long)]
     audit_list: Option<PathBuf>,
 
-    /// Recall threshold in the range [0.0, 1.0]. Defaults to 0.95 per
-    /// RFC-029 §13 Item 2. Raising above 0.95 requires editing the
-    /// constant in `lib.rs` and a reviewed PR.
-    #[arg(long, default_value_t = DEFAULT_THRESHOLD)]
-    threshold: f64,
+    /// Recall threshold in the range [0.0, 1.0]. If omitted, the
+    /// per-crate threshold is sourced from `threshold_for_crate` in
+    /// `cfdb_recall::thresholds` (defaults to
+    /// `RECALL_THRESHOLD_PER_CRATE`). Raising the floor requires editing
+    /// the constant in `crates/cfdb-recall/src/thresholds.rs` and a
+    /// reviewed PR. The PR-time slim build still uses
+    /// `DEFAULT_THRESHOLD` (RFC-029 §13 Item 2 = 0.95).
+    #[arg(long)]
+    threshold: Option<f64>,
 
     /// Where to write the human-readable gap report. If omitted, no file
     /// is written; the summary still goes to stdout.
     #[arg(long)]
     gaps_file: Option<PathBuf>,
+
+    /// Where to write the machine-readable per-crate + aggregate report
+    /// as JSON. Consumed by the nightly Gitea status workflow (#340) to
+    /// drive per-crate `recall/<crate>` and aggregate `recall/total`
+    /// commit statuses, and uploaded as the `recall-ratios.json`
+    /// workflow artifact (AC-2). If omitted, no file is written.
+    ///
+    /// Schema:
+    /// ```json
+    /// {
+    ///   "schema_version": 1,
+    ///   "crates": [
+    ///     {
+    ///       "name": "cfdb-core",
+    ///       "recall": 0.97,
+    ///       "threshold": 0.85,
+    ///       "passes": true,
+    ///       "matched": 97,
+    ///       "adjusted_denominator": 100,
+    ///       "missing_count": 3
+    ///     }
+    ///   ],
+    ///   "total": {
+    ///     "recall": 0.93,
+    ///     "threshold": 0.90,
+    ///     "passes": true,
+    ///     "matched": 350,
+    ///     "adjusted_denominator": 376
+    ///   }
+    /// }
+    /// ```
+    /// `recall` is `null` for crates with a vacuous (empty) denominator.
+    #[arg(long)]
+    json_out: Option<PathBuf>,
 }
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
 
-    // ── Load audit list (optional) ───────────────────────────
-    let audit = match cli.audit_list.as_ref() {
-        None => AuditList::new(),
-        Some(path) => match load_audit_list(path) {
-            Ok(a) => a,
-            Err(e) => {
-                eprintln!("cfdb-recall: failed to load audit list {path:?}: {e}");
-                return ExitCode::from(2);
-            }
-        },
+    let audit = match load_audit_or_default(cli.audit_list.as_deref()) {
+        Ok(a) => a,
+        Err(code) => return code,
     };
-
-    // ── Extract items from the workspace ─────────────────────
-    let extracted_by_crate = match extractor::extract_and_project(&cli.workspace) {
+    let extracted_by_crate = match extract_workspace_items(&cli.workspace) {
         Ok(m) => m,
-        Err(e) => {
-            eprintln!(
-                "cfdb-recall: extractor failed on workspace {:?}: {e}",
-                cli.workspace
-            );
-            return ExitCode::from(2);
-        }
+        Err(code) => return code,
     };
-
-    // ── Run the gate for each named crate ────────────────────
-    let mut reports: Vec<RecallReport> = Vec::new();
-    let mut any_failed = false;
-    for crate_name in &cli.crates {
-        let manifest = cli
-            .workspace
-            .join("crates")
-            .join(crate_name)
-            .join("Cargo.toml");
-        let public = match ground_truth::build_public_api_for_manifest(&manifest) {
-            Ok(p) => p,
-            Err(e) => {
-                eprintln!("cfdb-recall: ground-truth build failed for {crate_name}: {e}");
-                return ExitCode::from(2);
-            }
-        };
-        // The extractor stores the `crate` node prop as the raw Cargo
-        // package name (hyphens preserved). Qnames inside the crate
-        // normalize hyphens to underscores because that is what rustc's
-        // module system does — but the top-level crate key does not.
-        let extracted = extracted_by_crate
-            .get(crate_name)
-            .cloned()
-            .unwrap_or_default();
-        let report = compute_recall(crate_name, &public, &extracted, &audit, cli.threshold);
-        print_report(&report);
-        if !report.passes() {
-            any_failed = true;
-        }
-        reports.push(report);
-    }
-
-    // ── Write KNOWN_GAPS.md if requested ─────────────────────
-    if let Some(path) = cli.gaps_file.as_ref() {
-        if let Err(e) = write_gaps_file(path, &reports) {
-            eprintln!("cfdb-recall: failed to write gaps file {path:?}: {e}");
-            return ExitCode::from(2);
-        }
+    let (reports, any_failed) = match gather_crate_reports(&cli, &extracted_by_crate, &audit) {
+        Ok(r) => r,
+        Err(code) => return code,
+    };
+    if let Err(code) = emit_optional_outputs(&cli, &reports) {
+        return code;
     }
 
     if any_failed {
@@ -136,6 +129,106 @@ fn main() -> ExitCode {
     } else {
         ExitCode::from(0)
     }
+}
+
+/// Load the optional audit list at `path`, or return an empty list when
+/// none supplied. Maps load failure to `ExitCode(2)` (usage error).
+fn load_audit_or_default(path: Option<&Path>) -> Result<AuditList, ExitCode> {
+    let Some(path) = path else {
+        return Ok(AuditList::new());
+    };
+    load_audit_list(path).map_err(|e| {
+        eprintln!("cfdb-recall: failed to load audit list {path:?}: {e}");
+        ExitCode::from(2)
+    })
+}
+
+/// Run the extractor over `workspace` and project into per-crate item
+/// sets. Maps extractor failure to `ExitCode(2)` (usage error).
+fn extract_workspace_items(
+    workspace: &Path,
+) -> Result<BTreeMap<String, BTreeSet<PublicItem>>, ExitCode> {
+    extractor::extract_and_project(workspace).map_err(|e| {
+        eprintln!("cfdb-recall: extractor failed on workspace {workspace:?}: {e}");
+        ExitCode::from(2)
+    })
+}
+
+/// Build a `RecallReport` per named crate and report whether any failed.
+/// Returns `(reports, any_failed)` on success, `ExitCode(2)` on
+/// ground-truth build failure.
+fn gather_crate_reports(
+    cli: &Cli,
+    extracted_by_crate: &BTreeMap<String, BTreeSet<PublicItem>>,
+    audit: &AuditList,
+) -> Result<(Vec<RecallReport>, bool), ExitCode> {
+    let mut reports: Vec<RecallReport> = Vec::new();
+    let mut any_failed = false;
+    for crate_name in &cli.crates {
+        let report = build_crate_report(cli, crate_name, extracted_by_crate, audit)?;
+        print_report(&report);
+        if !report.passes() {
+            any_failed = true;
+        }
+        reports.push(report);
+    }
+    Ok((reports, any_failed))
+}
+
+/// Build the rustdoc ground-truth public API for `crate_name` and compute
+/// its `RecallReport` against the extractor's projection. Per-crate
+/// threshold dispatch (#340): if `--threshold` is omitted, source the
+/// floor from `threshold_for_crate` so each crate gets its own
+/// const-driven floor. Explicit `--threshold` overrides the dispatch
+/// (preserves the v0.1 PR-time 0.95 invocation contract).
+fn build_crate_report(
+    cli: &Cli,
+    crate_name: &str,
+    extracted_by_crate: &BTreeMap<String, BTreeSet<PublicItem>>,
+    audit: &AuditList,
+) -> Result<RecallReport, ExitCode> {
+    let manifest = cli
+        .workspace
+        .join("crates")
+        .join(crate_name)
+        .join("Cargo.toml");
+    let public = ground_truth::build_public_api_for_manifest(&manifest).map_err(|e| {
+        eprintln!("cfdb-recall: ground-truth build failed for {crate_name}: {e}");
+        ExitCode::from(2)
+    })?;
+    // The extractor stores the `crate` node prop as the raw Cargo
+    // package name (hyphens preserved). Qnames inside the crate
+    // normalize hyphens to underscores because that is what rustc's
+    // module system does — but the top-level crate key does not.
+    let extracted = extracted_by_crate
+        .get(crate_name)
+        .cloned()
+        .unwrap_or_default();
+    let threshold = cli
+        .threshold
+        .unwrap_or_else(|| threshold_for_crate(crate_name));
+    Ok(compute_recall(
+        crate_name, &public, &extracted, audit, threshold,
+    ))
+}
+
+/// Write the optional `KNOWN_GAPS.md` and `recall-ratios.json` outputs
+/// when their CLI paths are provided. Either failure maps to
+/// `ExitCode(2)`.
+fn emit_optional_outputs(cli: &Cli, reports: &[RecallReport]) -> Result<(), ExitCode> {
+    if let Some(path) = cli.gaps_file.as_ref() {
+        write_gaps_file(path, reports).map_err(|e| {
+            eprintln!("cfdb-recall: failed to write gaps file {path:?}: {e}");
+            ExitCode::from(2)
+        })?;
+    }
+    if let Some(path) = cli.json_out.as_ref() {
+        write_json_out(path, reports).map_err(|e| {
+            eprintln!("cfdb-recall: failed to write json-out {path:?}: {e}");
+            ExitCode::from(2)
+        })?;
+    }
+    Ok(())
 }
 
 fn load_audit_list(path: &std::path::Path) -> Result<AuditList, Box<dyn std::error::Error>> {
@@ -231,4 +324,65 @@ fn write_gaps_file(path: &std::path::Path, reports: &[RecallReport]) -> Result<(
     }
 
     std::fs::write(path, md)
+}
+
+/// Write the per-crate + aggregate report as JSON for the nightly Gitea
+/// status workflow (#340 AC-2 / AC-3). The aggregate threshold is sourced
+/// from [`RECALL_THRESHOLD_TOTAL`] in `cfdb_recall::thresholds`; per-crate
+/// thresholds are sourced from each [`RecallReport`]'s `threshold` field
+/// (which the workflow seeds from [`threshold_for_crate`]).
+///
+/// The schema is intentionally flat and version-tagged
+/// (`schema_version: 1`). Bumping it requires a coordinated edit to the
+/// workflow's jq parser.
+fn write_json_out(path: &std::path::Path, reports: &[RecallReport]) -> Result<(), std::io::Error> {
+    let crates: Vec<serde_json::Value> = reports
+        .iter()
+        .map(|r| {
+            let recall = r.recall();
+            serde_json::json!({
+                "name": r.crate_name,
+                // null when the denominator is empty (vacuous pass) — the
+                // workflow distinguishes this from a real failure.
+                "recall": recall,
+                "threshold": r.threshold,
+                "passes": r.passes(),
+                "matched": r.matched,
+                "adjusted_denominator": r.adjusted_denominator,
+                "total_public": r.total_public,
+                "missing_count": r.missing.len(),
+                "audited_count": r.audited.len(),
+            })
+        })
+        .collect();
+
+    // Aggregate: sum-of-numerators / sum-of-denominators. Crates with a
+    // vacuous (zero) denominator are skipped — they neither help nor
+    // hurt the aggregate ratio.
+    let agg_matched: usize = reports.iter().map(|r| r.matched).sum();
+    let agg_denom: usize = reports.iter().map(|r| r.adjusted_denominator).sum();
+    let agg_recall: Option<f64> = if agg_denom == 0 {
+        None
+    } else {
+        Some(agg_matched as f64 / agg_denom as f64)
+    };
+    let agg_passes = match agg_recall {
+        None => true, // vacuous — no surface to measure against
+        Some(r) => r >= RECALL_THRESHOLD_TOTAL,
+    };
+
+    let doc = serde_json::json!({
+        "schema_version": 1,
+        "crates": crates,
+        "total": {
+            "recall": agg_recall,
+            "threshold": RECALL_THRESHOLD_TOTAL,
+            "passes": agg_passes,
+            "matched": agg_matched,
+            "adjusted_denominator": agg_denom,
+        }
+    });
+
+    let bytes = serde_json::to_vec_pretty(&doc).map_err(std::io::Error::other)?;
+    std::fs::write(path, bytes)
 }

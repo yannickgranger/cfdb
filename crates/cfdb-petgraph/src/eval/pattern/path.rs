@@ -11,7 +11,7 @@ use cfdb_core::result::{Warning, WarningKind};
 use petgraph::stable_graph::{EdgeIndex, NodeIndex};
 use petgraph::visit::EdgeRef;
 
-use super::{edge_label_matches, matches_existing};
+use super::coupling::{edge_label_matches, matches_existing};
 use crate::eval::util::suggest_label;
 use crate::eval::{Binding, BindingStream, Bindings, Evaluator, DEFAULT_VAR_LENGTH_MAX};
 

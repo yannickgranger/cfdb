@@ -18,13 +18,29 @@ crates = [
     "cfdb-query",
     "cfdb-petgraph",
     "cfdb-extractor",
+    # RFC-041 Phase 2 (#264) — PHP `LanguageProducer` MVP. Concrete
+    # producer-side analogue of cfdb-extractor; same operational
+    # bounded context per council-cfdb-wiring §B.1.2.
+    "cfdb-extractor-php",
+    # RFC-041 Phase 3 (#265) — TypeScript `LanguageProducer` MVP.
+    "cfdb-extractor-ts",
     "cfdb-hir-extractor",
     "cfdb-hir-petgraph-adapter",
     "cfdb-cli",
+    "cfdb-lang",
     "cfdb-recall",
     # RFC-034 v3.3 Tier-1 binary — lives at `tools/check-prelude-triggers/`
     # and has zero `cfdb-*` code deps (clean-arch boundary), but is owned
     # + shipped by the cfdb team and belongs to the `cfdb` bounded context
     # for ownership / concept-registry purposes (issue #127).
     "check-prelude-triggers",
+    # RFC-039 dogfood enrichment harness — lives at `tools/dogfood-enrich/`
+    # (same clean-arch boundary as check-prelude-triggers: zero `cfdb-*`
+    # code deps, shells out to the released CLI), owned + shipped by the
+    # cfdb team and belongs to the `cfdb` bounded context (issue #342).
+    # Without this entry the heuristic would mint a separate
+    # `dogfood-enrich` context, and shared fn-name segments (`run`, `main`,
+    # `parse_report`) would surface as `context_homonym` findings against
+    # cfdb crates.
+    "dogfood-enrich",
 ]

@@ -14,7 +14,7 @@
 //! The `+1` baseline covers the single straight-line path. A trivial
 //! `fn x() {}` has cyclomatic = 1.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use syn::visit::{self, Visit};
@@ -66,10 +66,10 @@ pub(crate) fn scan_workspace(
 }
 
 fn distinct_files(items: &[FnItem]) -> Vec<String> {
-    let set: HashSet<&str> = items.iter().map(|i| i.file.as_str()).collect();
-    let mut v: Vec<String> = set.into_iter().map(str::to_string).collect();
-    v.sort();
-    v
+    // BTreeSet (not HashSet) keeps this deterministic per RFC-029 §12.1 G1 —
+    // iteration order is the sort order, so the collected Vec is already sorted.
+    let set: BTreeSet<&str> = items.iter().map(|i| i.file.as_str()).collect();
+    set.into_iter().map(str::to_string).collect()
 }
 
 fn parse_file(path: &Path) -> Result<syn::File, String> {

@@ -1,15 +1,33 @@
 //! `extract_call_sites` — walk every source file in the VFS,
-//! resolve method-call dispatch via `ra_ap_hir::Semantics`, emit
-//! `:CallSite` + `CALLS(item→item)` + `INVOKES_AT(item→:CallSite)`
+//! resolve method-call AND path-call dispatch via `ra_ap_hir::Semantics`,
+//! emit `:CallSite` + `CALLS(item→item)` + `INVOKES_AT(item→:CallSite)`
 //! facts into cfdb-core's graph vocabulary.
 //!
-//! ## Slice status — Issue #85c (MVP)
+//! ## Resolved call shapes
 //!
-//! Handles method-call expressions (`foo.bar()`) resolvable to a
-//! concrete `hir::Function` via `Semantics::resolve_method_call`.
-//! Function-call expressions (`foo()`) and more exotic dispatches
-//! (associated-function path calls, trait-object method calls with
-//! no concrete impl) are deferred to follow-up issues.
+//! Two AST shapes produce resolved call facts:
+//!
+//! - **`ast::MethodCallExpr`** — `receiver.method(args)`. Resolved
+//!   via `Semantics::resolve_method_call`. Wire `kind = "method"`.
+//! - **`ast::CallExpr`** with a `PathExpr` function expression —
+//!   plain function calls (`my_helper(args)`), associated-function
+//!   calls (`MyType::new(args)`, `Foo::bar(args)`), and trait-static
+//!   dispatch (`Trait::method(args)`) when statically resolvable
+//!   to a concrete `hir::Function`. Resolved via
+//!   `Semantics::resolve_path`. Wire `kind = "fn"` (the AST doesn't
+//!   distinguish associated-function from free-fn at this site;
+//!   downstream consumers can recheck via the resolved callee qname
+//!   if they need the distinction). Issue #387 closed #85c's
+//!   deferred follow-up scope.
+//!
+//! ## Out-of-scope dispatches
+//!
+//! Trait-object method calls (`(t: &dyn Trait).method()`) without
+//! a static dispatch target, closure / function-pointer indirection,
+//! and macro-expanded calls that ra-ap can't see through are still
+//! deferred — they produce no resolved fact. Recall on these shapes
+//! requires either type-inference precision the HIR doesn't currently
+//! commit to, or a syn-side unresolved-CallSite parallel.
 //!
 //! ## Cross-extractor ID stability
 //!
@@ -29,12 +47,13 @@ use cfdb_core::schema::{EdgeLabel, Label};
 use ra_ap_edition::Edition;
 use ra_ap_hir::db::HirDatabase;
 use ra_ap_hir::{
-    AsAssocItem, AssocItemContainer, DisplayTarget, Function, HasCrate, HirDisplay, Semantics,
+    AsAssocItem, AssocItemContainer, DisplayTarget, Function, HasCrate, HirDisplay, ModuleDef,
+    PathResolution, Semantics,
 };
 use ra_ap_hir_ty::attach_db;
 use ra_ap_ide_db::line_index::LineIndex;
 use ra_ap_syntax::ast::{self, AstNode};
-use ra_ap_syntax::{SyntaxNode, TextSize};
+use ra_ap_syntax::{SyntaxKind, SyntaxNode, TextSize};
 use ra_ap_vfs::{Vfs, VfsPath};
 
 use crate::error::HirError;
@@ -142,8 +161,16 @@ where
     Ok((nodes, edges))
 }
 
-/// Walk every method-call expression in `source_file`, resolve it,
-/// and emit facts if resolution succeeds.
+/// Walk every method-call AND resolvable path-call expression in
+/// `source_file`, resolve it, and emit facts if resolution succeeds.
+///
+/// `ast::MethodCallExpr` and `ast::CallExpr` are disjoint AST node
+/// kinds (the grammar separates `receiver.method(args)` from
+/// `expr(args)`), so a single `descendants()` walk that matches
+/// both produces no duplicates. The receiver-method shape resolves
+/// via `Semantics::resolve_method_call`; the path shape resolves
+/// via `Semantics::resolve_path` after extracting the `PathExpr`
+/// function expression from the `CallExpr`.
 fn walk_file<DB>(
     sema: &Semantics<'_, DB>,
     source_file: &ast::SourceFile,
@@ -155,50 +182,129 @@ fn walk_file<DB>(
 ) where
     DB: HirDatabase + Sized,
 {
-    source_file
-        .syntax()
-        .descendants()
-        .filter_map(ast::MethodCallExpr::cast)
-        .for_each(|method_call| {
-            if let Some(callee_fn) = sema.resolve_method_call(&method_call) {
-                // Source-line where the method-call expression starts.
-                // The `LineIndex::line_col` API returns a 0-indexed line;
-                // we store 1-indexed lines in the wire vocabulary (matching
-                // the syn extractor's `proc_macro2::Span::start().line`
-                // convention — see #291 / F-005). The receiver-token start
-                // mirrors syn's choice of `node.method.span().start().line`
-                // for consistency across resolvers when `foo\n .bar()`
-                // straddles two lines.
-                let offset: TextSize = method_call.syntax().text_range().start();
-                let line = line_index.line_col(offset).line as usize + 1;
-                emit_resolved_call(
-                    sema,
-                    &method_call,
-                    callee_fn,
-                    file_path,
-                    line,
-                    counts,
-                    nodes,
-                    edges,
-                );
+    // Dispatch on `SyntaxKind` so only the matching branch casts —
+    // `AstNode::cast` moves by value, and an `if let / else if` chain
+    // on `cast(descendant.clone())` flagged as a clone-in-loop in
+    // quality-metrics. Matching on kind first lets each branch consume
+    // `descendant` directly. Same pattern as `entry_point_emitter::scan_file`.
+    for descendant in source_file.syntax().descendants() {
+        match descendant.kind() {
+            SyntaxKind::METHOD_CALL_EXPR => {
+                if let Some(method_call) = ast::MethodCallExpr::cast(descendant) {
+                    if let Some(callee_fn) = sema.resolve_method_call(&method_call) {
+                        // Source-line where the method-call expression
+                        // starts. The `LineIndex::line_col` API returns
+                        // a 0-indexed line; we store 1-indexed lines in
+                        // the wire vocabulary (matching the syn
+                        // extractor's `proc_macro2::Span::start().line`
+                        // convention — see #291 / F-005). The
+                        // receiver-token start mirrors syn's choice of
+                        // `node.method.span().start().line` for
+                        // consistency across resolvers when
+                        // `foo\n .bar()` straddles two lines.
+                        let offset: TextSize = method_call.syntax().text_range().start();
+                        let line = line_index.line_col(offset).line as usize + 1;
+                        emit_resolved_call(
+                            sema,
+                            method_call.syntax(),
+                            callee_fn,
+                            "method",
+                            file_path,
+                            line,
+                            counts,
+                            nodes,
+                            edges,
+                        );
+                    }
+                }
             }
-        });
+            SyntaxKind::CALL_EXPR => {
+                if let Some(call_expr) = ast::CallExpr::cast(descendant) {
+                    if let Some(callee_fn) = resolve_path_call(sema, &call_expr) {
+                        // Same 1-indexed line convention as the
+                        // method-call arm; offset is the start of the
+                        // CallExpr (which covers `Foo::bar(args)` from
+                        // the first segment of the path through the
+                        // closing paren).
+                        let offset: TextSize = call_expr.syntax().text_range().start();
+                        let line = line_index.line_col(offset).line as usize + 1;
+                        emit_resolved_call(
+                            sema,
+                            call_expr.syntax(),
+                            callee_fn,
+                            "fn",
+                            file_path,
+                            line,
+                            counts,
+                            nodes,
+                            edges,
+                        );
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
-/// Emit the three facts for one resolved method call.
+/// Resolve an `ast::CallExpr` whose function expression is a
+/// `PathExpr` to a concrete `hir::Function`. Returns `None` for:
+/// - Non-path function expressions (closure calls, method calls
+///   accidentally wrapped in extra parens, function-pointer
+///   indirection).
+/// - Paths that don't resolve via HIR (macro-expanded or out-of-scope
+///   identifiers).
+/// - Paths that resolve to something other than a function (constants,
+///   type aliases, enum variants — the last is technically callable
+///   but its semantics are construction, not function dispatch; out
+///   of scope per #387 non-goals).
 ///
-/// `line` is the 1-indexed source-line where the method-call
-/// expression starts, computed by the caller from a per-file
-/// `LineIndex`. Stored as `:CallSite.line` to match the syn
-/// extractor's wire convention (#291 / F-005). A future synthetic
-/// or macro-expanded span that produces no meaningful line should
-/// pass `0` (the caller — `walk_file` — handles real source spans
-/// only, so today every call here passes a real `line >= 1`).
-#[allow(clippy::too_many_arguments)] // 8 args — :CallSite shape carries caller_qname, file, and line as separate plumbed values per the syn extractor's emission signature; tying them into a struct would just shift the surface.
+/// Same `Semantics::resolve_path` infrastructure used by
+/// `crate::entry_point_emitter::resolve_handler_arg` (issue #124);
+/// the resolution result type is identical so the match arm reads
+/// the same way.
+fn resolve_path_call<DB>(sema: &Semantics<'_, DB>, call_expr: &ast::CallExpr) -> Option<Function>
+where
+    DB: HirDatabase + Sized,
+{
+    let ast::Expr::PathExpr(path_expr) = call_expr.expr()? else {
+        return None;
+    };
+    let path = path_expr.path()?;
+    let PathResolution::Def(ModuleDef::Function(func)) = sema.resolve_path(&path)? else {
+        return None;
+    };
+    Some(func)
+}
+
+/// Emit the three facts for one resolved call. Shared by both the
+/// method-call walker arm and the path-call walker arm in [`walk_file`].
+///
+/// `call_syntax` is the SyntaxNode of the call expression
+/// (either an `ast::MethodCallExpr` or an `ast::CallExpr`) — used
+/// only to locate the enclosing fn for the caller_qname; the
+/// caller has already extracted the offset / line / resolved
+/// callee.
+///
+/// `kind` is the wire-form discriminator stored as `:CallSite.kind`:
+/// `"method"` for receiver-method calls, `"fn"` for path-call shapes
+/// (free fn, associated fn, trait-static dispatch). Downstream
+/// consumers that need to distinguish associated-function from
+/// free-fn can re-derive the distinction from `callee_path`.
+///
+/// `line` is the 1-indexed source-line where the call expression
+/// starts, computed by the caller from a per-file `LineIndex`.
+/// Stored as `:CallSite.line` to match the syn extractor's wire
+/// convention (#291 / F-005). A future synthetic or macro-expanded
+/// span that produces no meaningful line should pass `0` (the
+/// caller — `walk_file` — handles real source spans only, so today
+/// every call here passes a real `line >= 1`).
+#[allow(clippy::too_many_arguments)] // 9 args — :CallSite shape carries caller_qname, file, line, and kind as separate plumbed values per the syn extractor's emission signature; tying them into a struct would just shift the surface.
 fn emit_resolved_call<DB>(
     sema: &Semantics<'_, DB>,
-    method_call: &ast::MethodCallExpr,
+    call_syntax: &SyntaxNode,
     callee: Function,
+    kind: &str,
     file_path: &Path,
     line: usize,
     counts: &mut BTreeMap<(String, String), usize>,
@@ -208,7 +314,7 @@ fn emit_resolved_call<DB>(
     DB: HirDatabase + Sized,
 {
     // Find the caller — the enclosing `fn` or method definition.
-    let Some(caller_qname) = enclosing_fn_qname(sema, method_call.syntax()) else {
+    let Some(caller_qname) = enclosing_fn_qname(sema, call_syntax) else {
         return;
     };
     let callee_qname = function_qname(sema, callee);
@@ -235,7 +341,7 @@ fn emit_resolved_call<DB>(
         "callee_last_segment".into(),
         PropValue::Str(callee_last_segment),
     );
-    props.insert("kind".into(), PropValue::Str("method".to_string()));
+    props.insert("kind".into(), PropValue::Str(kind.to_string()));
     props.insert("file".into(), PropValue::Str(file_str));
     props.insert("line".into(), PropValue::Int(line as i64));
     props.insert("is_test".into(), PropValue::Bool(false));

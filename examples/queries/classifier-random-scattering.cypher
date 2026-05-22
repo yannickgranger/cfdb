@@ -1,3 +1,4 @@
+// smoke-skip: parameterized ($context) — bound by RFC-036 classifier suite
 // classifier-random-scattering.cypher — §A2.1 class 4 (RandomScattering).
 //
 // Surfaces the Pattern B "fork" vertical split-brain shape: from a single

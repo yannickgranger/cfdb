@@ -11,6 +11,7 @@ use syn::visit::Visit;
 use crate::attrs::{attrs_contain_cfg_test, extract_path_attr, extract_serde_default_attr};
 use crate::call_visitor::walk_call_sites_with_test_flag;
 use crate::file_walker::PendingExternalMod;
+use crate::literal_visitor::{walk_literals_in_block, walk_literals_in_expr};
 use crate::type_render::{render_fn_signature, render_path, render_type_string};
 
 use super::{span_line, ItemVisitor};
@@ -106,6 +107,16 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
             &node.block,
             is_test,
         );
+        // RFC-041 slice 041-B (#370): emit `:Literal` per string
+        // literal in the fn body, inheriting the just-computed
+        // `is_test` (no parallel resolver — §4 invariant).
+        walk_literals_in_block(
+            self.emitter,
+            &self.file_path,
+            &self.crate_name,
+            &node.block,
+            is_test,
+        );
     }
 
     fn visit_item_impl(&mut self, node: &'ast syn::ItemImpl) {
@@ -190,6 +201,14 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
             );
         }
         walk_call_sites_with_test_flag(self.emitter, &qname, &self.file_path, &node.block, is_test);
+        // RFC-041 slice 041-B (#370): impl-method body literals.
+        walk_literals_in_block(
+            self.emitter,
+            &self.file_path,
+            &self.crate_name,
+            &node.block,
+            is_test,
+        );
     }
 
     fn visit_item_struct(&mut self, node: &'ast syn::ItemStruct) {
@@ -291,12 +310,34 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
 
     fn visit_item_const(&mut self, node: &'ast syn::ItemConst) {
         let name = node.ident.to_string();
-        self.emit_item(
+        let item_id = self.emit_item(
             &name,
             "const",
             span_line(&node.ident),
             &node.vis,
             &node.attrs,
+        );
+        // RFC-040 §3.3 — recognize literal slice/array tables and emit a
+        // `:ConstTable` node + `HAS_CONST_TABLE` edge alongside the parent
+        // `:Item`. Non-recognized consts (scalars, custom types, non-literal
+        // exprs) take the early-return None path and emit only the parent.
+        if let Some(table) = crate::const_table::recognize_const_table(
+            node,
+            &self.crate_name,
+            &self.current_module_qpath(),
+            self.is_in_test_mod(),
+        ) {
+            self.emit_const_table(table, &item_id);
+        }
+        // RFC-041 slice 041-B (#370): const initializer literals.
+        // `is_test` for a const/static inherits from the enclosing
+        // `#[cfg(test)] mod` only — consts have no fn-level `#[test]`.
+        walk_literals_in_expr(
+            self.emitter,
+            &self.file_path,
+            &self.crate_name,
+            &node.expr,
+            self.is_in_test_mod(),
         );
     }
 
@@ -308,6 +349,14 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
             span_line(&node.ident),
             &node.vis,
             &node.attrs,
+        );
+        // RFC-041 slice 041-B (#370): static initializer literals.
+        walk_literals_in_expr(
+            self.emitter,
+            &self.file_path,
+            &self.crate_name,
+            &node.expr,
+            self.is_in_test_mod(),
         );
     }
 

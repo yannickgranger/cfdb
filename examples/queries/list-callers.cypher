@@ -1,3 +1,4 @@
+// smoke-skip: parameterized ($qname) — caller binds via `cfdb list-callers --qname` or `cfdb query --params`
 // list-callers.cypher — generic discovery query (RFC §13 v0.1 AC item 5).
 //
 // "Where is this function / method used?" — the canonical user story for

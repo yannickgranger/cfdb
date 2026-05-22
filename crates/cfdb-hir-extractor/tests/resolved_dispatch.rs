@@ -88,7 +88,8 @@ pub fn dispatch() -> &'static str {
 "#,
     );
 
-    let (db, vfs) = build_hir_database(root).expect("build_hir_database on hirfixture workspace");
+    let (db, vfs, _pm_client) =
+        build_hir_database(root, false).expect("build_hir_database on hirfixture workspace");
 
     let (nodes, edges) =
         extract_call_sites(&db, &vfs).expect("extract_call_sites succeeds on hirfixture");
@@ -243,7 +244,8 @@ pub fn use_en() -> &'static str {
 "#,
     );
 
-    let (db, vfs) = build_hir_database(root).expect("build_hir_database on traitfixture");
+    let (db, vfs, _pm_client) =
+        build_hir_database(root, false).expect("build_hir_database on traitfixture");
     let (nodes, edges) = extract_call_sites(&db, &vfs).expect("extract_call_sites on traitfixture");
 
     // HIR should resolve g.greet() in `dispatch<G>` to the trait
@@ -291,6 +293,170 @@ pub fn use_en() -> &'static str {
             .iter()
             .filter(|e| e.label.as_str() == EdgeLabel::CALLS)
             .map(|e| format!("{} → {}", e.src, e.dst))
+            .collect::<Vec<_>>(),
+    );
+}
+
+/// #387 — path-call resolution beyond method calls.
+///
+/// Three call shapes that `ast::CallExpr` covers and the MVP
+/// (#85c, method-only) ignored:
+///
+/// 1. **Free fn call** — `my_helper()`
+/// 2. **Associated-fn (inherent) call** — `MyType::new()`
+/// 3. **Trait-static dispatch** — `MyTrait::method(arg)`
+///
+/// All three resolve via `Semantics::resolve_path`. Each must
+/// produce a `:CallSite` (`kind = "fn"`, `resolver = "hir"`,
+/// `callee_resolved = true`) plus matching `CALLS` and `INVOKES_AT`
+/// edges. Asserts confirm all three callees land in the edge set,
+/// closing the deferred follow-up scope of #85c.
+#[test]
+fn hir_resolves_path_call_shapes() {
+    let tmp = tempdir().expect("tempdir");
+    let root = tmp.path();
+
+    write(
+        root,
+        "Cargo.toml",
+        r#"[workspace]
+resolver = "2"
+members = ["pathcallfixture"]
+"#,
+    );
+    write(
+        root,
+        "pathcallfixture/Cargo.toml",
+        r#"[package]
+name = "pathcallfixture"
+version = "0.0.1"
+edition = "2021"
+
+[dependencies]
+"#,
+    );
+    // Three call sites in `caller`:
+    //   - `helper()`                  ← free fn
+    //   - `MyType::new()`             ← associated fn
+    //   - `MyTrait::trait_static(42)` ← trait static dispatch on
+    //                                    the trait path (resolves to
+    //                                    the impl's fn via the type
+    //                                    inferred from the arg).
+    write(
+        root,
+        "pathcallfixture/src/lib.rs",
+        r#"pub fn helper() -> i32 { 7 }
+
+pub struct MyType;
+
+impl MyType {
+    pub fn new() -> Self { MyType }
+}
+
+pub trait MyTrait {
+    fn trait_static(x: i32) -> i32;
+}
+
+impl MyTrait for MyType {
+    fn trait_static(x: i32) -> i32 { x + 1 }
+}
+
+pub fn caller() -> i32 {
+    let _h = helper();
+    let _m = MyType::new();
+    let _t = <MyType as MyTrait>::trait_static(42);
+    _h
+}
+"#,
+    );
+
+    let (db, vfs, _pm_client) =
+        build_hir_database(root, false).expect("build_hir_database on pathcallfixture");
+    let (nodes, edges) =
+        extract_call_sites(&db, &vfs).expect("extract_call_sites on pathcallfixture");
+
+    let hir_call_sites: Vec<_> = nodes
+        .iter()
+        .filter(|n| n.label.as_str() == Label::CALL_SITE)
+        .filter(|n| n.props.get("resolver").and_then(PropValue::as_str) == Some("hir"))
+        .collect();
+
+    // Shape 1: free fn — caller → helper
+    let caller_id = item_node_id("pathcallfixture::caller");
+    let helper_id = item_node_id("pathcallfixture::helper");
+    let calls_helper = edges
+        .iter()
+        .filter(|e| e.label.as_str() == EdgeLabel::CALLS)
+        .find(|e| e.src == caller_id && e.dst == helper_id);
+    assert!(
+        calls_helper.is_some(),
+        "expected CALLS({} → {}) for free-fn call `helper()`; this is the #387 \
+         primary scope. CALLS edges: {:?}",
+        caller_id,
+        helper_id,
+        edges
+            .iter()
+            .filter(|e| e.label.as_str() == EdgeLabel::CALLS)
+            .map(|e| format!("{} → {}", e.src, e.dst))
+            .collect::<Vec<_>>(),
+    );
+
+    // Shape 2: associated fn — caller → MyType::new
+    let new_id = item_node_id("pathcallfixture::MyType::new");
+    let calls_new = edges
+        .iter()
+        .filter(|e| e.label.as_str() == EdgeLabel::CALLS)
+        .find(|e| e.src == caller_id && e.dst == new_id);
+    assert!(
+        calls_new.is_some(),
+        "expected CALLS({} → {}) for associated-fn call `MyType::new()`. \
+         CALLS edges: {:?}",
+        caller_id,
+        new_id,
+        edges
+            .iter()
+            .filter(|e| e.label.as_str() == EdgeLabel::CALLS)
+            .map(|e| format!("{} → {}", e.src, e.dst))
+            .collect::<Vec<_>>(),
+    );
+
+    // Shape 3: trait-static dispatch — caller → MyType::trait_static
+    // (via the qualified path `<MyType as MyTrait>::trait_static`).
+    // The callee_qname after monomorphisation is the impl's fn under
+    // the impl target's qname, NOT the trait method's qname.
+    let trait_static_id = item_node_id("pathcallfixture::MyType::trait_static");
+    let calls_trait_static = edges
+        .iter()
+        .filter(|e| e.label.as_str() == EdgeLabel::CALLS)
+        .find(|e| e.src == caller_id && e.dst == trait_static_id);
+    assert!(
+        calls_trait_static.is_some(),
+        "expected CALLS({} → {}) for qualified trait-static call \
+         `<MyType as MyTrait>::trait_static(42)`. CALLS edges: {:?}",
+        caller_id,
+        trait_static_id,
+        edges
+            .iter()
+            .filter(|e| e.label.as_str() == EdgeLabel::CALLS)
+            .map(|e| format!("{} → {}", e.src, e.dst))
+            .collect::<Vec<_>>(),
+    );
+
+    // Each path call must produce a :CallSite with kind="fn"
+    // (distinguishing from method-call's kind="method"). At least
+    // one of the three.
+    let fn_kind_call_sites = hir_call_sites
+        .iter()
+        .filter(|n| n.props.get("kind").and_then(PropValue::as_str) == Some("fn"))
+        .count();
+    assert!(
+        fn_kind_call_sites >= 3,
+        "expected ≥3 :CallSite nodes with kind=\"fn\" (one per shape); got {}. \
+         All :CallSite kinds observed: {:?}",
+        fn_kind_call_sites,
+        hir_call_sites
+            .iter()
+            .filter_map(|n| n.props.get("kind").and_then(PropValue::as_str))
             .collect::<Vec<_>>(),
     );
 }

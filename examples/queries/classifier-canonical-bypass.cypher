@@ -1,3 +1,4 @@
+// smoke-skip: parameterized ($context) — bound by RFC-036 classifier suite
 // classifier-canonical-bypass.cypher — §A2.1 class 5 (CanonicalBypass).
 //
 // Surfaces canonical-side orphans: `:Item`s declared `CANONICAL_FOR`

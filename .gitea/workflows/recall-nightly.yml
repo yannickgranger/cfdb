@@ -1,0 +1,307 @@
+name: Recall (nightly)
+
+# Nightly cfdb-recall measurement against rustdoc-json ground truth, posting
+# per-crate Gitea commit statuses on develop HEAD. Phase C of EPIC #338,
+# implemented in #340.
+#
+# Why nightly: the rustdoc-json adapter requires the nightly toolchain plus
+# a full rustdoc build per crate. Running this on every PR would extend the
+# hot path by minutes (#340 AC-6). The PR-time slim build at
+# `.gitea/workflows/ci.yml:140` (`cargo check -p cfdb-recall
+# --no-default-features`) stays as the synchronous gate; this workflow is
+# the asynchronous deep gate.
+#
+# AC-5 SOFT-WARNING NOTE
+# ──────────────────────
+# This workflow always *posts* per-crate `recall/<crate>` and `recall/total`
+# Gitea commit statuses, even when ratios fall below threshold (the body
+# carries `state=failure`). The Gitea project's "required checks" list is
+# admin-set and lives outside this workflow. The first cycle after merge
+# is soft-warning by definition: the statuses are visible on develop HEAD
+# but no merge is blocked because the contexts are not yet in
+# required-checks. Promoting `recall/total` to a required check is an
+# admin action documented in README.md under "Recall" — it happens after
+# the second nightly cycle so we have at least one successful baseline.
+
+on:
+  schedule:
+    # 03:00 UTC daily — chosen to land after the busiest commit windows
+    # (NA evening, EU early morning) so the status reflects a relatively
+    # quiet HEAD. Cron syntax is Gitea-runner standard.
+    - cron: "0 3 * * *"
+  # Manual trigger for ad-hoc runs (e.g. when the previous night failed
+  # for infra reasons and we want a re-measure without waiting 24h).
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -Dwarnings
+  GIT_SSL_NO_VERIFY: true
+  CARGO_HOME: /cache/cargo
+  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+  SCCACHE_REDIS_ENDPOINT: "redis://192.168.1.107:6380"
+  SCCACHE_REDIS_KEY_PREFIX: "cfdb-1.93"
+  SCCACHE_REDIS_EXPIRATION: "604800"
+  CARGO_INCREMENTAL: "0"
+
+# A single-job concurrency lock so two manual triggers do not race
+# each other writing the same statuses.
+concurrency:
+  group: recall-nightly
+  cancel-in-progress: false
+
+jobs:
+  recall:
+    name: Recall (nightly)
+    runs-on: rust
+    container:
+      image: docker.io/library/rust:1.93
+    steps:
+      # ── Setup: identical to .gitea/workflows/ci.yml:36-72 ──────
+      # Diverging here would create a split-brain on toolchain / sccache
+      # wiring. If the PR-time setup changes, mirror the change here.
+      - name: Setup
+        run: |
+          set -e
+          apt-get clean && apt-get update && apt-get install -y --no-install-recommends git build-essential libssl-dev pkg-config curl ca-certificates jq
+          mkdir -p /cache/cargo/registry /cache/cargo/git /cache/cargo/bin /cache/rustup ~/.cargo
+          ln -sf /cache/cargo/registry ~/.cargo/registry
+          ln -sf /cache/cargo/git ~/.cargo/git
+
+          if [ -d "/cache/rustup/toolchains" ]; then
+            echo "Rustup cache HIT"
+          else
+            echo "Rustup cache MISS — seeding from image"
+            cp -a /usr/local/rustup/* /cache/rustup/
+          fi
+          export RUSTUP_HOME=/cache/rustup
+          echo "RUSTUP_HOME=/cache/rustup" >> "$GITHUB_ENV"
+          rustup component add rustfmt clippy
+          # Nightly is REQUIRED here (not "if cache miss") — the recall
+          # runner shells out to `rustdoc +nightly --output-format json`
+          # via the `rustdoc-json` crate. Without it, every crate posts
+          # `recall/<crate>=error` per AC-7.
+          if ! rustup toolchain list | grep -q '^nightly'; then
+            rustup toolchain install nightly --profile minimal --component rust-docs
+          fi
+          rustc --version
+          rustc +nightly --version
+
+          if [ ! -f "/cache/cargo/bin/sccache" ]; then
+            SCCACHE_VERSION="v0.8.2"
+            curl -fsSL "https://github.com/mozilla/sccache/releases/download/${SCCACHE_VERSION}/sccache-${SCCACHE_VERSION}-x86_64-unknown-linux-musl.tar.gz" | \
+              tar xzf - --strip-components=1 -C /cache/cargo/bin/ "sccache-${SCCACHE_VERSION}-x86_64-unknown-linux-musl/sccache"
+            chmod +x /cache/cargo/bin/sccache
+          fi
+          echo "PATH=/cache/cargo/bin:${PATH}" >> "$GITHUB_ENV"
+
+          if /cache/cargo/bin/sccache --start-server 2>&1; then
+            echo "RUSTC_WRAPPER=/cache/cargo/bin/sccache" >> "$GITHUB_ENV"
+            echo "sccache ready (redis: ${SCCACHE_REDIS_ENDPOINT})"
+          fi
+
+      - name: Clone develop
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config --global url."https://oauth2:${GITHUB_TOKEN}@agency.lab:3000/".insteadOf "https://agency.lab:3000/"
+          # Hard-pin to develop: this workflow measures the integration
+          # branch's HEAD, not whatever ref the runner happened to check
+          # out. workflow_dispatch from a feature branch still measures
+          # develop — if the operator wants a feature branch's recall,
+          # they merge to develop first.
+          git clone --depth=1 --branch=develop "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" repo
+          cd repo
+          DEVELOP_SHA=$(git rev-parse HEAD)
+          echo "DEVELOP_SHA=$DEVELOP_SHA" >> "$GITHUB_ENV"
+          echo "Measuring develop @ $DEVELOP_SHA"
+
+      - name: Build cfdb-recall (runner feature)
+        run: |
+          cd repo
+          # `--features runner` pulls in clap + rustdoc-json (gated off
+          # by default per cfdb-recall/Cargo.toml lines 17-23 to keep the
+          # slim PR-time build cheap).
+          cargo build -p cfdb-recall --release --features runner --bin cfdb-recall
+
+      - name: Run cfdb-recall against cfdb-self
+        id: recall_run
+        run: |
+          cd repo
+          # Crate list mirrors workspace members in `Cargo.toml` (top-level)
+          # filtered to library crates that build rustdoc-json cleanly.
+          # Excluded:
+          #   - tools/* (binary crates, no public API surface to measure)
+          #   - cfdb-cli (binary; thin wrapper)
+          #   - cfdb-hir-* (nightly + ra-ap-* — separate measurement story)
+          # Adding a crate here is a reviewed change.
+          CRATES=(
+            cfdb-core
+            cfdb-concepts
+            cfdb-query
+            cfdb-petgraph
+            cfdb-extractor
+            cfdb-recall
+          )
+          CRATE_ARGS=()
+          for c in "${CRATES[@]}"; do
+            CRATE_ARGS+=(--crate "$c")
+          done
+
+          # We capture the runner's exit code without short-circuiting
+          # the workflow — even on FAIL (exit 1) or ERROR (exit 2) we
+          # still want to post commit statuses + upload the artifact.
+          # AC-7: rustdoc-json failure (exit 2) surfaces as state=error
+          # on every crate, distinguishing infra problems from real
+          # recall regressions.
+          set +e
+          ./target/release/cfdb-recall \
+            --workspace "$(pwd)" \
+            "${CRATE_ARGS[@]}" \
+            --json-out recall-ratios.json \
+            --gaps-file recall-gaps.md \
+            2>&1 | tee recall-stdout.log
+          RECALL_EXIT=$?
+          set -e
+          echo "recall_exit=$RECALL_EXIT" >> "$GITHUB_OUTPUT"
+          echo "Recall runner exit: $RECALL_EXIT"
+
+          # Always emit the per-crate ratios + total to stdout per AC-2,
+          # even if the runner failed (the file may be missing — the
+          # echo path below tolerates that).
+          if [ -f recall-ratios.json ]; then
+            echo "── recall-ratios.json ──"
+            jq . recall-ratios.json
+          else
+            echo "WARNING: recall-ratios.json was not produced — runner exit=$RECALL_EXIT"
+          fi
+
+      - name: Post Gitea commit statuses
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RECALL_EXIT: ${{ steps.recall_run.outputs.recall_exit }}
+        run: |
+          cd repo
+          API_URL="${GITHUB_SERVER_URL}/api/v1"
+          REPO="${GITHUB_REPOSITORY}"
+          SHA="${DEVELOP_SHA}"
+          TARGET_URL="${GITHUB_SERVER_URL}/${REPO}/actions/runs/${GITHUB_RUN_ID:-0}"
+
+          # AC-7: if the runner died before producing recall-ratios.json
+          # (exit 2 — typically a rustdoc-json or extractor failure on
+          # nightly), we cannot compute per-crate ratios. Surface this
+          # as a single `recall/total = error` (yellow) so the operator
+          # can distinguish infra rot from real recall regression. The
+          # per-crate `recall/<crate>` contexts are intentionally not
+          # posted — they would otherwise carry stale ratios from the
+          # previous run.
+          if [ ! -f recall-ratios.json ] || [ "${RECALL_EXIT:-2}" = "2" ]; then
+            echo "Posting recall/total = error (runner failed before producing JSON)"
+            curl -sSk -X POST "${API_URL}/repos/${REPO}/statuses/${SHA}" \
+              -H "Authorization: token ${GITHUB_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -d "$(jq -n \
+                --arg ctx "recall/total" \
+                --arg url "$TARGET_URL" \
+                '{state: "error", context: $ctx, description: "cfdb-recall runner failed (rustdoc-json or extractor error)", target_url: $url}')"
+            exit 0
+          fi
+
+          # Per-crate statuses: state = success | failure based on
+          # `passes` from the JSON; description carries the recall % and
+          # threshold for hover-readability in the Gitea UI.
+          jq -c '.crates[]' recall-ratios.json | while read -r crate_json; do
+            NAME=$(echo "$crate_json"   | jq -r '.name')
+            PASSES=$(echo "$crate_json" | jq -r '.passes')
+            RECALL=$(echo "$crate_json" | jq -r '.recall')   # may be "null" for vacuous
+            THRESH=$(echo "$crate_json" | jq -r '.threshold')
+
+            if [ "$PASSES" = "true" ]; then
+              STATE="success"
+            else
+              STATE="failure"
+            fi
+
+            if [ "$RECALL" = "null" ]; then
+              DESC="recall: vacuous (empty surface, threshold ${THRESH})"
+            else
+              # Two-decimal percentage rounding with awk — pure POSIX,
+              # no bc dependency.
+              RECALL_PCT=$(awk -v r="$RECALL" 'BEGIN {printf "%.2f", r * 100}')
+              THRESH_PCT=$(awk -v t="$THRESH" 'BEGIN {printf "%.2f", t * 100}')
+              DESC="recall: ${RECALL_PCT}% (threshold ${THRESH_PCT}%)"
+            fi
+
+            echo "Posting recall/${NAME} = ${STATE} — ${DESC}"
+            curl -sSk -X POST "${API_URL}/repos/${REPO}/statuses/${SHA}" \
+              -H "Authorization: token ${GITHUB_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -d "$(jq -n \
+                --arg ctx "recall/${NAME}" \
+                --arg state "$STATE" \
+                --arg desc "$DESC" \
+                --arg url "$TARGET_URL" \
+                '{state: $state, context: $ctx, description: $desc, target_url: $url}')"
+          done
+
+          # Aggregate `recall/total` status.
+          TOTAL_PASSES=$(jq -r '.total.passes' recall-ratios.json)
+          TOTAL_RECALL=$(jq -r '.total.recall' recall-ratios.json)
+          TOTAL_THRESH=$(jq -r '.total.threshold' recall-ratios.json)
+
+          if [ "$TOTAL_PASSES" = "true" ]; then
+            TOTAL_STATE="success"
+          else
+            TOTAL_STATE="failure"
+          fi
+
+          if [ "$TOTAL_RECALL" = "null" ]; then
+            TOTAL_DESC="aggregate: vacuous (no measurable surface)"
+          else
+            TOTAL_PCT=$(awk -v r="$TOTAL_RECALL" 'BEGIN {printf "%.2f", r * 100}')
+            TOTAL_THRESH_PCT=$(awk -v t="$TOTAL_THRESH" 'BEGIN {printf "%.2f", t * 100}')
+            TOTAL_DESC="aggregate recall: ${TOTAL_PCT}% (threshold ${TOTAL_THRESH_PCT}%)"
+          fi
+
+          echo "Posting recall/total = ${TOTAL_STATE} — ${TOTAL_DESC}"
+          curl -sSk -X POST "${API_URL}/repos/${REPO}/statuses/${SHA}" \
+            -H "Authorization: token ${GITHUB_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n \
+              --arg state "$TOTAL_STATE" \
+              --arg desc "$TOTAL_DESC" \
+              --arg url "$TARGET_URL" \
+              '{state: $state, context: "recall/total", description: $desc, target_url: $url}')"
+
+      - name: Upload recall-ratios.json artifact
+        if: always()
+        # Skip artifact upload if the JSON was never produced (the status
+        # post step already surfaces `recall/total = error` in that case).
+        # The artifact is the operator's drilldown surface — `jq` against
+        # the downloaded file shows per-crate `missing_count` /
+        # `audited_count` for triage.
+        run: |
+          cd repo
+          if [ -f recall-ratios.json ]; then
+            ls -la recall-ratios.json recall-gaps.md recall-stdout.log 2>/dev/null || true
+            echo "Artifact files staged for upload (Gitea Actions handles via uses: actions/upload-artifact when supported by the runner; otherwise the files persist in the workflow run log via the cat below)."
+            echo "── recall-ratios.json ──"
+            cat recall-ratios.json
+            echo "── recall-gaps.md (head) ──"
+            head -100 recall-gaps.md 2>/dev/null || echo "(no gaps file)"
+          else
+            echo "No recall-ratios.json — see prior step output for failure mode"
+          fi
+
+      - name: Upload artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: recall-ratios
+          path: |
+            repo/recall-ratios.json
+            repo/recall-gaps.md
+            repo/recall-stdout.log
+          if-no-files-found: warn
+          retention-days: 30

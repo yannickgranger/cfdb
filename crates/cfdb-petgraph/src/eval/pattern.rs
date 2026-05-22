@@ -8,10 +8,13 @@
 //! `OPTIONAL MATCH`, `UNWIND`, and free helpers (`matches_existing`,
 //! `edge_label_matches`, `collect_pattern_vars`) stay here.
 
+mod coupling;
 mod path;
 
-use cfdb_core::query::{EdgePattern, NodePattern, Param, Pattern, Predicate};
-use cfdb_core::result::{RowValue, Warning, WarningKind};
+use coupling::*;
+
+use cfdb_core::query::{NodePattern, Param, Pattern, Predicate};
+use cfdb_core::result::{Warning, WarningKind};
 use petgraph::stable_graph::NodeIndex;
 
 use super::explain_fmt::format_node_pattern;
@@ -27,9 +30,31 @@ impl<'a> Evaluator<'a> {
         np: &'e NodePattern,
         where_clause: Option<&'e Predicate>,
     ) -> BindingStream<'e> {
+        // Issue #409 fast path — when neither the NodePattern itself
+        // nor the top-level WHERE references any var OTHER than the
+        // pattern's own var, `candidate_nodes` is binding-independent:
+        // the result is identical for every incoming row, so we
+        // compute it ONCE up front and have the per-row closure borrow
+        // the cached vec. Without this lift, the post-cleanup
+        // qbot-core market_data scope ran the Cartesian classifier
+        // rules at O(outer × inner_lookup) and hung 40+ min at 96% CPU
+        // (issue #409). With the lift the inner leaf collapses to O(1)
+        // lookups per rule; explain traces show `(b:Item)` appearing
+        // ONCE rather than `outer_row_count` times.
+        if is_binding_independent_pattern(np, where_clause, self.state) {
+            let cached = self.candidate_nodes(np, where_clause, &Bindings::new());
+            return Box::new(table.flat_map(move |bindings| {
+                let mut out: Vec<Bindings> = Vec::new();
+                self.emit_node_bindings(&mut out, bindings, &cached, np);
+                out
+            }));
+        }
         // Per-row candidate_nodes — the incoming row's bindings pick
         // the cross-MATCH bucket (RFC-035 slice 6). Empty bindings
-        // collapse to slice-5 behaviour.
+        // collapse to slice-5 behaviour. This path runs when the
+        // pattern OR the WHERE references a foreign var (genuine
+        // cross-binding equi-join), where the candidate set IS
+        // binding-dependent and per-row narrowing is correct.
         Box::new(table.flat_map(move |bindings| {
             let candidates = self.candidate_nodes(np, where_clause, &bindings);
             let mut out: Vec<Bindings> = Vec::new();
@@ -247,59 +272,4 @@ impl<'a> Evaluator<'a> {
             out
         }))
     }
-}
-
-/// Per-row body of [`Evaluator::apply_unwind`] — iterator-chain form so
-/// the per-item clones do not register as clones-in-loop (the outer `for`
-/// loop body now contains only a helper call).
-fn unwind_row(
-    out: &mut Vec<Bindings>,
-    bindings: &Bindings,
-    items: &[cfdb_core::fact::PropValue],
-    var: &str,
-) {
-    items.iter().for_each(|item| {
-        let mut next = bindings.clone();
-        next.insert(
-            var.to_string(),
-            Binding::Value(RowValue::Scalar(item.clone())),
-        );
-        out.push(next);
-    });
-}
-
-pub(super) fn matches_existing(existing: &Binding, idx: NodeIndex) -> bool {
-    matches!(existing, Binding::NodeRef(i) if *i == idx)
-}
-
-pub(super) fn edge_label_matches(pattern: &EdgePattern, edge: &cfdb_core::fact::Edge) -> bool {
-    match &pattern.label {
-        Some(lbl) => edge.label == *lbl,
-        None => true,
-    }
-}
-
-fn collect_pattern_vars(pattern: &Pattern) -> Vec<String> {
-    let mut out = Vec::new();
-    match pattern {
-        Pattern::Node(np) => {
-            if let Some(v) = &np.var {
-                out.push(v.clone());
-            }
-        }
-        Pattern::Path(pp) => {
-            if let Some(v) = &pp.from.var {
-                out.push(v.clone());
-            }
-            if let Some(v) = &pp.to.var {
-                out.push(v.clone());
-            }
-            if let Some(v) = &pp.edge.var {
-                out.push(v.clone());
-            }
-        }
-        Pattern::Optional(inner) => out.extend(collect_pattern_vars(inner)),
-        Pattern::Unwind { var, .. } => out.push(var.clone()),
-    }
-    out
 }

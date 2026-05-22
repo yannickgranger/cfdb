@@ -1,0 +1,53 @@
+[package]
+name = "cfdb-extractor-php"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# RFC-041 Phase 2 / issue #264 — PHP `LanguageProducer` MVP.
+#
+# This crate is the PHP-specific reference implementation of the
+# `cfdb_lang::LanguageProducer` trait. It walks a Composer-style PHP
+# project (detector: `composer.json` at workspace root) via
+# tree-sitter-php and emits the v0.1 cfdb fact set onto the existing
+# closed-set schema vocabulary in `cfdb-core::schema::labels`.
+#
+# Schema mapping decision (RFC-041 §4 Published Language invariant) —
+# the closed-set `:Item.kind` values today are `struct` / `enum` /
+# `trait` / `fn` / `impl_block` / `const` / `static` / `type` / `mod`
+# (Rust-shaped). PHP's natural `class` / `interface` / `trait` /
+# `method` / `function` / `namespace` are NOT in the set, and Phase 2
+# is NOT a schema-RFC slice (no `cfdb-core::SchemaVersion` patch, no
+# graph-specs lockstep). The MVP therefore maps:
+#
+#   PHP namespace          → :Module node (NOT :Item — :Module is a
+#                            structural-context node already in the
+#                            schema)
+#   PHP class | interface  → :Item { kind: "trait" } (closest fit;
+#         | trait            mapping all three to the same kind keeps
+#                            queries simple at the cost of homonymy)
+#   PHP method | function  → :Item { kind: "fn" }
+#   PHP const              → :Item { kind: "const" } (reserved; MVP
+#                            does not yet emit class constants)
+#
+# Every emitted `:Item` carries a `php_construct` prop preserving the
+# original AST kind (`class` / `interface` / `trait` / `method` /
+# `function`), so cypher queries that need to disambiguate can. The
+# first follow-up RFC will introduce dedicated `:Item.kind` values for
+# PHP at a SchemaVersion patch.
+
+[dependencies]
+cfdb-core = { path = "../cfdb-core" }
+cfdb-lang = { path = "../cfdb-lang" }
+# Pinned at 0.23 to share the tree-sitter ABI with `cfdb-extractor-ts`
+# — the workspace ships ONE tree-sitter version across all language
+# producers so consumers don't compile two copies. Bumping is a
+# coordinated chore PR per the existing ra-ap-* upgrade discipline.
+tree-sitter = "0.23"
+tree-sitter-php = "0.23"
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

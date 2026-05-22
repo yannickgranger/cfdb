@@ -96,10 +96,54 @@ for rule in "$REPO_ROOT"/examples/queries/arch-ban-*.cypher; do
     fi
 done
 
+# RFC-039 §7.2 (#343) — also run the self-enrich-deprecation dogfood
+# against the companion source tree at the pinned SHA. The cfdb /
+# graph-specs duo (RFC-033) means an extractor-side recall regression
+# on `#[deprecated]` would silently invalidate every downstream
+# graph-specs verdict on companion code; the cross-pass catches it
+# at PR time.
+#
+# The harness is skipped if its binary is absent (older CI configs
+# that haven't shipped the dogfood-enrich step yet) — the script's
+# default exit semantics still gate on arch-ban rule rows.
+DOGFOOD_BIN="${DOGFOOD_BIN:-$REPO_ROOT/target/release/dogfood-enrich}"
+if [ -x "$DOGFOOD_BIN" ]; then
+    echo "cross-dogfood: running self-enrich-deprecation against ${COMPANION_REPO}@${COMPANION_SHA:0:12}"
+    rc=0
+    "$DOGFOOD_BIN" \
+        --pass enrich-deprecation \
+        --db "$DB_DIR" \
+        --keyspace "$KEYSPACE" \
+        --cfdb-bin "$CFDB_BIN" \
+        --workspace "$COMPANION_DIR" \
+        || rc=$?
+    case "$rc" in
+        0)
+            echo "cross-dogfood: self-enrich-deprecation 0 violations on companion"
+            ;;
+        30)
+            # Per RFC-033 §3.4 + RFC-039 §7.2 Cross-dogfood row: any
+            # row blocks merge. Tally into `found` so the final exit
+            # surfaces a unified count.
+            echo "cross-dogfood: self-enrich-deprecation FAIL on ${COMPANION_REPO}@${COMPANION_SHA:0:12}" >&2
+            found=$((found + 1))
+            ;;
+        *)
+            # Runtime error (exit 1) — surfaces as exit 20 to match
+            # the `cfdb extract` semantics: harness configuration
+            # problem, not a verdict.
+            echo "cross-dogfood: self-enrich-deprecation runtime error (exit $rc)" >&2
+            exit 20
+            ;;
+    esac
+else
+    echo "cross-dogfood: dogfood-enrich binary not found at $DOGFOOD_BIN — skipping self-enrich-deprecation pass (build it via `cargo build -p dogfood-enrich --release` to enable)"
+fi
+
 if [ "$found" -eq 0 ]; then
     echo "cross-dogfood: 0 violations on ${COMPANION_REPO}@${COMPANION_SHA:0:12}"
     exit 0
 fi
 
-echo "cross-dogfood: FAIL — $found total violations across arch-ban-*.cypher" >&2
+echo "cross-dogfood: FAIL — $found total violations across arch-ban-*.cypher + self-enrich-deprecation" >&2
 exit 30

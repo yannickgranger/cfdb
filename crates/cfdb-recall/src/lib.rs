@@ -31,6 +31,9 @@
 use std::collections::BTreeSet;
 
 pub mod adapters;
+pub mod thresholds;
+
+pub use thresholds::{threshold_for_crate, RECALL_THRESHOLD_PER_CRATE, RECALL_THRESHOLD_TOTAL};
 
 /// A normalized, comparable reference to a public item.
 ///

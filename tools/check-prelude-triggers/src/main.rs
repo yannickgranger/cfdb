@@ -13,12 +13,13 @@ use std::process::ExitCode;
 
 use check_prelude_triggers::{
     report::PreludeTriggerReport,
+    run_all,
     trigger_id::TriggerId,
     triggers::{
         c1_cross_context, c3_port_signature, c7_financial_precision, c8_pipeline_stage,
         c9_workspace_cardinality, TriggerOutcome,
     },
-    LoadError,
+    validate_freshness, LoadError,
 };
 use clap::{Parser, Subcommand};
 
@@ -39,6 +40,12 @@ struct Cli {
     /// today; any other value fails fast.
     #[arg(long, global = true, default_value = "v1")]
     schema_version: String,
+    /// Refuse to emit an envelope when `--from-ref` equals `--to-ref`. Used by
+    /// `/ship` pre-flight to ensure the capture reflects a real diff and not
+    /// an issue-start snapshot. Default off — issue-start captures remain
+    /// valid for archaeology / dogfood replay use cases.
+    #[arg(long, global = true)]
+    require_fresh: bool,
     #[command(subcommand)]
     command: Command,
 }
@@ -84,6 +91,22 @@ enum Command {
         #[arg(long)]
         changed_paths: PathBuf,
     },
+    /// Run all 5 triggers (C1/C3/C7/C8/C9) and emit one consolidated envelope.
+    /// Canonical entry point for skill-side consumers — replaces 5 separate
+    /// per-trigger calls + manual merge. Calls the same pure evaluators as
+    /// the per-trigger subcommands; no shell-out.
+    All {
+        #[arg(long)]
+        context_map: PathBuf,
+        #[arg(long)]
+        financial_precision_crates: PathBuf,
+        #[arg(long)]
+        pipeline_stages: PathBuf,
+        #[arg(long)]
+        workspace_root: PathBuf,
+        #[arg(long)]
+        changed_paths: PathBuf,
+    },
 }
 
 fn main() -> ExitCode {
@@ -97,25 +120,18 @@ fn main() -> ExitCode {
         return ExitCode::from(1);
     }
 
-    let (id, outcome) = match run_command(&cli.command) {
-        Ok(pair) => pair,
+    if let Err(msg) = validate_freshness(cli.require_fresh, &cli.from_ref, &cli.to_ref) {
+        eprintln!("error: {msg}");
+        return ExitCode::from(1);
+    }
+
+    let report = match build_report(&cli) {
+        Ok(r) => r,
         Err(err) => {
             eprintln!("error: {err}");
             return ExitCode::from(2);
         }
     };
-
-    let mut report = PreludeTriggerReport::new(cli.from_ref, cli.to_ref);
-    if outcome.fired {
-        report.record(id, outcome.evidence);
-    } else {
-        // Record un-fired evidence under the trigger's ID so consumers can
-        // inspect what was checked even when nothing fired. The report still
-        // has `triggers_fired = []` to signal "no pre-council required".
-        report
-            .evidence
-            .insert(id.as_str().to_string(), outcome.evidence);
-    }
 
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
@@ -129,7 +145,43 @@ fn main() -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn run_command(cmd: &Command) -> Result<(TriggerId, TriggerOutcome), LoadError> {
+/// Dispatch to the appropriate evaluator(s) and return a fully populated
+/// envelope. Per-trigger subcommands produce a single-trigger report;
+/// `Command::All` aggregates all 5 via [`run_all`].
+fn build_report(cli: &Cli) -> Result<PreludeTriggerReport, LoadError> {
+    if let Command::All {
+        context_map,
+        financial_precision_crates,
+        pipeline_stages,
+        workspace_root,
+        changed_paths,
+    } = &cli.command
+    {
+        return run_all(
+            context_map,
+            financial_precision_crates,
+            pipeline_stages,
+            workspace_root,
+            changed_paths,
+            cli.from_ref.clone(),
+            cli.to_ref.clone(),
+        );
+    }
+    let (id, outcome) = run_single(&cli.command)?;
+    let mut report = PreludeTriggerReport::new(cli.from_ref.clone(), cli.to_ref.clone());
+    if outcome.fired {
+        report.record(id, outcome.evidence);
+    } else {
+        // Un-fired evidence is still recorded so consumers see what was
+        // checked. `triggers_fired` stays empty → "no pre-council required".
+        report
+            .evidence
+            .insert(id.as_str().to_string(), outcome.evidence);
+    }
+    Ok(report)
+}
+
+fn run_single(cmd: &Command) -> Result<(TriggerId, TriggerOutcome), LoadError> {
     match cmd {
         Command::C1CrossContext {
             context_map,
@@ -162,5 +214,6 @@ fn run_command(cmd: &Command) -> Result<(TriggerId, TriggerOutcome), LoadError> 
             TriggerId::C9,
             c9_workspace_cardinality::run(workspace_root, changed_paths)?,
         )),
+        Command::All { .. } => unreachable!("All is dispatched in build_report"),
     }
 }

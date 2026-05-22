@@ -56,6 +56,12 @@
 // `use … as _;` form brings the crate into the linkage graph without
 // introducing any identifier into scope. See the upgrade protocol
 // (`docs/ra-ap-upgrade-protocol.md` §2).
+// RFC-044 §3.7 (slice 044-G): cfdb-core schema enums are `#[non_exhaustive]`.
+// Cross-crate `match` sites require `_ =>` arms by E0004; deny below
+// auto-activates when `non_exhaustive_omitted_patterns` stabilises.
+#![allow(unknown_lints)]
+#![deny(non_exhaustive_omitted_patterns)]
+
 use ra_ap_base_db as _;
 use ra_ap_hir as _;
 use ra_ap_hir_def as _;
@@ -84,3 +90,7 @@ pub use call_site_emitter::extract_call_sites;
 pub use entry_point_emitter::extract_entry_points;
 pub use error::HirError;
 pub use hir_db::build_hir_database;
+// Re-export the upstream proc-macro client so callers can hold the
+// subprocess handle alongside the database without depending on
+// `ra_ap_proc_macro_api` directly (RFC-043 §4 I7).
+pub use ra_ap_proc_macro_api::ProcMacroClient;

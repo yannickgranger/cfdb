@@ -266,6 +266,14 @@ pub(crate) enum Command {
         /// back by default.
         #[arg(long, default_value_t = false)]
         explain: bool,
+        /// RFC-042 042-B (issue #392): swap the `Unwired` classifier to
+        /// the production-only variant, which reads
+        /// `:Item.reachable_from_production_entry` (excludes test/bench
+        /// `:EntryPoint` kinds from the BFS seeds). Surfaces code reached
+        /// only by tests or benches — the "test-only-reached production
+        /// item" class. Other classifier classes are unaffected.
+        #[arg(long, default_value_t = false)]
+        production_only: bool,
     },
 
     /// List snapshots in a database. v0.1 maps each on-disk keyspace to one

@@ -111,7 +111,8 @@ pub fn unrelated_fn() {}
 "#,
     );
 
-    let (db, vfs) = build_hir_database(root).expect("build_hir_database on epfixture");
+    let (db, vfs, _pm_client) =
+        build_hir_database(root, false).expect("build_hir_database on epfixture");
     let (nodes, edges) =
         extract_entry_points(&db, &vfs).expect("extract_entry_points on epfixture");
 
@@ -198,7 +199,8 @@ pub fn register_jobs() {
 "#,
     );
 
-    let (db, vfs) = build_hir_database(root).expect("build_hir_database on cronfix");
+    let (db, vfs, _pm_client) =
+        build_hir_database(root, false).expect("build_hir_database on cronfix");
     let (nodes, edges) = extract_entry_points(&db, &vfs).expect("extract_entry_points on cronfix");
 
     let eps: Vec<_> = entry_points(&nodes)
@@ -258,7 +260,8 @@ pub fn install_daily() {
 "#,
     );
 
-    let (db, vfs) = build_hir_database(root).expect("build_hir_database on cronsync");
+    let (db, vfs, _pm_client) =
+        build_hir_database(root, false).expect("build_hir_database on cronsync");
     let (nodes, _edges) =
         extract_entry_points(&db, &vfs).expect("extract_entry_points on cronsync");
 
@@ -302,7 +305,8 @@ pub fn boot() {
 "#,
     );
 
-    let (db, vfs) = build_hir_database(root).expect("build_hir_database on cronsched");
+    let (db, vfs, _pm_client) =
+        build_hir_database(root, false).expect("build_hir_database on cronsched");
     let (nodes, edges) =
         extract_entry_points(&db, &vfs).expect("extract_entry_points on cronsched");
 
@@ -361,7 +365,8 @@ pub fn mount_ws(upgrade: WebSocketUpgrade) -> Response {
 "#,
     );
 
-    let (db, vfs) = build_hir_database(root).expect("build_hir_database on wsnamed");
+    let (db, vfs, _pm_client) =
+        build_hir_database(root, false).expect("build_hir_database on wsnamed");
     let (nodes, edges) = extract_entry_points(&db, &vfs).expect("extract_entry_points on wsnamed");
 
     let eps: Vec<_> = entry_points(&nodes)
@@ -420,7 +425,8 @@ pub fn mount_ws_inline(upgrade: WebSocketUpgrade) -> Response {
 "#,
     );
 
-    let (db, vfs) = build_hir_database(root).expect("build_hir_database on wsclosure");
+    let (db, vfs, _pm_client) =
+        build_hir_database(root, false).expect("build_hir_database on wsclosure");
     let (nodes, edges) =
         extract_entry_points(&db, &vfs).expect("extract_entry_points on wsclosure");
 
@@ -499,7 +505,8 @@ pub struct Cli {
 "#,
     );
 
-    let (db, vfs) = build_hir_database(root).expect("build_hir_database on clapargs");
+    let (db, vfs, _pm_client) =
+        build_hir_database(root, false).expect("build_hir_database on clapargs");
     let (_nodes, edges) =
         extract_entry_points(&db, &vfs).expect("extract_entry_points on clapargs");
 
@@ -560,7 +567,8 @@ pub enum Command {
 "#,
     );
 
-    let (db, vfs) = build_hir_database(root).expect("build_hir_database on subcmd");
+    let (db, vfs, _pm_client) =
+        build_hir_database(root, false).expect("build_hir_database on subcmd");
     let (_nodes, edges) = extract_entry_points(&db, &vfs).expect("extract_entry_points on subcmd");
 
     let enum_qname = "subcmd::Command";
@@ -617,7 +625,8 @@ pub struct Cli {
 "#,
     );
 
-    let (db, vfs) = build_hir_database(root).expect("build_hir_database on noargs");
+    let (db, vfs, _pm_client) =
+        build_hir_database(root, false).expect("build_hir_database on noargs");
     let (nodes, edges) = extract_entry_points(&db, &vfs).expect("extract_entry_points on noargs");
 
     // Sanity: the :EntryPoint still emits.
@@ -689,7 +698,8 @@ impl Tools {
 "#,
     );
 
-    let (db, vfs) = build_hir_database(root).expect("build_hir_database on impltools");
+    let (db, vfs, _pm_client) =
+        build_hir_database(root, false).expect("build_hir_database on impltools");
     let (nodes, edges) =
         extract_entry_points(&db, &vfs).expect("extract_entry_points on impltools");
 

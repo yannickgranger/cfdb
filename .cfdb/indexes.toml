@@ -26,3 +26,23 @@ notes = "Scope-verb filter predicate (#169 / RFC-035 §3.6 fast path 2); low-car
 label = "Item"
 computed = "last_segment(qname)"
 notes = "Homonym-pair join key for context_homonym classifier rule (#48 class 2 / RFC-035 §3.6 cross-MATCH)."
+
+[[index]]
+label = "Item"
+prop = "name"
+notes = "Hash-join bucket for the slice-6b prop-to-prop equi-join — DuplicatedFeature joins on `a.name = b.name`. Without this entry the rule is O(n²) over `:Item` at scope time."
+
+[[index]]
+label = "Item"
+prop = "reachable_from_entry"
+notes = "Slice-5 narrow for RandomScattering / Unwired / CanonicalBypass — `reachable_from_entry = true|false` is a literal Eq, low-cardinality bucket. The intersect orders smallest-first so a huge `false` bucket does not seed `acc`."
+
+[[index]]
+label = "Item"
+prop = "is_test"
+notes = "Slice-5 narrow — every classifier filters `is_test = false`. Low-cardinality bucket; intersect-by-size avoids materialising the huge `false` set when a smaller hint exists."
+
+[[index]]
+label = "Item"
+prop = "dup_cluster_id"
+notes = "Hash-join bucket for `.cfdb/queries/hsb-cluster.cypher` — the v2 HSB detector joins on `a.dup_cluster_id = b.dup_cluster_id` (RFC-036 §3.4 signal S1). Without this entry the rule falls back to label scan + per-pair Cartesian on `:Item` (~80k items on cfdb-self post-extract), regressed cfdb-self smoke from ~1s to ~8min. Populated by `enrich_metrics` (RFC-036 §3.3, slice #203) as `sha256(lex_sorted(member_qnames))` keyed by shared `signature_hash`; sparse — only items in a fingerprint-duplicate cluster carry the prop. Sparse-prop buckets are cheap to index."

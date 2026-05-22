@@ -124,6 +124,8 @@ Every node/edge carries provenance (`source_file`, `line`, `resolver` where rele
 
 `cfdb_core::SchemaVersion` is the wire contract. Downstream consumers (graph-specs-rust, custom backends) pin this version; breaking changes bump it in a reviewed PR.
 
+**Languages:** v0.1 ships **Rust** (the reference `LanguageProducer` per [RFC-041](docs/RFC-041-language-backend-trait.md)) — `cfdb-extractor` walks `Cargo.toml` workspaces via `syn`. PHP (#264) and TypeScript (#265) plug in behind the same trait via the META multi-language roadmap (#266). The `:Item.kind` enum is a schema-governed closed set; new languages introducing new `kind` values require a separate schema RFC + `SchemaVersion` patch + lockstep PR on graph-specs-rust per RFC-033 §4 I2.
+
 ## Example queries
 
 See [`examples/queries/`](examples/queries/) for runnable queries, each with a header comment explaining the pattern:
@@ -135,12 +137,16 @@ See [`examples/queries/`](examples/queries/) for runnable queries, each with a h
 | `arch-ban-reqwest-client-new.cypher` | Ban rule — forbid direct `reqwest::Client::new()` |
 | `list-callers.cypher` | Find every call site of a symbol matched by regex |
 | `hsb-by-name.cypher` | Horizontal split-brain by name |
-| `vertical-split-brain.cypher` | Vertical split-brain — two resolvers reachable from one entry point |
+| `vertical-split-brain.cypher` | Vertical split-brain — two resolvers reachable from one entry point (`fork` kind) |
+| `vertical-split-brain-drop.cypher` | Vertical split-brain — entry point registers wire key K, reachable resolver reads divergent key K' (`drop` kind, #297 Phase B) |
 | `canonical-bypass-reachable.cypher` | Bypass rule with live user-reachable verdict |
 | `canonical-bypass-caller.cypher` | Bypass rule scoped to caller regex |
 | `canonical-bypass-dead.cypher` | Bypass rule with dead-code verdict |
 | `canonical-unreachable.cypher` | Canonical resolver is unreachable from any entry point |
 | `signature-divergent.cypher` | Function signature drifts from declared canonical shape |
+| `const-table-overlap.cypher` | Const-literal tables overlap across crates — verdict ladder: `CONST_TABLE_DUPLICATE` (entries_hash equality) → `CONST_TABLE_SUBSET` (one set ⊂ other) → `CONST_TABLE_INTERSECTION_HIGH` (jaccard ≥ 0.5) |
+
+All queries in this table are smoke-tested in CI against `cfdb-self` (#339, RFC-030 §3.2 liveness) — a parser regression or schema drift that breaks any of them blocks merge. Parameterized queries opt out via a `// smoke-skip: <reason>` header on line 1.
 
 All examples are plain text — copy, adapt parameters, run.
 
@@ -165,6 +171,34 @@ The evaluator exposes a small stable set of UDFs callable from Cypher — path f
 ## Recall
 
 `cfdb-recall` compares the extractor's view of a crate's public API against `rustdoc --output-format json` as ground truth, reports ratios per crate, and fails CI if recall falls below threshold. This is the guard against the extractor silently missing items (macro-expanded types, re-exports, nested `pub mod`). Requires nightly for the rustdoc JSON emitter.
+
+**Nightly cadence (#340, Phase C of EPIC #338).** A dedicated workflow (`.gitea/workflows/recall-nightly.yml`) runs `cfdb-recall` against `develop` HEAD at 03:00 UTC daily and on `workflow_dispatch`. Per-crate ratios + an aggregate are emitted to stdout AND written to `recall-ratios.json` (uploaded as the `recall-ratios` workflow artifact). The workflow then posts Gitea commit statuses `recall/<crate>` (one per measured crate) and `recall/total` (aggregate) on the develop SHA via the Gitea Statuses API. PR-time CI is unchanged — the slim build at `.gitea/workflows/ci.yml:140` (`cargo check -p cfdb-recall --no-default-features`) stays as the synchronous gate; the nightly is the asynchronous deep gate that exercises the runner feature against rustdoc-json without extending PR latency.
+
+**Const-threshold rule.** Per [`CLAUDE.md` §6 row 5](CLAUDE.md) and the project §3 no-ratchet rule, recall thresholds live as `const` declarations in `crates/cfdb-recall/src/thresholds.rs` — `RECALL_THRESHOLD_PER_CRATE` (initial: 0.85) and `RECALL_THRESHOLD_TOTAL` (initial: 0.90). There is no `.recall-baseline.json`, no allowlist file, no `--update-baseline` flag. Per-crate dispatch goes through `threshold_for_crate(name)`'s match arms — overrides are explicit and reviewed. Tightening either threshold is a reviewed PR that edits the constant; the threshold-pin unit test in `thresholds.rs` catches careless edits.
+
+**Soft-warning → hard transition.** AC-5 of #340 makes the first nightly cycle after merge soft-warning by definition: the workflow always posts `recall/<crate>` and `recall/total` statuses on develop HEAD, but the Gitea project's required-checks list is admin-set and lives outside this workflow. After at least one successful nightly baseline (typically the second cycle), the operator promotes `recall/total` to a required check via the Gitea project settings. From that point on, a regression in aggregate recall blocks new merges to develop. Per-crate `recall/<crate>` contexts remain advisory — the aggregate is the gate. Promoting an individual crate to required is an explicit operator decision, not implicit.
+
+**Reading `recall-ratios.json`.** The artifact follows a versioned schema (see the doc comment on `--json-out` in `crates/cfdb-recall/src/bin/cfdb-recall.rs`). Each entry under `crates[]` carries `name`, `recall` (ratio in `[0.0, 1.0]`, or `null` for a vacuous empty-surface crate), `threshold`, `passes`, `matched`, `adjusted_denominator`, `total_public`, `missing_count`, `audited_count`. The `total` object carries the aggregate (`matched-sum / adjusted_denominator-sum`) plus its threshold and pass/fail. AC-7 maps `recall/<crate> = error` (yellow) to a rustdoc-json or extractor failure during the run — the workflow distinguishes "infra problem" (no JSON produced → single yellow `recall/total = error`) from "real recall regression" (JSON produced, ratios below threshold → red per affected crate).
+
+## Dogfood enforcement
+
+Every PR runs cfdb against itself + against the companion at a pinned SHA. The gates:
+
+| Gate | Tool | Question | Failure |
+|---|---|---|---|
+| Self-hosted ban rules | `cfdb violations` against `examples/queries/arch-ban-*.cypher` | "Does cfdb's own code use forbidden patterns?" | Any new row under a ban rule |
+| Enrichment-pass postconditions | `tools/dogfood-enrich` against `.cfdb/queries/self-enrich-*.cypher` (per RFC-039) | "Did each enrichment pass write the attrs/edges its contract requires?" | Any non-zero violation row |
+| ↳ `enrich-deprecation` (#343) | Source-grep `#[deprecated]` count vs `:Item.is_deprecated = true` count | "Did the extractor see every `#[deprecated]` annotation in the workspace?" | Extracted count < source-grep count → exit 30 |
+| ↳ `enrich-rfc-docs` (#344) | FS scan of `docs/RFC-*.md` count vs `count(:RfcDoc)` + `count(:Item)-[:REFERENCED_BY]->(:RfcDoc) > 0` | "Did the extractor see every shipped RFC and wire its `REFERENCED_BY` edges?" | `:RfcDoc` count < FS count, OR zero `REFERENCED_BY` edges → exit 30 |
+| ↳ `enrich-bounded-context` (#345) | Keyspace `count(:Item)` vs `count(:Item WHERE bounded_context = "")` against the `BC_COVERAGE_THRESHOLD = 95` const; ratio computed harness-side via `{{ total_items }}` + `{{ nulls_threshold }}` substitutions (Path B from #355) | "Are at least 95% of `:Item` nodes assigned a non-empty `bounded_context` after the combined extract+enrich pipeline?" | `count(empty bounded_context) > total * (100 - threshold) / 100` → exit 30 |
+| ↳ `enrich-concepts` (#346) | TOML scan of `.cfdb/concepts/*.toml` distinct names + `canonical_crate` count vs `count(:Concept)` + `count(:LABELED_AS) > 0` + (conditional) `count(:CANONICAL_FOR) > 0` | "Did the enrichment pipeline materialize every declared bounded context?" | Any of the three sentinels fires → exit 30 |
+| ↳ `enrich-reachability` (#347, **nightly**, `--features hir`) | Keyspace `count(:Item{kind:"fn"})` vs `count(:Item{kind:"fn"} WHERE reachable_from_entry = false)` against `REACHABILITY_THRESHOLD = 80` const; Path B substitution shape | "Are at least 80% of `:Item{kind:'fn'}` nodes reachable from a `:EntryPoint` over `CALLS*`?" | unreachable count > `total * (100 - threshold) / 100` → exit 30 |
+| ↳ `enrich-metrics` (#348, **nightly**, `--features quality-metrics`) | Keyspace `count(:Item{kind:"fn"})` vs `count(:Item{kind:"fn"})` with `cyclomatic` and `unwrap_count` set, against `METRICS_COVERAGE_THRESHOLD = 95` const; Path B substitution shape | "Are both `cyclomatic` and `unwrap_count` emitted on at least 95% of `:Item{kind:'fn'}` nodes after the metrics pass?" | missing-attr count > `total * (100 - threshold) / 100` → exit 30 |
+| ↳ `enrich-git-history` (#349, **nightly**, `--features git-enrich`) | Keyspace `count(:Item)` vs `count(:Item WHERE git_last_commit_unix_ts = null)` against `GIT_COVERAGE_THRESHOLD = 95` const; Path B substitution shape | "Did the git-enrich pass write `git_last_commit_unix_ts` on at least 95% of `:Item` nodes?" | missing-attr count > `total * (100 - threshold) / 100` → exit 30 |
+| Determinism | `ci/determinism-check.sh` + `ci/dogfood-determinism.sh` | "Is `cfdb extract` byte-stable across two runs?" | sha256 / stdout mismatch |
+| Cross-dogfood | `ci/cross-dogfood.sh` against graph-specs-rust at pinned SHA | "Does cfdb produce zero findings on the companion?" | Any rule row → exit 30 |
+| Extractor recall | `cfdb-recall` (extractor vs `rustdoc --output-format=json`) | "Does the syn-based extractor see everything rustdoc sees?" | Recall ratio below per-crate threshold |
+| No metric ratchets | Repo rule — thresholds are `const` in tool source, raised only by reviewed PR | "Does this PR add a baseline / ceiling / allowlist file?" | PR rejected on sight |
 
 ## Crates
 

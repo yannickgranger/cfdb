@@ -51,6 +51,15 @@ pub(crate) mod concepts;
 // (clean-arch B3). Closes the Phase D enrichment set.
 pub(crate) mod reachability;
 
+// Issue #396 — recall post-pass folded into `reachability::run`. Flips
+// `reachable_from_entry = true` on fn `:Item`s referenced by a
+// `:CallSite{kind="serde_default"}` whose `callee_path` resolves to a
+// workspace-known qname. Closes the false-positive class where serde's
+// derived `Deserialize` impl invokes a default fn via proc-macro
+// expansion that cfdb cannot trace (see #398 for the structural root
+// cause).
+pub(crate) mod attr_call_resolution;
+
 // Issue #203 / RFC-036 §3.3 — populates previously-reserved
 // `EnrichMetrics`-provenance attrs (`unwrap_count`, `cyclomatic`,
 // `test_coverage`, `dup_cluster_id`) on `:Item{kind:"Fn"}` by re-parsing

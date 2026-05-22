@@ -1,6 +1,6 @@
 # cfdb Cypher UDFs — reference
 
-**Status:** six built-in functions, hard-wired in the evaluator
+**Status:** nine built-in functions, hard-wired in the evaluator
 (`crates/cfdb-petgraph/src/eval/predicate.rs::eval_call`). There is no
 user-facing registry — adding a new UDF is an RFC-gated change.
 
@@ -141,6 +141,83 @@ RETURN a.qname, b.qname
 
 The full rule with test filters and evidence columns ships at
 `examples/queries/signature-divergent.cypher`.
+
+## `entries_subset(a_normalized, b_normalized) -> Bool`
+
+Returns `true` iff every element of JSON-array string `a_normalized`
+is contained in JSON-array string `b_normalized`. Operates on the
+`:ConstTable.entries_normalized` wire shape (RFC-040 §3.4) — a
+canonical-sorted JSON array of either all strings (`["a","b"]`) or
+all numbers (`[1,2]`). Element type is inferred from the first
+element.
+
+- Inputs: `a_normalized: String`, `b_normalized: String` (JSON-array
+  encoded per RFC-040 §3.4).
+- Output: `Bool`.
+- Empty-set semantics: empty is a subset of anything; equal sets
+  are subsets of each other.
+- Mixed-element-type inputs: returns `false` (RFC-040 §3.4 N2 —
+  treat as no overlap).
+- Type-mismatch: returns `None` if either arg is not a string or
+  not parseable as a JSON array.
+
+```cypher
+WHERE entries_subset(a.entries_normalized, b.entries_normalized) = true
+```
+
+## `entries_jaccard(a_normalized, b_normalized) -> Float`
+
+Returns `|a ∩ b| / |a ∪ b|` over the parsed JSON-array element sets.
+Operates on the `:ConstTable.entries_normalized` wire shape
+(RFC-040 §3.4).
+
+- Inputs: `a_normalized: String`, `b_normalized: String`.
+- Output: `Float` (f64) in `[0.0, 1.0]`.
+- Empty-vs-empty: returns `0.0` (avoid divide-by-zero per RFC-040
+  §3.4).
+- Mixed-element-type inputs: returns `0.0`.
+- Type-mismatch: returns `None` if either arg is not a string or
+  not parseable as a JSON array.
+
+```cypher
+WHERE entries_jaccard(a.entries_normalized, b.entries_normalized) >= 0.5
+```
+
+## `overlap_verdict(a_normalized, b_normalized, a_hash, b_hash) -> String`
+
+RFC-040 §3.4 verdict-precedence decoder. Maps a `(a, b)` pair of
+`:ConstTable` nodes to one of four labels:
+
+| Verdict | Condition |
+|---|---|
+| `'CONST_TABLE_DUPLICATE'` | `a_hash = b_hash` (canonical set-equality, RFC-040 §3.1) |
+| `'CONST_TABLE_SUBSET'` | not duplicate AND `entries_subset(a, b)` OR `entries_subset(b, a)` |
+| `'CONST_TABLE_INTERSECTION_HIGH'` | not subset AND `entries_jaccard(a, b) >= 0.5` |
+| `'CONST_TABLE_NONE'` | otherwise — no overlap signal |
+
+Lives here because the v0.1 Cypher subset has no `CASE WHEN` /
+`UNION`, so the precedence-decoder MUST live in a UDF for the
+`const-table-overlap.cypher` rule to emit a single `verdict`
+string column. Keeping the precedence semantics in one Rust
+function (rather than reimplemented in every consumer query) is
+the canonical-resolver pattern (RFC-035 §3.3).
+
+- Inputs: four `String` args — `a_normalized`, `b_normalized`,
+  `a_hash`, `b_hash`. Typically `a.entries_normalized`,
+  `b.entries_normalized`, `a.entries_hash`, `b.entries_hash`.
+- Output: `String` — one of the four labels above.
+- Type-mismatch: returns `None` if any arg is not a string.
+
+```cypher
+WITH overlap_verdict(a.entries_normalized, b.entries_normalized,
+                     a.entries_hash, b.entries_hash) AS verdict,
+     a.qname AS a_qname, b.qname AS b_qname
+WHERE verdict <> 'CONST_TABLE_NONE'
+RETURN verdict, a_qname, b_qname
+```
+
+The full rule with test filters and triage columns ships at
+`examples/queries/const-table-overlap.cypher`.
 
 ### Adding a new UDF
 

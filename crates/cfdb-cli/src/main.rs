@@ -64,6 +64,7 @@
 
 mod main_command;
 mod main_dispatch;
+mod main_exit;
 mod main_parse;
 
 use std::process::ExitCode;
@@ -73,6 +74,7 @@ use clap::Parser;
 
 use crate::main_command::Command;
 use crate::main_dispatch::{dispatch_core, dispatch_enrich, dispatch_snapshot, dispatch_typed};
+use crate::main_exit::exit_code_for;
 
 #[derive(Debug, Parser)]
 #[command(name = "cfdb", version, about = "code facts database")]
@@ -87,7 +89,10 @@ fn main() -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("cfdb: {e}");
-            ExitCode::from(1)
+            // `exit_code_for` maps Usage → 2, all other variants → 1.
+            // The findings path (exit 30) is handled in `main_dispatch` via
+            // `findings_exit()` and never reaches here.
+            ExitCode::from(exit_code_for(&e) as u8)
         }
     }
 }

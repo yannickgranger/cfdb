@@ -1,0 +1,54 @@
+RFC-042 042-A — Target dogfood proof (cfdb on qbot-core)
+========================================================
+
+Workspace: /var/mnt/workspaces/qbot-core
+qbot-core HEAD: ef6745f12 (branch: develop)
+cfdb binary: target/release/cfdb (built from work/391-test-bench-extractor @ 26fc5f5)
+
+Extract: ./target/release/cfdb extract --workspace /var/mnt/workspaces/qbot-core --hir --db .cfdb/db --keyspace qbot-target
+       extract --hir: 249955 :CallSite, 249955 CALLS, 249955 INVOKES_AT, 12814 :EntryPoint, 12814 EXPOSES
+
+Kind distribution on qbot-target:
+       cli_command:      23
+       mcp_tool:         76
+       bench:            35
+       test:         12,568
+       TOTAL:        12,702
+
+PRE-RFC-042 BASELINE (binary from develop, no test/bench branches):
+       Same workspace yielded: 99 :EntryPoint (76 mcp_tool + 23 cli_command, 0 test/bench)
+       Delta: +12,603 entry points surfaced by 042-A test/bench detection.
+
+This is the **on-ramp** for RFC-042 slice 042-B's `--production-only` flag:
+the existing 2057-unwired finding on qbot-core (RFC §1) was driven by the
+~12,000+ items reachable only from these test entry points being invisible
+to `enrich_reachability`'s BFS. With 042-A landing, those entry points
+populate the graph; 042-B's dual-BFS will then write
+`reachable_from_production_entry` so the classifier can distinguish
+production-dead from test-only-reached.
+
+JupiterCryptoBroker spot-audit (RFC §1 canonical example):
+       The exact symbol JupiterCryptoBroker no longer exists in qbot-core
+       (HEAD ef6745f12) — the broker layout has been refactored into
+       crates/adapters/jupiter/ with renamed types. The qualitative claim
+       (test-only reachable adapter code) still holds against the numerical
+       evidence: 12,568 kind=test entries on qbot-core. Slice 042-B will
+       quantify the reclassification delta on `cfdb scope --context trading`
+       (expected ≥30% drop in default-mode unwired count per RFC §7 042-B
+       target dogfood prescription).
+
+Sample of first 10 emitted kind=test names:
+       _assert_coerce, _assert_defi_object_safe, _assert_impl,
+       _assert_program_object_safe, _assert_query_object_safe,
+       _assert_rpc_object_safe, _assert_transaction_object_safe,
+       _config_repo_parse_error, _config_repo_valid, _error_mentions_parse
+
+These are test fns from qbot-core's integration test binaries — the
+`_assert_*` family confirms typed-trait object-safety assertions
+(compile-time test pattern); `_config_repo_*` confirms config-loader test
+coverage. Both classes are real test entry points that were invisible to
+the pre-042-A extractor.
+
+Conclusion: 042-A target dogfood PASSES with strong signal. The
+JupiterCryptoBroker exact-name lookup is moot due to upstream refactor;
+the numerical evidence (12,568 vs 0) is the dispositive proof.

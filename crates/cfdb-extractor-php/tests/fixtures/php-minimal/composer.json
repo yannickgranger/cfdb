@@ -1,0 +1,14 @@
+{
+    "name": "cfdb/php-minimal-fixture",
+    "description": "Synthetic Composer project — fixture for cfdb-extractor-php integration tests (RFC-041 / issue #264).",
+    "type": "library",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "App\\": "src/"
+        }
+    },
+    "require": {
+        "php": ">=8.1"
+    }
+}

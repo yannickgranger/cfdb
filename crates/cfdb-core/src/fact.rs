@@ -16,6 +16,7 @@ use crate::schema::{EdgeLabel, Label};
 /// the JSONL dump is byte-stable across implementations.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
+#[non_exhaustive]
 pub enum PropValue {
     Str(String),
     Int(i64),
@@ -99,6 +100,31 @@ impl From<bool> for PropValue {
 /// canonical iteration order, which is load-bearing for G1 (byte-identical
 /// canonical dumps across runs).
 pub type Props = BTreeMap<String, PropValue>;
+
+/// Canonical `:Item.props` constructor — single owner of the 5-key
+/// `(qname, name, kind, crate, bounded_context)` shape used by every
+/// `:Item` emitter in the workspace. Boy-scout fix for the split-brain
+/// flagged by `audit-split-brain` between
+/// `cfdb-extractor::synthesize::build_synthetic_item_props` and
+/// `cfdb-hir-petgraph-adapter::build_callee_stub`.
+///
+/// `name` is derived from `qname` via [`crate::qname::last_segment`] so the
+/// callers cannot disagree on the segmentation rule. Callers supply the
+/// other four `&str`s and this function owns the conversion to owned
+/// `PropValue::Str` values and the BTreeMap canonical insertion order.
+pub fn build_item_props(qname: &str, kind: &str, crate_name: &str, bounded_context: &str) -> Props {
+    let name = crate::qname::last_segment(qname).to_string();
+    let mut props: Props = BTreeMap::new();
+    props.insert("qname".to_string(), PropValue::Str(qname.to_string()));
+    props.insert("name".to_string(), PropValue::Str(name));
+    props.insert("kind".to_string(), PropValue::Str(kind.to_string()));
+    props.insert("crate".to_string(), PropValue::Str(crate_name.to_string()));
+    props.insert(
+        "bounded_context".to_string(),
+        PropValue::Str(bounded_context.to_string()),
+    );
+    props
+}
 
 /// A single node fact.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

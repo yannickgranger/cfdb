@@ -69,14 +69,61 @@ use petgraph::Direction;
 use crate::graph::KeyspaceState;
 
 pub(crate) const VERB: &str = "enrich_reachability";
-const ATTR_REACHABLE: &str = "reachable_from_entry";
+/// `reachable_from_entry` attr name — shared with
+/// [`super::attr_call_resolution`] so the post-pass writes the same prop.
+pub(crate) const ATTR_REACHABLE: &str = "reachable_from_entry";
 const ATTR_COUNT: &str = "reachable_entry_count";
+const ATTR_REACHABLE_PROD: &str = "reachable_from_production_entry";
+const ATTR_COUNT_PROD: &str = "reachable_production_entry_count";
 
-pub(crate) fn run(state: &mut KeyspaceState) -> EnrichReport {
+/// Selects which `:EntryPoint` kinds participate as BFS seeds (RFC-042 §3.2).
+///
+/// - `All` — every entry point seeds the BFS (legacy behavior; writes
+///   `reachable_from_entry` + `reachable_entry_count`).
+/// - `ProductionOnly` — entry points with `kind ∈ {test, bench}` are
+///   excluded, so the resulting reach set is the production-only call
+///   closure (writes `reachable_from_production_entry` +
+///   `reachable_production_entry_count`).
+///
+/// `pub(crate)` — never re-exported. The two-pass orchestration in
+/// `enrich_backend.rs` is the only caller outside this module.
+#[derive(Clone, Copy)]
+pub(crate) enum ReachabilityFilter {
+    All,
+    ProductionOnly,
+}
+
+impl ReachabilityFilter {
+    fn reach_attr(self) -> &'static str {
+        match self {
+            Self::All => ATTR_REACHABLE,
+            Self::ProductionOnly => ATTR_REACHABLE_PROD,
+        }
+    }
+
+    fn count_attr(self) -> &'static str {
+        match self {
+            Self::All => ATTR_COUNT,
+            Self::ProductionOnly => ATTR_COUNT_PROD,
+        }
+    }
+
+    fn keep_entry_point(self, kind: Option<&str>) -> bool {
+        match self {
+            Self::All => true,
+            Self::ProductionOnly => !matches!(kind, Some("test") | Some("bench")),
+        }
+    }
+}
+
+pub(crate) fn run(state: &mut KeyspaceState, filter: ReachabilityFilter) -> EnrichReport {
     let entry_points = state.nodes_with_label(&Label::new(Label::ENTRY_POINT));
 
     // Degraded path — refuse to mark every item `reachable_from_entry = false`
-    // when there are no entry points. See clean-arch B3 in council/43.
+    // when there are no entry points at all. Check the unfiltered set: an
+    // all-test catalog is NOT a degraded extract (HIR ran, entries exist,
+    // they're just all test entries), so the ProductionOnly pass with an
+    // all-test catalog still runs and writes `(false, 0)` for every item.
     if entry_points.is_empty() {
         return EnrichReport {
             verb: VERB.into(),
@@ -90,18 +137,58 @@ pub(crate) fn run(state: &mut KeyspaceState) -> EnrichReport {
         };
     }
 
-    let seeds = collect_seeds(state, &entry_points);
+    let filtered = filter_entry_points(state, &entry_points, filter);
+    let seeds = collect_seeds(state, &filtered);
     let reach_count = accumulate_reach_counts(state, &seeds);
-    let attrs_written = write_item_attrs(state, &reach_count);
+    let bfs_attrs = write_item_attrs(state, &reach_count, filter);
+
+    // #396 — serde_default callee post-pass. Closes the recall gap where
+    // fns referenced by `#[serde(default = "fn")]` are flagged unwired
+    // because cfdb cannot trace through proc-macro-expanded derive impls
+    // (see super::attr_call_resolution module doc + #398).
+    //
+    // The post-pass writes to whichever reach attr the current filter
+    // selected: `reachable_from_entry` for `All`, or
+    // `reachable_from_production_entry` for `ProductionOnly`. Serde
+    // deserialize callbacks are production code, so they belong in BOTH
+    // sets — by running the post-pass once per filter invocation we
+    // satisfy that without a separate dispatch.
+    let attr_call_attrs = super::attr_call_resolution::mark_serde_default_callees_reachable(
+        state,
+        filter.reach_attr(),
+    );
 
     EnrichReport {
         verb: VERB.into(),
         ran: true,
         facts_scanned: u64::try_from(entry_points.len()).unwrap_or(u64::MAX),
-        attrs_written,
+        attrs_written: bfs_attrs + attr_call_attrs,
         edges_written: 0,
         warnings: Vec::new(),
     }
+}
+
+/// Filter the entry-point index set by the requested `ReachabilityFilter`,
+/// reading each candidate's `kind` prop. Items with no `kind` prop fall
+/// through as "keep" under both filters — the catalog is malformed but
+/// the pass doesn't fail.
+fn filter_entry_points(
+    state: &KeyspaceState,
+    entry_points: &[NodeIndex],
+    filter: ReachabilityFilter,
+) -> Vec<NodeIndex> {
+    entry_points
+        .iter()
+        .copied()
+        .filter(|&idx| {
+            let kind = state
+                .graph
+                .node_weight(idx)
+                .and_then(|n| n.props.get("kind"))
+                .and_then(PropValue::as_str);
+            filter.keep_entry_point(kind)
+        })
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -189,19 +276,27 @@ fn is_label(state: &KeyspaceState, idx: NodeIndex, label: &Label) -> bool {
 // Attribute emission
 // ---------------------------------------------------------------------------
 
-/// For every `:Item` node, write `reachable_from_entry` (bool) and
-/// `reachable_entry_count` (i64). Items not reached by any seed get
-/// `(false, 0)` — explicit zero, never `Null`.
-fn write_item_attrs(state: &mut KeyspaceState, reach_count: &BTreeMap<NodeIndex, i64>) -> u64 {
+/// For every `:Item` node, write the reach/count pair selected by
+/// `filter` — either `(reachable_from_entry, reachable_entry_count)` for
+/// `All` or `(reachable_from_production_entry, reachable_production_entry_count)`
+/// for `ProductionOnly`. Items not reached by any seed in the filtered
+/// pass get `(false, 0)` — explicit zero, never `Null`.
+fn write_item_attrs(
+    state: &mut KeyspaceState,
+    reach_count: &BTreeMap<NodeIndex, i64>,
+    filter: ReachabilityFilter,
+) -> u64 {
     let item_indices = state.nodes_with_label(&Label::new(Label::ITEM));
+    let reach_attr = filter.reach_attr();
+    let count_attr = filter.count_attr();
     let mut count: u64 = 0;
     for idx in item_indices {
         let reached = reach_count.get(&idx).copied().unwrap_or(0);
         if let Some(node) = state.graph.node_weight_mut(idx) {
             node.props
-                .insert(ATTR_REACHABLE.into(), PropValue::Bool(reached > 0));
+                .insert(reach_attr.into(), PropValue::Bool(reached > 0));
             node.props
-                .insert(ATTR_COUNT.into(), PropValue::Int(reached));
+                .insert(count_attr.into(), PropValue::Int(reached));
             count += 2;
         }
     }

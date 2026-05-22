@@ -111,6 +111,14 @@ pub(crate) struct Evaluator<'a> {
     /// `cfdb scope --explain`. Each `candidate_nodes` call pushes one
     /// [`crate::explain::ExplainRow`] when `Some`.
     pub(crate) explain: Option<RefCell<Vec<crate::explain::ExplainRow>>>,
+    /// Per-run compiled-regex cache shared by every `regexp_extract`
+    /// and `=~` predicate eval. The Cypher patterns are literals in
+    /// the rule source (e.g. `'^(\w+)_(from|to)_(\w+)$'`) and the
+    /// same pattern fires once per cartesian row, so compiling on
+    /// every call burns hundreds of thousands of `regex::Regex::new`
+    /// invocations during a single classifier rule. Cache hit ⇒ one
+    /// `regex::Regex` build per distinct pattern per query.
+    pub(crate) regex_cache: RefCell<BTreeMap<String, regex::Regex>>,
 }
 
 impl<'a> Evaluator<'a> {
@@ -120,6 +128,7 @@ impl<'a> Evaluator<'a> {
             params,
             warnings: RefCell::new(Vec::new()),
             explain: None,
+            regex_cache: RefCell::new(BTreeMap::new()),
         }
     }
 
@@ -134,7 +143,28 @@ impl<'a> Evaluator<'a> {
             params,
             warnings: RefCell::new(Vec::new()),
             explain: Some(RefCell::new(Vec::new())),
+            regex_cache: RefCell::new(BTreeMap::new()),
         }
+    }
+
+    /// Look up a compiled [`regex::Regex`] for `pattern`, compiling
+    /// and caching on first call. Returns `Err` (passed through from
+    /// the underlying `regex` crate) when the pattern is malformed.
+    /// Repeated calls with the same pattern within a single
+    /// `Evaluator` run reuse the cached compile.
+    pub(crate) fn compiled_regex<R>(
+        &self,
+        pattern: &str,
+        body: impl FnOnce(&regex::Regex) -> R,
+    ) -> Option<R> {
+        if self.regex_cache.borrow().contains_key(pattern) {
+            let cache = self.regex_cache.borrow();
+            return cache.get(pattern).map(body);
+        }
+        let compiled = regex::Regex::new(pattern).ok()?;
+        let mut cache = self.regex_cache.borrow_mut();
+        let entry = cache.entry(pattern.to_string()).or_insert(compiled);
+        Some(body(entry))
     }
 
     /// Entry point — drive the streaming pipeline for a top-level query.

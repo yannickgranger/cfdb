@@ -34,6 +34,7 @@ const KNOWN_NODE_LABELS: &[&str] = &[
     Label::CONCEPT,
     Label::CONTEXT,
     Label::RFC_DOC,
+    Label::CONST_TABLE,
 ];
 
 /// Every edge-`[:EdgeLabel]` known to the schema on develop @ `refreshed_sha`.
@@ -43,6 +44,7 @@ const KNOWN_EDGE_LABELS: &[&str] = &[
     EdgeLabel::HAS_FIELD,
     EdgeLabel::HAS_VARIANT,
     EdgeLabel::HAS_PARAM,
+    EdgeLabel::HAS_CONST_TABLE,
     EdgeLabel::TYPE_OF,
     EdgeLabel::IMPLEMENTS,
     EdgeLabel::IMPLEMENTS_FOR,

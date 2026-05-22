@@ -147,12 +147,15 @@ pub(super) fn item_attrs_enrich_git_history() -> Vec<AttributeDescriptor> {
 }
 
 /// `enrich_reachability`-provenance attributes on `:Item` — populated by
-/// slice 43-G (issue #110).
+/// slice 43-G (issue #110), extended by RFC-042 042-B (issue #392) with
+/// the production-only twin attrs that exclude `:EntryPoint{kind ∈ {test, bench}}`.
 pub(super) fn item_attrs_enrich_reachability() -> Vec<AttributeDescriptor> {
     use Provenance::EnrichReachability;
     vec![
         attr("reachable_entry_count", "int?", "Number of distinct `:EntryPoint` nodes reaching this item via `CALLS*` edges. Written by `enrich_reachability()` (RFC addendum §A2.2 row 5). `0` for items not reached from any entry point. Populated by slice 43-G (issue #110) — consumes `:EntryPoint` nodes from `cfdb-hir-extractor`. Reserved in slice 43-A.", EnrichReachability),
         attr("reachable_from_entry", "bool?", "True when at least one `:EntryPoint` reaches this item via `CALLS*`. Written by `enrich_reachability()`. When the keyspace has zero `:EntryPoint` nodes the pass returns `ran: false` rather than silently marking all items unreachable (clean-arch B3 degraded path). Populated by slice 43-G.", EnrichReachability),
+        attr("reachable_production_entry_count", "int?", "Number of distinct production `:EntryPoint` nodes (i.e. `kind ∉ {test, bench}`) reaching this item via `CALLS*` edges. Written by `enrich_reachability()`'s ProductionOnly pass (RFC-042 042-B / issue #392). `0` for items not reached from any production entry point. Used by `classifier-unwired-production.cypher` to surface code that is technically reached by tests/benches but has no production caller.", EnrichReachability),
+        attr("reachable_from_production_entry", "bool?", "True when at least one production `:EntryPoint` (i.e. `kind ∉ {test, bench}`) reaches this item via `CALLS*`. Written by `enrich_reachability()`'s ProductionOnly pass (RFC-042 042-B / issue #392). ORTHOGONAL to `:Item.is_test` — `is_test` is a compile-scope flag on the item itself, while `reachable_from_production_entry` is a graph property derived from `:EntryPoint.kind` filtering. An item with `is_test = false` may still have `reachable_from_production_entry = false` if all its reaching entries are test-kind (i.e. only test code exercises it).", EnrichReachability),
     ]
 }
 
@@ -274,7 +277,7 @@ pub(super) fn call_site_node_descriptor() -> NodeLabelDescriptor {
         attributes: vec![
             attr("arg_count", "int", "Number of arguments at the call site.", Extractor),
             attr("callee_path", "string", "Best-effort path of the callee (may be unresolved).", Extractor),
-            attr("callee_resolved", "bool", "`true` when method dispatch / re-export / trait impl was resolved via HIR; `false` for textual-only syn-based extraction. SchemaVersion v0.1.3+ only. See Label::CALL_SITE discriminator contract.", Extractor),
+            attr("callee_resolved", "bool", "`true` when method dispatch / re-export / trait impl was resolved via HIR; `false` for textual-only syn-based extraction. SchemaVersion v0.1.3+ only. See Label::CALL_SITE discriminator contract. RFC-043: post-RFC-043 the predicate's epistemic precision improved — proc-macro-touched receivers (`#[async_trait]`, `#[derive(Builder)]`, `#[tokio::test]`, cucumber steps) can now resolve to `true` when the sysroot ships `rust-analyzer-proc-macro-srv`. There is no per-keyspace status flag (by design); consumers wishing to disambiguate pre/post-RFC-043 keyspaces must re-extract. The silent probe fallback (RFC-043 §3.3 case 1) produces a keyspace indistinguishable from `--no-proc-macro` — two keyspaces with identical `callee_resolved` distributions may have different recall depending on whether the sysroot had the binary at extract time.", Extractor),
             attr("caller_qname", "string", "Qualified name of the fn that contains this call.", Extractor),
             attr("file", "string", "Source file relative to workspace root.", Extractor),
             attr("is_test", "bool", "True when the enclosing item is under `#[cfg(test)]` or in `tests/`.", Extractor),
@@ -293,7 +296,7 @@ pub(super) fn entry_point_node_descriptor() -> NodeLabelDescriptor {
         attributes: vec![
             attr("file", "string", "Source file path where the entry-point declaration lives (relative to workspace root, or absolute).", Extractor),
             attr("handler_qname", "string", "Qualified name of the handler item (fn / struct / enum) this entry point dispatches to.", Extractor),
-            attr("kind", "enum", "Entry-point kind: `mcp_tool`, `cli_command`, `http_route`, or `cron_job`. v0.2.0 MVP detects `cli_command` (clap `#[derive(Parser/Subcommand)]`) and `mcp_tool` (`#[tool]`) via attribute heuristics; HTTP + cron kinds reserved for follow-up.", Extractor),
+            attr("kind", "enum", "Entry-point kind: `mcp_tool`, `cli_command`, `http_route`, `cron_job`, `websocket`, `test`, `bench`. v0.2.0 MVP detects `cli_command` (clap `#[derive(Parser/Subcommand)]`) and `mcp_tool` (`#[tool]`); HTTP / cron / websocket kinds added later via call-site detection. `test` / `bench` (RFC-042) detect `#[test]`, `#[tokio::test]`, `#[given]`/`#[when]`/`#[then]` (cucumber BDD), `#[bench]` attributes plus FNs in `tests/` / `benches/` directories. BDD step attributes classify as `test`. NOTE: `kind=\"test\"` on `:EntryPoint` is ORTHOGONAL to `:Item.is_test`. The former classifies the entry surface (this fn is an invocation root for the test runner). The latter classifies the item's compile scope (this item lives under `#[cfg(test)]`). A query that needs items reachable only from test entry points should match on `:EntryPoint{kind:\"test\"}`-reachability via the `:Item.reachable_from_production_entry` attribute (RFC-042 slice 042-B), NOT on `:Item.is_test=true`.", Extractor),
             attr("name", "string", "Public-facing name (tool name, CLI subcommand, route path, cron job id).", Extractor),
             attr("params", "json", "Registered parameters as a JSON array of `{name, type}` objects. v0.2.0 MVP emits `[]`; clap arg + MCP tool input-schema enrichment deferred to follow-up.", Extractor),
         ],
@@ -337,6 +340,117 @@ pub(super) fn context_node_descriptor() -> NodeLabelDescriptor {
                 "source",
                 "string",
                 "Provenance discriminator: `\"declared\"` if the context name appears in `.cfdb/concepts/<name>.toml`; `\"heuristic\"` if the name was auto-derived by `cfdb_concepts::compute_bounded_context` via crate-name prefix stripping (RFC-038).",
+                Extractor,
+            ),
+        ],
+    }
+}
+
+pub(super) fn const_table_node_descriptor() -> NodeLabelDescriptor {
+    use Provenance::Extractor;
+    NodeLabelDescriptor {
+        label: Label::new(Label::CONST_TABLE),
+        description: "A literal const slice/array recognized as a table of values (RFC-040). Emitted when the extractor recognizes `&[T]`, `&'static [T]`, `[T; N]`, `&[T; N]`, or `&'static [T; N]` over `T ∈ {str, u32, i32, u64, i64}` with all-literal entries. The closed-set `element_type` wire vocabulary {\"str\", \"u32\", \"i32\", \"u64\", \"i64\"} is owned by `cfdb_extractor::const_table::ElementType::as_wire_str` (RFC-038 §3.1 invariant-owner pattern) — no consumer parses it back to a typed enum. SchemaVersion v0.3.2+ (#323 reservation; #325 first emissions). Pre-V0_3_2 keyspaces carry zero `:ConstTable` nodes.".into(),
+        attributes: vec![
+            attr(
+                "crate",
+                "string",
+                "Containing crate name.",
+                Extractor,
+            ),
+            attr(
+                "element_type",
+                "string",
+                "Closed-set wire vocabulary owned by `cfdb_extractor::const_table::ElementType::as_wire_str`: one of `\"str\"`, `\"u32\"`, `\"i32\"`, `\"u64\"`, `\"i64\"`. Adding a sixth variant requires an RFC bump and a coordinated update to the producer enum (no-ratchet rule, RFC-040 §4).",
+                Extractor,
+            ),
+            attr(
+                "entries_hash",
+                "string",
+                "sha256 hex (lowercase) over the canonical-sorted entries: ascending sort (lexicographic for `str`, numeric for integers), join `str` entries with `\\0` and numeric entries with `\\n` after decimal rendering, then sha256 the resulting bytes. Two consts with the same set produce the same hash regardless of declaration order — this is the structural-equality key for the overlap detector (RFC-040 §3.4).",
+                Extractor,
+            ),
+            attr(
+                "entries_normalized",
+                "string",
+                "JSON array of the canonical-sorted entries in the same order used to compute `entries_hash`. Permanent wire commitment: producers re-emit byte-identical normalization across builds; consumers may rely on `JSON.parse` returning a flat array of either strings or integers (matching `element_type`). Required for downstream rules that need the actual entry set without re-walking the source.",
+                Extractor,
+            ),
+            attr(
+                "entries_sample",
+                "string",
+                "JSON array of the first 8 entries in DECLARATION order (not sorted). Purely human-readable triage aid: reviewers reading a `const-table-overlap` finding see the original literal layout. Two consts with the same set but different declaration order produce identical `entries_hash` and `entries_normalized` but divergent `entries_sample` — the divergence is informational, not a correctness signal.",
+                Extractor,
+            ),
+            attr(
+                "entry_count",
+                "int",
+                "Number of literal entries in the recognized table. Equal to `entries_normalized.len()` after JSON parsing; convenience attribute for queries that filter on table size without parsing the JSON.",
+                Extractor,
+            ),
+            attr(
+                "is_test",
+                "bool",
+                "True when the const is declared inside a `#[cfg(test)]` module, sourced from the same `is_in_test_mod()` heuristic used by `:Item.is_test`. The default `const-table-overlap.cypher` rule excludes `is_test=true` rows so test fixtures (mock currency lists, etc.) do not trip the detector; consumers wanting test-mode coverage opt in explicitly.",
+                Extractor,
+            ),
+            attr(
+                "module_qpath",
+                "string",
+                "Fully-qualified path of the enclosing module (e.g. `kraken::normalize`).",
+                Extractor,
+            ),
+            attr(
+                "name",
+                "string",
+                "Last segment of `qname` — the const identifier.",
+                Extractor,
+            ),
+            attr(
+                "qname",
+                "string",
+                "Fully-qualified name of the parent const item (e.g. `kraken::normalize::Z_PREFIX_CURRENCIES`). Shares its segment with the parent `:Item.qname`; the two are joined structurally via the `HAS_CONST_TABLE` edge and can also be joined on string equality without traversing the edge.",
+                Extractor,
+            ),
+        ],
+    }
+}
+
+pub(super) fn literal_node_descriptor() -> NodeLabelDescriptor {
+    use Provenance::Extractor;
+    NodeLabelDescriptor {
+        label: Label::new(Label::LITERAL),
+        description: "A single string literal occurring in production source (`crates/*/src/**/*.rs`), modelled at the `:CallSite` abstraction level (RFC-041). Emitted by the `cfdb-extractor` `syn` walk for `syn::Lit::Str` occurrences; literals inside `#[cfg(test)]` modules / `#[test]` fns are flagged via the inherited `is_test` context (same predicate as `:Item.is_test`, never re-evaluated at the literal site). `value` is the RAW source bytes between the delimiters WITHOUT Rust escape decoding (NOT `syn::LitStr::value()`) so a Cypher `=~` matches what a developer would `grep` for in source (RFC-041 §3.1). Raw strings store inner bytes without the `r`/`#` delimiters; `cfg(feature=)` / `#[serde(default=)]` / `macro_rules!`-body literals are EXCLUDED (RFC-041 §6 — split-brain / syn-opaque). Deliberately NO `kind` attr — a three-way homonym vs `:Item.kind` and `:ConstTable.element_type`; future non-string literals use `lit_syntax` (RFC-041 §3.1, ddd lens). SchemaVersion v0.4.0+ (#369 reservation; #370 first emissions). Pre-V0_4_0 keyspaces carry zero `:Literal` nodes.".into(),
+        attributes: vec![
+            attr(
+                "col",
+                "int",
+                "1-indexed column of the literal's first delimiter.",
+                Extractor,
+            ),
+            attr("crate", "string", "Containing crate name.", Extractor),
+            attr(
+                "file",
+                "string",
+                "Source file relative to workspace root — same normalization as `:Item.file`.",
+                Extractor,
+            ),
+            attr(
+                "is_test",
+                "bool",
+                "True when the literal is inside a `#[cfg(test)]` module or `#[test]` fn. Inherited from the enclosing scope's test context via the exact same parameter-threading `:CallSite` uses (`attrs.rs` cfg/hash-test predicates + `is_in_test_mod` depth counter) — NOT a divergent reimplementation (RFC-041 §4 is_test fidelity invariant).",
+                Extractor,
+            ),
+            attr(
+                "line",
+                "int",
+                "1-indexed line of the literal's first delimiter.",
+                Extractor,
+            ),
+            attr(
+                "value",
+                "string",
+                "Raw source bytes between the delimiting quotes/pounds, WITHOUT Rust escape decoding (NOT `syn::LitStr::value()`). `\\n`/`\\t`/`\\\\` appear verbatim so a Cypher `=~ '\\\\n'` matches a source `\\n` (RFC-041 §3.1 — the `=~`-matches-`grep` invariant). Raw strings (`r#\"...\"#`) store the inner bytes without the `r`/`#` delimiters. Multiline literals store embedded newlines verbatim (documented edge — single-line-anchored `=~` dialects will not span them).",
                 Extractor,
             ),
         ],

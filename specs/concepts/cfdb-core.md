@@ -36,6 +36,28 @@ A directed, labelled graph edge from a source node id to a target node id.
 
 Open newtype wrapping an edge-label string. The label vocabulary is defined by schema descriptors.
 
+The descriptor at `crates/cfdb-core/src/schema/describe/edges.rs` is authoritative; this spec section mirrors it for discoverability (RFC-044 §3.1). Complete edge-label vocabulary (the `spec_sections_cover_all_schema_labels` test keeps this list complete against `schema_describe()`):
+
+- **IN_CRATE** — any node with a crate belongs to that Crate.
+- **IN_MODULE** — an Item or File is contained in a Module.
+- **HAS_FIELD** — a struct Item or enum Variant owns a Field.
+- **HAS_VARIANT** — an enum Item owns a Variant.
+- **HAS_PARAM** — an fn Item owns a Param.
+- **HAS_CONST_TABLE** — a const Item owns a recognized literal table of values (RFC-040).
+- **TYPE_OF** — a Field, Param, or Variant payload references an Item used as its type.
+- **IMPLEMENTS** — an impl Item implements a trait Item.
+- **IMPLEMENTS_FOR** — an impl Item targets a type Item (the receiver of the impl).
+- **RETURNS** — an fn Item returns a type Item.
+- **BELONGS_TO** — a Crate belongs to its bounded Context.
+- **CALLS** — static call edge between two fn Items (best-effort cross-crate). Attributes: resolved
+- **INVOKES_AT** — a CallSite invokes a concrete fn Item.
+- **EXPOSES** — an EntryPoint dispatches to a handler fn Item.
+- **REGISTERS_PARAM** — an EntryPoint declares an entry-point-exposed input (`:Param`, `:Field`, or `:Variant`).
+- **LABELED_AS** — an Item carries a semantic Concept label.
+- **CANONICAL_FOR** — an Item is the designated authoritative implementation of a Concept.
+- **EQUIVALENT_TO** — reserved (issue #307) — two Concepts are synonyms.
+- **REFERENCED_BY** — an Item is mentioned (by name or qname) in an RFC document.
+
 ## EdgeLabelDescriptor
 
 Metadata for an edge label — source filter, target filter, attributes, documentation.
@@ -70,7 +92,22 @@ Open newtype wrapping a keyspace identifier string. Keyspace names are workspace
 
 Open newtype wrapping a node-label string. The label vocabulary is defined by schema descriptors — no exhaustive enum (RFC-029 §7.1). The open-newtype shape is the **OCP extension point** for schema: adding a new node label (e.g. `:EntryPoint` in v0.2.0 per Issue #86, `:Param` producer in v0.2.x per Issue #209) is a registration against the descriptor table, not a source-level modification of the `Label` type. Additions land under minor `SchemaVersion` bumps with a lockstep graph-specs-rust fixture bump per CLAUDE.md §3. Closed-enum labels would force every consumer to re-compile on every new fact type; the open newtype lets v0.3-aware graphs remain queryable by v0.2 consumers for the subset they recognise.
 
-Current v0.2-era labels include: `Crate`, `Module`, `File`, `Item`, `Field`, `Variant`, `Param` (declared; producer landed in #209), `CallSite`, `EntryPoint` (populated since #86/#124/#125), `Concept`, `Context`. Edge labels include `IN_CRATE`, `IN_MODULE`, `IN_FILE`, `HAS_FIELD`, `HAS_VARIANT`, `HAS_PARAM`, `TYPE_OF`, `IMPLEMENTS`, `IMPLEMENTS_FOR`, `RETURNS`, `EXPOSES`, `REGISTERS_PARAM`, `CALLS`, `INVOKES_AT`. The authoritative registry lives in `schema/describe/nodes.rs` + `schema/describe/edges.rs`; this paragraph is documentation, not vocabulary definition.
+The descriptor at `crates/cfdb-core/src/schema/describe/nodes.rs` is authoritative; this spec section mirrors it for discoverability (it is documentation, not a second vocabulary definition — RFC-044 §3.1, ddd lens). Per-variant headings are deliberately NOT used: `graph-specs check` requires every markdown heading to map 1:1 to a `pub` type, and minting a marker type per label would be the very "second vocabulary source" the ddd lens forbids. The complete node-label vocabulary is therefore enumerated as a flat list, each bullet naming the label and its `NodeLabelDescriptor` attribute fields (the `spec_sections_cover_all_schema_labels` test asserts this list stays complete against `schema_describe()`):
+
+- **Crate** — a Cargo package in the workspace. Attributes: name, path, version
+- **Module** — a Rust module (`mod` block or file-level module). Attributes: crate, file, is_inline, qpath
+- **File** — a source file walked by the extractor. Attributes: crate, loc, module_qpath, path
+- **Item** — a top-level item (struct, enum, trait, impl, fn, const, static, type alias). Attributes: bounded_context, cfg_gate, crate, cyclomatic, deprecation_since, doc_text, dup_cluster_id, file, git_commit_count, git_last_author, git_last_commit_unix_ts, impl_target, impl_trait, is_deprecated, is_test, kind, line, module_qpath, name, qname, reachable_entry_count, reachable_from_entry, reachable_from_production_entry, reachable_production_entry_count, signature, signature_hash, test_coverage, unwrap_count, visibility
+- **Field** — a struct field, tuple-struct element, or enum-variant field. Attributes: index, name, parent_qname, type_normalized, type_path
+- **Variant** — an enum variant. Attributes: index, name, parent_qname, payload_kind
+- **Param** — a function or method parameter. Attributes: index, is_self, name, parent_qname, type_normalized, type_path
+- **CallSite** — one concrete call expression (caller → callee, file:line). Attributes: arg_count, callee_path, callee_resolved, caller_qname, file, is_test, kind, line, resolver
+- **EntryPoint** — a top-level entry into the system (MCP tool, CLI command, HTTP route, cron registration). Attributes: file, handler_qname, kind, name, params
+- **Concept** — an overlay label assigned to items by concept rules. Attributes: assigned_by, name
+- **Context** — a bounded context owning one or more crates. Attributes: canonical_crate, name, owning_rfc, source
+- **RfcDoc** — an RFC document file scanned for concept-name matches. Attributes: path, title
+- **ConstTable** — a literal const slice/array recognized as a table of values (RFC-040). Attributes: crate, element_type, entries_hash, entries_normalized, entries_sample, entry_count, is_test, module_qpath, name, qname
+- **Literal** — a single string literal occurring in production source (RFC-041). Attributes: col, crate, file, is_test, line, value
 
 ## Node
 
