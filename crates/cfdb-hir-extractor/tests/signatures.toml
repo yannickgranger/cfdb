@@ -1,0 +1,7 @@
+# RFC-044 §3.2 / #428 — frozen integration-seam signatures for cfdb-hir-extractor.
+# Each value is the deterministic `quote::quote!(#sig).to_string()` rendering of
+# the named fn's `syn::Signature`. Captured by running tests/signatures.rs — do
+# NOT hand-edit. Intentional signature change ⇒ update this file in the same commit.
+build_hir_database = "fn build_hir_database (workspace_root : & Path , proc_macros : bool ,) -> Result < (RootDatabase , Vfs , Option < ProcMacroClient >) , HirError >"
+extract_call_sites = "fn extract_call_sites < DB > (db : & DB , vfs : & Vfs) -> Result < (Vec < Node > , Vec < Edge >) , HirError > where DB : HirDatabase + Sized ,"
+extract_entry_points = "fn extract_entry_points < DB > (db : & DB , vfs : & Vfs) -> Result < (Vec < Node > , Vec < Edge >) , HirError > where DB : HirDatabase + Sized ,"

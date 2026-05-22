@@ -1,0 +1,5 @@
+# RFC-044 §3.2 / #428 — frozen integration-seam signature for cfdb-hir-petgraph-adapter.
+# Value is the deterministic `quote::quote!(#sig).to_string()` rendering of the
+# named impl method's `syn::Signature`. Captured by running tests/signatures.rs —
+# do NOT hand-edit. Intentional signature change ⇒ update this file in the same commit.
+ingest_resolved_call_sites = "fn ingest_resolved_call_sites (& mut self , mut nodes : Vec < Node > , edges : Vec < Edge > ,) -> Result < EmitStats , Self :: Err >"

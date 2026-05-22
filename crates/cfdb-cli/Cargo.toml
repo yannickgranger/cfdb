@@ -106,3 +106,12 @@ llvm-cov = ["cfdb-petgraph/llvm-cov", "quality-metrics"]
 
 [dev-dependencies]
 assert_cmd = "2"
+# RFC-044 §3.2 / #428 — `tests/signatures.rs` re-parses `src/compose.rs`
+# with `syn`, renders the six `pub(crate)` factory-fn signatures via
+# `quote::quote!`, and compares against the frozen `tests/signatures.toml`.
+# `toml` is already a runtime dep above; `syn` + `quote` are test-additional.
+# Dev-dep edges ⇒ no production dep-graph impact and they do not enter the
+# slim build's `ra_ap_*`/`syn`-free guarantees (those scan the built dep tree,
+# not `[dev-dependencies]`).
+syn.workspace = true
+quote.workspace = true

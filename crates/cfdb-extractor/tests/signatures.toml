@@ -1,0 +1,5 @@
+# RFC-044 §3.2 / #428 — frozen integration-seam signatures for cfdb-extractor.
+# Each value is the deterministic `quote::quote!(#sig).to_string()` rendering of
+# the named fn's `syn::Signature`. Captured by running tests/signatures.rs — do
+# NOT hand-edit. Intentional signature change ⇒ update this file in the same commit.
+extract_workspace = "fn extract_workspace (workspace_root : & Path) -> Result < (Vec < Node > , Vec < Edge >) , ExtractError >"
