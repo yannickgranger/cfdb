@@ -281,9 +281,11 @@ dependencies = [
  "cfdb-petgraph",
  "cfdb-query",
  "clap",
+ "quote",
  "serde",
  "serde_json",
  "sha2",
+ "syn",
  "tempfile",
  "thiserror",
  "toml 0.8.23",
@@ -304,10 +306,13 @@ dependencies = [
 name = "cfdb-core"
 version = "0.4.1"
 dependencies = [
+ "quote",
  "serde",
  "serde_json",
  "sha2",
+ "syn",
  "thiserror",
+ "toml 0.8.23",
  "trybuild",
 ]
 
@@ -320,6 +325,7 @@ dependencies = [
  "cfdb-core",
  "cfdb-lang",
  "proc-macro2",
+ "quote",
  "serde",
  "serde_json",
  "sha2",
@@ -359,6 +365,7 @@ version = "0.4.1"
 dependencies = [
  "cfdb-core",
  "cfdb-extractor",
+ "quote",
  "ra-ap-rustc_type_ir 0.161.0",
  "ra_ap_base_db",
  "ra_ap_edition",
@@ -372,8 +379,10 @@ dependencies = [
  "ra_ap_project_model",
  "ra_ap_syntax",
  "ra_ap_vfs",
+ "syn",
  "tempfile",
  "thiserror",
+ "toml 0.8.23",
 ]
 
 [[package]]
@@ -383,6 +392,9 @@ dependencies = [
  "cfdb-core",
  "cfdb-hir-extractor",
  "cfdb-petgraph",
+ "quote",
+ "syn",
+ "toml 0.8.23",
 ]
 
 [[package]]

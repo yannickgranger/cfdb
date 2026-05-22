@@ -36,3 +36,9 @@ toml.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+# RFC-044 §3.2 / #428 — `tests/signatures.rs` renders the pinned
+# `extract_workspace` signature via `quote::quote!`. `syn` + `toml` are
+# already runtime deps above; only `quote` is test-additional. Dev-dep
+# edge ⇒ does not enter the production dep graph or trip the
+# `architecture_dep_rule` scan (which reads `[dependencies]` only).
+quote.workspace = true

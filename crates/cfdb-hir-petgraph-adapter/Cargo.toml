@@ -21,3 +21,13 @@ publish.workspace = true
 cfdb-core = { path = "../cfdb-core" }
 cfdb-hir-extractor = { path = "../cfdb-hir-extractor" }
 cfdb-petgraph = { path = "../cfdb-petgraph" }
+
+[dev-dependencies]
+# RFC-044 §3.2 / #428 — `tests/signatures.rs` re-parses `src/lib.rs` with
+# `syn`, renders the pinned `ingest_resolved_call_sites` impl-method
+# signature via `quote::quote!`, and compares against the frozen
+# `tests/signatures.toml`. All three are test-only and dev-dep edges ⇒ no
+# production dep-graph or cold-compile-budget impact.
+syn.workspace = true
+quote.workspace = true
+toml.workspace = true

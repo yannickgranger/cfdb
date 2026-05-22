@@ -47,6 +47,12 @@ syn = { version = "2", features = ["full", "extra-traits", "visit"] }
 proc-macro2 = { version = "1", features = ["span-locations"] }
 cargo_metadata = "0.22"
 toml = { version = "0.8", default-features = false, features = ["parse"] }
+# RFC-044 §3.2 / #428 — signature-pinning tests render `syn::Signature`
+# values to deterministic token strings via `quote::quote!`. Declared at
+# workspace level so the five per-crate `tests/signatures.rs` files use
+# `quote.workspace = true` as a `[dev-dependencies]` edge (NOT a runtime
+# dep — the parser is test-only).
+quote = "1"
 
 # CLI
 clap = { version = "4", features = ["derive"] }

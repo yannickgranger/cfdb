@@ -14,3 +14,12 @@ thiserror.workspace = true
 [dev-dependencies]
 sha2.workspace = true
 trybuild.workspace = true
+# RFC-044 §3.2 / #428 — `tests/signatures.rs` re-parses `src/store.rs` with
+# `syn`, renders the seven pinned `StoreBackend` trait-method signatures via
+# `quote::quote!`, and compares against the frozen `tests/signatures.toml`.
+# All three are `[dev-dependencies]` ONLY — they do NOT appear in
+# `[dependencies]`, so cfdb-core's hub-foundation purity (CLEAN-3 /
+# `architecture_dep_rule`, which scans `[dependencies]` exclusively) is intact.
+syn.workspace = true
+quote.workspace = true
+toml.workspace = true

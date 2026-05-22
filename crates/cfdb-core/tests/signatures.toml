@@ -1,0 +1,13 @@
+# RFC-044 §3.2 / #428 — frozen StoreBackend trait-method signatures for cfdb-core.
+# Each value is the deterministic `quote::quote!(#sig).to_string()` rendering of
+# the named trait method's `syn::Signature`. Captured by running tests/signatures.rs
+# — do NOT hand-edit. The pinned-key count MUST equal the StoreBackend method count
+# in src/store.rs (the test enforces this), so adding a method without pinning it
+# fails. Intentional signature change ⇒ update this file in the same commit.
+ingest_nodes = "fn ingest_nodes (& mut self , keyspace : & Keyspace , nodes : Vec < Node >) -> Result < () , StoreError >"
+ingest_edges = "fn ingest_edges (& mut self , keyspace : & Keyspace , edges : Vec < Edge >) -> Result < () , StoreError >"
+execute = "fn execute (& self , keyspace : & Keyspace , query : & Query) -> Result < QueryResult , StoreError >"
+schema_version = "fn schema_version (& self , keyspace : & Keyspace) -> Result < SchemaVersion , StoreError >"
+list_keyspaces = "fn list_keyspaces (& self) -> Vec < Keyspace >"
+drop_keyspace = "fn drop_keyspace (& mut self , keyspace : & Keyspace) -> Result < () , StoreError >"
+canonical_dump = "fn canonical_dump (& self , keyspace : & Keyspace) -> Result < String , StoreError >"
