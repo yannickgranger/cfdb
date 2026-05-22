@@ -12,4 +12,5 @@ serde_json.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+sha2.workspace = true
 trybuild.workspace = true
