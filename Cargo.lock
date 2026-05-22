@@ -358,6 +358,7 @@ name = "cfdb-hir-extractor"
 version = "0.4.1"
 dependencies = [
  "cfdb-core",
+ "cfdb-extractor",
  "ra-ap-rustc_type_ir 0.161.0",
  "ra_ap_base_db",
  "ra_ap_edition",

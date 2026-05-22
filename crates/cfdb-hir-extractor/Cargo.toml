@@ -43,3 +43,11 @@ ra-ap-rustc_type_ir.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+# DEV-ONLY. The cross-extractor qname-parity fixture test
+# (`tests/qname_parity.rs`, RFC-044 §3.4) runs BOTH the syn-based
+# extractor and this HIR extractor on the same fixture and asserts the
+# `:Item` qnames they emit are bit-identical. This is a `[dev-dependencies]`
+# edge, so it does NOT enter the production dep graph — the
+# `NEVER add cfdb-hir-extractor as a direct dep` isolation note above (and
+# the slim `cargo build -p cfdb-cli` cold-compile budget) is unaffected.
+cfdb-extractor = { path = "../cfdb-extractor" }

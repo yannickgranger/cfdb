@@ -53,6 +53,7 @@
 use std::collections::BTreeMap;
 
 use cfdb_core::fact::PropValue;
+use cfdb_core::qname::item_node_id;
 use cfdb_core::schema::Label;
 use petgraph::stable_graph::NodeIndex;
 
@@ -161,14 +162,14 @@ fn resolve_callee_to_item(
 ) -> Option<NodeIndex> {
     // Strategy 1 — exact match. Author wrote the fully-qualified path
     // and the callee lives in the workspace.
-    let exact_id = format!("item:{callee_path}");
+    let exact_id = item_node_id(callee_path);
     if let Some(&idx) = state.id_to_idx.get(&exact_id) {
         return Some(idx);
     }
     // Strategy 2 — same-module. Strip the last `::` segment from
     // caller_qname to recover the module path, then prepend it.
     if let Some((module_path, _last)) = caller_qname.rsplit_once("::") {
-        let candidate = format!("item:{module_path}::{callee_path}");
+        let candidate = item_node_id(&format!("{module_path}::{callee_path}"));
         if let Some(&idx) = state.id_to_idx.get(&candidate) {
             return Some(idx);
         }
@@ -177,7 +178,7 @@ fn resolve_callee_to_item(
     // the crate name (cfdb's qname convention, see
     // `cfdb-core::qname::item_qname`). Prepend it.
     if let Some((crate_name, _rest)) = caller_qname.split_once("::") {
-        let candidate = format!("item:{crate_name}::{callee_path}");
+        let candidate = item_node_id(&format!("{crate_name}::{callee_path}"));
         if let Some(&idx) = state.id_to_idx.get(&candidate) {
             return Some(idx);
         }
