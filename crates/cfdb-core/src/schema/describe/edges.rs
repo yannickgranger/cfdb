@@ -123,6 +123,17 @@ pub(super) fn edge_descriptors() -> Vec<EdgeLabelDescriptor> {
             to: vec![Label::new(Label::ITEM)],
             provenance: Provenance::Extractor,
         },
+        EdgeLabelDescriptor {
+            label: EdgeLabel::new(EdgeLabel::HAS_ARG),
+            description: "A CallSite owns a positional Argument (RFC-043 Slice A). \
+                          No attributes — position lives on the :Argument node. \
+                          SchemaVersion V0_5_0+; pre-V0_5_0 keyspaces carry zero HAS_ARG edges."
+                .into(),
+            attributes: vec![],
+            from: vec![Label::new(Label::CALL_SITE)],
+            to: vec![Label::new(Label::ARGUMENT)],
+            provenance: Provenance::Extractor,
+        },
         // ---- Entry points ----------------------------------------------------
         EdgeLabelDescriptor {
             label: EdgeLabel::new(EdgeLabel::EXPOSES),

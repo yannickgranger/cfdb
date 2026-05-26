@@ -49,6 +49,21 @@ pub fn variant_node_id(enum_qname: &str, index: usize) -> String {
     format!("variant:{enum_qname}#{index}")
 }
 
+/// Canonical node id for an `:Argument` (RFC-043 Slice A).
+///
+/// Derives from `callsite_id` so argument ids inherit the resolver scope
+/// of their parent `:CallSite` (RFC-043 §4 Invariant 9 — RFC-032 §3
+/// resolver-discriminator contract). Deleting all nodes with id prefix
+/// `arg:{callsite_id}#` removes all children of the given call site
+/// (RFC-043 §4 Invariant 8 lifecycle coupling).
+///
+/// Both extractors (syn-based and HIR-based) route through this function
+/// so the id shape is stable and testable independently of the emitter.
+#[must_use]
+pub fn argument_node_id(callsite_id: &str, position: u32) -> String {
+    format!("arg:{callsite_id}#{position}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -101,5 +116,33 @@ mod tests {
         let a = variant_node_id("crate::E", 0);
         let b = variant_node_id("crate::E", 1);
         assert_ne!(a, b);
+    }
+
+    #[test]
+    fn argument_node_id_formula_is_arg_colon_callsite_hash_position() {
+        let cs = "callsite:mod::fn:SomeType::new:0";
+        assert_eq!(
+            argument_node_id(cs, 0),
+            "arg:callsite:mod::fn:SomeType::new:0#0"
+        );
+        assert_eq!(
+            argument_node_id(cs, 1),
+            "arg:callsite:mod::fn:SomeType::new:0#1"
+        );
+    }
+
+    #[test]
+    fn argument_node_id_disambiguates_by_position() {
+        let cs = "callsite:m::f:g:0";
+        assert_ne!(argument_node_id(cs, 0), argument_node_id(cs, 1));
+    }
+
+    #[test]
+    fn argument_node_id_inherits_callsite_resolver_scope() {
+        // Syn and HIR call sites have different cs_ids by design (RFC-032 §3).
+        // Their argument children inherit that difference.
+        let syn_cs = "callsite:crate::fn:method:0";
+        let hir_cs = "callsite:crate::fn:crate2::ConcreteType::method:0";
+        assert_ne!(argument_node_id(syn_cs, 0), argument_node_id(hir_cs, 0));
     }
 }

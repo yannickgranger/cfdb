@@ -8,6 +8,13 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+/// Named convention constant for the method-call receiver position (RFC-043
+/// §3.1 / solid §5.3 finding 4). For `ExprMethodCall`, the implicit `self`
+/// argument is at position 0; positional args follow from 1.
+/// Cypher rule authors reference this conceptually as the stable anchor
+/// for receiver-type fence predicates (`WHERE arg.position = 0`).
+pub const RECEIVER_POSITION: u32 = 0;
+
 /// Canonical node label (RFC §7). Free-form string so v0.2+ extensions do not
 /// require a cfdb-core release; well-known labels are provided as constants.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -73,6 +80,12 @@ impl Label {
     /// (issue #370) via the `cfdb-extractor` `literal_visitor.rs` submodule.
     /// Pre-V0_4_0 keyspaces carry zero `:Literal` nodes.
     pub const LITERAL: &'static str = "Literal";
+    /// A positional argument at a call site (RFC-043 Slice A). Carries
+    /// `source_text`, `kind`, `position`, `file`, `line`, `col`. Connected
+    /// from its owning `:CallSite` via `[:HAS_ARG]`. Node id is
+    /// `arg:{callsite_id}#{position}` (derived via
+    /// `cfdb_core::qname::argument_node_id`). SchemaVersion V0_5_0+.
+    pub const ARGUMENT: &'static str = "Argument";
 
     pub fn new(s: impl Into<String>) -> Self {
         Self(s.into())
@@ -136,6 +149,12 @@ impl EdgeLabel {
     /// or `qname` is matched in an RFC document during `enrich_rfc_docs()`.
     /// Reserved in #43-A; first emissions land in slice 43-D (issue #107).
     pub const REFERENCED_BY: &'static str = "REFERENCED_BY";
+    /// `(:CallSite)-[:HAS_ARG]->(:Argument)` — connects a call site to each
+    /// of its positional arguments (RFC-043 Slice A). Direction is call site →
+    /// argument. Position lives on the `:Argument` node (not on this edge) per
+    /// DDD §5.2 NIT, mirroring `:Param.index` / `:Field.index` / `:Variant.index`.
+    /// SchemaVersion V0_5_0+.
+    pub const HAS_ARG: &'static str = "HAS_ARG";
 
     pub fn new(s: impl Into<String>) -> Self {
         Self(s.into())
@@ -418,11 +437,33 @@ impl SchemaVersion {
         patch: 0,
     };
 
+    /// **v0.5.0 — RFC-043 Slice A: `:Argument` fact type + `HAS_ARG` edge.**
+    /// Introduces `Label::ARGUMENT`, `EdgeLabel::HAS_ARG`, and the
+    /// `argument_node_id` helper. Both syn-extractor (`cfdb-extractor`) and
+    /// HIR-extractor (`cfdb-hir-extractor`) emit `:Argument` nodes and
+    /// `HAS_ARG` edges for every call expression they visit. A new fact type
+    /// (new node label class) warrants a minor bump per the V0_2_0 /
+    /// V0_3_0 / V0_4_0 precedent (solid §5.3 BLOCKER 1 / rust-systems §5.4
+    /// finding 3). Pre-V0_5_0 keyspaces carry zero `:Argument` nodes.
+    ///
+    /// **Breaking within 0.x:** V0_4_0 readers refuse V0_5_0 graphs per G4
+    /// (`can_read` returns false when graph.minor > reader.minor). This is the
+    /// intended signal that V0_5_0 graphs may contain `:Argument` / `HAS_ARG`
+    /// facts that V0_4_0 readers do not understand.
+    ///
+    /// Paired lockstep `graph-specs-rust` cross-fixture bump per cfdb
+    /// CLAUDE.md §3 / RFC-033 §4 I5 lands in Slice B (issue #443).
+    pub const V0_5_0: Self = Self {
+        major: 0,
+        minor: 5,
+        patch: 0,
+    };
+
     /// The schema version this build of cfdb-core writes and reads.
     /// Producers tag every keyspace persist with `CURRENT`. Consumers use
     /// `CURRENT.can_read(&file.schema_version)` to reject forward-
     /// incompatible graphs per G4.
-    pub const CURRENT: Self = Self::V0_4_0;
+    pub const CURRENT: Self = Self::V0_5_0;
 
     pub fn new(major: u16, minor: u16, patch: u16) -> Self {
         Self {

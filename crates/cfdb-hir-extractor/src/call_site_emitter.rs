@@ -42,7 +42,9 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use cfdb_core::fact::{Edge, Node, PropValue};
-use cfdb_core::qname::{item_node_id, item_qname, method_qname, normalize_impl_target};
+use cfdb_core::qname::{
+    argument_node_id, item_node_id, item_qname, method_qname, normalize_impl_target,
+};
 use cfdb_core::schema::{EdgeLabel, Label};
 use ra_ap_edition::Edition;
 use ra_ap_hir::db::HirDatabase;
@@ -52,7 +54,7 @@ use ra_ap_hir::{
 };
 use ra_ap_hir_ty::attach_db;
 use ra_ap_ide_db::line_index::LineIndex;
-use ra_ap_syntax::ast::{self, AstNode};
+use ra_ap_syntax::ast::{self, AstNode, HasArgList};
 use ra_ap_syntax::{SyntaxKind, SyntaxNode, TextSize};
 use ra_ap_vfs::{Vfs, VfsPath};
 
@@ -204,7 +206,7 @@ fn walk_file<DB>(
                         // `foo\n .bar()` straddles two lines.
                         let offset: TextSize = method_call.syntax().text_range().start();
                         let line = line_index.line_col(offset).line as usize + 1;
-                        emit_resolved_call(
+                        let cs_id = emit_resolved_call(
                             sema,
                             method_call.syntax(),
                             callee_fn,
@@ -215,6 +217,28 @@ fn walk_file<DB>(
                             nodes,
                             edges,
                         );
+                        if let Some(id) = cs_id {
+                            // RFC-043 Slice A: receiver at position 0,
+                            // then explicit args at positions 1..N.
+                            if let Some(receiver) = method_call.receiver() {
+                                emit_argument_facts(
+                                    &id, &receiver, 0, line_index, file_path, nodes, edges,
+                                );
+                            }
+                            if let Some(arg_list) = method_call.arg_list() {
+                                for (i, arg) in arg_list.args().enumerate() {
+                                    emit_argument_facts(
+                                        &id,
+                                        &arg,
+                                        1 + i as u32,
+                                        line_index,
+                                        file_path,
+                                        nodes,
+                                        edges,
+                                    );
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -228,7 +252,7 @@ fn walk_file<DB>(
                         // closing paren).
                         let offset: TextSize = call_expr.syntax().text_range().start();
                         let line = line_index.line_col(offset).line as usize + 1;
-                        emit_resolved_call(
+                        let cs_id = emit_resolved_call(
                             sema,
                             call_expr.syntax(),
                             callee_fn,
@@ -239,6 +263,16 @@ fn walk_file<DB>(
                             nodes,
                             edges,
                         );
+                        if let Some(id) = cs_id {
+                            // RFC-043 Slice A: positions 0..N for all args.
+                            if let Some(arg_list) = call_expr.arg_list() {
+                                for (i, arg) in arg_list.args().enumerate() {
+                                    emit_argument_facts(
+                                        &id, &arg, i as u32, line_index, file_path, nodes, edges,
+                                    );
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -310,13 +344,12 @@ fn emit_resolved_call<DB>(
     counts: &mut BTreeMap<(String, String), usize>,
     nodes: &mut Vec<Node>,
     edges: &mut Vec<Edge>,
-) where
+) -> Option<String>
+where
     DB: HirDatabase + Sized,
 {
     // Find the caller — the enclosing `fn` or method definition.
-    let Some(caller_qname) = enclosing_fn_qname(sema, call_syntax) else {
-        return;
-    };
+    let caller_qname = enclosing_fn_qname(sema, call_syntax)?;
     let callee_qname = function_qname(sema, callee);
     let callee_last_segment = callee_qname
         .rsplit("::")
@@ -367,8 +400,75 @@ fn emit_resolved_call<DB>(
     // INVOKES_AT: caller Item → :CallSite.
     edges.push(Edge {
         src: item_node_id(&caller_qname),
-        dst: cs_id,
+        dst: cs_id.clone(),
         label: EdgeLabel::new(EdgeLabel::INVOKES_AT),
+        props: BTreeMap::new(),
+    });
+
+    Some(cs_id)
+}
+
+/// Coarse syntactic classification of a `ra_ap_syntax::ast::Expr` into the
+/// closed-set `kind` string used on `:Argument` nodes (RFC-043 §3.1 / §3.2).
+///
+/// HIR-native classifier — mirrors `cfdb_extractor_shared::classify_arg_kind`
+/// but operates on `ra_ap_syntax::ast::Expr` rather than `syn::Expr` to avoid
+/// adding `syn` as a runtime dep to `cfdb-hir-extractor`.
+fn classify_hir_arg_kind(expr: &ast::Expr) -> &'static str {
+    match expr {
+        ast::Expr::PathExpr(_) => "path",
+        ast::Expr::MethodCallExpr(_) => "method_call",
+        ast::Expr::CallExpr(_) => "call",
+        ast::Expr::RefExpr(_) => "ref",
+        ast::Expr::Literal(_) => "literal",
+        _ => "other",
+    }
+}
+
+/// Emit one `:Argument` node and one `HAS_ARG` edge (RFC-043 Slice A).
+///
+/// `cs_id` — the owning `:CallSite` id.
+/// `expr` — the `ra_ap_syntax` AST expression for the argument.
+/// `position` — 0-indexed position; 0 = receiver for method calls.
+#[allow(clippy::too_many_arguments)]
+fn emit_argument_facts(
+    cs_id: &str,
+    expr: &ast::Expr,
+    position: u32,
+    line_index: &LineIndex,
+    file_path: &Path,
+    nodes: &mut Vec<Node>,
+    edges: &mut Vec<Edge>,
+) {
+    let arg_id = argument_node_id(cs_id, position);
+    let kind = classify_hir_arg_kind(expr);
+    let source_text = expr.syntax().text().to_string();
+
+    let offset = expr.syntax().text_range().start();
+    let lc = line_index.line_col(offset);
+    // LineIndex::line_col returns 0-indexed line/col; schema stores 1-indexed.
+    let line = lc.line as i64 + 1;
+    let col = lc.col as i64 + 1;
+
+    let file_str = file_path.to_string_lossy().into_owned();
+
+    let mut props = BTreeMap::new();
+    props.insert("position".into(), PropValue::Int(i64::from(position)));
+    props.insert("kind".into(), PropValue::Str(kind.to_string()));
+    props.insert("source_text".into(), PropValue::Str(source_text));
+    props.insert("file".into(), PropValue::Str(file_str));
+    props.insert("line".into(), PropValue::Int(line));
+    props.insert("col".into(), PropValue::Int(col));
+
+    nodes.push(Node {
+        id: arg_id.clone(),
+        label: Label::new(Label::ARGUMENT),
+        props,
+    });
+    edges.push(Edge {
+        src: cs_id.to_string(),
+        dst: arg_id,
+        label: EdgeLabel::new(EdgeLabel::HAS_ARG),
         props: BTreeMap::new(),
     });
 }

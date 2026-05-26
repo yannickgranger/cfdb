@@ -9,6 +9,10 @@ publish.workspace = true
 [dependencies]
 cfdb-core = { path = "../cfdb-core" }
 cfdb-concepts = { path = "../cfdb-concepts" }
+# RFC-043 Slice A — `classify_arg_kind` shared between the syn and HIR
+# extractors. The function pattern-matches on `syn::Expr`, so it cannot
+# live in `cfdb-core` (RFC-032 §3 boundary: syn types cannot enter core).
+cfdb-extractor-shared = { path = "../cfdb-extractor-shared" }
 # RFC-041 §3.3 — `cfdb-extractor` becomes the concrete reference
 # implementation of the `LanguageProducer` trait (`pub struct
 # RustProducer`). The dep is unconditional from this crate; the
@@ -33,12 +37,12 @@ serde_json.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
 toml.workspace = true
+# RFC-043 Slice A — `quote::ToTokens::to_token_stream` converts a
+# `syn::Expr` to its `proc_macro2::TokenStream` representation, giving
+# `:Argument.source_text` for every emitted argument node. Runtime dep
+# (not dev-dep) because `call_visitor.rs` uses it in the production
+# emission path. `proc_macro2` is already a runtime dep above.
+quote.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
-# RFC-044 §3.2 / #428 — `tests/signatures.rs` renders the pinned
-# `extract_workspace` signature via `quote::quote!`. `syn` + `toml` are
-# already runtime deps above; only `quote` is test-additional. Dev-dep
-# edge ⇒ does not enter the production dep graph or trip the
-# `architecture_dep_rule` scan (which reads `[dependencies]` only).
-quote.workspace = true
