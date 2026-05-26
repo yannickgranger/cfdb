@@ -21,4 +21,4 @@ pub use describe::schema_describe;
 pub use descriptors::{
     AttributeDescriptor, EdgeLabelDescriptor, NodeLabelDescriptor, Provenance, SchemaDescribe,
 };
-pub use labels::{EdgeLabel, Keyspace, Label, SchemaVersion};
+pub use labels::{EdgeLabel, Keyspace, Label, SchemaVersion, RECEIVER_POSITION};

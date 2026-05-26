@@ -457,6 +457,75 @@ pub(super) fn literal_node_descriptor() -> NodeLabelDescriptor {
     }
 }
 
+pub(super) fn argument_node_descriptor() -> NodeLabelDescriptor {
+    use Provenance::Extractor;
+    NodeLabelDescriptor {
+        label: Label::new(Label::ARGUMENT),
+        description: "A positional argument at a call site (RFC-043 Slice A). \
+            Emitted by both syn-extractor and HIR-extractor for every `ExprCall` \
+            and `ExprMethodCall` they visit. For `ExprMethodCall`, position 0 is \
+            the implicit `self` receiver; for `ExprCall`, position 0 is the first \
+            positional argument. Connected from its owning `:CallSite` via \
+            `[:HAS_ARG]`. Node id is `arg:{callsite_id}#{position}` (derived via \
+            `cfdb_core::qname::argument_node_id`). Cypher ban-rules MUST NOT use \
+            `kind='other'` as a normative fence filter (RFC-043 §4 Invariant 10). \
+            SchemaVersion V0_5_0+; pre-V0_5_0 keyspaces carry zero `:Argument` nodes."
+            .into(),
+        attributes: vec![
+            attr(
+                "col",
+                "int",
+                "1-indexed column of the argument expression's first token.",
+                Extractor,
+            ),
+            attr(
+                "file",
+                "string",
+                "Source file relative to workspace root.",
+                Extractor,
+            ),
+            attr(
+                "kind",
+                "string",
+                "Coarse syntactic classification: `\"path\"` (identifier or path \
+                 expression), `\"method_call\"` (e.g. `x.clone()`), `\"call\"` \
+                 (free-fn invocation), `\"ref\"` (borrow expression), `\"literal\"` \
+                 (a literal value), `\"other\"` (any other expression variant). \
+                 Closed set; future variants additive. Cypher ban-rules MUST NOT \
+                 use `kind='other'` as a normative fence filter — it signals \
+                 extractor ignorance, not a domain category (RFC-043 §4 Invariant 10).",
+                Extractor,
+            ),
+            attr(
+                "line",
+                "int",
+                "1-indexed line of the argument expression's first token.",
+                Extractor,
+            ),
+            attr(
+                "position",
+                "int",
+                "Zero-indexed position in the call expression's argument list. \
+                 For `ExprMethodCall`, position 0 is the implicit `self` receiver; \
+                 for `ExprCall`, position 0 is the first positional argument. \
+                 Reference the receiver position by name via \
+                 `cfdb_core::schema::labels::RECEIVER_POSITION` (= 0).",
+                Extractor,
+            ),
+            attr(
+                "source_text",
+                "string",
+                "Verbatim source text of the argument expression, produced by \
+                 `proc-macro2` token-stream `to_string()` (deterministic for a \
+                 given syn AST). Cypher rules MAY match on `source_text` with \
+                 `=~`; consumers SHOULD prefer `kind` for coarse classification \
+                 (RFC-043 §3.1).",
+                Extractor,
+            ),
+        ],
+    }
+}
+
 pub(super) fn rfc_doc_node_descriptor() -> NodeLabelDescriptor {
     use Provenance::EnrichRfcDocs;
     NodeLabelDescriptor {

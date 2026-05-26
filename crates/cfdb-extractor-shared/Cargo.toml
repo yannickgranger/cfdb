@@ -1,0 +1,15 @@
+[package]
+name = "cfdb-extractor-shared"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# RFC-043 Slice A: shared pure classifier helper for syn-based argument-kind
+# classification. Used by both cfdb-extractor (syn walk) and cfdb-hir-extractor
+# (syn round-trip on HIR arg text). Kept separate from cfdb-core per RFC-032
+# §3 boundary: syn types cannot enter cfdb-core.
+
+[dependencies]
+syn.workspace = true

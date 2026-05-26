@@ -7,6 +7,7 @@ members = [
     "crates/cfdb-query",
     "crates/cfdb-petgraph",
     "crates/cfdb-extractor",
+    "crates/cfdb-extractor-shared",
     "crates/cfdb-extractor-php",
     "crates/cfdb-extractor-ts",
     "crates/cfdb-hir-extractor",

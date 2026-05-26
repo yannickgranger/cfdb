@@ -62,17 +62,17 @@ fn literal_label_serde_round_trip() {
 }
 
 #[test]
-fn schema_version_v0_4_0_is_current_and_g4_monotonic() {
-    // RFC-041 §3.3: :Literal is purely additive ⇒ minor bump within
-    // major 0. CURRENT advances from V0_3_2 to V0_4_0.
-    assert_eq!(SchemaVersion::CURRENT, SchemaVersion::V0_4_0);
-    assert!(SchemaVersion::CURRENT > SchemaVersion::V0_3_2);
+fn schema_version_v0_5_0_is_current_and_g4_monotonic() {
+    // RFC-043 §3.4: :Argument is a new fact type ⇒ minor bump within
+    // major 0. CURRENT advances from V0_4_0 to V0_5_0.
+    assert_eq!(SchemaVersion::CURRENT, SchemaVersion::V0_5_0);
+    assert!(SchemaVersion::CURRENT > SchemaVersion::V0_4_0);
     // Same major — additive within 0.x (G4).
-    assert_eq!(SchemaVersion::CURRENT.major, SchemaVersion::V0_3_2.major);
-    // A V0_4_0 reader can read a V0_3_2 graph (older minor, same major).
-    assert!(SchemaVersion::CURRENT.can_read(&SchemaVersion::V0_3_2));
-    // A V0_3_2 reader refuses a V0_4_0 graph (newer minor — G4 reject).
-    assert!(!SchemaVersion::V0_3_2.can_read(&SchemaVersion::CURRENT));
+    assert_eq!(SchemaVersion::CURRENT.major, SchemaVersion::V0_4_0.major);
+    // A V0_5_0 reader can read a V0_4_0 graph (older minor, same major).
+    assert!(SchemaVersion::CURRENT.can_read(&SchemaVersion::V0_4_0));
+    // A V0_4_0 reader refuses a V0_5_0 graph (newer minor — G4 reject).
+    assert!(!SchemaVersion::V0_4_0.can_read(&SchemaVersion::CURRENT));
 }
 
 // ---- RFC-044 §3.1 sub-band 2: SchemaVersion::CURRENT lockstep ----------
@@ -112,6 +112,7 @@ fn schema_version_current_is_exhaustive_maximum() {
         SchemaVersion::V0_3_1,
         SchemaVersion::V0_3_2,
         SchemaVersion::V0_4_0,
+        SchemaVersion::V0_5_0,
     ];
 
     // (a) Strictly ascending — no duplicates, each entry < next.

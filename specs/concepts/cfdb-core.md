@@ -51,6 +51,7 @@ The descriptor at `crates/cfdb-core/src/schema/describe/edges.rs` is authoritati
 - **BELONGS_TO** — a Crate belongs to its bounded Context.
 - **CALLS** — static call edge between two fn Items (best-effort cross-crate). Attributes: resolved
 - **INVOKES_AT** — a CallSite invokes a concrete fn Item.
+- **HAS_ARG** — a CallSite owns a positional Argument (RFC-043 Slice A). No edge attributes; position lives on the `:Argument` node. SchemaVersion V0_5_0+.
 - **EXPOSES** — an EntryPoint dispatches to a handler fn Item.
 - **REGISTERS_PARAM** — an EntryPoint declares an entry-point-exposed input (`:Param`, `:Field`, or `:Variant`).
 - **LABELED_AS** — an Item carries a semantic Concept label.
@@ -108,6 +109,7 @@ The descriptor at `crates/cfdb-core/src/schema/describe/nodes.rs` is authoritati
 - **RfcDoc** — an RFC document file scanned for concept-name matches. Attributes: path, title
 - **ConstTable** — a literal const slice/array recognized as a table of values (RFC-040). Attributes: crate, element_type, entries_hash, entries_normalized, entries_sample, entry_count, is_test, module_qpath, name, qname
 - **Literal** — a single string literal occurring in production source (RFC-041). Attributes: col, crate, file, is_test, line, value
+- **Argument** — a positional argument at a call site (RFC-043 Slice A). Emitted for every `ExprCall` and `ExprMethodCall`; position 0 is the implicit `self` receiver for method calls. Attributes: col, file, kind, line, position, source_text
 
 ## Node
 

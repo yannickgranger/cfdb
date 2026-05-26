@@ -33,6 +33,7 @@ fn schema_describe_covers_all_node_labels() {
             "RfcDoc",
             "ConstTable",
             "Literal",
+            "Argument",
         ]
     );
 }
@@ -60,6 +61,7 @@ fn schema_describe_covers_all_edge_labels() {
         "BELONGS_TO",
         "CALLS",
         "INVOKES_AT",
+        "HAS_ARG",
         "EXPOSES",
         "REGISTERS_PARAM",
         "LABELED_AS",
@@ -283,7 +285,7 @@ fn schema_describe_narrative_digest() {
     /// To update after a legitimate narrative change: set this to `"RECOMPUTE"`,
     /// run the test, copy the `actual digest:` value from the failure output.
     const FROZEN_NARRATIVE_DIGEST: &str =
-        "18eb52747c150aac5578dc63f81062ffbecc41e67980db8457170422671c08f4";
+        "ab22b9ed42d291fc954ab8972ffe82e0afcf39a9ee8b62c8a34e31aea653f5ea";
 
     let d = schema_describe();
 
@@ -525,7 +527,7 @@ fn spec_sections_cover_all_schema_labels() {
 
     // Non-vacuity: the descriptor returned the full schema, not a degraded subset.
     assert!(
-        d.nodes.len() >= 14 && d.edges.len() >= 19,
+        d.nodes.len() >= 15 && d.edges.len() >= 20,
         "schema_describe() returned a degraded schema (nodes={}, edges={})",
         d.nodes.len(),
         d.edges.len(),
