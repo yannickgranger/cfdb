@@ -37,6 +37,16 @@ jobs:
           set -e
           apt-get clean && apt-get update && apt-get install -y --no-install-recommends git build-essential libssl-dev pkg-config curl ca-certificates jq
           mkdir -p /cache/cargo/registry /cache/cargo/git /cache/cargo/bin /cache/rustup ~/.cargo
+
+          # Route build scratch (cc/ld temp files + ld's mmap'd link buffers)
+          # to disk-backed /cache rather than the container's small /tmp
+          # tmpfs. The ra_ap-heavy test-binary links exhaust /tmp at link
+          # time — "No space left on device" writing cc's *.s, then
+          # "ld terminated with signal 7 [Bus error]" on the mmap'd region
+          # (#452). /cache (and /workspace) are disk-backed with room; /tmp
+          # is RAM-backed and small. Cleared each run so scratch can't leak.
+          rm -rf /cache/tmp && mkdir -p /cache/tmp
+          echo "TMPDIR=/cache/tmp" >> "$GITHUB_ENV"
           ln -sf /cache/cargo/registry ~/.cargo/registry
           ln -sf /cache/cargo/git ~/.cargo/git
 
