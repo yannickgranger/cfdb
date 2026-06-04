@@ -193,91 +193,135 @@ fn walk_file<DB>(
         match descendant.kind() {
             SyntaxKind::METHOD_CALL_EXPR => {
                 if let Some(method_call) = ast::MethodCallExpr::cast(descendant) {
-                    if let Some(callee_fn) = sema.resolve_method_call(&method_call) {
-                        // Source-line where the method-call expression
-                        // starts. The `LineIndex::line_col` API returns
-                        // a 0-indexed line; we store 1-indexed lines in
-                        // the wire vocabulary (matching the syn
-                        // extractor's `proc_macro2::Span::start().line`
-                        // convention — see #291 / F-005). The
-                        // receiver-token start mirrors syn's choice of
-                        // `node.method.span().start().line` for
-                        // consistency across resolvers when
-                        // `foo\n .bar()` straddles two lines.
-                        let offset: TextSize = method_call.syntax().text_range().start();
-                        let line = line_index.line_col(offset).line as usize + 1;
-                        let cs_id = emit_resolved_call(
-                            sema,
-                            method_call.syntax(),
-                            callee_fn,
-                            "method",
-                            file_path,
-                            line,
-                            counts,
-                            nodes,
-                            edges,
-                        );
-                        if let Some(id) = cs_id {
-                            // RFC-043 Slice A: receiver at position 0,
-                            // then explicit args at positions 1..N.
-                            if let Some(receiver) = method_call.receiver() {
-                                emit_argument_facts(
-                                    &id, &receiver, 0, line_index, file_path, nodes, edges,
-                                );
-                            }
-                            if let Some(arg_list) = method_call.arg_list() {
-                                for (i, arg) in arg_list.args().enumerate() {
-                                    emit_argument_facts(
-                                        &id,
-                                        &arg,
-                                        1 + i as u32,
-                                        line_index,
-                                        file_path,
-                                        nodes,
-                                        edges,
-                                    );
-                                }
-                            }
-                        }
-                    }
+                    emit_method_call(
+                        sema,
+                        &method_call,
+                        file_path,
+                        line_index,
+                        counts,
+                        nodes,
+                        edges,
+                    );
                 }
             }
             SyntaxKind::CALL_EXPR => {
                 if let Some(call_expr) = ast::CallExpr::cast(descendant) {
-                    if let Some(callee_fn) = resolve_path_call(sema, &call_expr) {
-                        // Same 1-indexed line convention as the
-                        // method-call arm; offset is the start of the
-                        // CallExpr (which covers `Foo::bar(args)` from
-                        // the first segment of the path through the
-                        // closing paren).
-                        let offset: TextSize = call_expr.syntax().text_range().start();
-                        let line = line_index.line_col(offset).line as usize + 1;
-                        let cs_id = emit_resolved_call(
-                            sema,
-                            call_expr.syntax(),
-                            callee_fn,
-                            "fn",
-                            file_path,
-                            line,
-                            counts,
-                            nodes,
-                            edges,
-                        );
-                        if let Some(id) = cs_id {
-                            // RFC-043 Slice A: positions 0..N for all args.
-                            if let Some(arg_list) = call_expr.arg_list() {
-                                for (i, arg) in arg_list.args().enumerate() {
-                                    emit_argument_facts(
-                                        &id, &arg, i as u32, line_index, file_path, nodes, edges,
-                                    );
-                                }
-                            }
-                        }
-                    }
+                    emit_path_call(
+                        sema, &call_expr, file_path, line_index, counts, nodes, edges,
+                    );
                 }
             }
             _ => {}
         }
+    }
+}
+
+/// Resolve and emit one `receiver.method(args)` call — the
+/// [`SyntaxKind::METHOD_CALL_EXPR`] arm of [`walk_file`], extracted so the
+/// walker stays flat (the inline form scored cognitive-58 / nesting-7).
+fn emit_method_call<DB>(
+    sema: &Semantics<'_, DB>,
+    method_call: &ast::MethodCallExpr,
+    file_path: &Path,
+    line_index: &LineIndex,
+    counts: &mut BTreeMap<(String, String), usize>,
+    nodes: &mut Vec<Node>,
+    edges: &mut Vec<Edge>,
+) where
+    DB: HirDatabase + Sized,
+{
+    let Some(callee_fn) = sema.resolve_method_call(method_call) else {
+        return;
+    };
+    // 1-indexed source line of the call expression — matches the syn
+    // extractor's `proc_macro2::Span::start().line` convention (#291 /
+    // F-005); receiver-token start mirrors syn for `foo\n .bar()`.
+    let offset: TextSize = method_call.syntax().text_range().start();
+    let line = line_index.line_col(offset).line as usize + 1;
+    let Some(cs_id) = emit_resolved_call(
+        sema,
+        method_call.syntax(),
+        callee_fn,
+        "method",
+        file_path,
+        line,
+        counts,
+        nodes,
+        edges,
+    ) else {
+        return;
+    };
+    // RFC-043 Slice A: receiver at position 0, explicit args at 1..N.
+    if let Some(receiver) = method_call.receiver() {
+        emit_argument_facts(&cs_id, &receiver, 0, line_index, file_path, nodes, edges);
+    }
+    if let Some(arg_list) = method_call.arg_list() {
+        emit_positional_args(&cs_id, &arg_list, 1, line_index, file_path, nodes, edges);
+    }
+}
+
+/// Resolve and emit one `path(args)` call — the [`SyntaxKind::CALL_EXPR`]
+/// arm of [`walk_file`].
+fn emit_path_call<DB>(
+    sema: &Semantics<'_, DB>,
+    call_expr: &ast::CallExpr,
+    file_path: &Path,
+    line_index: &LineIndex,
+    counts: &mut BTreeMap<(String, String), usize>,
+    nodes: &mut Vec<Node>,
+    edges: &mut Vec<Edge>,
+) where
+    DB: HirDatabase + Sized,
+{
+    let Some(callee_fn) = resolve_path_call(sema, call_expr) else {
+        return;
+    };
+    // Same 1-indexed convention; offset is the CallExpr start (covers
+    // `Foo::bar(args)` from the first path segment through the close paren).
+    let offset: TextSize = call_expr.syntax().text_range().start();
+    let line = line_index.line_col(offset).line as usize + 1;
+    let Some(cs_id) = emit_resolved_call(
+        sema,
+        call_expr.syntax(),
+        callee_fn,
+        "fn",
+        file_path,
+        line,
+        counts,
+        nodes,
+        edges,
+    ) else {
+        return;
+    };
+    // RFC-043 Slice A: positions 0..N for all args.
+    if let Some(arg_list) = call_expr.arg_list() {
+        emit_positional_args(&cs_id, &arg_list, 0, line_index, file_path, nodes, edges);
+    }
+}
+
+/// Emit positional `:Argument` facts for an explicit arg list, numbering
+/// from `base` (1 for method calls — the receiver occupies position 0 —
+/// and 0 for path calls). Shared by [`emit_method_call`] and
+/// [`emit_path_call`].
+fn emit_positional_args(
+    cs_id: &str,
+    arg_list: &ast::ArgList,
+    base: u32,
+    line_index: &LineIndex,
+    file_path: &Path,
+    nodes: &mut Vec<Node>,
+    edges: &mut Vec<Edge>,
+) {
+    for (i, arg) in arg_list.args().enumerate() {
+        emit_argument_facts(
+            cs_id,
+            &arg,
+            base + i as u32,
+            line_index,
+            file_path,
+            nodes,
+            edges,
+        );
     }
 }
 
