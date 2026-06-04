@@ -70,8 +70,13 @@ pub(super) fn edge_descriptors() -> Vec<EdgeLabelDescriptor> {
         },
         EdgeLabelDescriptor {
             label: EdgeLabel::new(EdgeLabel::IMPLEMENTS),
-            description: "An impl Item implements a trait Item.".into(),
-            attributes: vec![],
+            description: "An implementing Item implements an implemented Item. Rust (resolver=\"syn\"): impl-block Item → trait Item, paired with an IMPLEMENTS_FOR edge for the receiver type. PHP/TS (resolver=\"tree-sitter-php\"/\"tree-sitter-typescript\", RFC-045): the implementing class Item → interface Item DIRECTLY, with NO companion IMPLEMENTS_FOR (there is no impl-block intermediary) — cross-language queries start from the source implementing Item, never an impl-block. PHP/TS edges are emitted only when the target interface qname resolves to an in-workspace :Item (closed-world; external targets produce no edge and no synthetic node). `extends`/inheritance is NOT an IMPLEMENTS edge (RFC-045 §3.3 D3-a defers it).".into(),
+            attributes: vec![attr(
+                "resolver",
+                "enum",
+                "Which producer resolved this edge: `syn` (cfdb-extractor — Rust impl-block → trait), `tree-sitter-php` (cfdb-extractor-php — PHP class/interface → interface), or `tree-sitter-typescript` (cfdb-extractor-ts — TS class → interface). Mirrors the `:CallSite.resolver` discriminator precedent so consumers filter on `resolver` to select a language's impl shape rather than splitting the edge label. Additive at the type level (no SchemaVersion bump). Present on every IMPLEMENTS edge from RFC-045 onward — the Rust producer backfills `\"syn\"` so the attribute is uniformly populated.",
+                Extractor,
+            )],
             from: vec![Label::new(Label::ITEM)],
             to: vec![Label::new(Label::ITEM)],
             provenance: Provenance::Extractor,
