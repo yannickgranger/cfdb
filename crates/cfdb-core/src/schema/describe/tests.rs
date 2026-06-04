@@ -285,7 +285,7 @@ fn schema_describe_narrative_digest() {
     /// To update after a legitimate narrative change: set this to `"RECOMPUTE"`,
     /// run the test, copy the `actual digest:` value from the failure output.
     const FROZEN_NARRATIVE_DIGEST: &str =
-        "1d42ceb356123e74f326d931b84f711eb4190e96f780482aa9b1231ac150aecf";
+        "0062ab7bdcc970de370f95ec69c9414f433fdbf95ce0c3b0982aba7578c7479e";
 
     let d = schema_describe();
 
@@ -430,6 +430,13 @@ fn schema_describe_call_site_narrative_pins() {
         resolver.description.contains("v0.1.3"),
         ":CallSite.resolver description must reference SchemaVersion v0.1.3+ \
          constraint — RFC-044 §3.1 I6 narrative pin. \
+         Current description: {:?}",
+        resolver.description,
+    );
+    assert!(
+        resolver.description.contains("tree-sitter-php"),
+        ":CallSite.resolver description must enumerate valid value \
+         `tree-sitter-php` (cfdb-extractor-php) — RFC-045 45-C enum-pin extension. \
          Current description: {:?}",
         resolver.description,
     );

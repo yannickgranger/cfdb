@@ -284,7 +284,7 @@ pub(super) fn call_site_node_descriptor() -> NodeLabelDescriptor {
             attr("is_test", "bool", "True when the enclosing item is under `#[cfg(test)]` or in `tests/`.", Extractor),
             attr("kind", "enum", "CallSite shape: `call` (ExprCall/MethodCall), `fn_ptr` (path passed as fn-pointer arg), `serde_default` (`#[serde(default = \"...\")]`).", Extractor),
             attr("line", "int", "1-based line number.", Extractor),
-            attr("resolver", "enum", "Which extractor produced this node: `syn` (cfdb-extractor, unresolved name-based) or `hir` (cfdb-hir-extractor, HIR-resolved). SchemaVersion v0.1.3+ only. See Label::CALL_SITE discriminator contract.", Extractor),
+            attr("resolver", "enum", "Which extractor produced this node: `syn` (cfdb-extractor, unresolved name-based), `hir` (cfdb-hir-extractor, HIR-resolved), `tree-sitter-php` (cfdb-extractor-php, RFC-045 45-C — syntactic in-workspace resolution), or `tree-sitter-typescript` (cfdb-extractor-ts, RFC-045 45-D — no call resolution, every callee_resolved=false). SchemaVersion v0.1.3+ only (the `tree-sitter-*` values are additive — no version bump). See Label::CALL_SITE discriminator contract.", Extractor),
         ],
     }
 }

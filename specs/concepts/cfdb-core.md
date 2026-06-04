@@ -50,7 +50,7 @@ The descriptor at `crates/cfdb-core/src/schema/describe/edges.rs` is authoritati
 - **RETURNS** — an fn Item returns a type Item.
 - **BELONGS_TO** — a Crate belongs to its bounded Context.
 - **CALLS** — static call edge between two fn Items (best-effort cross-crate). Attributes: resolved
-- **INVOKES_AT** — a CallSite invokes a concrete fn Item.
+- **INVOKES_AT** — the containing fn/method Item points at a CallSite (Item → CallSite; direction corrected RFC-045 45-C). "Callers of X" walks `(cs:CallSite)<-[:INVOKES_AT]-(caller)`.
 - **HAS_ARG** — a CallSite owns a positional Argument (RFC-043 Slice A). No edge attributes; position lives on the `:Argument` node. SchemaVersion V0_5_0+.
 - **EXPOSES** — an EntryPoint dispatches to a handler fn Item.
 - **REGISTERS_PARAM** — an EntryPoint declares an entry-point-exposed input (`:Param`, `:Field`, or `:Variant`).

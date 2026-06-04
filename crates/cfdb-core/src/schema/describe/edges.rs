@@ -122,10 +122,10 @@ pub(super) fn edge_descriptors() -> Vec<EdgeLabelDescriptor> {
         },
         EdgeLabelDescriptor {
             label: EdgeLabel::new(EdgeLabel::INVOKES_AT),
-            description: "A CallSite invokes a concrete fn Item.".into(),
+            description: "The fn/method Item that contains a call points at the CallSite for that call (Item → CallSite). \"Callers of X\" walks `(cs:CallSite)<-[:INVOKES_AT]-(caller) WHERE cs.callee_path …`. Direction corrected in RFC-045 45-C: the descriptor previously declared CallSite → Item, contradicting every producer (`cfdb-extractor/src/item_visitor/emit/mod.rs`, `cfdb-extractor-php`) which emits Item → CallSite.".into(),
             attributes: vec![],
-            from: vec![Label::new(Label::CALL_SITE)],
-            to: vec![Label::new(Label::ITEM)],
+            from: vec![Label::new(Label::ITEM)],
+            to: vec![Label::new(Label::CALL_SITE)],
             provenance: Provenance::Extractor,
         },
         EdgeLabelDescriptor {
