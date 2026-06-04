@@ -18,32 +18,18 @@ use std::process::Command;
 use assert_cmd::prelude::*;
 use tempfile::tempdir;
 
-fn cfdb_workspace_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("cfdb-cli manifest dir has a parent crates/ directory")
-        .parent()
-        .expect("crates/ has a parent cfdb sub-workspace root")
-        .to_path_buf()
-}
+mod common;
 
-fn extract_cfdb(db_path: &Path) -> String {
-    Command::cargo_bin("cfdb")
-        .expect("cfdb binary is built for integration tests")
-        .args([
-            "extract",
-            "--workspace",
-            cfdb_workspace_root()
-                .to_str()
-                .expect("cfdb sub-workspace root path is valid utf-8"),
-            "--db",
-            db_path.to_str().expect("db tempdir path is valid utf-8"),
-            "--keyspace",
-            "cfdb-v01",
-        ])
-        .assert()
-        .success();
-    "cfdb-v01".to_string()
+/// Shared syn-only extract of the cfdb worktree into keyspace `cfdb-v01`,
+/// built once and reused read-only by every keyspace-backed scope test.
+/// Replaces the former per-test `extract_cfdb`, which re-extracted the
+/// whole tree in each of the 7 such tests. `scope` only reads the keyspace
+/// (per-test `--output` dumps go to a separate tempdir), so sharing is
+/// faithful — assertions see byte-identical data.
+fn shared_scope_db() -> PathBuf {
+    common::cached_db("scope-cfdb-v01", |db| {
+        common::extract(db, &common::workspace_root(), "cfdb-v01", &[]);
+    })
 }
 
 fn run_scope(db: &Path, args: &[&str]) -> std::process::Output {
@@ -93,10 +79,9 @@ fn scope_missing_context_arg_exits_with_usage_error_code_2() {
 
 #[test]
 fn scope_rejects_unknown_context() {
-    let db = tempdir().expect("tempdir");
-    extract_cfdb(db.path());
+    let db = shared_scope_db();
     let out = run_scope(
-        db.path(),
+        &db,
         &["--keyspace", "cfdb-v01", "--context", "does-not-exist"],
     );
     assert_eq!(
@@ -113,11 +98,10 @@ fn scope_rejects_unknown_context() {
 
 #[test]
 fn scope_filters_to_named_context() {
-    let db = tempdir().expect("tempdir");
-    extract_cfdb(db.path());
+    let db = shared_scope_db();
     // Every cfdb crate belongs to the `cfdb` bounded context via the
     // crate-prefix heuristic (`cfdb-core` → `cfdb`, etc.).
-    let out = run_scope(db.path(), &["--keyspace", "cfdb-v01", "--context", "cfdb"]);
+    let out = run_scope(&db, &["--keyspace", "cfdb-v01", "--context", "cfdb"]);
     assert!(
         out.status.success(),
         "scope --context cfdb failed: {}",
@@ -142,9 +126,8 @@ fn scope_filters_to_named_context() {
 
 #[test]
 fn scope_emits_section_a33_shape() {
-    let db = tempdir().expect("tempdir");
-    extract_cfdb(db.path());
-    let out = run_scope(db.path(), &["--keyspace", "cfdb-v01", "--context", "cfdb"]);
+    let db = shared_scope_db();
+    let out = run_scope(&db, &["--keyspace", "cfdb-v01", "--context", "cfdb"]);
     assert!(out.status.success());
     let parsed: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON");
     let obj = parsed.as_object().expect("top-level object");
@@ -182,10 +165,9 @@ fn scope_emits_section_a33_shape() {
 
 #[test]
 fn scope_deterministic_across_runs() {
-    let db = tempdir().expect("tempdir");
-    extract_cfdb(db.path());
-    let a = run_scope(db.path(), &["--keyspace", "cfdb-v01", "--context", "cfdb"]);
-    let b = run_scope(db.path(), &["--keyspace", "cfdb-v01", "--context", "cfdb"]);
+    let db = shared_scope_db();
+    let a = run_scope(&db, &["--keyspace", "cfdb-v01", "--context", "cfdb"]);
+    let b = run_scope(&db, &["--keyspace", "cfdb-v01", "--context", "cfdb"]);
     assert!(a.status.success() && b.status.success());
     assert_eq!(
         a.stdout, b.stdout,
@@ -215,9 +197,8 @@ fn scope_empty_buckets_carry_per_class_warning_naming_missing_input() {
     // bucket is empty depends on the scanned code shape, so we don't
     // assert on them here. The integration test
     // `classifier_taxonomy.rs` (hir-gated) covers all 6 positive paths.
-    let db = tempdir().expect("tempdir");
-    extract_cfdb(db.path());
-    let out = run_scope(db.path(), &["--keyspace", "cfdb-v01", "--context", "cfdb"]);
+    let db = shared_scope_db();
+    let out = run_scope(&db, &["--keyspace", "cfdb-v01", "--context", "cfdb"]);
     assert!(out.status.success());
     let parsed: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON");
     let warnings = parsed["warnings"]
@@ -248,10 +229,9 @@ fn scope_empty_buckets_carry_per_class_warning_naming_missing_input() {
 
 #[test]
 fn scope_rejects_format_table_in_v01() {
-    let db = tempdir().expect("tempdir");
-    extract_cfdb(db.path());
+    let db = shared_scope_db();
     let out = run_scope(
-        db.path(),
+        &db,
         &[
             "--keyspace",
             "cfdb-v01",
@@ -275,12 +255,11 @@ fn scope_rejects_format_table_in_v01() {
 
 #[test]
 fn scope_writes_to_output_path_when_given() {
-    let db = tempdir().expect("tempdir");
+    let db = shared_scope_db();
     let out_dir = tempdir().expect("out tempdir");
-    extract_cfdb(db.path());
     let out_path = out_dir.path().join("inventory.json");
     let out = run_scope(
-        db.path(),
+        &db,
         &[
             "--keyspace",
             "cfdb-v01",
