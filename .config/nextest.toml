@@ -1,0 +1,24 @@
+# cargo-nextest configuration.
+#
+# Serialize the cfdb-recall integration tests. Each of the three
+# scenarios calls `ground_truth::build_public_api_for_manifest`, which
+# shells out to `rustdoc --output-format=json` writing the SAME
+# `target/doc/cfdb_core.json`. The test relies on a `OnceLock` to run
+# rustdoc once "per test binary" — but nextest runs each test in its OWN
+# PROCESS, so the OnceLock no longer serializes across the three. The
+# concurrent rustdoc builds then race on that file and readers catch it
+# mid-write ("EOF while parsing a string" → JsonParse panic, flaky).
+#
+# `cargo test` (threads in one process) was safe via the OnceLock; the
+# nextest migration (#449) silently reintroduced the race. Pin the recall
+# tests to a single-threaded group so at most one rustdoc build runs at a
+# time. The OnceLock still de-dups within a process; this caps cross-
+# process concurrency. ~3 tests run sequentially (~+15s) — a cheap price
+# for determinism.
+
+[test-groups]
+rustdoc-json-serial = { max-threads = 1 }
+
+[[profile.default.overrides]]
+filter = "package(cfdb-recall)"
+test-group = "rustdoc-json-serial"
