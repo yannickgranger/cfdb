@@ -64,6 +64,12 @@ jobs:
               tar xzf - --strip-components=1 -C /cache/cargo/bin/ "sccache-${SCCACHE_VERSION}-x86_64-unknown-linux-musl/sccache"
             chmod +x /cache/cargo/bin/sccache
           fi
+
+          # cargo-nextest — parallel test runner (cached binary, like sccache).
+          if [ ! -f "/cache/cargo/bin/cargo-nextest" ]; then
+            curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C /cache/cargo/bin/ cargo-nextest
+            chmod +x /cache/cargo/bin/cargo-nextest
+          fi
           echo "PATH=/cache/cargo/bin:${PATH}" >> "$GITHUB_ENV"
 
           if /cache/cargo/bin/sccache --start-server 2>&1; then
@@ -132,10 +138,18 @@ jobs:
           cd repo
           cargo clippy --workspace --all-targets --all-features -- -D warnings
 
-      - name: Test
+      - name: Test (nextest — parallel across all binaries)
         run: |
           cd repo
-          cargo test --workspace --all-features
+          # cargo test runs the ~115 integration-test binaries SEQUENTIALLY;
+          # nextest schedules every test across all binaries in one parallel
+          # pool. nextest does not run doctests, so they get their own step.
+          cargo nextest run --workspace --all-features
+
+      - name: Doctests (nextest does not execute doctests)
+        run: |
+          cd repo
+          cargo test --workspace --all-features --doc
 
       - name: Check slim cfdb-recall (no runner feature)
         run: |
