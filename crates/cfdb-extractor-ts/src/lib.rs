@@ -67,6 +67,7 @@ use cfdb_lang::{LanguageError, LanguageProducer};
 use tree_sitter::Parser;
 
 mod emit;
+mod methods;
 
 /// Stable producer identifier — matches the `lang-typescript` Cargo
 /// feature gate on `cfdb-cli` (RFC-041 §3.4) and the keyspace suffix
