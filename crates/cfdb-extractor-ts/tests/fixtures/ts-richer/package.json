@@ -1,0 +1,5 @@
+{
+    "name": "ts-richer-fixture",
+    "version": "1.0.0",
+    "description": "Synthetic TS project with interfaces + implementing classes — fixture for cfdb-extractor-ts IMPLEMENTS edges (RFC-045 45-B / issue #463)."
+}

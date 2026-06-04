@@ -285,7 +285,7 @@ fn schema_describe_narrative_digest() {
     /// To update after a legitimate narrative change: set this to `"RECOMPUTE"`,
     /// run the test, copy the `actual digest:` value from the failure output.
     const FROZEN_NARRATIVE_DIGEST: &str =
-        "0062ab7bdcc970de370f95ec69c9414f433fdbf95ce0c3b0982aba7578c7479e";
+        "c8aff4a466b0c1f2b93176b52363b0df61de2499723c041c77ef3b858bb0fb14";
 
     let d = schema_describe();
 
