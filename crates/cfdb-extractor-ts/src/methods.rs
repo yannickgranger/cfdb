@@ -69,6 +69,8 @@ pub(crate) fn emit_class_methods(
                 nodes,
                 edges,
             );
+            // Call sites in the method body (RFC-045 45-D) — caller is this method.
+            crate::call_walker::walk_call_sites(member, source, &qname, rel_path, nodes, edges);
         }
     }
 }

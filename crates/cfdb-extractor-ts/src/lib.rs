@@ -66,6 +66,7 @@ use cfdb_core::schema::Label;
 use cfdb_lang::{LanguageError, LanguageProducer};
 use tree_sitter::Parser;
 
+mod call_walker;
 mod emit;
 mod methods;
 

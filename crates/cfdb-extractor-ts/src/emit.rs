@@ -165,6 +165,13 @@ fn emit_top_level_declaration(
             edges,
         );
     }
+
+    // Call sites in a top-level function body (RFC-045 45-D) — caller is the fn.
+    // (Method-body call sites are walked inside `emit_class_methods` above.)
+    if decl.kind() == "function_declaration" {
+        let caller_qname = id.strip_prefix("item:").unwrap_or(&id);
+        crate::call_walker::walk_call_sites(decl, source, caller_qname, rel_path, nodes, edges);
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
