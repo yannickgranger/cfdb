@@ -21,6 +21,16 @@ on:
     - cron: "0 6 * * 1"
   workflow_dispatch: {}
 
+# The job both pushes a branch (contents) and opens a bump PR / cross-drift
+# issue via the Gitea API. Without an explicit grant the auto-token is
+# contents:write but pull-requests/issues:read — so `git push` succeeds but
+# `curl POST /pulls` returns 4xx (curl exit 22). That gap silently froze the
+# pin for ~6 weeks (Issue #67 post-mortem); make the scopes explicit.
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -Dwarnings
