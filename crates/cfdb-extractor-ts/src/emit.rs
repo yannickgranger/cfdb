@@ -151,6 +151,19 @@ fn emit_top_level_declaration(
     // in-workspace `:Item`s in pass 2 (`resolve_implements`).
     if let "class_declaration" | "abstract_class_declaration" = decl.kind() {
         buffer_implements_targets(decl, source, &id, pending_implements);
+        // Method-level `:Item`s (RFC-045 45-D0) — the call-site anchor for 45-D.
+        crate::methods::emit_class_methods(
+            decl,
+            source,
+            &name,
+            crate_name,
+            crate_id,
+            module_qpath,
+            module_id,
+            rel_path,
+            nodes,
+            edges,
+        );
     }
 }
 
@@ -340,6 +353,17 @@ pub(crate) fn resolve_implements(
     let mut by_name: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
     for n in nodes {
         if n.label.as_str() != Label::ITEM {
+            continue;
+        }
+        // Only interfaces (`trait`) and classes (`struct`) are valid
+        // `implements` targets. Restricting the name map to type-kind items
+        // keeps method `:Item`s (`kind:"fn"`, RFC-045 45-D0) and free
+        // functions/consts from shadowing an interface name (which would make
+        // resolution ambiguous and silently drop the edge).
+        if !matches!(
+            n.props.get("kind").and_then(PropValue::as_str),
+            Some("trait" | "struct")
+        ) {
             continue;
         }
         if let Some(name) = n.props.get("name").and_then(PropValue::as_str) {
