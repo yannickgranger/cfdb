@@ -5,7 +5,10 @@ export class Product implements Identifiable, Serializable {
         return 0;
     }
     toJSON(): string {
-        return "";
+        // A call site so the fixture exercises 45-D :CallSite emission:
+        // `this.id()` (member_expression callee_path) inside Product::toJSON.
+        const n = this.id();
+        return String(n);
     }
 }
 
