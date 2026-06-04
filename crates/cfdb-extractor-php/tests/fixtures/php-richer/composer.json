@@ -1,0 +1,14 @@
+{
+    "name": "cfdb/php-richer-fixture",
+    "description": "Synthetic Composer project with interfaces + implementing classes — fixture for cfdb-extractor-php IMPLEMENTS edges (RFC-045 45-A / issue #462).",
+    "type": "library",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Shop\\": "src/"
+        }
+    },
+    "require": {
+        "php": ">=8.1"
+    }
+}

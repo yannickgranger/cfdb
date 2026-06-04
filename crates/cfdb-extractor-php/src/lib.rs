@@ -44,12 +44,14 @@
 //! `(label, id)` and edges by `(src, dst, label)` before return.
 //! Matches the canonical-dump shape `cfdb-extractor` already produces.
 
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use cfdb_core::fact::{Edge, Node, PropValue};
 use cfdb_core::schema::{EdgeLabel, Label};
 use cfdb_lang::{LanguageError, LanguageProducer};
+
+mod emitter;
+use emitter::{item_id, module_id, Emitter};
 
 /// Stable producer name reported by [`LanguageProducer::name`] and
 /// embedded in [`LanguageError::Parse::producer`]. Matches the
@@ -110,6 +112,10 @@ fn produce_facts(workspace_root: &Path) -> Result<(Vec<Node>, Vec<Edge>), Langua
     for path in php_files {
         walk_file(&path, &mut emitter)?;
     }
+
+    // Pass 2: now that every class/interface `:Item` exists, resolve the
+    // buffered `implements` targets into `IMPLEMENTS` edges (RFC-045 §3.2).
+    emitter.resolve_pending_implements();
 
     let (mut nodes, mut edges) = emitter.finish();
     nodes.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
@@ -230,10 +236,6 @@ fn emit_module(emitter: &mut Emitter, namespace: &str) {
     );
 }
 
-fn module_id(namespace: &str) -> String {
-    format!("module:{namespace}")
-}
-
 /// Emit a `:Item { kind: "trait" }` for a PHP `class_declaration`,
 /// `interface_declaration`, or `trait_declaration` plus the corresponding
 /// `IN_CRATE` and (when available) `IN_MODULE` edges. Recurses into the
@@ -277,12 +279,65 @@ fn emit_class_like(
         ));
     }
 
+    // IMPLEMENTS (pass 1): buffer `(this class, each implemented interface)`.
+    // Only `class_interface_clause` (the `implements` list) is walked —
+    // `base_clause` (`extends`) is intentionally excluded, since inheritance
+    // edges are deferred (RFC-045 §3.3 D3-a). Targets are resolved to
+    // in-workspace `:Item`s in pass 2 (`resolve_pending_implements`).
+    let mut clause_cursor = node.walk();
+    for child in node.children(&mut clause_cursor) {
+        if child.kind() == "class_interface_clause" {
+            buffer_implements_targets(child, src, current_ns, &id, emitter);
+        }
+    }
+
     // Walk the declaration_list for methods.
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         if child.kind() == "declaration_list" {
             walk_declaration_list(child, src, current_ns, &qname, emitter);
         }
+    }
+}
+
+/// Buffer one pending `IMPLEMENTS` pair per interface named in a
+/// `class_interface_clause`. The clause's named children are `name`
+/// (unqualified, e.g. `Greeter`) or `qualified_name` (e.g. `\Ns\I` or
+/// `Sub\I`) nodes interleaved with `implements`/`,` tokens — only the two
+/// type-reference kinds are resolved.
+fn buffer_implements_targets(
+    clause: tree_sitter::Node,
+    src: &[u8],
+    current_ns: Option<&str>,
+    source_id: &str,
+    emitter: &mut Emitter,
+) {
+    let mut cursor = clause.walk();
+    for iface in clause.children(&mut cursor) {
+        if matches!(iface.kind(), "name" | "qualified_name") {
+            if let Some(target_qname) = resolve_interface_qname(iface, src, current_ns) {
+                emitter.buffer_implements(source_id, &target_qname);
+            }
+        }
+    }
+}
+
+/// Resolve an interface reference in an `implements` clause to the qname of
+/// the `:Item` it would target. A fully-qualified (absolute) reference
+/// `\Ns\I` strips the leading `\`; an unqualified or relative reference is
+/// qualified against the current namespace exactly as class/interface qnames
+/// are built (`qualify`). There is no `use`-import resolution in the MVP, so
+/// an aliased import resolves to `current_ns\<text>` and simply finds no
+/// matching `:Item` (closed-world — no edge).
+fn resolve_interface_qname(
+    node: tree_sitter::Node,
+    src: &[u8],
+    current_ns: Option<&str>,
+) -> Option<String> {
+    let raw = text(node, src)?;
+    match raw.strip_prefix('\\') {
+        Some(absolute) => Some(absolute.to_string()),
+        None => Some(qualify(current_ns, raw)),
     }
 }
 
@@ -407,47 +462,6 @@ fn qualify(ns: Option<&str>, name: &str) -> String {
     match ns {
         Some(ns) if !ns.is_empty() => format!("{ns}\\{name}"),
         _ => name.to_string(),
-    }
-}
-
-fn item_id(qname: &str) -> String {
-    format!("item:{qname}")
-}
-
-// ---------------------------------------------------------------------------
-// Emitter — small helper that dedups :Module / :Crate node ids and
-// otherwise just collects everything for sorting at finish().
-// ---------------------------------------------------------------------------
-
-struct Emitter {
-    nodes: BTreeMap<String, Node>,
-    edges: Vec<Edge>,
-}
-
-impl Emitter {
-    fn new() -> Self {
-        Self {
-            nodes: BTreeMap::new(),
-            edges: Vec::new(),
-        }
-    }
-
-    fn emit_node(&mut self, node: Node) {
-        // dedup on id — if the same module/crate id is emitted twice
-        // (multi-file namespace), keep the first.
-        self.nodes.entry(node.id.clone()).or_insert(node);
-    }
-
-    fn has_node(&self, id: &str) -> bool {
-        self.nodes.contains_key(id)
-    }
-
-    fn emit_edge(&mut self, edge: Edge) {
-        self.edges.push(edge);
-    }
-
-    fn finish(self) -> (Vec<Node>, Vec<Edge>) {
-        (self.nodes.into_values().collect(), self.edges)
     }
 }
 

@@ -45,7 +45,7 @@ The descriptor at `crates/cfdb-core/src/schema/describe/edges.rs` is authoritati
 - **HAS_PARAM** — an fn Item owns a Param.
 - **HAS_CONST_TABLE** — a const Item owns a recognized literal table of values (RFC-040).
 - **TYPE_OF** — a Field, Param, or Variant payload references an Item used as its type.
-- **IMPLEMENTS** — an impl Item implements a trait Item.
+- **IMPLEMENTS** — an implementing Item implements an implemented Item (Rust impl-block → trait; PHP/TS class → interface directly, no companion IMPLEMENTS_FOR). Attributes: resolver (`syn` | `tree-sitter-php` | `tree-sitter-typescript`, RFC-045).
 - **IMPLEMENTS_FOR** — an impl Item targets a type Item (the receiver of the impl).
 - **RETURNS** — an fn Item returns a type Item.
 - **BELONGS_TO** — a Crate belongs to its bounded Context.
@@ -98,7 +98,7 @@ The descriptor at `crates/cfdb-core/src/schema/describe/nodes.rs` is authoritati
 - **Crate** — a Cargo package in the workspace. Attributes: name, path, version
 - **Module** — a Rust module (`mod` block or file-level module). Attributes: crate, file, is_inline, qpath
 - **File** — a source file walked by the extractor. Attributes: crate, loc, module_qpath, path
-- **Item** — a top-level item (struct, enum, trait, impl, fn, const, static, type alias). Attributes: bounded_context, cfg_gate, crate, cyclomatic, deprecation_since, doc_text, dup_cluster_id, file, git_commit_count, git_last_author, git_last_commit_unix_ts, impl_target, impl_trait, is_deprecated, is_test, kind, line, module_qpath, name, qname, reachable_entry_count, reachable_from_entry, reachable_from_production_entry, reachable_production_entry_count, signature, signature_hash, test_coverage, unwrap_count, visibility
+- **Item** — a top-level item (struct, enum, trait, impl, fn, const, static, type alias). Attributes: bounded_context, cfg_gate, crate, cyclomatic, deprecation_since, doc_text, dup_cluster_id, file, git_commit_count, git_last_author, git_last_commit_unix_ts, impl_target, impl_trait, is_deprecated, is_test, kind, line, module_qpath, name, php_construct, qname, reachable_entry_count, reachable_from_entry, reachable_from_production_entry, reachable_production_entry_count, signature, signature_hash, test_coverage, unwrap_count, visibility
 - **Field** — a struct field, tuple-struct element, or enum-variant field. Attributes: index, name, parent_qname, type_normalized, type_path
 - **Variant** — an enum variant. Attributes: index, name, parent_qname, payload_kind
 - **Param** — a function or method parameter. Attributes: index, is_self, name, parent_qname, type_normalized, type_path

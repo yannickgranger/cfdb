@@ -401,14 +401,18 @@ impl ItemVisitor<'_> {
             props: BTreeMap::new(),
         });
 
-        // IMPLEMENTS — trait impls only.
+        // IMPLEMENTS — trait impls only. Carries `resolver = "syn"` so the
+        // discriminator is uniformly present across producers (RFC-045 §3.2;
+        // PHP/TS emit `tree-sitter-php`/`tree-sitter-typescript`).
         if let Some(t) = trait_qname {
             let trait_resolved = resolve_target_qname(&self.module_stack, t);
+            let mut props = BTreeMap::new();
+            props.insert("resolver".to_string(), PropValue::Str("syn".to_string()));
             self.emitter.emit_edge(Edge {
                 src: impl_id,
                 dst: item_node_id(&trait_resolved),
                 label: EdgeLabel::new(EdgeLabel::IMPLEMENTS),
-                props: BTreeMap::new(),
+                props,
             });
         }
     }

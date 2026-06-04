@@ -939,6 +939,14 @@ impl Polite {
             .map(|n| n.id.as_str())
             .collect::<Vec<_>>(),
     );
+    // RFC-045 45-A — the Rust producer backfills `resolver = "syn"` on every
+    // IMPLEMENTS edge so the discriminator is uniformly present across the
+    // syn / tree-sitter-php / tree-sitter-typescript producers.
+    assert_eq!(
+        implements.props.get("resolver").and_then(PropValue::as_str),
+        Some("syn"),
+        "Rust IMPLEMENTS edge must carry resolver=\"syn\" (RFC-045 §3.2 backfill)",
+    );
 
     // (c) IMPLEMENTS_FOR edges — exactly two, both targeting Polite.
     let implements_for_edges: Vec<&cfdb_core::fact::Edge> = edges
