@@ -13,31 +13,20 @@ use assert_cmd::prelude::*;
 use cfdb_query::{ClassifyEnvelope, CLASSIFY_ENVELOPE_SCHEMA_VERSION};
 use tempfile::tempdir;
 
-fn cfdb_workspace_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("crates/ parent")
-        .parent()
-        .expect("workspace root")
-        .to_path_buf()
-}
+mod common;
 
-fn extract_two_keyspaces(db_path: &Path, workspace: &Path) {
-    for ks in ["cfdb-a", "cfdb-b"] {
-        Command::cargo_bin("cfdb")
-            .expect("cfdb binary built")
-            .args([
-                "extract",
-                "--workspace",
-                workspace.to_str().unwrap(),
-                "--db",
-                db_path.to_str().unwrap(),
-                "--keyspace",
-                ks,
-            ])
-            .assert()
-            .success();
-    }
+/// Shared extract of the cfdb worktree into two identical keyspaces
+/// (`cfdb-a`, `cfdb-b`), built once and reused read-only by every test in
+/// this binary. Replaces the former per-test `extract_two_keyspaces`,
+/// which re-ran two whole-tree extracts in each of the 6 tests (12
+/// extracts → 2). The keyspaces are read-only here (diff/classify only
+/// read them; per-test `diff.json` outputs go to a separate tempdir), so
+/// sharing is faithful — assertions see byte-identical data.
+fn shared_db() -> PathBuf {
+    common::cached_db("classify-self-dogfood", |db| {
+        common::extract(db, &common::workspace_root(), "cfdb-a", &[]);
+        common::extract(db, &common::workspace_root(), "cfdb-b", &[]);
+    })
 }
 
 fn run_diff(db_path: &Path, a: &str, b: &str, out: &Path) {
@@ -60,12 +49,11 @@ fn run_diff(db_path: &Path, a: &str, b: &str, out: &Path) {
 
 #[test]
 fn classify_against_identical_keyspaces_emits_empty_buckets_and_warnings() {
-    let db = tempdir().expect("tempdir");
-    let db_path = db.path();
-    let workspace = cfdb_workspace_root();
-    extract_two_keyspaces(db_path, &workspace);
+    let cache = shared_db();
+    let db_path = cache.as_path();
 
-    let diff_path = db.path().join("diff.json");
+    let out = tempdir().expect("tempdir");
+    let diff_path = out.path().join("diff.json");
     run_diff(db_path, "cfdb-a", "cfdb-b", &diff_path);
 
     let output = Command::cargo_bin("cfdb")
@@ -116,12 +104,11 @@ fn classify_against_identical_keyspaces_emits_empty_buckets_and_warnings() {
 
 #[test]
 fn classify_rejects_unknown_context() {
-    let db = tempdir().expect("tempdir");
-    let db_path = db.path();
-    let workspace = cfdb_workspace_root();
-    extract_two_keyspaces(db_path, &workspace);
+    let cache = shared_db();
+    let db_path = cache.as_path();
 
-    let diff_path = db.path().join("diff.json");
+    let out = tempdir().expect("tempdir");
+    let diff_path = out.path().join("diff.json");
     run_diff(db_path, "cfdb-a", "cfdb-b", &diff_path);
 
     let output = Command::cargo_bin("cfdb")
@@ -150,10 +137,8 @@ fn classify_rejects_unknown_context() {
 
 #[test]
 fn classify_rejects_missing_restrict_file() {
-    let db = tempdir().expect("tempdir");
-    let db_path = db.path();
-    let workspace = cfdb_workspace_root();
-    extract_two_keyspaces(db_path, &workspace);
+    let cache = shared_db();
+    let db_path = cache.as_path();
 
     let output = Command::cargo_bin("cfdb")
         .expect("cfdb binary built")
@@ -181,12 +166,11 @@ fn classify_rejects_missing_restrict_file() {
 
 #[test]
 fn classify_emits_sorted_jsonl_header_and_finding_lines() {
-    let db = tempdir().expect("tempdir");
-    let db_path = db.path();
-    let workspace = cfdb_workspace_root();
-    extract_two_keyspaces(db_path, &workspace);
+    let cache = shared_db();
+    let db_path = cache.as_path();
 
-    let diff_path = db.path().join("diff.json");
+    let out = tempdir().expect("tempdir");
+    let diff_path = out.path().join("diff.json");
     run_diff(db_path, "cfdb-a", "cfdb-b", &diff_path);
 
     let output = Command::cargo_bin("cfdb")
@@ -238,12 +222,11 @@ fn classify_emits_sorted_jsonl_header_and_finding_lines() {
 
 #[test]
 fn classify_sorted_jsonl_determinism() {
-    let db = tempdir().expect("tempdir");
-    let db_path = db.path();
-    let workspace = cfdb_workspace_root();
-    extract_two_keyspaces(db_path, &workspace);
+    let cache = shared_db();
+    let db_path = cache.as_path();
 
-    let diff_path = db.path().join("diff.json");
+    let out = tempdir().expect("tempdir");
+    let diff_path = out.path().join("diff.json");
     run_diff(db_path, "cfdb-a", "cfdb-b", &diff_path);
 
     let run = || {
@@ -276,12 +259,11 @@ fn classify_sorted_jsonl_determinism() {
 
 #[test]
 fn classify_rejects_unknown_format_with_enumerated_values() {
-    let db = tempdir().expect("tempdir");
-    let db_path = db.path();
-    let workspace = cfdb_workspace_root();
-    extract_two_keyspaces(db_path, &workspace);
+    let cache = shared_db();
+    let db_path = cache.as_path();
 
-    let diff_path = db.path().join("diff.json");
+    let out = tempdir().expect("tempdir");
+    let diff_path = out.path().join("diff.json");
     run_diff(db_path, "cfdb-a", "cfdb-b", &diff_path);
 
     let output = Command::cargo_bin("cfdb")
