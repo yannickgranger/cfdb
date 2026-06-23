@@ -67,11 +67,19 @@ fn extract_at_path(
 
     let (nodes, edges) = match matched.as_slice() {
         [] => {
-            return Err(crate::lang::NoProducerDetected {
-                workspace: workspace.display().to_string(),
-                compiled_in,
-            }
-            .into());
+            // An empty or no-recognized-language workspace is NOT an error: a
+            // fact-graph extractor over a repo with no source it understands
+            // answers with an EMPTY graph, not a failure. This lets a
+            // greenfield bootstrap — a brand-new repo whose first commit will
+            // create the workspace — be x-rayed into a valid, empty keyspace
+            // that downstream consumers (anchor resolution, violation checks)
+            // read as "zero items" instead of crashing on a missing keyspace.
+            eprintln!(
+                "cfdb: no LanguageProducer detected workspace `{}`; \
+                 compiled-in producers: {compiled_in:?} — extracting an empty graph",
+                workspace.display()
+            );
+            (Vec::new(), Vec::new())
         }
         [single] => single.produce(workspace)?,
         [first, rest @ ..] => {
