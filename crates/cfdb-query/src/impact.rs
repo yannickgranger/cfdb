@@ -45,7 +45,12 @@ pub const IMPACT_QUERY: &str = "MATCH (seed:Item)<-[:CALLS*1..]-(affected:Item) 
 /// `Param::List` of the given qnames, in the order provided. The caller
 /// executes it against a [`cfdb_core::store::StoreBackend`]; the result rows'
 /// `qname` column is the set of transitive callers (the blast radius).
-pub fn impact_query<S: AsRef<str>>(seeds: &[S]) -> Query {
+///
+/// `max_depth` bounds the traversal: `None` is the open form `<-[:CALLS*1..]-`
+/// (unbounded, the canonical default — [`IMPACT_QUERY`]); `Some(n)` is
+/// `<-[:CALLS*1..n]-` (callers within `n` hops). This is the `*1..N` form the
+/// `cfdb impact --max-depth` flag maps to (RFC-047a §6 / slice 47-B).
+pub fn impact_query<S: AsRef<str>>(seeds: &[S], max_depth: Option<u32>) -> Query {
     // `(var:Item)` endpoint — the seed and affected nodes share this shape.
     let item_endpoint = |var: &str| NodePattern {
         var: Some(var.to_string()),
@@ -53,16 +58,16 @@ pub fn impact_query<S: AsRef<str>>(seeds: &[S]) -> Query {
         props: BTreeMap::new(),
     };
 
-    // `(seed:Item)<-[:CALLS*1..]-(affected:Item)` — reverse (`Direction::In`)
-    // unbounded var-length traversal: `affected` is any transitive caller of
-    // `seed`.
+    // `(seed:Item)<-[:CALLS*1..N]-(affected:Item)` — reverse (`Direction::In`)
+    // var-length traversal: `affected` is any transitive caller of `seed`.
+    // `None` → `u32::MAX` (the open, unbounded form).
     let match_clauses = vec![Pattern::Path(PathPattern {
         from: item_endpoint("seed"),
         edge: EdgePattern {
             var: None,
             label: Some(EdgeLabel::new(EdgeLabel::CALLS)),
             direction: Direction::In,
-            var_length: Some((1, u32::MAX)),
+            var_length: Some((1, max_depth.unwrap_or(u32::MAX))),
         },
         to: item_endpoint("affected"),
     })];
@@ -107,6 +112,51 @@ pub fn impact_query<S: AsRef<str>>(seeds: &[S]) -> Query {
     }
 }
 
+/// Compose the projection that feeds `cfdb impact --since` SEED RESOLUTION
+/// (RFC-047 §3.3): `(qname, file)` for every `:Item`.
+///
+/// The caller matches each row's `file` against the `git diff` changed-file set
+/// (repo-relative) and seeds [`impact_query`] with the matching qnames. The
+/// match is done caller-side (not as a `WHERE i.file IN $files`) on purpose:
+/// `:Item.file` is **absolute** on HIR-extracted keyspaces (the ones that carry
+/// the resolved `CALLS` impact needs) and **repo-relative** on syn-extracted
+/// ones, so an exact `IN` would silently match nothing on exactly the keyspaces
+/// where `impact` is meaningful. A suffix-tolerant caller-side match handles
+/// both forms.
+pub fn items_with_files_query() -> Query {
+    let property = |prop: &str| {
+        ProjectionValue::Expr(Expr::Property {
+            var: "i".to_string(),
+            prop: prop.to_string(),
+        })
+    };
+    Query {
+        match_clauses: vec![Pattern::Node(NodePattern {
+            var: Some("i".to_string()),
+            label: Some(Label::new(Label::ITEM)),
+            props: BTreeMap::new(),
+        })],
+        where_clause: None,
+        with_clause: None,
+        return_clause: ReturnClause {
+            projections: vec![
+                Projection {
+                    value: property("qname"),
+                    alias: Some("qname".to_string()),
+                },
+                Projection {
+                    value: property("file"),
+                    alias: Some("file".to_string()),
+                },
+            ],
+            order_by: vec![],
+            limit: None,
+            distinct: false,
+        },
+        params: BTreeMap::new(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::parser::parse;
@@ -115,7 +165,7 @@ mod tests {
 
     #[test]
     fn impact_query_binds_seed_list_as_param_in_order() {
-        let q = impact_query(&["core::leaf_a", "core::leaf_b"]);
+        let q = impact_query(&["core::leaf_a", "core::leaf_b"], None);
         let Some(Param::List(items)) = q.params.get("seeds") else {
             unreachable!("impact_query always binds $seeds as a Param::List");
         };
@@ -131,7 +181,7 @@ mod tests {
 
     #[test]
     fn impact_query_is_reverse_unbounded_calls_traversal() {
-        let q = impact_query(&["x"]);
+        let q = impact_query(&["x"], None);
         assert_eq!(q.match_clauses.len(), 1, "one reverse var-length path");
         let Pattern::Path(PathPattern { from, edge, to }) = &q.match_clauses[0] else {
             unreachable!("the canonical impact match is a single Path pattern");
@@ -154,8 +204,22 @@ mod tests {
     }
 
     #[test]
+    fn impact_query_max_depth_bounds_the_traversal() {
+        // `--max-depth N` maps to the bounded form `*1..N` (RFC-047a §6 / 47-B).
+        let q = impact_query(&["x"], Some(3));
+        let Pattern::Path(PathPattern { edge, .. }) = &q.match_clauses[0] else {
+            unreachable!("the canonical impact match is a single Path pattern");
+        };
+        assert_eq!(
+            edge.var_length,
+            Some((1, 3)),
+            "Some(n) bounds the var-length traversal at n hops"
+        );
+    }
+
+    #[test]
     fn impact_query_filters_seed_by_qname_in_seeds() {
-        let q = impact_query(&["x"]);
+        let q = impact_query(&["x"], None);
         let Some(Predicate::In { left, right }) = q.where_clause.as_ref() else {
             unreachable!("impact filters the seed endpoint by `seed.qname IN $seeds`");
         };
@@ -175,7 +239,7 @@ mod tests {
 
     #[test]
     fn impact_query_returns_distinct_affected_qname() {
-        let q = impact_query(&["x"]);
+        let q = impact_query(&["x"], None);
         assert!(
             q.return_clause.distinct,
             "DISTINCT dedups items reachable via more than one call path"
@@ -189,8 +253,8 @@ mod tests {
 
     #[test]
     fn impact_query_deterministic_across_runs() {
-        let a = impact_query(&["a", "b"]);
-        let b = impact_query(&["a", "b"]);
+        let a = impact_query(&["a", "b"], None);
+        let b = impact_query(&["a", "b"], None);
         assert_eq!(a, b, "PartialEq determinism");
         let sa = serde_json::to_string(&a).expect("serialize a");
         let sb = serde_json::to_string(&b).expect("serialize b");
@@ -202,12 +266,43 @@ mod tests {
         // The directly-built AST must equal `parse(IMPACT_QUERY)` (params
         // aside): this pins the human-readable canonical string as the source
         // of truth and catches any drift between it and the built AST.
-        let mut built = impact_query::<&str>(&[]);
+        let mut built = impact_query::<&str>(&[], None);
         built.params.clear();
         let parsed = parse(IMPACT_QUERY).expect("IMPACT_QUERY is a valid Cypher-subset query");
         assert_eq!(
             built, parsed,
             "built impact AST must equal parse(IMPACT_QUERY)"
         );
+    }
+
+    #[test]
+    fn items_with_files_query_projects_qname_and_file_for_all_items() {
+        let q = items_with_files_query();
+        // MATCH (i:Item) — no WHERE (caller does the suffix-tolerant match).
+        assert_eq!(q.match_clauses.len(), 1);
+        let Pattern::Node(NodePattern { var, label, .. }) = &q.match_clauses[0] else {
+            unreachable!("seed-resolution projection matches a single (i:Item) node");
+        };
+        assert_eq!(var.as_deref(), Some("i"));
+        assert_eq!(label.as_ref().map(Label::as_str), Some("Item"));
+        assert!(q.where_clause.is_none(), "no WHERE — match is caller-side");
+        assert!(q.params.is_empty());
+        // RETURN i.qname AS qname, i.file AS file
+        let aliases: Vec<&str> = q
+            .return_clause
+            .projections
+            .iter()
+            .map(|p| p.alias.as_deref().expect("alias"))
+            .collect();
+        assert_eq!(aliases, vec!["qname", "file"]);
+        for (proj, prop) in q.return_clause.projections.iter().zip(["qname", "file"]) {
+            assert_eq!(
+                proj.value,
+                ProjectionValue::Expr(Expr::Property {
+                    var: "i".into(),
+                    prop: prop.into(),
+                })
+            );
+        }
     }
 }

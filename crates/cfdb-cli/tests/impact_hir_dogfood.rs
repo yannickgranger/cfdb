@@ -82,7 +82,7 @@ fn resolved_calls_keyspace() -> (PetgraphStore, Keyspace) {
 
 /// Collect the affected-set (transitive callers) of a single seed qname.
 fn blast_radius(store: &PetgraphStore, ks: &Keyspace, seed: &str) -> BTreeSet<String> {
-    let query = impact_query(&[seed]);
+    let query = impact_query(&[seed], None);
     store
         .execute(ks, &query)
         .expect("execute impact query against the HIR keyspace")
