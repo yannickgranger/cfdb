@@ -97,6 +97,18 @@ pub(in crate::schema::describe) fn item_node_descriptor() -> NodeLabelDescriptor
 /// Extractor-provenance attributes on `:Item` — syntactic facts the
 /// AST walker populates directly.
 fn item_attrs_extractor() -> Vec<AttributeDescriptor> {
+    // Composed from two builders purely to keep each short and readable; the
+    // caller sorts by name, so the partition is cosmetic (#488 boy-scout — the
+    // flat 20-attr builder tripped the line-based complexity heuristic on the
+    // `?` / `for` tokens inside its doc strings, not on real branching).
+    let mut attrs = item_attrs_extractor_metadata();
+    attrs.extend(item_attrs_extractor_structural());
+    attrs
+}
+
+/// Extractor-provenance `:Item` attributes (part 1) — context, cfg, rustdoc,
+/// deprecation, impl-block, and compile-scope facts.
+fn item_attrs_extractor_metadata() -> Vec<AttributeDescriptor> {
     use Provenance::Extractor;
     vec![
         attr("bounded_context", "string", "Bounded context the containing crate belongs to — derived at extraction time from the crate-prefix heuristic with optional `.cfdb/concepts/<name>.toml` overrides (council-cfdb-wiring §B.1.2).", Extractor),
@@ -109,6 +121,14 @@ fn item_attrs_extractor() -> Vec<AttributeDescriptor> {
         attr("impl_trait", "string?", "Rendered trait path for a trait-impl block (e.g. `Display`, `cfdb_core::StoreBackend`). Only emitted on `:Item { kind: \"impl_block\" }` nodes AND only when the impl has a trait (inherent `impl Foo {}` emits no `impl_trait` prop). The `IMPLEMENTS` edge encodes the same information structurally when the trait :Item is resolvable within the walked workspace; cross-crate re-exports that syn cannot follow emit the prop but drop the edge (HIR-based resolution is a follow-up slice). SchemaVersion V0_2_2+ (#42).", Extractor),
         attr("is_deprecated", "bool", "True when the item carries a `#[deprecated]` attribute (any form — bare, `note =`, or `since =`). Extractor-time per RFC addendum §A2.2 row 3. Populated by slice 43-C (issue #106); reserved in slice 43-A.", Extractor),
         attr("is_test", "bool", "True when the item is under a `#[cfg(test)]` module or directly annotated `#[test]` (fn items only) (council-cfdb-wiring §B.1.1).", Extractor),
+    ]
+}
+
+/// Extractor-provenance `:Item` attributes (part 2) — kind, naming, location,
+/// signature, visibility, and cross-producer (PHP/TS) disambiguation facts.
+fn item_attrs_extractor_structural() -> Vec<AttributeDescriptor> {
+    use Provenance::Extractor;
+    vec![
         attr("kind", "enum", "Item kind: `Struct`, `Enum`, `Trait`, `Impl`, `Fn`, `Const`, `TypeAlias`.", Extractor),
         attr("line", "int", "1-based line number of the item's first token.", Extractor),
         attr("module_qpath", "string", "Fully-qualified path of the enclosing module.", Extractor),

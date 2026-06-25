@@ -168,7 +168,7 @@ impl LanguageProducer for TypeScriptProducer {
         // Pass 2: now that every class/interface `:Item` exists, resolve the
         // buffered `implements` references into `IMPLEMENTS` edges by name
         // (RFC-045 §3.2 / §3.4, in-workspace-only).
-        emit::resolve_implements(&pending_implements, &nodes, &mut edges);
+        emit::resolve_implements(pending_implements, &nodes, &mut edges);
 
         // Canonical sort — matches cfdb-extractor's contract so two
         // producers' output streams compose deterministically when

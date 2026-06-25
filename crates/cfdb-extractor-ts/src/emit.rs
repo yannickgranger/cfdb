@@ -353,7 +353,7 @@ fn buffer_clause_targets(
 /// limitation pending import-aware resolution. Every emitted edge carries
 /// `resolver = "tree-sitter-typescript"`.
 pub(crate) fn resolve_implements(
-    pending: &[(String, String)],
+    pending: Vec<(String, String)>,
     nodes: &[Node],
     edges: &mut Vec<Edge>,
 ) {
@@ -391,7 +391,9 @@ pub(crate) fn resolve_implements(
             PropValue::Str("tree-sitter-typescript".into()),
         );
         edges.push(Edge {
-            src: class_id.clone(),
+            // `class_id` is owned by this loop and used only here — move it
+            // into the edge rather than cloning per iteration.
+            src: class_id,
             dst: ids[0].to_string(),
             label: EdgeLabel::new(EdgeLabel::IMPLEMENTS),
             props,

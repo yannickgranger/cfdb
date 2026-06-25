@@ -152,8 +152,6 @@ impl Emitter {
                 .with_prop("is_test", false)
                 .with_prop("resolver", "tree-sitter-php")
                 .with_prop("callee_resolved", callee_resolved);
-            self.nodes.entry(cs.id.clone()).or_insert(node);
-
             // INVOKES_AT: Item(caller) -> CallSite.
             self.edges.push(Edge::new(
                 item_id(&cs.caller_qname),
@@ -171,6 +169,11 @@ impl Emitter {
                     ));
                 }
             }
+
+            // Insert the CallSite node last so the owned `cs.id` moves into the
+            // map key — no per-iteration clone (the id is borrowed above for
+            // the node and the INVOKES_AT edge, both of which precede this).
+            self.nodes.entry(cs.id).or_insert(node);
         }
     }
 
