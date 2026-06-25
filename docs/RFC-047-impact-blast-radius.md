@@ -1,6 +1,6 @@
 # RFC-047 — Impact / blast-radius query (`cfdb impact`)
 
-- **Status:** DRAFT — pending architect hardening + council. (Borrowed candidate **C1** from [`studies/002`](../studies/002-borrowed-from-understand-anything.md); validated against cfdb in [`studies/003`](../studies/003-cfdb-understand-discovery.md).)
+- **Status:** **RATIFIED** (council R1 REQUEST CHANGES → amendments applied → R2 **RATIFY ×4**). Decomposition (47-0, 47-A, 47-B, 47-C) ready to file as issues; not yet filed. Verdicts: [`council/RFC-047-052/`](../council/RFC-047-052/) (RATIFIED.md, SYNTHESIS-R1, four lens files). (Borrowed candidate **C1** from [`studies/002`](../studies/002-borrowed-from-understand-anything.md); validated against cfdb in [`studies/003`](../studies/003-cfdb-understand-discovery.md).)
 - **Issue:** none yet (filed only after ratification).
 - **Schema impact:** **none.** No new node/edge label, no attribute, **no `SchemaVersion` bump.** Composes existing facts only.
 - **Companion:** none (no schema surface → no `graph-specs-rust` lockstep).
@@ -38,7 +38,9 @@ RETURN DISTINCT affected.qname, affected.file, affected.reachable_from_productio
 ORDER BY affected.reachable_from_production_entry DESC, affected.qname
 ```
 
-The `$seeds` binding is supplied via `query_with_input` (the existing parameter-binding path). Variable-length `CALLS*1..` is already in the Cypher subset (`RFC-034`); if an upper bound is needed for very dense graphs, `--max-depth N` maps to `CALLS*1..N`.
+The `$seeds` binding is a **list-valued parameter**. **Council finding (clean-arch, lead-verified): no list-binding path exists today.** The CLI `--input` flag is an unwired stub (`crates/cfdb-cli/src/commands/query.rs:39` prints "accepted but not yet wired in v0.1") and `bind_single_param` rejects arrays/objects (`query.rs:104`). So `impact` cannot bind `IN $seeds` through any existing path. This is resolved by slice **47-0** (§7): `impact` constructs the `Query` AST in-process and inserts the seed list directly via `parsed.params.insert(...)` — mirroring the shipped `list_callers` single-`$qname` pattern (`query.rs:120-137`) — **not** by routing through the CLI `--params`/`--input` surface. 47-0 verifies that `cfdb_core::Param` has (or adds) a list variant; the binding stays confined to the `cfdb-cli` handler, so no `cfdb-core`/port change.
+
+Variable-length `CALLS*1..` is already in the Cypher subset (`RFC-034`). **`--max-depth` is unbounded by default** (rust-systems): a one-shot CLI reverse-reachability over the densest crate (`cfdb-petgraph`, 578 fns) is an O(V+E) BFS, sub-second on cfdb's 2197 nodes — a forced low default would silently truncate real blast radius, which is worse than the honest unbounded cost. `--max-depth N` maps to `CALLS*1..N` when a consumer wants to bound a very dense target.
 
 ### 3.3 Seed resolution (`cfdb-cli`, deterministic)
 - `--item <qname>` (repeatable): seeds are exactly the given qnames.
@@ -57,11 +59,12 @@ Plain rows through the standard `QueryResult` surface (qname, file, production-r
 
 ## 5. Architect lenses
 
-> **DRAFT — to be filled by next-session architect hardening before council.** Expected focus areas, pre-seeded for the architects:
-- **clean-arch:** confirm `impact` lives in `cfdb-cli` as a composition over the `query` port, with zero new logic leaking into `cfdb-core`; the seed-resolution `git` shell-out is an adapter concern — verify it does not contaminate the query layer.
-- **ddd:** "impact" / "blast radius" — is this a new domain concept or just a query view? (Draft position: a *view*, not a concept; no `:Item` attribute, no new label.)
-- **solid:** SRP of the new dispatch branch vs. existing `dispatch_*` branches; does `--since` git-seeding belong in `impact` or a shared seed-resolver?
-- **rust-systems:** cost of `CALLS*1..` on the densest crate (`cfdb-petgraph`, 578 fns) without a depth bound; whether `--max-depth` should default to bounded.
+> **HARDENED by the RFC-047..052 council** (mailbox deliberation; all claims `file:line`-verified). R1: **REQUEST CHANGES** (clean-arch) / RATIFY (ddd, solid, rust-systems). Single blocking finding addressed by slice 47-0.
+
+- **clean-arch — REQUEST CHANGES → RATIFY on 47-0.** The layering is correct: `impact` is a `cfdb-cli` dispatch branch composing the `query` port with zero `cfdb-core` logic, exactly like the shipped `list_callers` (`commands/query.rs:120`), and the `--since` `git diff` shell-out is an adapter concern at the composition root (`compose.rs:139`) that never touches the query layer. **Blocking gap:** the composition target (`IN $seeds` list-binding) does not exist — `--input` is stubbed (`query.rs:39`), `--params` rejects arrays (`query.rs:104`). Flip condition: slice 47-0 lands in-process list-binding (mirroring `list_callers`' `parsed.params.insert`), confined to the CLI handler. Applied.
+- **ddd — RATIFY.** "Impact"/"blast radius" is a query *view*, not a domain concept: zero new `Label`, no `:Item` attribute (`labels.rs`, `cfdb-core.md:101`). It composes the existing `CALLS` edge and `reachable_from_production_entry`. No bounded-context boundary crossed, read-only. Nothing to gate.
+- **solid — RATIFY.** `impact` belongs in the `dispatch_typed` family (`main.rs:104-127`) — a read-only typed-query view, SRP-clean as a sibling of `list_callers`. Verb ceiling untouched (composition, not a trait method — blessed by `cfdb-core.md:215`). Non-blocking shape note: extract `resolve_seeds(SeedSpec::{Items, SinceRef}) -> Vec<Qname>` as a free function (one reason to change: how seeds are derived) — the natural OCP extension point when §6's signature-precise seeding lands as a third arm. YAGNI to build a `SeedResolver` abstraction for one caller.
+- **rust-systems — RATIFY (doc nit, applied).** Pure composition; the reverse traversal reuses the existing `bfs_call_graph` shape (`enrich/reachability.rs:246`). The only systems concern is the unbounded `CALLS*1..` worst-case (near-whole-graph BFS from a low-tier seed) — fine for a one-shot CLI; §3.2 now documents `--max-depth` unbounded-by-default with the O(V+E) cost rather than forcing a truncating default.
 
 ## 6. Non-goals
 
@@ -71,6 +74,16 @@ Plain rows through the standard `QueryResult` surface (qname, file, production-r
 - Any rendering, PR comment, or diff visualisation — consumer concern.
 
 ## 7. Issue decomposition
+
+### 47-0 — Seed list-binding (council-added prerequisite) — DO FIRST
+Land list-valued param binding so `IN $seeds` has a path. `impact` builds the `Query` AST in-process and inserts the seed list via `parsed.params.insert(...)` (mirroring `list_callers`, `query.rs:120-137`), **not** via CLI `--params`/`--input`. Verify or add a `cfdb_core::Param` list variant; confine the change to the `cfdb-cli` handler (no `cfdb-core`/port change).
+```
+Tests:
+  - Unit: a list-valued param binds into the Query AST and `WHERE x IN $seeds` matches the bound list (today `query.rs:104` rejects arrays — red-first is real).
+  - Self dogfood (cfdb on cfdb): a two-seed in-process query returns the union of both seeds' matches on the cfdb keyspace.
+  - Cross dogfood (graph-specs-rust at pinned SHA): none — rationale: adapter-only, no schema/ban surface.
+  - Target dogfood (on qbot-core at pinned SHA): none — rationale: pure binding-path slice; the end-to-end signal is reported by 47-B.
+```
 
 ### 47-A — Canonical reverse-reachability query + dogfood
 Add the parameterised query (or a query-builder helper) and assert it against cfdb-self.
