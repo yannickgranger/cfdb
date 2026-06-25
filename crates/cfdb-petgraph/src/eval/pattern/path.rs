@@ -202,10 +202,26 @@ impl<'a> Evaluator<'a> {
         src_idx: NodeIndex,
         edge: &EdgePattern,
     ) -> Vec<(NodeIndex, Option<EdgeIndex>)> {
-        let (min_depth, max_depth) = edge.var_length.unwrap_or((1, 1));
-        let max_depth = max_depth
-            .max(min_depth)
-            .min(DEFAULT_VAR_LENGTH_MAX.max(min_depth));
+        // Resolve the BFS frontier ceiling from the var-length quantifier
+        // (RFC-047a §3.2, #488). The ceiling is honoured for explicit bounds
+        // and is unbounded for the open form — it was previously clamped to
+        // `DEFAULT_VAR_LENGTH_MAX` for *every* pattern, silently truncating
+        // explicit deep traversals (`*1..10` → 5).
+        let (min_depth, max_depth) = match edge.var_length {
+            // Open form `*N..` (B1 maps an omitted upper bound to `u32::MAX`):
+            // truly UNBOUNDED (council Q1) — the visited-set is the only bound.
+            // This BFS is O(V+E) because the `visited.insert` guard below
+            // enqueues each node at most once, so a numeric depth cap buys
+            // nothing. `DEFAULT_VAR_LENGTH_MAX` is NOT applied here.
+            Some((lo, hi)) if hi == u32::MAX => (lo, u32::MAX),
+            // Explicit finite bound `*N..M`: honour `M` exactly as written —
+            // no silent clamp to `DEFAULT_VAR_LENGTH_MAX` (council Q2).
+            Some((lo, hi)) => (lo, hi.max(lo)),
+            // No quantifier never reaches `traverse_bfs` (the caller gates on
+            // `var_length.is_some()`); fall back defensively to the documented
+            // ceiling. This is the *only* surviving use of the constant.
+            None => (1, DEFAULT_VAR_LENGTH_MAX),
+        };
 
         let mut out: Vec<(NodeIndex, Option<EdgeIndex>)> = Vec::new();
         let mut visited: BTreeSet<NodeIndex> = BTreeSet::new();

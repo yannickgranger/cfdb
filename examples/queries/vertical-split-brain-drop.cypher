@@ -46,7 +46,9 @@
 //   `:EntryPoint` nodes => no rows => smoke green; matches the `fork`
 //   rule's existing convention).
 // - BFS bound `*1..8` mirrors the `fork` rule per RFC-cfdb §A1.5
-//   v0.2-4 gate (DEFAULT_VAR_LENGTH_MAX = 8).
+//   v0.2-4 gate. The explicit bound is honoured exactly — the traversal
+//   walks all 8 hops (RFC-047a, #488; previously silently clamped to 5 —
+//   `DEFAULT_VAR_LENGTH_MAX` was never 8).
 // - Skip test fns via `is_test = false` — same convention.
 // - Require `layer_k <> layer_kp1` so the rule never reports a single
 //   resolver against itself.
