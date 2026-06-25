@@ -1,107 +1,105 @@
-# RFC-048 — Incremental extraction (structural-fingerprint reuse)
+# RFC-048 — Incremental extraction — **profile-gated (parsing is likely not the bottleneck)**
 
-- **Status:** DRAFT — pending architect hardening + council. (Borrowed candidate **C2** from [`studies/002`](../studies/002-borrowed-from-understand-anything.md).)
-- **Issue:** none yet (filed only after ratification).
-- **Schema impact:** **none on the wire graph** in v1 (the fingerprint cache is an out-of-band sidecar, not a graph fact — see §3.2). A `:File.content_hash` attribute is an explicit *alternative* considered and **deferred** to keep the wire contract untouched.
+- **Status:** DRAFT — **REFRAMED 2026-06-25 after the UA discovery** ([`studies/003`](../studies/003-cfdb-understand-discovery.md)). The original premise (skip re-parsing unchanged files) is suspect: a generic Tree-sitter pass parsed cfdb's entire **352-file code tree in 0.575 s**, so parsing is almost certainly *not* what makes `extract` slow. This RFC is now **profile-first** — it does not authorize building any skip logic until a phase profile proves which phase actually dominates. The likely real lever is incremental *enrichment*, not parse-skip. (Borrowed candidate **C2** from [`studies/002`](../studies/002-borrowed-from-understand-anything.md).)
+- **Issue:** none yet (filed only after the profile in §7 48-A justifies a downstream slice).
+- **Schema impact:** **none on the wire graph** in v1 (any fingerprint cache is an out-of-band sidecar, §3.2).
 - **Companion:** none in v1 (no schema surface).
-- **Origin:** `Understand-Anything` `fingerprint.ts` + `change-classifier.ts` + `staleness.ts`.
+- **Origin:** `Understand-Anything` `fingerprint.ts` + `change-classifier.ts` + `staleness.ts` — and, decisively, the wall-clock evidence from running its Tree-sitter floor on cfdb.
 
 ---
 
-## 1. Problem
+## 1. Problem (reframed by the discovery)
 
-cfdb re-extracts the entire workspace on every `extract`. The discovery in [`studies/003`](../studies/003-cfdb-understand-discovery.md) classified cfdb's own tree as **`very-large`** (654 files, 344 Rust, 2197 functions), with two crates — `cfdb-petgraph` (578 fns) and `cfdb-cli` (391 fns) — dominating. A one-line change in a leaf crate pays the full-workspace re-parse cost. This does not scale to the larger downstream targets (qbot-core, agentry) where cfdb is run repeatedly in CI and locally.
+`extract` re-runs the whole pipeline every run, and on a `very-large` tree that hurts. The **original** RFC assumed re-parsing was the dominant cost and proposed skipping it for unchanged files. **The discovery falsifies that assumption's foundation:** `Understand-Anything`'s Tree-sitter floor parsed cfdb's entire 352-file code tree, emitting 2197 functions, in **0.575 s** ([`studies/003 §1`](../studies/003-cfdb-understand-discovery.md)). `syn` is heavier than Tree-sitter, but not minutes-heavier.
 
-The cost is *re-parsing*, not *re-storing*: `extract` re-runs `syn`/tree-sitter over every file even when 99% are byte-identical to the last run.
+What actually consumes `extract` wall-clock is the **global, whole-graph work** that runs *after* parsing:
+- `CALLS` resolution (cross-crate best-effort symbol matching),
+- reachability BFS over `CALLS*` (`reachable_from_*`),
+- `dup_cluster_id` sha256 clustering,
+- git-history enrichment (per-item shellouts),
+- the `cargo +nightly rustdoc` recall gate — the heaviest, tens of seconds to minutes.
+
+Skipping re-parse of unchanged files optimises the **cheap** phase. So the first question is **not** "how do we skip parsing" but **"where does `extract` actually spend its seconds"** — and the whole build is gated on that answer.
 
 ## 2. Scope
 
-**Ships:** an opt-in incremental mode (`extract --incremental`, off by default) that:
-1. Fingerprints every source file (content hash + the structural signature cfdb already computes).
-2. Classifies the change set against the prior run (`SKIP` / `PARTIAL` / `FULL`).
-3. Re-parses only changed files and conservatively recomputes any cross-file fact touching a changed file.
-4. **Produces a canonical dump byte-identical to a full re-extract of the same workspace SHA** — this is the gate, not a nice-to-have (§4, §7 48-C).
+**v1 ships a PROFILE, not an optimisation.** Instrument `extract` to attribute wall-clock per phase (walk, parse, `CALLS`-resolve, reachability, each `enrich_*`, recall) on a real target (cfdb-self and one large downstream target). That measurement decides everything downstream:
+- **If parsing is material** → the original fingerprint-based parse-skip (now 48-C) is justified.
+- **If the global passes dominate** (the expectation) → the real work is **incremental enrichment**: recompute reachability / dup-clusters / recall only for the subgraph touched by changed files, reusing prior results elsewhere — strictly harder, because these facts are global and `G1` must still hold.
+- **If the rustdoc recall shellout dominates** → the honest answer may be that "incremental extraction" is the wrong frame entirely, and the higher-value RFC is *caching the rustdoc JSON* (its own RFC, §6).
 
-**Does not ship:** incremental *enrichment* (the `enrich_*` passes — separate concern), a watch-mode daemon, or any change to the default (full) extraction path.
+**Does not ship:** any parse-skip or enrichment-skip code before the profile justifies it.
 
 ## 3. Design
 
-### 3.1 Fingerprint (borrowed shape)
-Per file: `content_hash = sha256(bytes)` + a **structural fingerprint** = the multiset of `:Item.signature_hash` values cfdb already emits for that file plus its import set. Comparison tiers mirror `Understand-Anything`:
-- `content_hash` equal → **NONE** (file is byte-identical; reuse all prior facts verbatim).
-- `content_hash` differs, structural fingerprint equal → **COSMETIC** (comment/whitespace; reuse structural facts, but see §3.4 caveat).
-- structural fingerprint differs → **STRUCTURAL** (re-parse this file).
+### 3.1 The profile (the gate)
+A `--profile` mode (or a one-off instrumented run) emitting a per-phase wall-clock breakdown. This is the v1 deliverable. Timings are reported to stderr/JSON, **never** written into the `G1` graph (so the profile cannot perturb determinism).
 
-### 3.2 Where the fingerprint lives — sidecar cache, not the wire graph
-v1 stores the prior `{path → (content_hash, structural_fingerprint)}` map in an **out-of-band cache file** next to the keyspace (e.g. `<db>/<keyspace>.fingerprints`), **not** as a `:File` graph attribute. Rationale: change-detection metadata is not a queryable fact about the code, and keeping it out of the wire graph means **no `SchemaVersion` bump and no `graph-specs-rust` lockstep** — the cheapest on-charter path. (Alternative considered: a `:File.content_hash` attribute under a minor bump; deferred — it leaks a build-cache concern into the wire contract for no consumer benefit.)
+### 3.2 Fingerprint (unchanged mechanism, now downstream of the profile)
+Per file: `content_hash = sha256(bytes)` + a structural fingerprint = the multiset of `:Item.signature_hash` plus the import set; tiers NONE / COSMETIC / STRUCTURAL as in the original draft. Stored in an out-of-band sidecar next to the keyspace — **no `SchemaVersion` bump**. Its *consumer* is selected by the profile: it may drive parse-skip (48-C) or, more likely, scope incremental enrichment (48-B).
 
-### 3.3 Change classification → extraction plan
-Borrow the `change-classifier` decision tree, adapted to cfdb's crate structure:
-- **SKIP** — no file changed → re-emit the prior snapshot unchanged (still validated by §4 determinism).
-- **PARTIAL** — a bounded set of files changed within existing crates → re-parse those files; recompute cross-file edges per §3.4.
-- **FULL** — a `Cargo.toml` dependency edge changed, a crate was added/removed, or the changed set exceeds a threshold fraction → fall back to full extraction (correctness over cleverness).
-
-The candidate changed-file set may be narrowed with `git diff --name-only` (same deterministic source as RFC-047 §3.3), but the fingerprint comparison is authoritative — git is only a pre-filter.
-
-### 3.4 The hard part — cross-file facts (correctness over speed)
-cfdb's `CALLS`, `IMPLEMENTS`, `TYPE_OF`, reachability, and `dup_cluster_id` are **global** — they depend on a workspace-wide symbol table, not a single file. Incremental MUST therefore:
-- Recompute any edge whose **source or target** item lives in a changed (STRUCTURAL) file.
-- Treat **COSMETIC** conservatively: if a cosmetic change could alter line numbers that appear in facts (`:CallSite.line`, `:Item.line`), it is **not** cosmetic for cfdb — line attributes make most "cosmetic" edits structural. v1 may collapse COSMETIC into STRUCTURAL for safety and revisit later.
-- Recompute global derived facts (`reachable_*`, `dup_cluster_id`) whenever any STRUCTURAL file changed, since they are not file-local.
-
-This conservatism is the price of `G1`. The speedup comes from skipping **parsing** of unchanged files, not from skipping global recomputation.
+### 3.3 The hard part is enrichment, not parsing
+cfdb's expensive facts (`reachable_*`, `dup_cluster_id`, recall) are **global** — functions of the whole graph, not one file. Making them incremental while preserving `G1` means: recompute any derived fact whose inputs touch a changed file, reuse the rest, and **prove the merged result is byte-identical to a full run**. This is where the engineering value — if any survives the profile — actually lives, and it is materially harder than the parse-skip the original draft scoped.
 
 ## 4. Invariants
 
-- **`G1` — the make-or-break.** For any `(workspace SHA, schema major.minor)`, an incremental extract MUST produce a **byte-identical** canonical JSONL dump to a full extract. This is asserted by a dedicated gate (§7 48-C); if it cannot be guaranteed for a tier, that tier falls back to FULL.
-- **`G5` — snapshots immutable.** Incremental writes a *new* snapshot; it never rewrites a keyspace in place.
-- **Determinism of ordering.** The canonical dump's node/edge ordering MUST be independent of *which* files were re-parsed — ordering is by qname/stable key, never by parse/insertion order.
-- **No wire-schema change (v1).** Fingerprints are sidecar (§3.2).
-- **Opt-in.** Default extraction is unchanged; `--incremental` is the only entry to this path, so the recall gate and determinism check keep guarding the default.
+- **`G1` — make-or-break.** Any incremental path (parse OR enrichment) MUST produce a byte-identical canonical dump to a full extract of the same workspace SHA (§7 48-D). If a tier can't guarantee it, that tier falls back to FULL.
+- **The profile must not perturb the graph.** Timings are out-of-band (§3.1).
+- **`G5`** snapshots immutable; **deterministic ordering** independent of which phase was reused.
+- **Opt-in.** Default extraction unchanged; deterministic gates keep guarding it.
 
 ## 5. Architect lenses
 
-> **DRAFT — to be filled by next-session architect hardening before council.** Pre-seeded focus:
-- **clean-arch:** the fingerprint cache is infrastructure — confirm it sits in the extractor adapter, not `cfdb-core`; the `StoreBackend` port must not learn about caches.
-- **ddd:** is "fingerprint/staleness" a domain concept or a build-cache mechanism? (Draft: mechanism — keep it out of the schema vocabulary, §3.2.)
-- **solid:** SRP between fingerprint computation, change classification, and the extraction planner — three units, not one.
-- **rust-systems:** measured speedup vs. the conservative global-recompute floor; is parse-skipping alone worth it given `CALLS`/reachability must still recompute? **This is the candidate's existential question** — quantify before committing.
+> **DRAFT — for next-session hardening.** The discovery answered the original existential question with evidence, so the lenses are re-pointed:
+- **rust-systems (lead):** given parsing is ~sub-second, quantify the per-phase breakdown and judge whether incremental *enrichment* (incremental reachability BFS, incremental recall) is even feasible under `G1` — or whether the breakdown will show the rustdoc recall shellout dominates, making "cache rustdoc JSON" the real RFC and this one moot.
+- **clean-arch / solid:** the cache/instrumentation is infrastructure — confirm it sits in the extractor/enrichment adapter, never `cfdb-core`; the `StoreBackend`/`EnrichBackend` ports must not learn about caches or timers.
+- **ddd:** unchanged — fingerprint/staleness is a build mechanism, not a schema concept; keep it out of the vocabulary.
 
 ## 6. Non-goals
 
-- Incremental enrichment (`enrich_*` passes recomputed selectively) — separate RFC if pursued.
-- Watch-mode / long-running daemon.
-- Cross-machine cache sharing (the sidecar is local; no distributed cache).
-- COSMETIC-tier optimisation in v1 (collapsed into STRUCTURAL for safety, §3.4).
+- Building **any** skip logic before the profile (§2) — this is the whole point of the reframe.
+- Caching the `cargo rustdoc` recall output — if the profile fingers recall as the bottleneck, that is its **own** (likely higher-value) RFC, not this one.
+- Incremental *enrichment* implementation in v1 — it is only *scoped* here; it is filed (48-B) only if 48-A's profile justifies it.
+- Watch-mode / long-running daemon; cross-machine cache.
 
 ## 7. Issue decomposition
 
-### 48-A — Fingerprint + sidecar cache
-Compute `(content_hash, structural_fingerprint)` per file; read/write the sidecar.
+### 48-A — Profile `extract` (the gate) — **DO THIS FIRST; the only unconditional slice**
+Instrument and report per-phase wall-clock on cfdb-self + one large target.
 ```
 Tests:
-  - Unit: fingerprint of a fixed file is stable across runs; differs on a structural edit; (documented) policy for cosmetic edits.
-  - Self dogfood (cfdb on cfdb): extract cfdb, touch one comment, re-fingerprint; assert exactly the expected files flip tier.
-  - Cross dogfood: none — rationale: no schema/ban surface (sidecar cache only).
-  - Target dogfood (qbot-core): report fingerprint-cache size + tier histogram in PR body.
+  - Unit: phase timers sum to the measured total within tolerance.
+  - Self dogfood (cfdb on cfdb): emit the phase breakdown for cfdb; record which phase dominates.
+  - Cross dogfood (graph-specs-rust): none — rationale: instrumentation only, no schema/ban surface.
+  - Target dogfood (qbot-core): THE headline deliverable — report where extract's seconds go in the PR body. This number decides whether 48-B / 48-C are worth filing at all.
 ```
 
-### 48-B — Change classifier + selective re-extract (`--incremental`)
-SKIP/PARTIAL/FULL planner + re-parse of changed files + conservative cross-file recompute.
+### 48-B — (CONDITIONAL on 48-A) Incremental enrichment
+Only if the profile shows the global passes dominate. Scope reachability / dup / recall recompute to the changed subgraph.
 ```
 Tests:
-  - Unit: classifier returns FULL on a Cargo dep change / crate add; PARTIAL on a localized edit.
-  - Self dogfood: `extract --incremental` after a one-file edit re-parses only the expected files (instrumented count).
+  - Unit: changed-subgraph closure includes exactly the items whose derived facts can change.
+  - Self dogfood: incremental enrichment after a one-fn edit recomputes only the expected reachability set.
+  - Cross dogfood: none — rationale: sidecar cache only, no schema change.
+  - Target dogfood (qbot-core): wall-clock full vs. incremental-enrich on a single-crate change; report speedup.
+```
+
+### 48-C — (CONDITIONAL on 48-A) Fingerprint parse-skip
+Only if the profile shows parsing is a material fraction of wall-clock — the original mechanism, now contingent.
+```
+Tests:
+  - Unit: fingerprint tiers a structural vs. cosmetic edit correctly.
+  - Self dogfood: extract --incremental re-parses only the expected files (instrumented count).
   - Cross dogfood: none — rationale: no schema change.
-  - Target dogfood (qbot-core): wall-clock full vs. incremental on a single-crate change; report speedup in PR body.
+  - Target dogfood (qbot-core): parse-phase speedup on a single-file change.
 ```
 
-### 48-C — `G1` byte-equivalence gate (the recall substitute)
-A CI gate asserting `incremental == full` canonical dumps over a matrix of synthetic change sets.
+### 48-D — `G1` byte-equivalence gate (covers whichever of 48-B / 48-C ships)
+A CI gate asserting `incremental == full` canonical dumps over a synthetic change matrix.
 ```
 Tests:
-  - Self dogfood (cfdb on cfdb): for N synthetic edits (add fn, delete fn, edit body, rename, add file, delete file, touch Cargo.toml), assert sha256(incremental dump) == sha256(full dump).
-  - Cross dogfood (graph-specs-rust at pinned SHA): run the same equivalence on the companion fixture; any mismatch → exit 30.
-  - Unit: none — rationale: this is inherently an end-to-end equivalence property, not a pure-function assertion.
-  - Target dogfood (qbot-core): one real commit's incremental dump matches its full dump; report in PR body.
+  - Self dogfood: for N synthetic edits, sha256(incremental dump) == sha256(full dump).
+  - Cross dogfood (graph-specs-rust at pinned SHA): same equivalence on the companion; mismatch → exit 30.
+  - Unit: none — rationale: inherently an end-to-end equivalence property.
+  - Target dogfood (qbot-core): one real commit's incremental dump matches its full dump.
 ```

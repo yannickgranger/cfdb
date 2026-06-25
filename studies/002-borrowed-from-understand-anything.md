@@ -105,9 +105,9 @@ Ranking = (value × on-charter fit × consumer pull). Each candidate names the i
 ## 5. Recommended next steps
 
 1. **C1 (`cfdb impact`) first** — highest leverage, zero schema risk, reuses shipped facts, real consumer pull. Draftable as an RFC immediately.
-2. **C3 (framework entry-point detectors)** — natural recall-gated extension of an existing label.
-3. **C2 (incremental extraction)** — engineering-valuable; gate the RFC on a `G1` equivalence proof in the recall corpus.
-4. **C4** — only if "layer" survives the split-brain test against `:Context`/`:Concept`.
+2. **C3 (framework entry-point detectors, RFC-049)** — natural recall-gated extension of an existing label.
+3. **C4 (layer overlay, RFC-050)** — but it rests on a fact cfdb doesn't model yet: there is **no crate→crate `DEPENDS_ON` edge** (surfaced in [`studies/003`](003-cfdb-understand-discovery.md)). Resolve that prerequisite first, then the split-brain test vs `:Context`.
+4. **C2 (incremental extraction, RFC-048) — REFRAMED + DEMOTED.** The UA discovery parsed cfdb's whole 352-file tree in **0.575 s**, so parsing is almost certainly *not* the bottleneck. RFC-048 is now profile-first: measure where `extract`'s wall-clock actually goes before building anything; the real lever (if any) is incremental *enrichment*, not parse-skip.
 5. **C5 / C6** — **park.** C5 needs a named consumer + a non-rustdoc ground-truth design; C6 needs explicit user blessing because it changes cfdb's deterministic character.
 
 Each surviving candidate goes through `docs/RFC-NNN-<slug>.md` → 4-lens architect council → ratified issue decomposition with the `Tests:` block (`CLAUDE.md §2.5`), before any `forge_create_issue`.
@@ -119,7 +119,7 @@ Draft RFCs authored this session (status DRAFT, §5 architect lenses are stubs f
 | Candidate | Draft RFC | Status |
 |---|---|---|
 | C1 impact / blast-radius | [`docs/RFC-047-impact-blast-radius.md`](../docs/RFC-047-impact-blast-radius.md) | DRAFT — top pick, no schema change |
-| C2 incremental extraction | [`docs/RFC-048-incremental-extraction.md`](../docs/RFC-048-incremental-extraction.md) | DRAFT — gated on `G1` equivalence |
+| C2 incremental extraction | [`docs/RFC-048-incremental-extraction.md`](../docs/RFC-048-incremental-extraction.md) | DRAFT — **REFRAMED**, profile-gated (discovery shows parsing isn't the bottleneck) |
 | C3 framework entry-points | [`docs/RFC-049-framework-entry-points.md`](../docs/RFC-049-framework-entry-points.md) | DRAFT — self-dogfoodable on `clap` |
 | C4 layer overlay | [`docs/RFC-050-layer-overlay.md`](../docs/RFC-050-layer-overlay.md) | DRAFT — schema bump + lockstep |
 | C5 non-code / IaC | [`docs/RFC-051-non-code-extraction.md`](../docs/RFC-051-non-code-extraction.md) | DRAFT — **PARKED** (no consumer + no ground-truth) |
