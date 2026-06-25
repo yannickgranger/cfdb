@@ -59,8 +59,16 @@ mod target_dogfood_tests;
 mod util;
 mod with_clause;
 
-/// Maximum BFS depth when a variable-length pattern omits its upper bound.
-/// Matches the Gate 3 spike (`query_f2` uses 5).
+/// Defensive fallback BFS depth ceiling for a variable-length pattern that
+/// reaches `traverse_bfs` carrying no quantifier at all (the `None` arm of the
+/// `var_length` match — unreachable in practice, since the caller gates on
+/// `var_length.is_some()`).
+///
+/// NOTE (RFC-047a §3.2, #488): this is **never applied to an explicit or open
+/// bound**. Explicit `*N..M` is honoured as written, and the open form `*N..`
+/// (`u32::MAX`) is unbounded-via-visited-set. Historically this constant
+/// silently clamped *every* var-length pattern to 5 (`*1..10` → 5) — a latent
+/// bug this slice fixes.
 pub(super) const DEFAULT_VAR_LENGTH_MAX: u32 = 5;
 
 /// A bound value in the evaluator's scratch table.

@@ -54,7 +54,7 @@ pub(crate) fn emit_class_methods(
                 continue;
             };
             let qname = format!("{crate_name}::{module_qpath}::{class_name}::{method}");
-            if !seen.insert(qname.clone()) {
+            if seen.contains(&qname) {
                 continue; // getter/setter (or duplicate) collapse — first wins
             }
             emit_method_item(
@@ -71,6 +71,9 @@ pub(crate) fn emit_class_methods(
             );
             // Call sites in the method body (RFC-045 45-D) — caller is this method.
             crate::call_walker::walk_call_sites(member, source, &qname, rel_path, nodes, edges);
+            // Record after use so the owned `qname` moves into the set — no
+            // per-iteration clone (it is borrowed by the two emit calls above).
+            seen.insert(qname);
         }
     }
 }

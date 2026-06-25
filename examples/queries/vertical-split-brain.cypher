@@ -70,8 +70,11 @@
 //   false-positive rate low at the cost of missing resolvers that
 //   use trait-impl / bare-word names. Promotion to concept-overlay
 //   eliminates the heuristic entirely.
-// - BFS bound `*1..8` — v0.2 `DEFAULT_VAR_LENGTH_MAX = 8` (evaluator
-//   default). Deeper call chains truncate; acceptable for MVP.
+// - BFS bound `*1..8` — the explicit upper bound is honoured exactly
+//   (RFC-047a, #488): the traversal walks all 8 hops. (It was silently
+//   clamped to 5 by `DEFAULT_VAR_LENGTH_MAX` before that fix; the const
+//   was never 8.) Call chains deeper than 8 truncate; acceptable for MVP —
+//   the open form `*1..` would make it unbounded if needed.
 //
 // # Output columns
 //

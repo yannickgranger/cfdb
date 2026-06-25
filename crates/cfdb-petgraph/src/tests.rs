@@ -351,6 +351,126 @@ fn f2_variable_length_matches_spike_count() {
     );
 }
 
+// --- RFC-047a B2 (#488) — var-length depth honouring -------------------
+//
+// `DEFAULT_VAR_LENGTH_MAX` (5) was silently clamping *every* var-length
+// pattern, including explicit bounds (`*1..10` → 5). The fix honours
+// explicit finite bounds as written, and treats the open form `*N..`
+// (`u32::MAX`) as unbounded-via-visited-set. The fixture is an 8-hop linear
+// chain — deeper than the old cap — so a silent clamp is observable.
+
+/// Load a linear CALLS chain `cs -> f1 -> f2 -> ... -> f{hops}`: one CallSite
+/// seed followed by `hops` Items, each calling the next. The chain length is
+/// chosen `> DEFAULT_VAR_LENGTH_MAX` so the depth-5 clamp would truncate it.
+fn load_linear_calls_chain(store: &mut PetgraphStore, hops: usize) {
+    let mut nodes = vec![call_site("cs:0")];
+    for i in 1..=hops {
+        nodes.push(item(&format!("item:f{i}"), &format!("mod::f{i}"), "c1"));
+    }
+    let mut edges = vec![Edge::new(
+        "cs:0",
+        "item:f1",
+        EdgeLabel::new(EdgeLabel::CALLS),
+    )];
+    for i in 1..hops {
+        edges.push(Edge::new(
+            format!("item:f{i}"),
+            format!("item:f{}", i + 1),
+            EdgeLabel::new(EdgeLabel::CALLS),
+        ));
+    }
+    store
+        .ingest_nodes(&ks(), nodes)
+        .expect("ingest chain nodes into fresh store");
+    store
+        .ingest_edges(&ks(), edges)
+        .expect("ingest chain edges into fresh store");
+}
+
+/// `MATCH (cs:CallSite)-[:CALLS*1..max]->(a:Item) RETURN a` — one row per
+/// transitively-reached Item. `max == u32::MAX` is the open form `*1..`.
+fn build_reach_query(max: u32) -> Query {
+    Query {
+        match_clauses: vec![Pattern::Path(PathPattern {
+            from: NodePattern {
+                var: Some("cs".into()),
+                label: Some(Label::new(Label::CALL_SITE)),
+                props: BTreeMap::new(),
+            },
+            edge: EdgePattern {
+                var: None,
+                label: Some(EdgeLabel::new(EdgeLabel::CALLS)),
+                direction: Direction::Out,
+                var_length: Some((1, max)),
+            },
+            to: NodePattern {
+                var: Some("a".into()),
+                label: Some(Label::new(Label::ITEM)),
+                props: BTreeMap::new(),
+            },
+        })],
+        where_clause: None,
+        with_clause: None,
+        return_clause: ReturnClause {
+            projections: vec![Projection {
+                value: ProjectionValue::Expr(Expr::Var("a".into())),
+                alias: Some("a".into()),
+            }],
+            order_by: vec![],
+            limit: None,
+            distinct: false,
+        },
+        params: BTreeMap::new(),
+    }
+}
+
+#[test]
+fn var_length_honours_explicit_upper_bound_past_default_cap() {
+    let mut store = PetgraphStore::new();
+    load_linear_calls_chain(&mut store, 8);
+
+    // `*1..10` over an 8-hop chain reaches all 8 Items — it must NOT clamp
+    // to DEFAULT_VAR_LENGTH_MAX (5). (RFC-047a B2 / council Q2.)
+    let r10 = store
+        .execute(&ks(), &build_reach_query(10))
+        .expect("*1..10 query executes");
+    assert_eq!(
+        r10.rows.len(),
+        8,
+        "*1..10 must honour the explicit bound and reach all 8 hops, not clamp to 5: got {}",
+        r10.rows.len()
+    );
+
+    // A smaller explicit bound is honoured exactly: `*1..3` reaches 3 hops.
+    let r3 = store
+        .execute(&ks(), &build_reach_query(3))
+        .expect("*1..3 query executes");
+    assert_eq!(
+        r3.rows.len(),
+        3,
+        "*1..3 must reach exactly 3 hops: got {}",
+        r3.rows.len()
+    );
+}
+
+#[test]
+fn var_length_open_form_is_unbounded_via_visited_set() {
+    let mut store = PetgraphStore::new();
+    load_linear_calls_chain(&mut store, 8);
+
+    // The open form `*1..` (`u32::MAX`) traverses the full transitive set —
+    // the visited-set is the only bound. (RFC-047a B2 / council Q1.)
+    let r_open = store
+        .execute(&ks(), &build_reach_query(u32::MAX))
+        .expect("*1.. (open form) query executes");
+    assert_eq!(
+        r_open.rows.len(),
+        8,
+        "open form *1.. must reach all 8 hops unbounded: got {}",
+        r_open.rows.len()
+    );
+}
+
 /// Build the F3 query:
 ///   MATCH (a:Item) WHERE a.qname =~ '.*now_utc.*' RETURN a
 fn build_f3_query() -> Query {

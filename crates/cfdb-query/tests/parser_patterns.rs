@@ -55,6 +55,39 @@ fn f2_variable_length_path() {
     }
 }
 
+// RFC-047a B1 (#488) — open-ended variable-length range `*N..`. The upper
+// bound is optional; an omitted upper bound parses to the `u32::MAX` sentinel
+// (reusing the existing `(u32, u32)` AST tuple — no new variant). This is the
+// query form `cfdb impact` composes: `(seed)<-[:CALLS*1..]-(affected)`.
+#[test]
+fn open_range_variable_length_path_parses_to_u32_max() {
+    let q = parse_and_roundtrip(
+        "open-range",
+        "MATCH (a:Item)<-[:CALLS*1..]-(b:Item) RETURN a",
+    );
+    assert_eq!(q.match_clauses.len(), 1);
+    match &q.match_clauses[0] {
+        Pattern::Path(p) => {
+            assert_eq!(
+                p.edge.var_length,
+                Some((1, u32::MAX)),
+                "an omitted upper bound `*1..` must parse to the open-range sentinel u32::MAX",
+            );
+        }
+        other => panic!("expected Path, got {other:?}"),
+    }
+
+    // The closed form `*N..M` is unaffected — still parses to its literal pair.
+    let closed = parse_and_roundtrip(
+        "closed-range-regression",
+        "MATCH (a:Item)-[:CALLS*2..7]->(b:Item) RETURN a",
+    );
+    match &closed.match_clauses[0] {
+        Pattern::Path(p) => assert_eq!(p.edge.var_length, Some((2, 7))),
+        other => panic!("expected Path, got {other:?}"),
+    }
+}
+
 // F3 — Property regex in WHERE (=~).
 #[test]
 fn f3_property_regex_in_where() {
