@@ -31,20 +31,15 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use cfdb_core::fact::{Edge, Node, PropValue};
 use cfdb_core::qname::item_node_id;
-use cfdb_core::query::Param;
 use cfdb_core::schema::{EdgeLabel, Keyspace, Label};
 use cfdb_core::store::StoreBackend;
 use cfdb_petgraph::PetgraphStore;
-use cfdb_query::parse;
+use cfdb_query::impact_query;
 
-/// The canonical `cfdb impact` reverse-reachability query (RFC-047 §3.2),
-/// reduced to the single column this slice asserts on (the
-/// production-reachability ranking is slice 47-C). `$seeds` binds a
-/// `Param::List` of seed qnames; the open form `<-[:CALLS*1..]-` collects
-/// every transitive caller of the bound seeds (unbounded — RFC-047a B2).
-const IMPACT_QUERY: &str = "MATCH (seed:Item)<-[:CALLS*1..]-(affected:Item) \
-     WHERE seed.qname IN $seeds \
-     RETURN DISTINCT affected.qname AS qname";
+// The canonical `cfdb impact` reverse-reachability query (RFC-047 §3.2) and
+// its `$seeds` `Param::List` binding are owned by `cfdb_query::impact_query`
+// (slice 47-A / #489) — this test executes that composer's output against a
+// fact-injected fixture, so the canonical shape is defined once.
 
 // ---------------------------------------------------------------------
 // Fixture builders — a minimal synthetic `CALLS` graph. Fact injection
@@ -108,14 +103,10 @@ fn fixture() -> (PetgraphStore, Keyspace) {
     (store, ks)
 }
 
-/// Run the impact query with `$seeds` bound to a `Param::List` and collect
-/// the affected qnames as a set.
+/// Run the impact query (built by `cfdb_query::impact_query`, which binds
+/// `$seeds` as a `Param::List`) and collect the affected qnames as a set.
 fn affected_qnames(store: &PetgraphStore, ks: &Keyspace, seeds: &[&str]) -> BTreeSet<String> {
-    let mut query = parse(IMPACT_QUERY).expect("parse impact query");
-    query.params.insert(
-        "seeds".into(),
-        Param::List(seeds.iter().map(|s| PropValue::Str((*s).into())).collect()),
-    );
+    let query = impact_query(seeds);
     store
         .execute(ks, &query)
         .expect("execute impact query")
