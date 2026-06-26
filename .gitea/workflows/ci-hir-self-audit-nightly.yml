@@ -1,0 +1,153 @@
+name: HIR self-audit (nightly)
+
+# RFC-030 §3.2 X-ray gate — the HIR-resolved self-audit, moved off the PR
+# hot path. The `--features hir` build (ra_ap_*) plus the `cfdb extract
+# --hir` over cfdb-self (~26 min, 246k resolved CALLS) dominated PR-time CI;
+# `ci.yml` now runs the syn-only self-audit at PR time (ban rules /
+# query-smoke / self-enrich are all syn-sufficient) and this workflow runs
+# the HIR-resolved version nightly:
+#
+#   - `extract --hir`  populates resolved `CALLS` + `EXPOSES` (HIR-only)
+#   - edge-liveness    asserts every declared `:EdgeLabel` has ≥1 instance —
+#                      the one gate that genuinely NEEDS --hir (CALLS/EXPOSES
+#                      are dormant on a syn keyspace), per #381 / #383 / #385.
+#
+# A violation fails the run (visible on the develop Actions page). Edge-
+# liveness is no longer a PR-blocking gate; if the operator wants it back as
+# a required check, post a commit status from this workflow (cf.
+# recall-nightly.yml) and promote it admin-side.
+
+on:
+  schedule:
+    - cron: '30 3 * * *'  # 03:30 UTC — staggered 15 min after
+                          # enrich-dogfood-nightly (#347) so cron submissions
+                          # don't pile up; the single `rust` runner serializes.
+  workflow_dispatch:      # manual trigger from the actions UI
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -Dwarnings
+  GIT_SSL_NO_VERIFY: true
+  CARGO_HOME: /cache/cargo
+  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+  SCCACHE_REDIS_ENDPOINT: "redis://192.168.1.107:6380"
+  SCCACHE_REDIS_KEY_PREFIX: "cfdb-1.93"
+  SCCACHE_REDIS_EXPIRATION: "604800"
+  CARGO_INCREMENTAL: "0"
+
+concurrency:
+  group: hir-self-audit-nightly
+  cancel-in-progress: false
+
+jobs:
+  hir-self-audit:
+    name: HIR self-audit (extract --hir + edge-liveness)
+    runs-on: rust
+    container:
+      image: docker.io/library/rust:1.93
+    steps:
+      - name: Setup
+        # Mirror of ci.yml / enrich-dogfood-nightly.yml Setup — sccache +
+        # Redis backend wiring. If the PR-time setup drifts, mirror it here.
+        run: |
+          set -e
+          apt-get clean && apt-get update && apt-get install -y --no-install-recommends git build-essential libssl-dev pkg-config curl ca-certificates jq
+          mkdir -p /cache/cargo/registry /cache/cargo/git /cache/cargo/bin /cache/rustup ~/.cargo
+          ln -sf /cache/cargo/registry ~/.cargo/registry
+          ln -sf /cache/cargo/git ~/.cargo/git
+
+          if [ -d "/cache/rustup/toolchains" ]; then
+            echo "Rustup cache HIT"
+          else
+            echo "Rustup cache MISS — seeding from image"
+            cp -a /usr/local/rustup/* /cache/rustup/
+          fi
+          export RUSTUP_HOME=/cache/rustup
+          echo "RUSTUP_HOME=/cache/rustup" >> "$GITHUB_ENV"
+          rustup component add rustfmt clippy
+
+          if [ ! -f "/cache/cargo/bin/sccache" ]; then
+            SCCACHE_VERSION="v0.8.2"
+            curl -fsSL "https://github.com/mozilla/sccache/releases/download/${SCCACHE_VERSION}/sccache-${SCCACHE_VERSION}-x86_64-unknown-linux-musl.tar.gz" | \
+              tar xzf - --strip-components=1 -C /cache/cargo/bin/ "sccache-${SCCACHE_VERSION}-x86_64-unknown-linux-musl/sccache"
+            chmod +x /cache/cargo/bin/sccache
+          fi
+          echo "PATH=/cache/cargo/bin:${PATH}" >> "$GITHUB_ENV"
+
+          if /cache/cargo/bin/sccache --start-server 2>&1; then
+            echo "RUSTC_WRAPPER=/cache/cargo/bin/sccache" >> "$GITHUB_ENV"
+            echo "sccache ready (redis: ${SCCACHE_REDIS_ENDPOINT})"
+          fi
+
+      - name: Clone
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config --global url."https://oauth2:${GITHUB_TOKEN}@agency.lab:3000/".insteadOf "https://agency.lab:3000/"
+          git clone --depth=1 --branch=develop "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" repo
+
+      - name: Build cfdb (--features hir) + dogfood-enrich
+        run: |
+          cd repo
+          # `--features hir` builds the rust-analyzer-backed extractor so the
+          # extract step below can pass `--hir` and populate resolved CALLS +
+          # EXPOSES. dogfood-enrich is needed by the self-enrich step.
+          cargo build -p cfdb-cli --release --bin cfdb --features hir
+          cargo build -p dogfood-enrich --release --bin dogfood-enrich
+
+      - name: cfdb self-audit (extract --hir + ban rules)
+        run: |
+          cd repo
+          mkdir -p .cfdb/db
+          ./target/release/cfdb extract --workspace . --db .cfdb/db --keyspace cfdb-self --hir
+          # Every arch-ban-*.cypher rule against cfdb's own source. Any
+          # non-empty match blocks (RFC-030 §3.2).
+          for rule in examples/queries/arch-ban-*.cypher; do
+            echo ">> $rule"
+            ./target/release/cfdb violations --db .cfdb/db --keyspace cfdb-self --rule "$rule"
+          done
+
+      - name: cfdb query smoke (RFC-030 §3.2 liveness, HIR keyspace)
+        run: |
+          cd repo
+          # Parse + execute every shipped .cypher against the --hir keyspace
+          # (the comprehensive variant: :EntryPoint / resolved CALLS present).
+          # Row count is ignored; the gate catches parse + evaluator errors.
+          fail=0
+          for q in examples/queries/*.cypher .cfdb/queries/*.cypher; do
+            [ -f "$q" ] || continue
+            if head -5 "$q" | grep -q '^// smoke-skip:'; then
+              echo ">> $q (smoke-skip)"
+              continue
+            fi
+            if ! ./target/release/cfdb query --db .cfdb/db --keyspace cfdb-self "$(cat "$q")" >/dev/null; then
+              echo ">> $q (FAIL)"
+              fail=1
+            fi
+          done
+          [ "$fail" -eq 0 ]
+
+      - name: Self-enrich dogfood (default-feature passes, HIR keyspace)
+        run: |
+          cd repo
+          # Materialize LABELED_AS / CANONICAL_FOR (enrich-concepts) and
+          # REFERENCED_BY (enrich-rfc-docs) etc. on the --hir keyspace so the
+          # edge-liveness step below sees the full producer chain (#383).
+          for pass in enrich-deprecation enrich-rfc-docs enrich-bounded-context enrich-concepts; do
+            echo ">> self-${pass}"
+            ./target/release/dogfood-enrich \
+              --pass "$pass" \
+              --db .cfdb/db \
+              --keyspace cfdb-self \
+              --cfdb-bin "$(pwd)/target/release/cfdb" \
+              --workspace "$(pwd)"
+          done
+
+      - name: Edge-liveness (RFC-037 §3.7)
+        run: |
+          cd repo
+          # The reason --hir is required: flag declared :EdgeLabel values with
+          # zero instances on cfdb-self. Resolved CALLS + EXPOSES are HIR-only,
+          # so this is dormant on a syn keyspace — it runs here, end-of-pipeline
+          # (post-enrich), measuring what the full producer chain emits.
+          CFDB_BIN="$(pwd)/target/release/cfdb" bash ci/edge-liveness.sh
