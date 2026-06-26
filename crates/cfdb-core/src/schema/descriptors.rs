@@ -6,7 +6,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::labels::{EdgeLabel, Label, SchemaVersion};
+use super::labels::{EdgeLabel, Label};
+use super::version::SchemaVersion;
 
 /// Where an attribute's value originates. Each value in the cfdb graph has
 /// exactly one source — either the structural extract (Layer 1, syn AST +

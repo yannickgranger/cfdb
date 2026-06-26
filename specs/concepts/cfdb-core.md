@@ -95,7 +95,7 @@ Open newtype wrapping a node-label string. The label vocabulary is defined by sc
 
 The descriptor at `crates/cfdb-core/src/schema/describe/nodes.rs` is authoritative; this spec section mirrors it for discoverability (it is documentation, not a second vocabulary definition — RFC-044 §3.1, ddd lens). Per-variant headings are deliberately NOT used: `graph-specs check` requires every markdown heading to map 1:1 to a `pub` type, and minting a marker type per label would be the very "second vocabulary source" the ddd lens forbids. The complete node-label vocabulary is therefore enumerated as a flat list, each bullet naming the label and its `NodeLabelDescriptor` attribute fields (the `spec_sections_cover_all_schema_labels` test asserts this list stays complete against `schema_describe()`):
 
-- **Crate** — a Cargo package in the workspace. Attributes: name, path, version
+- **Crate** — a Cargo package in the workspace. Attributes: crate_tier, name, path, version
 - **Module** — a Rust module (`mod` block or file-level module). Attributes: crate, file, is_inline, qpath
 - **File** — a source file walked by the extractor. Attributes: crate, loc, module_qpath, path
 - **Item** — a top-level item (struct, enum, trait, impl, fn, const, static, type alias). Attributes: bounded_context, cfg_gate, crate, cyclomatic, deprecation_since, doc_text, dup_cluster_id, file, git_commit_count, git_last_author, git_last_commit_unix_ts, impl_target, impl_trait, is_deprecated, is_test, kind, line, module_qpath, name, php_construct, qname, reachable_entry_count, reachable_from_entry, reachable_from_production_entry, reachable_production_entry_count, signature, signature_hash, test_coverage, ts_construct, unwrap_count, visibility

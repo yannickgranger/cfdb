@@ -3,7 +3,7 @@
 //! RFC §6A.1 / PLAN-v1 §6.1. Deterministic and byte-stable per build (G1).
 
 use super::descriptors::{NodeLabelDescriptor, SchemaDescribe};
-use super::labels::SchemaVersion;
+use super::version::SchemaVersion;
 
 mod edges;
 mod nodes;
