@@ -101,6 +101,35 @@ impl From<bool> for PropValue {
 /// canonical dumps across runs).
 pub type Props = BTreeMap<String, PropValue>;
 
+/// Attribute names excluded from the canonical (G1) dump.
+///
+/// Their values are toolchain- or environment-dependent, so any
+/// `StoreBackend::canonical_dump` implementation that emitted them would
+/// break G1 byte-stable re-extract the moment they were populated.
+/// `test_coverage` is the documented case (`specs/concepts/cfdb-core.md`
+/// G6 clause, #486): it carries `cargo-llvm-cov` line/region counts that
+/// vary by toolchain and run. It is byte-stable today only because
+/// `enrich_metrics` defaults it to `None`; this set makes the exclusion
+/// real rather than incidental.
+///
+/// This lives in `cfdb-core` — beside the `Props` / G1 byte-stability
+/// contract and the `StoreBackend::canonical_dump` trait it constrains —
+/// so EVERY store implementation honours the same exclusion, not just
+/// `cfdb-petgraph`. It is a `const` in source per CLAUDE.md §6 rule 8 (NOT
+/// a config / allowlist / ceiling file); adding an attribute is a reviewed
+/// source edit justified against the G1 contract.
+pub const G1_EXCLUDED_ATTRS: &[&str] = &["test_coverage"];
+
+/// Whether an attribute is excluded from the canonical (G1) dump — see
+/// [`G1_EXCLUDED_ATTRS`]. Keyed by attribute name: the G6 contract names
+/// attributes, not provenance (`test_coverage` shares
+/// `Provenance::EnrichMetrics` with `cyclomatic` / `unwrap_count` /
+/// `dup_cluster_id`, which DO participate in G1, so provenance is the wrong
+/// key). The set is tiny; a linear scan is fine.
+pub fn is_g1_excluded(attr: &str) -> bool {
+    G1_EXCLUDED_ATTRS.contains(&attr)
+}
+
 /// Canonical `:Item.props` constructor — single owner of the 5-key
 /// `(qname, name, kind, crate, bounded_context)` shape used by every
 /// `:Item` emitter in the workspace. Boy-scout fix for the split-brain
