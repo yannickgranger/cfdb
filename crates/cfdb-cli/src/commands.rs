@@ -9,6 +9,7 @@ mod aux;
 mod classify;
 mod diff;
 mod extract;
+mod impact;
 mod query;
 mod rules;
 
@@ -19,6 +20,7 @@ pub use aux::{dump, export, list_keyspaces};
 pub use classify::classify;
 pub use diff::diff;
 pub use extract::{extract, keyspace_path};
+pub use impact::impact;
 pub use query::{list_callers, query};
 pub use rules::violations;
 

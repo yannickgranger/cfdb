@@ -8,7 +8,7 @@ use std::str::FromStr;
 use crate::main_exit::findings_exit;
 use cfdb_cli::{
     check, check_predicate, classify, diff, drop_keyspace_cmd, dump, emit_json, enrich, export,
-    extract, list_callers, list_items_matching, list_keyspaces, query, scope, snapshots,
+    extract, impact, list_callers, list_items_matching, list_keyspaces, query, scope, snapshots,
     typed_stub, violations, CfdbCliError, EnrichVerb, OutputFormat,
 };
 
@@ -27,13 +27,7 @@ pub(crate) fn dispatch_core(cmd: Command) -> Result<(), CfdbCliError> {
             no_proc_macro,
             rev,
         }) => extract(workspace, db, keyspace, hir, no_proc_macro, rev),
-        Command::Query {
-            db,
-            keyspace,
-            cypher,
-            params,
-            input,
-        } => query(db, keyspace, cypher, params, input),
+        Command::Query(args) => query(args.db, args.keyspace, args.cypher, args.params, args.input),
         Command::Violations {
             db,
             keyspace,
@@ -93,6 +87,14 @@ pub(crate) fn dispatch_typed(cmd: Command) -> Result<(), CfdbCliError> {
             keyspace,
             qname,
         } => list_callers(db, keyspace, qname),
+        Command::Impact(args) => impact(
+            args.db,
+            args.keyspace,
+            args.item,
+            args.since,
+            args.workspace,
+            args.max_depth,
+        ),
         Command::ListBypasses {
             db,
             keyspace,

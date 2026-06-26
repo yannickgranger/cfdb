@@ -106,7 +106,7 @@ fn fixture() -> (PetgraphStore, Keyspace) {
 /// Run the impact query (built by `cfdb_query::impact_query`, which binds
 /// `$seeds` as a `Param::List`) and collect the affected qnames as a set.
 fn affected_qnames(store: &PetgraphStore, ks: &Keyspace, seeds: &[&str]) -> BTreeSet<String> {
-    let query = impact_query(seeds);
+    let query = impact_query(seeds, None);
     store
         .execute(ks, &query)
         .expect("execute impact query")

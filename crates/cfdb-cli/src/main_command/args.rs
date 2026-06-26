@@ -14,7 +14,11 @@ use clap::Subcommand;
 use crate::main_parse::{parse_item_kind, parse_trigger_id};
 
 mod extract_args;
+mod impact_args;
+mod query_args;
 pub(crate) use extract_args::ExtractArgs;
+pub(crate) use impact_args::ImpactArgs;
+pub(crate) use query_args::QueryArgs;
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum Command {
@@ -25,26 +29,7 @@ pub(crate) enum Command {
     Extract(ExtractArgs),
 
     /// Run a Cypher-subset query against a loaded keyspace.
-    Query {
-        /// Directory containing per-keyspace JSON files.
-        #[arg(long)]
-        db: PathBuf,
-        /// Keyspace to query.
-        #[arg(long)]
-        keyspace: String,
-        /// The Cypher-subset query source.
-        cypher: String,
-        /// Inline JSON object of parameter substitutions, e.g.
-        /// `--params '{"crate":"cfdb-core"}'`. Phase A: parsed but not yet
-        /// threaded through the evaluator (RFC §6.2 — wire form first).
-        #[arg(long)]
-        params: Option<String>,
-        /// Path to a YAML file providing the `sets?` external buckets used
-        /// by `query_with_input` patterns (e.g. raid plans). Phase A:
-        /// accepted but not yet wired (RFC §6.2 — wire form first).
-        #[arg(long)]
-        input: Option<PathBuf>,
-    },
+    Query(QueryArgs),
 
     /// Enrich a keyspace with git-history facts — commit age, author, churn
     /// count per `:Item` file. RFC addendum §A2.2 row 1. Phase A stub —
@@ -192,6 +177,10 @@ pub(crate) enum Command {
         #[arg(long)]
         qname: String,
     },
+
+    /// Blast radius — every transitive caller of the changed items
+    /// (`--item`/`--since`). RFC-047 §3.3 / slice 47-B.
+    Impact(ImpactArgs),
 
     /// Typed verb — list bypasses of the canonical definition of a concept.
     /// Convenience composer over `query_raw`. Phase A stub.
