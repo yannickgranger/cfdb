@@ -11,6 +11,12 @@ pub(in crate::schema::describe) fn crate_node_descriptor() -> NodeLabelDescripto
         label: Label::new(Label::CRATE),
         description: "A Cargo package in the workspace.".into(),
         attributes: vec![
+            attr(
+                "crate_tier",
+                "int",
+                "Topological longest-path depth of this crate in the intra-workspace normal-`[dependencies]` DAG: a crate with no in-workspace normal dependencies is tier 0, otherwise `1 + max(crate_tier of its in-workspace normal deps)`. Computed at extract time from each package's declared `[dependencies]` (`kind == Normal`, workspace-filtered); dev/build deps are excluded. Deterministic, recall-gated, and inside the G1 canonical dump. SchemaVersion V0_6_0+ (RFC-050 50-A).",
+                Extractor,
+            ),
             attr("name", "string", "Cargo package name.", Extractor),
             attr(
                 "path",

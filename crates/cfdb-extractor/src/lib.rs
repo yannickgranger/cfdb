@@ -56,6 +56,7 @@ use thiserror::Error;
 mod attrs;
 mod call_visitor;
 mod const_table;
+mod crate_tier;
 mod emitter;
 mod file_walker;
 mod item_visitor;
@@ -89,6 +90,9 @@ pub enum ExtractError {
 
     #[error("concept overrides: {0}")]
     Concepts(String),
+
+    #[error("crate_tier: cycle in the intra-workspace normal-dependency DAG involving crate `{0}` (RFC-050 §3.2 — normal deps must form a DAG)")]
+    CrateTierCycle(String),
 }
 
 // ---------------------------------------------------------------------------
@@ -190,10 +194,18 @@ pub fn extract_workspace(workspace_root: &Path) -> Result<(Vec<Node>, Vec<Edge>)
     let mut contexts_seen: BTreeMap<String, (ContextMeta, ContextSource)> =
         seed_declared_contexts(&overrides);
 
-    for package in metadata.workspace_packages() {
+    // RFC-050 50-A: compute each workspace crate's `crate_tier` (topological
+    // longest-path depth in the intra-workspace normal-`[dependencies]` DAG)
+    // up front — the DAG needs the full member set, so this precedes the
+    // per-crate emission loop. A cycle in the normal-deps DAG is fatal.
+    let packages = metadata.workspace_packages();
+    let crate_tiers = crate_tier::compute_crate_tiers(&packages)?;
+
+    for package in packages.iter().copied() {
         emit_crate_and_walk_targets(
             &mut emitter,
             package,
+            &crate_tiers,
             &overrides,
             &published_language,
             &mut contexts_seen,
@@ -267,6 +279,7 @@ pub fn extract_workspace(workspace_root: &Path) -> Result<(Vec<Node>, Vec<Edge>)
 fn emit_crate_and_walk_targets(
     emitter: &mut Emitter,
     package: &cargo_metadata::Package,
+    crate_tiers: &BTreeMap<String, i64>,
     overrides: &ConceptOverrides,
     published_language: &PublishedLanguageCrates,
     contexts_seen: &mut BTreeMap<String, (ContextMeta, ContextSource)>,
@@ -289,6 +302,18 @@ fn emit_crate_and_walk_targets(
         label: Label::new(Label::CRATE),
         props: {
             let mut p = BTreeMap::new();
+            // RFC-050 50-A. `crate_tiers` is total over the workspace member
+            // set, so the lookup always hits; `unwrap_or(0)` is a defensive
+            // non-panic for the structurally-impossible miss (a leaf default).
+            p.insert(
+                "crate_tier".into(),
+                PropValue::Int(
+                    crate_tiers
+                        .get(&package.name.to_string())
+                        .copied()
+                        .unwrap_or(0),
+                ),
+            );
             p.insert("name".into(), PropValue::Str(package.name.to_string()));
             p.insert(
                 "version".into(),

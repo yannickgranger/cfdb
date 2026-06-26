@@ -407,3 +407,71 @@ fn self_workspace_emits_render_type_inner_deltas() {
         "expected >= 220 TYPE_OF edges after #239 render_type_inner ships (got {type_of_count}); baseline at 346eab1 was 182 — a regression below 220 means the Field/Param unwrap wiring broke"
     );
 }
+
+/// RFC-050 50-A self-dogfood: `:Crate.crate_tier` is the topological
+/// longest-path depth in cfdb's own intra-workspace normal-`[dependencies]`
+/// DAG. `cfdb-core` (zero in-workspace deps) is tier 0; `cfdb-cli` (the top
+/// binary that transitively normal-depends on everything) is the workspace
+/// maximum (`studies/003 §2`).
+///
+/// This also proves the **normal-deps-only** filter on real infra:
+/// extraction completing at all means the DAG did not cycle, yet cfdb's tree
+/// has `cfdb-cli --normal--> cfdb-hir-extractor` together with
+/// `cfdb-hir-extractor --dev--> cfdb-cli` — a back-edge an all-kinds DAG
+/// would reject as a cycle (RFC-050 §5, rust-systems lens). dev/build deps
+/// are excluded, so it does not.
+#[test]
+fn crate_tier_self_dogfood_core_is_zero_cli_is_max() {
+    let root = cfdb_workspace_root();
+    // `expect` here also asserts the normal-deps DAG is acyclic — a
+    // `CrateTierCycle` (dev-deps not excluded) would surface as an `Err`.
+    let (nodes, _edges) = extract_workspace(root).expect("extract cfdb sub-workspace");
+
+    let tier_of = |crate_name: &str| -> i64 {
+        nodes
+            .iter()
+            .find(|n| n.id == format!("crate:{crate_name}"))
+            .and_then(|n| n.props.get("crate_tier"))
+            .and_then(|v| match v {
+                PropValue::Int(i) => Some(*i),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("crate:{crate_name} must carry an int crate_tier"))
+    };
+
+    let core = tier_of("cfdb-core");
+    let cli = tier_of("cfdb-cli");
+
+    assert_eq!(
+        core, 0,
+        "cfdb-core has zero in-workspace normal deps → tier 0 (got {core})"
+    );
+
+    let max_tier = nodes
+        .iter()
+        .filter(|n| n.label.as_str() == Label::CRATE)
+        .filter_map(|n| match n.props.get("crate_tier") {
+            Some(PropValue::Int(i)) => Some(*i),
+            _ => None,
+        })
+        .max()
+        .expect("at least one :Crate carries a crate_tier");
+
+    assert!(
+        cli > core,
+        "cfdb-cli (tier {cli}) must be deeper than cfdb-core (tier {core})"
+    );
+    assert_eq!(
+        cli, max_tier,
+        "cfdb-cli is the maximum-tier crate (got {cli}, workspace max {max_tier})"
+    );
+
+    // Every :Crate must carry a crate_tier (no `:Crate` left without it).
+    for node in nodes.iter().filter(|n| n.label.as_str() == Label::CRATE) {
+        assert!(
+            matches!(node.props.get("crate_tier"), Some(PropValue::Int(_))),
+            "{} is missing an int crate_tier",
+            node.id
+        );
+    }
+}
