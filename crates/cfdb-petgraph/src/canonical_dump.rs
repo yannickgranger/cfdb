@@ -7,7 +7,7 @@
 
 use std::collections::BTreeMap;
 
-use cfdb_core::fact::{Edge, Node, PropValue};
+use cfdb_core::fact::{is_g1_excluded, Edge, Node, PropValue};
 use petgraph::visit::IntoEdgeReferences;
 use serde_json::Value;
 
@@ -129,10 +129,23 @@ fn prop_value_to_json(p: &PropValue) -> Value {
     }
 }
 
+/// Whether `props` has at least one attribute that survives G1 exclusion —
+/// i.e. whether the envelope should carry a `props` key at all. Gating the
+/// key on this (not the raw `is_empty()`) keeps a node/edge whose only
+/// attributes are G1-excluded byte-identical to one with no attributes,
+/// so populating an excluded attr never changes the dump.
+fn has_dumpable_props(props: &cfdb_core::fact::Props) -> bool {
+    props.keys().any(|k| !is_g1_excluded(k))
+}
+
 /// Build the props sub-object — alphabetical via `BTreeMap` iteration.
+/// G1-excluded attrs ([`cfdb_core::fact::G1_EXCLUDED_ATTRS`]) are dropped
+/// here so they never enter the canonical dump for either nodes or edges
+/// (this is the single chokepoint both envelope builders route through).
 fn props_to_json(props: &cfdb_core::fact::Props) -> Value {
     let map: BTreeMap<String, Value> = props
         .iter()
+        .filter(|(k, _)| !is_g1_excluded(k))
         .map(|(k, v)| (k.clone(), prop_value_to_json(v)))
         .collect();
     serde_json::to_value(map).expect("props envelope serializes")
@@ -148,7 +161,7 @@ fn node_envelope_json(node: &Node) -> String {
         "label".to_string(),
         Value::String(node.label.as_str().to_string()),
     );
-    if !node.props.is_empty() {
+    if has_dumpable_props(&node.props) {
         env.insert("props".to_string(), props_to_json(&node.props));
     }
     serde_json::to_string(&env).expect("node envelope serializes")
@@ -169,7 +182,7 @@ fn edge_envelope_json(edge: &Edge, src_qname: &str, dst_qname: &str) -> String {
         "label".to_string(),
         Value::String(edge.label.as_str().to_string()),
     );
-    if !edge.props.is_empty() {
+    if has_dumpable_props(&edge.props) {
         env.insert("props".to_string(), props_to_json(&edge.props));
     }
     env.insert(
@@ -177,4 +190,60 @@ fn edge_envelope_json(edge: &Edge, src_qname: &str, dst_qname: &str) -> String {
         Value::String(src_qname.to_string()),
     );
     serde_json::to_string(&env).expect("edge envelope serializes")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cfdb_core::fact::Node;
+    use cfdb_core::schema::Label;
+
+    /// #486 / G6 (`specs/concepts/cfdb-core.md`): G1-excluded attributes
+    /// (toolchain-dependent values like `test_coverage`) must never enter
+    /// the canonical dump — otherwise populating them breaks G1 byte
+    /// stability.
+    #[test]
+    fn g1_excluded_attr_absent_from_node_dump() {
+        let node = Node::new("item:demo::f", Label::new(Label::ITEM))
+            .with_prop("qname", "demo::f")
+            .with_prop("test_coverage", "{\"lines\":42}")
+            .with_prop("visibility", "pub");
+        let json = node_envelope_json(&node);
+        assert!(
+            !json.contains("test_coverage"),
+            "G1-excluded attr `test_coverage` must NOT appear in the canonical dump: {json}"
+        );
+        assert!(
+            json.contains("visibility"),
+            "non-excluded attr `visibility` MUST still appear in the canonical dump: {json}"
+        );
+    }
+
+    /// The determinism contract itself: a keyspace with `test_coverage`
+    /// populated (e.g. after `enrich_metrics --features llvm-cov`) must
+    /// produce byte-identical canonical-dump output to one without it.
+    #[test]
+    fn populating_g1_excluded_attr_does_not_change_node_dump() {
+        let base = Node::new("item:demo::f", Label::new(Label::ITEM)).with_prop("qname", "demo::f");
+        let with_cov = base.clone().with_prop("test_coverage", "{\"lines\":42}");
+        assert_eq!(
+            node_envelope_json(&base),
+            node_envelope_json(&with_cov),
+            "populating a G1-excluded attr must not change the canonical (G1) dump bytes"
+        );
+    }
+
+    /// A node whose ONLY attribute is G1-excluded must elide the `props`
+    /// key entirely (not emit `"props":{}`), so it stays byte-identical to
+    /// a node with no attributes at all.
+    #[test]
+    fn node_with_only_g1_excluded_props_elides_props_key() {
+        let node = Node::new("item:demo::g", Label::new(Label::ITEM))
+            .with_prop("test_coverage", "{\"lines\":1}");
+        let json = node_envelope_json(&node);
+        assert!(
+            !json.contains("\"props\""),
+            "a node whose only attr is G1-excluded must omit the props key: {json}"
+        );
+    }
 }
