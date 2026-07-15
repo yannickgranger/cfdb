@@ -315,11 +315,10 @@ where
     // trait is not object-safe). AC-6 on #124 enforces zero `dyn
     // HirDatabase` anywhere under `crates/cfdb-hir-extractor/src/`.
     let db = sema.db;
-    let crate_name = krate
-        .display_name(db)
-        .map(|n| n.to_string())
-        .unwrap_or_default()
-        .replace('-', "_");
+    // Key the crate segment off the PACKAGE name (not the bin TARGET name
+    // `display_name` yields) so the qname matches the syn extractor and the
+    // EXPOSES edge lands on a real :Item (#517).
+    let crate_name = crate::crate_name::crate_qname_prefix(db, krate);
 
     let mut stack: Vec<String> = module
         .path_to_root(db)

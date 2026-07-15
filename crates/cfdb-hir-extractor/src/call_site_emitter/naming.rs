@@ -101,19 +101,15 @@ where
         .collect();
 
     // Root Module::name returns None for the crate root; prepend the
-    // crate display name (underscores, matching Rust qname convention
-    // the syn extractor uses).
-    let krate = func.krate(db);
-    // `CrateDisplayName::Display` impl renders the underscored
-    // Rust-identifier form (matching cfdb-extractor's convention).
-    let crate_name = krate
-        .display_name(db)
-        .map(|n| n.to_string())
-        .unwrap_or_default();
+    // crate segment explicitly. Key it off the PACKAGE name — not the bin
+    // TARGET name `display_name` yields — so a `[[bin]]` target whose name
+    // differs from its package produces the same qname prefix as the syn
+    // extractor and cross-producer CALLS edges resolve (#517).
+    let crate_name = crate::crate_name::crate_qname_prefix(db, func.krate(db));
     if !crate_name.is_empty() {
         // `path_to_root` does NOT include the crate root itself in
         // name-producing form; we insert it explicitly as element 0.
-        stack.insert(0, crate_name.replace('-', "_"));
+        stack.insert(0, crate_name);
     }
     stack
 }

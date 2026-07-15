@@ -189,7 +189,8 @@ fn call_site_endpoints_resolve_to_syn_items_when_bin_name_differs_from_package()
     write_fixture(root);
 
     let syn_ids = syn_item_ids(root);
-    let (db, vfs, _pm) = build_hir_database(root, false).expect("build_hir_database on bin fixture");
+    let (db, vfs, _pm) =
+        build_hir_database(root, false).expect("build_hir_database on bin fixture");
     let (_nodes, edges) = extract_call_sites(&db, &vfs).expect("extract_call_sites on bin fixture");
 
     let call_endpoints: BTreeSet<String> = edges
