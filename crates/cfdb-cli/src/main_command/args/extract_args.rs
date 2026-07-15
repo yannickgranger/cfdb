@@ -60,4 +60,13 @@ pub(crate) struct ExtractArgs {
     ///      bilateral drift-lock.)
     #[arg(long)]
     pub rev: Option<String>,
+    /// Emit a per-phase wall-clock breakdown of the extract to stderr
+    /// after it completes — `{cargo-metadata, syn-walk, deferred-resolve,
+    /// ingest, hir-load (if --hir), save}` (RFC-048 §3.1, slice 48-A).
+    /// Diagnostic only: the timings go to stderr, never into the keyspace
+    /// or its determinism hash, so the extracted graph is byte-identical
+    /// with or without this flag. Requires the `lang-rust` feature (the
+    /// profiled phases are the Rust extract pipeline's).
+    #[arg(long)]
+    pub profile: bool,
 }

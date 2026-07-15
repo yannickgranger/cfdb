@@ -10,6 +10,10 @@ Typed error enum returned by every cfdb-cli command handler. Wraps upstream erro
 
 Selector for the four enrichment subcommands (`enrich-docs`, `enrich-metrics`, `enrich-history`, `enrich-concepts`). Lets one handler function service all four CLI variants without duplicating the load-store-print boilerplate.
 
+## ExtractProfile
+
+Per-phase wall-clock breakdown of one `cfdb extract --profile` run (RFC-048 §3.1 / slice 48-A). Carries the six phase durations RFC-048 §1 fixes — the three `extract`-internal phases surfaced by the Rust extractor (`cargo metadata`, the `syn` walk, deferred resolution) plus the three the CLI orchestrator owns (ingest, the optional `--hir` load — `None` when `--hir` was not requested, and save) — alongside `total`, the independently-measured end-to-end wall-clock. `phase_sum` adds the six; `unaccounted` is the saturating `total − phase_sum` glue between phases; `render` produces the human-readable stderr block (one line per phase with its share of the total, `hir-load` marked skipped when the phase did not run). This is a diagnostic gate deciding whether the deferred incremental-extraction slices (48-B / 48-C) are worth filing; it is build telemetry, not schema vocabulary. Rendered to stderr only — never written into the keyspace or its canonical dump — so `--profile` cannot perturb the `G1` byte-stable extract (RFC-048 §4).
+
 ## HirExtractError
 
 Error returned by the `hir` feature's `extract_and_ingest_hir` composition (Issue #86 / slice 4). Wraps either a `cfdb_hir_extractor::HirError` or a `cfdb_core::store::StoreError`. Only compiled under `cfdb-cli`'s `hir` Cargo feature; default builds never see this type. Surfaced by `cfdb extract --hir --workspace <path>` and mapped to a `CfdbCliError::Usage` string at the CLI boundary.
