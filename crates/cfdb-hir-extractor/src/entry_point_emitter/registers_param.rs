@@ -1,5 +1,5 @@
 //! REGISTERS_PARAM edge emitters for clap / MCP `:EntryPoint`s, plus
-//! the attribute probes the parent's `scan_file` dispatcher uses to
+//! the attribute probes the parent's detector registry dispatch uses to
 //! branch on `#[derive(Parser|Subcommand)]` vs `#[tool]`.
 //!
 //! Split from `entry_point_emitter.rs` (#239 slice) to keep that file
