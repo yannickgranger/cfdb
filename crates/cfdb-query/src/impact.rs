@@ -19,8 +19,8 @@ use std::collections::BTreeMap;
 
 use cfdb_core::fact::PropValue;
 use cfdb_core::query::{
-    Direction, EdgePattern, Expr, NodePattern, Param, PathPattern, Pattern, Predicate, Projection,
-    ProjectionValue, Query, ReturnClause,
+    Direction, EdgePattern, Expr, NodePattern, ParamBinding, PathPattern, Pattern, Predicate,
+    Projection, ProjectionValue, Query, ReturnClause,
 };
 use cfdb_core::schema::{EdgeLabel, Label};
 
@@ -29,7 +29,7 @@ use cfdb_core::schema::{EdgeLabel, Label};
 /// `Query` AST — the string is the human-readable source of truth, pinned to
 /// the built AST by the `impact_query_matches_canonical_cypher` test.
 ///
-/// `$seeds` binds a `Param::List` of seed qnames; the open form
+/// `$seeds` binds a `ParamBinding::List` of seed qnames; the open form
 /// `<-[:CALLS*1..]-` collects every transitive caller of the bound seeds,
 /// unbounded (RFC-047a B2). `DISTINCT` dedups items reachable via more than one
 /// call path. Reduced to the single `affected.qname` column this slice asserts
@@ -42,7 +42,7 @@ pub const IMPACT_QUERY: &str = "MATCH (seed:Item)<-[:CALLS*1..]-(affected:Item) 
 /// changed-item seed qnames.
 ///
 /// Returns a [`Query`] AST value with `$seeds` already bound to a
-/// `Param::List` of the given qnames, in the order provided. The caller
+/// `ParamBinding::List` of the given qnames, in the order provided. The caller
 /// executes it against a [`cfdb_core::store::StoreBackend`]; the result rows'
 /// `qname` column is the set of transitive callers (the blast radius).
 ///
@@ -101,7 +101,7 @@ pub fn impact_query<S: AsRef<str>>(seeds: &[S], max_depth: Option<u32>) -> Query
         .map(|s| PropValue::Str(s.as_ref().to_string()))
         .collect();
     let mut params = BTreeMap::new();
-    params.insert("seeds".to_string(), Param::List(bound));
+    params.insert("seeds".to_string(), ParamBinding::List(bound));
 
     Query {
         match_clauses,
@@ -166,8 +166,8 @@ mod tests {
     #[test]
     fn impact_query_binds_seed_list_as_param_in_order() {
         let q = impact_query(&["core::leaf_a", "core::leaf_b"], None);
-        let Some(Param::List(items)) = q.params.get("seeds") else {
-            unreachable!("impact_query always binds $seeds as a Param::List");
+        let Some(ParamBinding::List(items)) = q.params.get("seeds") else {
+            unreachable!("impact_query always binds $seeds as a ParamBinding::List");
         };
         assert_eq!(
             items,
@@ -175,7 +175,7 @@ mod tests {
                 PropValue::Str("core::leaf_a".into()),
                 PropValue::Str("core::leaf_b".into()),
             ],
-            "$seeds must be the given qnames, in order, as a Param::List"
+            "$seeds must be the given qnames, in order, as a ParamBinding::List"
         );
     }
 

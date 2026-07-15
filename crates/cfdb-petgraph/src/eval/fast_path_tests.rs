@@ -25,7 +25,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use cfdb_core::fact::{Node, PropValue};
-use cfdb_core::query::{CompareOp, Expr, NodePattern, Param, Predicate};
+use cfdb_core::query::{CompareOp, Expr, NodePattern, ParamBinding, Predicate};
 use cfdb_core::schema::Label;
 use petgraph::stable_graph::NodeIndex;
 
@@ -108,7 +108,7 @@ fn final_set(
     np: &NodePattern,
     where_clause: Option<&Predicate>,
 ) -> BTreeSet<NodeIndex> {
-    let params: BTreeMap<String, Param> = BTreeMap::new();
+    let params: BTreeMap<String, ParamBinding> = BTreeMap::new();
     let eval = Evaluator::new(state, &params);
     // Slice-5 surface: no incoming bindings (single-MATCH). Slice-6
     // cross-MATCH lookups pass the per-row bindings instead.
@@ -160,7 +160,7 @@ fn label_plus_where_eq_fast_path_matches_full_scan() {
     // To make the comparison meaningful we post-filter BOTH sides
     // through the WHERE predicate (which is what `Evaluator::run`
     // does after all pattern stages).
-    let params: BTreeMap<String, Param> = BTreeMap::new();
+    let params: BTreeMap<String, ParamBinding> = BTreeMap::new();
     let eval_indexed = Evaluator::new(&indexed, &params);
     let eval_bare = Evaluator::new(&bare, &params);
     let via_index_filtered: BTreeSet<NodeIndex> = via_index

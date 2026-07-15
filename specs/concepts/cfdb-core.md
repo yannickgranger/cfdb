@@ -127,9 +127,9 @@ A single-node pattern with optional variable binding, optional label filter, opt
 
 An expression paired with a sort direction, used in the `ORDER BY` clause.
 
-## Param
+## ParamBinding
 
-A **query parameter binding** — named (`$name`) or positional. Lives at `query::ast::Param`. Homonym note (flagged by RFC-036 council DDD lens): the graph-node label string `"Param"` (`Label::PARAM`, producing `:Param` nodes carrying a fn/method parameter's `index`, `name`, `is_self`, `parent_qname`, `type_path`, `type_normalized`) is an **unrelated concept** — same word, different domain. The query-AST `Param` is a value supplied by the caller at query time; the graph-node `:Param` is a structural fact emitted by the extractor. A future boy-scout PR renames this query-AST type to `ParamBinding` to eliminate the homonym at source (per RFC-036 §3.1 council decision, DDD condition 2); until then, the two are disambiguated by context (`cfdb_core::query::ast::Param` vs `cfdb_core::schema::Label::PARAM`).
+A **query parameter binding** — named (`$name`) or positional. Lives at `query::ast::ParamBinding`. Homonym note (flagged by RFC-036 council DDD lens): the graph-node label string `"Param"` (`Label::PARAM`, producing `:Param` nodes carrying a fn/method parameter's `index`, `name`, `is_self`, `parent_qname`, `type_path`, `type_normalized`) is an **unrelated concept** — same word, different domain. The query-AST `ParamBinding` is a value supplied by the caller at query time; the graph-node `:Param` is a structural fact emitted by the extractor. This query-AST type was renamed from `Param` to `ParamBinding` to eliminate the homonym at source (per RFC-036 §3.1 council decision, DDD condition 2); the two concepts are now disambiguated by name (`cfdb_core::query::ast::ParamBinding` vs `cfdb_core::schema::Label::PARAM`).
 
 ## PathPattern
 

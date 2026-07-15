@@ -49,7 +49,7 @@ use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
 use cfdb_core::fact::{Node, PropValue};
-use cfdb_core::query::Param;
+use cfdb_core::query::ParamBinding;
 use cfdb_core::schema::{Keyspace, Label};
 use cfdb_core::store::StoreBackend;
 use cfdb_petgraph::index::spec::{ComputedKey, IndexEntry, IndexSpec};
@@ -312,7 +312,7 @@ fn run_rule(
     let mut parsed = parse(cypher).expect("classifier rule parses");
     parsed.params.insert(
         "context".to_string(),
-        Param::Scalar(PropValue::Str(context.to_string())),
+        ParamBinding::Scalar(PropValue::Str(context.to_string())),
     );
     let start = Instant::now();
     let result = store.execute(ks, &parsed).expect("execute classifier");

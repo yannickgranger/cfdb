@@ -17,7 +17,7 @@
 
 use std::collections::BTreeMap;
 
-use cfdb_core::{Param, Pattern, Predicate, Projection, Query, ReturnClause, WithClause};
+use cfdb_core::{ParamBinding, Pattern, Predicate, Projection, Query, ReturnClause, WithClause};
 
 mod match_clause;
 mod params;
@@ -34,7 +34,7 @@ pub struct QueryBuilder {
     order_by: Vec<cfdb_core::OrderBy>,
     limit: Option<u32>,
     distinct: bool,
-    params: BTreeMap<String, Param>,
+    params: BTreeMap<String, ParamBinding>,
 }
 
 impl QueryBuilder {

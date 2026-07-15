@@ -22,7 +22,7 @@ use std::path::PathBuf;
 
 use cfdb_core::fact::{Edge, Node, PropValue};
 use cfdb_core::qname::item_node_id;
-use cfdb_core::query::Param;
+use cfdb_core::query::ParamBinding;
 use cfdb_core::schema::{EdgeLabel, Keyspace, Label};
 use cfdb_core::store::StoreBackend;
 use cfdb_petgraph::PetgraphStore;
@@ -124,8 +124,8 @@ fn load_query(relative_path: &str) -> cfdb_core::Query {
     parse(&text).unwrap_or_else(|e| panic!("parse {}: {e:?}", path.display()))
 }
 
-fn list_param(items: &[&str]) -> Param {
-    Param::List(items.iter().map(|s| PropValue::Str((*s).into())).collect())
+fn list_param(items: &[&str]) -> ParamBinding {
+    ParamBinding::List(items.iter().map(|s| PropValue::Str((*s).into())).collect())
 }
 
 // ---------------------------------------------------------------------
@@ -254,7 +254,7 @@ fn build_fixture() -> PetgraphStore {
 fn bind_plan(query: &mut cfdb_core::Query) {
     query.params.insert(
         "source_context".into(),
-        Param::Scalar(PropValue::Str("stop_engine".into())),
+        ParamBinding::Scalar(PropValue::Str("stop_engine".into())),
     );
     query.params.insert(
         "portage".into(),
@@ -444,10 +444,14 @@ fn signal_mismatch_flags_unclean_portage_item() {
     let store = build_fixture();
     let mut q = load_query("raid-signal-mismatch.cypher");
     bind_plan(&mut q);
-    q.params
-        .insert("max_unwraps".into(), Param::Scalar(PropValue::Int(0)));
-    q.params
-        .insert("min_coverage".into(), Param::Scalar(PropValue::Float(0.60)));
+    q.params.insert(
+        "max_unwraps".into(),
+        ParamBinding::Scalar(PropValue::Int(0)),
+    );
+    q.params.insert(
+        "min_coverage".into(),
+        ParamBinding::Scalar(PropValue::Float(0.60)),
+    );
 
     let rows = run(&store, &q);
 
@@ -476,7 +480,7 @@ fn bind_clean_plan(query: &mut cfdb_core::Query) {
     // canonical, no portage item has metric violations.
     query.params.insert(
         "source_context".into(),
-        Param::Scalar(PropValue::Str("stop_engine".into())),
+        ParamBinding::Scalar(PropValue::Str("stop_engine".into())),
     );
     query.params.insert(
         "portage".into(),
@@ -527,10 +531,14 @@ fn signal_mismatch_is_empty_when_thresholds_relaxed() {
     let mut q = load_query("raid-signal-mismatch.cypher");
     bind_plan(&mut q);
     // Allow up to 10 unwraps + require only 10% coverage → no violation.
-    q.params
-        .insert("max_unwraps".into(), Param::Scalar(PropValue::Int(10)));
-    q.params
-        .insert("min_coverage".into(), Param::Scalar(PropValue::Float(0.10)));
+    q.params.insert(
+        "max_unwraps".into(),
+        ParamBinding::Scalar(PropValue::Int(10)),
+    );
+    q.params.insert(
+        "min_coverage".into(),
+        ParamBinding::Scalar(PropValue::Float(0.10)),
+    );
     let rows = run(&store, &q);
     assert!(
         rows.is_empty(),

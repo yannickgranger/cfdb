@@ -38,7 +38,7 @@
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 
-use cfdb_core::query::{Param, Pattern, Predicate, Query};
+use cfdb_core::query::{ParamBinding, Pattern, Predicate, Query};
 use cfdb_core::result::{QueryResult, RowValue, Warning, WarningKind};
 use petgraph::stable_graph::{EdgeIndex, NodeIndex};
 
@@ -111,7 +111,7 @@ pub(super) type BindingStream<'e> = Box<dyn Iterator<Item = Bindings> + 'e>;
 /// running into borrow-checker conflicts against a mutable receiver.
 pub(crate) struct Evaluator<'a> {
     pub(crate) state: &'a KeyspaceState,
-    pub(crate) params: &'a BTreeMap<String, Param>,
+    pub(crate) params: &'a BTreeMap<String, ParamBinding>,
     pub(crate) warnings: RefCell<Vec<Warning>>,
     /// Slice-7 (#186) — explain-trace collector. `None` for the regular
     /// `execute` path (zero allocation cost); `Some` when the caller
@@ -130,7 +130,10 @@ pub(crate) struct Evaluator<'a> {
 }
 
 impl<'a> Evaluator<'a> {
-    pub(crate) fn new(state: &'a KeyspaceState, params: &'a BTreeMap<String, Param>) -> Self {
+    pub(crate) fn new(
+        state: &'a KeyspaceState,
+        params: &'a BTreeMap<String, ParamBinding>,
+    ) -> Self {
         Self {
             state,
             params,
@@ -144,7 +147,7 @@ impl<'a> Evaluator<'a> {
     /// rows via [`Self::run_explained`].
     pub(crate) fn new_with_explain(
         state: &'a KeyspaceState,
-        params: &'a BTreeMap<String, Param>,
+        params: &'a BTreeMap<String, ParamBinding>,
     ) -> Self {
         Self {
             state,
