@@ -2,6 +2,85 @@
 
 All notable changes to cfdb will be documented in this file.
 
+## [0.6.0] - 2026-07-15
+
+### 🚀 Features
+
+- *(cfdb [#462](https://github.com/yannickgranger/cfdb/issues/462))* RFC-045 45-A — PHP IMPLEMENTS edges + resolver attr + php_construct doc
+- *(cfdb [#465](https://github.com/yannickgranger/cfdb/issues/465))* RFC-045 45-C — PHP :CallSite + INVOKES_AT + resolved CALLS
+- *(cfdb [#463](https://github.com/yannickgranger/cfdb/issues/463))* RFC-045 45-B — TS IMPLEMENTS edges (+ ts_construct doc)
+- *(cfdb [#464](https://github.com/yannickgranger/cfdb/issues/464))* RFC-045 45-D0 — TS method-level :Item (prereq for 45-D)
+- *(cfdb [#466](https://github.com/yannickgranger/cfdb/issues/466))* RFC-045 45-D — TS :CallSite + INVOKES_AT (zero CALLS)
+- *(cfdb [#488](https://github.com/yannickgranger/cfdb/issues/488))* RFC-047a 47-0 — var-length reverse-reachability query mechanics
+- *(cfdb [#489](https://github.com/yannickgranger/cfdb/issues/489))* RFC-047a 47-A — canonical reverse-reachability query + HIR dogfood
+- *(cfdb [#490](https://github.com/yannickgranger/cfdb/issues/490))* RFC-047 47-B — `cfdb impact` CLI verb (--item/--since/--max-depth)
+- *(cfdb [#498](https://github.com/yannickgranger/cfdb/issues/498))* RFC-050 50-A — extract-time :Crate.crate_tier (schema bump)
+- *(cfdb)* RFC-050 50-C up-call layering-violation query
+- *(cfdb)* RFC-049 49-0 — FrameworkDetector registry seam (recall-neutral)
+- *(cfdb)* RFC-048 48-A — per-phase profiling of `cfdb extract`
+- *(cfdb)* RFC-053 53-A — :MatchSite + MATCHES_AT end-to-end (V0_7_0 bump)
+- *(cfdb)* RFC-049 49-A — register clap detector behind the manifest gate ([#494](https://github.com/yannickgranger/cfdb/issues/494))
+- *(cfdb)* RFC-049 49-B — register axum/actix detector behind the manifest gate ([#495](https://github.com/yannickgranger/cfdb/issues/495))
+- *(cfdb)* RFC-053 53-B — MATCHES_ON resolution pass
+- *(cfdb)* RFC-053 53-C — split-resolution fence templates + syn::Visibility guard
+
+### 🐛 Bug Fixes
+
+- *(ci [#446](https://github.com/yannickgranger/cfdb/issues/446))* Cross-bump opens bump PRs again — token PR/issue write + heal silent skip
+- *(ci [#453](https://github.com/yannickgranger/cfdb/issues/453))* Route TMPDIR to disk-backed /cache — /tmp tmpfs OOMs at link time
+- *(test [#457](https://github.com/yannickgranger/cfdb/issues/457))* Serialize cfdb-recall tests under nextest (rustdoc-json race)
+- *(ci [#459](https://github.com/yannickgranger/cfdb/issues/459))* Recall-nightly — POSIX crate list + drop node-less artifact upload
+- *(extract)* Emit an empty graph for a no-recognized-language workspace ([#474](https://github.com/yannickgranger/cfdb/issues/474))
+- *(boy-scout [#488](https://github.com/yannickgranger/cfdb/issues/488))* Clear 4 pre-existing quality-metrics violations
+- *(cfdb [#486](https://github.com/yannickgranger/cfdb/issues/486))* Enforce G6 G1-exclusion of test_coverage in canonical dump
+- *(boy-scout [#513](https://github.com/yannickgranger/cfdb/issues/513))* Recall KEPT_ITEM_KINDS oracle + correspondence guard; flip 3 released RFC markers
+- *(boy-scout [#513](https://github.com/yannickgranger/cfdb/issues/513))* Duplicate-safe length asserts on the KEPT_ITEM_KINDS correspondence guard
+- *(fact [#478](https://github.com/yannickgranger/cfdb/issues/478))* From_json non-finite Number => Null per contract, not fabricated 0.0
+- *(cfdb [#499](https://github.com/yannickgranger/cfdb/issues/499))* Bind tier comparison to call direction + note callee-stub false-clean
+- *(cfdb)* RFC-048 48-A — keep the profiling clock out of the extractor
+- *(ci [#529](https://github.com/yannickgranger/cfdb/issues/529))* Keep the 26-min impact_hir_dogfood test off the PR hot path
+- *(cfdb [#494](https://github.com/yannickgranger/cfdb/issues/494))* Judge containment between like path representations only
+- *(ci)* Dogfood-determinism workdir survives runner tmp cleanup; missing capture is infra error, not nondeterminism
+- *(cfdb-core [#481](https://github.com/yannickgranger/cfdb/issues/481))* Describe :Item.kind with lowercase wire values
+- *(cfdb [#517](https://github.com/yannickgranger/cfdb/issues/517))* Key HIR qname crate segment off the package name, not the bin target name
+
+### 🚜 Refactor
+
+- *(cfdb-hir-extractor [#455](https://github.com/yannickgranger/cfdb/issues/455))* Flatten walk_file (cognitive 58→<10)
+- *(cfdb [#467](https://github.com/yannickgranger/cfdb/issues/467))* Split nodes.rs + call_site_emitter.rs below 500-line gate
+- *(cfdb-core [#480](https://github.com/yannickgranger/cfdb/issues/480))* Rename query::ast::Param -> ParamBinding
+- *(fact [#478](https://github.com/yannickgranger/cfdb/issues/478))* Factor :Item {qname,name,kind,crate} 4-subset into build_item_props_common
+
+### 📚 Documentation
+
+- *(rfc)* RFC-043 — :CallSite argument facts for receiver-type fences
+- *(rfc)* RFC-045 — polyglot relationship edges (PHP/TS IMPLEMENTS + :CallSite/CALLS)
+- *(cfdb)* Draft RFC-047..052 — capabilities borrowed from Understand-Anything
+- *(cfdb)* Reframe RFC-048 as profile-first — discovery shows parsing isn't the bottleneck
+- *(cfdb [#477](https://github.com/yannickgranger/cfdb/issues/477))* RFC-046 runtime execution-trace ingest — council-validated
+- *(cfdb)* Council-ratify RFC-047/049/050 + 48-A; harden §5; park 051/052
+- *(cfdb)* RFC-047a — impact query mechanics complement (council-ratified)
+- *(cfdb)* Draft RFC-053 — :MatchSite + MATCHES_ON enum-dispatch facts for split-resolution-point fences
+- *(cfdb)* RFC-053 R2 — apply unanimous R1 council REQUEST CHANGES
+- *(cfdb)* RFC-053 R2.1 — fold in council forward-guidance on the matches!() non-goal
+- *(cfdb)* RFC-053 RATIFIED — R2 council 4/4 + council/RFC-053/RATIFIED.md
+- *(cfdb)* RFC-053 post-ratify editorial — inline-test route avoids pub(crate) widening (R2 solid refinement)
+- *(cfdb [#480](https://github.com/yannickgranger/cfdb/issues/480))* Reconcile query-dsl.md living doc to ParamBinding
+
+### ⚡ Performance
+
+- *(ci [#448](https://github.com/yannickgranger/cfdb/issues/448))* Run tests via cargo-nextest (parallel across binaries)
+- *(test [#451](https://github.com/yannickgranger/cfdb/issues/451))* Share one cached fixture extract across self-dogfood tests
+
+### 🧪 Testing
+
+- *(cfdb-core [#481](https://github.com/yannickgranger/cfdb/issues/481))* Red — :Item.kind descriptor must list lowercase wire values
+- *(cfdb [#517](https://github.com/yannickgranger/cfdb/issues/517))* RED — HIR cli_command EXPOSES/CALLS dangle when [[bin]] name ≠ package name
+
+### ⚙️ Miscellaneous Tasks
+
+- Weekly cross-fixture bump → f66ff89d6dc5
+- Move HIR-resolved self-audit (extract --hir + edge-liveness) to nightly
 ## [0.5.0] - 2026-05-22
 
 ### 🚀 Features

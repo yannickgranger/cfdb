@@ -267,7 +267,7 @@ dependencies = [
 
 [[package]]
 name = "cfdb-cli"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "assert_cmd",
  "cfdb-concepts",
@@ -293,7 +293,7 @@ dependencies = [
 
 [[package]]
 name = "cfdb-concepts"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "cfdb-core",
  "serde",
@@ -304,7 +304,7 @@ dependencies = [
 
 [[package]]
 name = "cfdb-core"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "quote",
  "serde",
@@ -318,7 +318,7 @@ dependencies = [
 
 [[package]]
 name = "cfdb-extractor"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "cargo_metadata 0.22.0",
  "cfdb-concepts",
@@ -338,7 +338,7 @@ dependencies = [
 
 [[package]]
 name = "cfdb-extractor-php"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "cfdb-core",
  "cfdb-lang",
@@ -350,14 +350,14 @@ dependencies = [
 
 [[package]]
 name = "cfdb-extractor-shared"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "syn",
 ]
 
 [[package]]
 name = "cfdb-extractor-ts"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "cfdb-core",
  "cfdb-lang",
@@ -369,7 +369,7 @@ dependencies = [
 
 [[package]]
 name = "cfdb-hir-extractor"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "cfdb-core",
  "cfdb-extractor",
@@ -395,7 +395,7 @@ dependencies = [
 
 [[package]]
 name = "cfdb-hir-petgraph-adapter"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "cfdb-core",
  "cfdb-hir-extractor",
@@ -407,7 +407,7 @@ dependencies = [
 
 [[package]]
 name = "cfdb-lang"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "cfdb-core",
  "thiserror",
@@ -415,7 +415,7 @@ dependencies = [
 
 [[package]]
 name = "cfdb-petgraph"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "cfdb-concepts",
  "cfdb-core",
@@ -435,7 +435,7 @@ dependencies = [
 
 [[package]]
 name = "cfdb-query"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "cfdb-core",
  "chumsky",
@@ -447,7 +447,7 @@ dependencies = [
 
 [[package]]
 name = "cfdb-recall"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "cfdb-core",
  "cfdb-extractor",
@@ -474,7 +474,7 @@ checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
 name = "check-prelude-triggers"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -704,7 +704,7 @@ checksum = "aeda16ab4059c5fd2a83f2b9c9e9c981327b18aa8e3b313f7e6563799d4f093e"
 
 [[package]]
 name = "dogfood-enrich"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "assert_cmd",
  "cfdb-core",
