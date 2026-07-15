@@ -233,19 +233,9 @@ mod tests {
     #[test]
     fn keeps_all_kept_item_kinds() {
         // Regression guard: every kind in `KEPT_ITEM_KINDS` must flow
-        // through the projection. A future change that accidentally
-        // drops one surfaces as a test failure here.
-        let kinds = [
-            "fn",
-            "struct",
-            "enum",
-            "trait",
-            "type_alias",
-            "const",
-            "static",
-            "union",
-        ];
-        let nodes: Vec<Node> = kinds
+        // through the projection. Iterates the real constant (not a copy)
+        // so a change to the list itself is exercised here too.
+        let nodes: Vec<Node> = KEPT_ITEM_KINDS
             .iter()
             .enumerate()
             .map(|(i, k)| {
@@ -253,6 +243,38 @@ mod tests {
             })
             .collect();
         let grouped = project_nodes(&nodes);
-        assert_eq!(grouped["c"].len(), kinds.len());
+        assert_eq!(grouped["c"].len(), KEPT_ITEM_KINDS.len());
+    }
+
+    #[test]
+    fn kept_item_kinds_correspond_to_ground_truth_list() {
+        // The recall gate holds two views of "kept kinds": the extractor-side
+        // wire strings (`KEPT_ITEM_KINDS` above) and the rustdoc-side
+        // `ItemKind` list in `ground_truth.rs`. This test is the single place
+        // declaring their 1:1 correspondence — editing either list without
+        // the other fails here instead of silently skewing the recall gate.
+        use rustdoc_types::ItemKind;
+        let as_wire = |k: &ItemKind| -> &'static str {
+            match k {
+                ItemKind::Function => "fn",
+                ItemKind::Struct => "struct",
+                ItemKind::Enum => "enum",
+                ItemKind::Trait => "trait",
+                ItemKind::TypeAlias => "type_alias",
+                ItemKind::Constant => "const",
+                ItemKind::Static => "static",
+                ItemKind::Union => "union",
+                other => panic!(
+                    "ground_truth::KEPT_ITEM_KINDS gained {other:?} with no wire mapping — update both lists"
+                ),
+            }
+        };
+        let ground_truth: std::collections::BTreeSet<&str> =
+            crate::adapters::ground_truth::KEPT_ITEM_KINDS
+                .iter()
+                .map(as_wire)
+                .collect();
+        let extractor: std::collections::BTreeSet<&str> = KEPT_ITEM_KINDS.iter().copied().collect();
+        assert_eq!(ground_truth, extractor);
     }
 }

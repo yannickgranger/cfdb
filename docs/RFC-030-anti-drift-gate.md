@@ -1,6 +1,6 @@
 ---
 title: RFC-030 — Anti-drift gate: adopt graph-specs + cfdb self-dogfood
-status: Implemented on develop — pending vNEXT release (2026-04-24)
+status: Released in v0.4.0 (2026-04-25)
 date: 2026-04-19
 authors: cfdb-architects council (clean-arch lens)
 parent: docs/RFC-cfdb.md (RFC-029 v0.1), docs/RFC-cfdb.md (RFC-029 addendum)
