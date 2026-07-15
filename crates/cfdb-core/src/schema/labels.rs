@@ -86,6 +86,27 @@ impl Label {
     /// `arg:{callsite_id}#{position}` (derived via
     /// `cfdb_core::qname::argument_node_id`). SchemaVersion V0_5_0+.
     pub const ARGUMENT: &'static str = "Argument";
+    /// A single `match` expression keyed per distinct name-level
+    /// matched-path prefix (RFC-053). The `cfdb-extractor` `match_visitor`
+    /// walk emits one `:MatchSite` node per (`match` expression, distinct
+    /// arm-pattern-path prefix) pair, plus a `MATCHES_AT` edge from the
+    /// containing fn/method `:Item` (mirroring `INVOKES_AT`). Carries
+    /// `matched_path` (the all-but-last-segment prefix of a multi-segment
+    /// arm-pattern path, name-level and UNRESOLVED — same doctrine as
+    /// `:CallSite.callee_path`: `Visibility`, `syn::Visibility`,
+    /// `cfdb_core::visibility::Visibility` are three distinct values for
+    /// the same type), `file`, `line` (1-indexed `match`-expression start),
+    /// `arm_count`, `wildcard` (RFC-044 §3.7's vocabulary — a top-level `_`
+    /// OR a lowercase bare-ident catch-all binding, BOTH forms), `is_test`,
+    /// `crate`. Node id is the extractor-local
+    /// `matchsite:{fn_qname}:{prefix}:{local_idx}` — deliberately NOT a
+    /// `cfdb_core::qname` helper (RFC-032 §3 keeps site-id schemes out of
+    /// core). The resolved `(:MatchSite)-[:MATCHES_ON]->(:Item{kind:"enum"})`
+    /// edge lands in slice 53-B; an external-type prefix (e.g.
+    /// `syn::Visibility`) keeps its `:MatchSite` with no `MATCHES_ON`.
+    /// SchemaVersion V0_7_0+; pre-V0_7_0 keyspaces carry zero `:MatchSite`
+    /// nodes.
+    pub const MATCH_SITE: &'static str = "MatchSite";
 
     pub fn new(s: impl Into<String>) -> Self {
         Self(s.into())
@@ -134,6 +155,23 @@ impl EdgeLabel {
     // Call graph
     pub const CALLS: &'static str = "CALLS";
     pub const INVOKES_AT: &'static str = "INVOKES_AT";
+
+    // Match dispatch sites (RFC-053)
+    /// `(:Item{kind:"fn"|"method"}) -[:MATCHES_AT]-> (:MatchSite)` — the
+    /// fn/method that contains a `match` expression points at each
+    /// `:MatchSite` emitted for it, mirroring `INVOKES_AT` for call sites
+    /// (one `match` verb root across the family). Emitted walk-time by
+    /// `cfdb-extractor`'s `match_visitor`. SchemaVersion V0_7_0+.
+    pub const MATCHES_AT: &'static str = "MATCHES_AT";
+    /// `(:MatchSite) -[:MATCHES_ON]-> (:Item{kind:"enum"})` — a match site
+    /// whose name-level `matched_path` prefix resolves to a workspace enum
+    /// points at that enum's `:Item`. Reserved in slice 53-A per RFC-053
+    /// §3.2; first emissions land in slice 53-B (the deferred
+    /// `resolve_deferred_match_targets` pass). An external-type prefix
+    /// (e.g. `syn::Visibility`) resolves to no workspace `:Item` and emits
+    /// no `MATCHES_ON` — the honest name-level-only representation.
+    /// SchemaVersion V0_7_0+; pre-V0_7_0 keyspaces carry zero MATCHES_ON edges.
+    pub const MATCHES_ON: &'static str = "MATCHES_ON";
 
     // Entry points
     pub const EXPOSES: &'static str = "EXPOSES";

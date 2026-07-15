@@ -1,5 +1,7 @@
-//! Call-graph node-label descriptors — invocation facts: call sites,
-//! entry points, and call-site arguments. Split out of `nodes.rs` (#467).
+//! Call-graph node-label descriptors — invocation and dispatch facts:
+//! call sites, entry points, call-site arguments, and `match`-dispatch
+//! sites. Split out of `nodes.rs` (#467); `:MatchSite` added in RFC-053
+//! (slice 53-A) as a sibling site-node family alongside `:CallSite`.
 
 use crate::schema::descriptors::{attr, NodeLabelDescriptor, Provenance};
 use crate::schema::labels::Label;
@@ -101,6 +103,86 @@ pub(in crate::schema::describe) fn argument_node_descriptor() -> NodeLabelDescri
                  given syn AST). Cypher rules MAY match on `source_text` with \
                  `=~`; consumers SHOULD prefer `kind` for coarse classification \
                  (RFC-043 §3.1).",
+                Extractor,
+            ),
+        ],
+    }
+}
+
+pub(in crate::schema::describe) fn match_site_node_descriptor() -> NodeLabelDescriptor {
+    use Provenance::Extractor;
+    NodeLabelDescriptor {
+        label: Label::new(Label::MATCH_SITE),
+        description: "A single `match` expression keyed per distinct name-level \
+            matched-path prefix (RFC-053). Emitted by the `cfdb-extractor` \
+            `match_visitor` as a third independent per-fn-body visitor pass \
+            (alongside :CallSite and :Literal): one node per (`match` expression, \
+            distinct arm-pattern-path prefix). `matched_path` is the \
+            all-but-last-segment prefix of a multi-segment arm-pattern path AS \
+            THE AUTHOR WROTE IT — name-level and UNRESOLVED, same doctrine as \
+            `:CallSite.callee_path` (`Visibility`, `syn::Visibility`, \
+            `cfdb_core::visibility::Visibility` are three distinct values for the \
+            same type). Single-segment pattern paths (indistinguishable from \
+            bindings under glob imports) and literal-scrutinee matches emit no \
+            node (named recall limits). The resolved \
+            `(:MatchSite)-[:MATCHES_ON]->(:Item{kind:\"enum\"})` edge lands in \
+            slice 53-B; an external-type prefix (e.g. `syn::Visibility`) keeps \
+            its :MatchSite with no MATCHES_ON — the honest name-level-only \
+            representation. Node id is the extractor-local \
+            `matchsite:{fn_qname}:{prefix}:{local_idx}` (RFC-032 §3 keeps site-id \
+            schemes out of core). SchemaVersion V0_7_0+; pre-V0_7_0 keyspaces \
+            carry zero :MatchSite nodes."
+            .into(),
+        attributes: vec![
+            attr(
+                "arm_count",
+                "int",
+                "Number of arms of the enclosing `match` expression.",
+                Extractor,
+            ),
+            attr("crate", "string", "Owning crate name.", Extractor),
+            attr(
+                "file",
+                "string",
+                "Source file relative to workspace root.",
+                Extractor,
+            ),
+            attr(
+                "is_test",
+                "bool",
+                "True when the enclosing fn is under `#[cfg(test)]` or carries a \
+                 bare `#[test]`. Threaded from the enclosing scope's test context \
+                 (the same predicate `:CallSite` / `:Literal` use), never \
+                 re-evaluated at the match site (RFC-041 §4 fidelity invariant).",
+                Extractor,
+            ),
+            attr(
+                "line",
+                "int",
+                "1-indexed line of the `match` expression start (the `match` \
+                 keyword).",
+                Extractor,
+            ),
+            attr(
+                "matched_path",
+                "string",
+                "Name-level, UNRESOLVED all-but-last-segment prefix of a \
+                 multi-segment arm-pattern path, as the author wrote it — a \
+                 syntactic pattern-path prefix, NOT the scrutinee's resolved type \
+                 (that concept, `matched_type`, is reserved for a future HIR \
+                 tier). Same doctrine as `:CallSite.callee_path`: `Visibility`, \
+                 `syn::Visibility`, `cfdb_core::visibility::Visibility` are three \
+                 distinct values for the same type.",
+                Extractor,
+            ),
+            attr(
+                "wildcard",
+                "bool",
+                "True iff the `match` has a wildcard arm — RFC-044 §3.7's \
+                 vocabulary. Heuristic (syn does no name resolution): a top-level \
+                 `_` (`Pat::Wild`) OR a bare lowercase-leading identifier binding \
+                 with no sub-pattern. Covers BOTH forms — the literal `_` and \
+                 lowercase catch-all bindings (a documented named recall limit).",
                 Extractor,
             ),
         ],

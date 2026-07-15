@@ -119,9 +119,10 @@ impl<'ast> Visit<'ast> for CallSiteVisitor<'_, '_> {
     }
 
     /// Re-parse macro invocation tokens so calls inside `vec![...]`,
-    /// `json!(...)`, etc. are not invisible. Delegates to [`walk_macro_tokens`].
+    /// `json!(...)`, etc. are not invisible. Delegates to the shared
+    /// [`crate::macro_tokens::walk_macro_tokens`] helper.
     fn visit_expr_macro(&mut self, node: &'ast syn::ExprMacro) {
-        self.walk_macro_tokens(&node.mac);
+        crate::macro_tokens::walk_macro_tokens(self, &node.mac);
     }
 
     /// Statement-position macro invocations — `assert_eq!(a, b);`,
@@ -130,52 +131,7 @@ impl<'ast> Visit<'ast> for CallSiteVisitor<'_, '_> {
     /// into tokens either, so without this override every call site
     /// inside a statement-level macro is invisible. Same delegation.
     fn visit_stmt_macro(&mut self, node: &'ast syn::StmtMacro) {
-        self.walk_macro_tokens(&node.mac);
-    }
-}
-
-impl CallSiteVisitor<'_, '_> {
-    /// Re-parse a macro's token stream and recurse through any
-    /// expressions found so call sites inside macro bodies become
-    /// visible. Strategy: try three progressively-general parse shapes
-    /// and walk whichever succeeds.
-    ///
-    /// Unparseable bodies (format strings without trailing exprs, DSL
-    /// macros like `quote!`, declarative macro_rules bodies) fall
-    /// through silently — this is best-effort by design. The goal is
-    /// to catch the common expression-carrying macros (`vec!`, `json!`,
-    /// `assert_eq!`, `format!` args, `tracing::info!` args), not to
-    /// expand every macro.
-    fn walk_macro_tokens(&mut self, mac: &syn::Macro) {
-        use syn::parse::Parser;
-        use syn::visit::Visit;
-        let tokens = mac.tokens.clone();
-
-        // (1) Punctuated<Expr, Comma> — catches vec!, json!, assert_eq!,
-        //     and most function-like expression macros.
-        let punct_parser =
-            syn::punctuated::Punctuated::<syn::Expr, syn::Token![,]>::parse_terminated;
-        if let Ok(exprs) = punct_parser.parse2(tokens.clone()) {
-            for expr in &exprs {
-                // `expr` is owned by this parse, not the outer AST —
-                // but Visit is parametric on 'ast so the lifetime of
-                // the walked tree matches the local borrow.
-                self.visit_expr(expr);
-            }
-            return;
-        }
-
-        // (2) Block shape — macros whose body is a block of statements
-        //     like `{ let x = ...; foo(x) }`.
-        if let Ok(block) = syn::parse2::<syn::Block>(tokens.clone()) {
-            self.visit_block(&block);
-            return;
-        }
-
-        // (3) Single expression fallback.
-        if let Ok(expr) = syn::parse2::<syn::Expr>(tokens) {
-            self.visit_expr(&expr);
-        }
+        crate::macro_tokens::walk_macro_tokens(self, &node.mac);
     }
 }
 

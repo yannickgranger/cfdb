@@ -15,7 +15,8 @@ fn schema_describe_covers_all_node_labels() {
     // per RFC-040 slice 1/5 (issue #323 reservation; first emissions land
     // in slice 3/5, issue #325); `Literal` appended per RFC-041 slice
     // 041-A (issue #369 reservation; first emissions land in slice 041-B,
-    // issue #370).
+    // issue #370); `MatchSite` appended per RFC-053 slice 53-A (first
+    // emissions land in the same slice via `cfdb-extractor::match_visitor`).
     assert_eq!(
         labels,
         vec![
@@ -34,6 +35,7 @@ fn schema_describe_covers_all_node_labels() {
             "ConstTable",
             "Literal",
             "Argument",
+            "MatchSite",
         ]
     );
 }
@@ -68,6 +70,10 @@ fn schema_describe_covers_all_edge_labels() {
         "CANONICAL_FOR",
         "EQUIVALENT_TO",
         "REFERENCED_BY",
+        // RFC-053 slice 53-A — MATCHES_AT (first emissions this slice),
+        // MATCHES_ON (reserved here, first emissions in slice 53-B).
+        "MATCHES_AT",
+        "MATCHES_ON",
     ];
     assert_eq!(edges.len(), expected.len());
     for e in &expected {
@@ -285,7 +291,7 @@ fn schema_describe_narrative_digest() {
     /// To update after a legitimate narrative change: set this to `"RECOMPUTE"`,
     /// run the test, copy the `actual digest:` value from the failure output.
     const FROZEN_NARRATIVE_DIGEST: &str =
-        "a211d11c3a80e2f8dd5177db13b2c876e78c55641738665685368da247a0198f";
+        "62bfa607816dce37634400450bf4c33df4e327053dffabce3f7031f8e6acbf96";
 
     let d = schema_describe();
 
