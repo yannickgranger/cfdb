@@ -69,6 +69,7 @@ All notable changes to cfdb will be documented in this file.
 
 ### ⚡ Performance
 
+- *(cfdb)* Index RandomScattering fork join via ConversionPrefix computed key ([#534](https://github.com/yannickgranger/cfdb/issues/534))
 - *(ci [#448](https://github.com/yannickgranger/cfdb/issues/448))* Run tests via cargo-nextest (parallel across binaries)
 - *(test [#451](https://github.com/yannickgranger/cfdb/issues/451))* Share one cached fixture extract across self-dogfood tests
 
