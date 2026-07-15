@@ -151,3 +151,15 @@ jobs:
           # so this is dormant on a syn keyspace — it runs here, end-of-pipeline
           # (post-enrich), measuring what the full producer chain emits.
           CFDB_BIN="$(pwd)/target/release/cfdb" bash ci/edge-liveness.sh
+
+      - name: Impact HIR dogfood (RFC-047a 47-A, #529)
+        run: |
+          cd repo
+          # The one `integration-live` test: `impact_query` over cfdb-self's
+          # HIR-resolved CALLS graph, built in-process (~26 min / ~6.5 GB —
+          # a second HIR build on top of the extract above; nightly absorbs
+          # it). PR-time CI excludes the binary via the default-filter in
+          # `.config/nextest.toml` (#529) — plain `cargo test` here runs it
+          # without interacting with that filter.
+          cargo test -p cfdb-cli --release --features integration-live \
+            --test impact_hir_dogfood -- --nocapture

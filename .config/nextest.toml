@@ -19,6 +19,22 @@
 [test-groups]
 rustdoc-json-serial = { max-threads = 1 }
 
+# Exclude the 47-A HIR dogfood from every DEFAULT nextest pool (#529).
+#
+# `impact_hir_dogfood.rs` is `#![cfg(feature = "integration-live")]`-gated
+# precisely to stay out of default CI — but `ci.yml` runs
+# `cargo nextest run --workspace --all-features`, which enables the feature
+# and pulls the ~26-min / ~6.5 GB in-process HIR build of cfdb-self into the
+# PR hot path (the single test dominated the ~30-min nextest step). The
+# feature gate controls COMPILATION; this default-filter controls SCHEDULING
+# under `--all-features`. The test still runs nightly
+# (ci-hir-self-audit-nightly.yml) and on demand:
+#
+#   cargo test -p cfdb-cli --features integration-live --test impact_hir_dogfood
+
+[profile.default]
+default-filter = "not binary_id(cfdb-cli::impact_hir_dogfood)"
+
 [[profile.default.overrides]]
 filter = "package(cfdb-recall)"
 test-group = "rustdoc-json-serial"
