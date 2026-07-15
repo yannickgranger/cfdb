@@ -10,9 +10,12 @@
 //!
 //! **Name-level, unresolved.** `matched_path` is the all-but-last-segment
 //! prefix of a multi-segment arm-pattern path exactly as the author wrote
-//! it — same doctrine as `:CallSite.callee_path`. The resolved
-//! `MATCHES_ON` edge to a workspace enum lands in slice 53-B; an
-//! external-type match keeps its `:MatchSite` with no resolved edge.
+//! it — same doctrine as `:CallSite.callee_path`. Each emitted site also
+//! queues its prefix on `Emitter.deferred_match_targets`; the post-walk
+//! [`crate::resolver::resolve_deferred_match_targets`] pass (slice 53-B)
+//! emits the resolved `MATCHES_ON` edge when the prefix resolves to a
+//! workspace enum. An external-type match (e.g. `syn::Visibility`) keeps
+//! its `:MatchSite` with no resolved edge.
 //!
 //! `is_test` propagates the enclosing `#[cfg(test)]` depth flag exactly as
 //! `:CallSite` / `:Literal` do — threaded, never re-evaluated at the match
@@ -136,6 +139,17 @@ impl MatchSiteVisitor<'_, '_> {
             label: Label::new(Label::MATCH_SITE),
             props,
         });
+        // Queue the name-level prefix for post-walk MATCHES_ON resolution
+        // (RFC-053 §3.2, slice 53-B). The resolver
+        // (`resolve_deferred_match_targets`) emits the edge only when the
+        // prefix resolves to a workspace enum; an external / unresolvable
+        // prefix leaves this `:MatchSite` with no MATCHES_ON edge — the
+        // honest name-level-only representation. Queued in walk order so
+        // the emitted edges are queue-order-independent after the final
+        // sort (G1).
+        self.emitter
+            .deferred_match_targets
+            .push((id.clone(), matched_path.to_string()));
         // MATCHES_AT: the containing fn/method Item → this MatchSite,
         // mirroring INVOKES_AT for call sites.
         self.emitter.emit_edge(Edge {

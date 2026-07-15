@@ -294,6 +294,13 @@ impl ItemVisitor<'_> {
         // lives on the workspace-scoped `Emitter` so the resolution
         // pass in `extract_workspace` sees items across every file.
         self.emitter.emitted_item_qnames.insert(qname.clone());
+        // MATCHES_ON post-walk resolution additionally needs the enum
+        // subset (RFC-053 §3.2: resolution targets are constrained to
+        // `kind = "enum"`). This is the single `:Item` emission owner, so
+        // it is the one site that classifies enums for the filter.
+        if kind == "enum" {
+            self.emitter.emitted_enum_qnames.insert(qname.clone());
+        }
         self.emitter.emit_edge(Edge {
             src: id.clone(),
             dst: self.crate_id.clone(),
