@@ -313,13 +313,19 @@ measured delta).
 - **`matches!()` / `assert_matches!` invocations** — excluded by name in v0, same template as
   the if-let exclusion below (add only when a consumer rule demands it). Rationale: their
   `<expr>, <pat> [if <guard>]` token grammar fits none of the three existing macro re-parse
-  tiers (verified against `syn::Arm`'s definition — no tier parses a bare `syn::Pat`), a
-  dedicated fourth tier (re-parse the trailing `Pat [if Expr]` after the last top-level comma)
-  is genuinely new parser logic, and a boolean-returning one-arm check carries less
-  split-brain weight than a full dispatch site. The idiom is common (26 production `src/`
-  files in cfdb's own workspace), so this is **named recall limit #3**, measured by the 53-A
-  fixture and called out in fence docs (§3.6) — the upgrade path is specified and becomes a new
-  slice the first time a live fence demonstrably needs it.
+  tiers (verified against `syn::Arm`'s definition — no tier parses a bare `syn::Pat`), and a
+  boolean-returning one-arm check carries less split-brain weight than a full dispatch site.
+  The idiom is common (26 production `src/` files in cfdb's own workspace), so this is
+  **named recall limit #3**, measured by the 53-A fixture and called out in fence docs (§3.6).
+  Forward guidance so a future amendment need not re-derive it (R1 council, doubly-confirmed):
+  the fourth re-parse tier is **known-low-cost** — `syn::Pat::parse_multi_with_leading_vert`
+  is public API (syn 2.0.117 `pat.rs:383`, the same fn syn's own `Arm` parser uses), making the
+  tier a ~15–20-line addition reusing §3.1's Pat recursion; when implemented, it lives as a
+  `match_visitor`-local wrapper around the shared macro-token helper, never as a parameter
+  threaded through it (ISP). It becomes a new slice the first time a live fence demonstrably
+  needs it. Do not re-propose `crates/cfdb-cli/tests/signatures.rs` as the motivating live
+  instance: Cargo `tests/` integration targets are excluded from extraction entirely by the
+  lib-or-bin target filter (`cfdb-extractor/src/lib.rs:346`), independent of this RFC.
 - **`if let` / `while let` / `let-else`** — two-arm sugar; no on-record split-brain instance is
   if-let-shaped. Add only when a consumer rule demands it.
 - **Struct destructuring patterns** — destructuring is not dispatch; `MATCHES_ON` targets
