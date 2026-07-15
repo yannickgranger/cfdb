@@ -64,7 +64,16 @@ impl PropValue {
             serde_json::Value::Number(n) if n.is_i64() => {
                 PropValue::Int(n.as_i64().expect("match arm guard proved n.is_i64()"))
             }
-            serde_json::Value::Number(n) => PropValue::Float(n.as_f64().unwrap_or(0.0)),
+            // Not-an-`i64` ⇒ a float. `as_f64` yields `None` only for a
+            // non-finite value; the fn's contract collapses that to `Null`,
+            // never a fabricated `0.0` (a lossy coercion, not a safe
+            // default). Unreachable in this build — `serde_json` without
+            // `arbitrary_precision` returns `Some` for every `Number` — but
+            // kept contract-correct for reuse.
+            serde_json::Value::Number(n) => match n.as_f64() {
+                Some(f) => PropValue::Float(f),
+                None => PropValue::Null,
+            },
             serde_json::Value::Bool(b) => PropValue::Bool(*b),
             serde_json::Value::Null => PropValue::Null,
             _ => PropValue::Null,
@@ -415,5 +424,49 @@ mod tests {
             Some("b_context")
         );
         assert_eq!(props.len(), 5);
+    }
+
+    // ---- from_json numeric coercion contract (#478 rider) -----------------
+
+    #[test]
+    fn from_json_number_never_fabricates_a_zero() {
+        use serde_json::Value;
+        // In-range integers land on `Int`.
+        assert_eq!(
+            PropValue::from_json(&Value::from(42_i64)),
+            PropValue::Int(42)
+        );
+        assert_eq!(
+            PropValue::from_json(&Value::from(-5_i64)),
+            PropValue::Int(-5)
+        );
+        // A magnitude beyond i64 is not an `Int`; it coerces to its true
+        // `Float`, never a fabricated `0.0`.
+        let big = PropValue::from_json(&Value::from(u64::MAX));
+        assert_eq!(big, PropValue::Float(u64::MAX as f64));
+        assert_ne!(big, PropValue::Float(0.0));
+        // Genuine floats round-trip their value.
+        assert_eq!(
+            PropValue::from_json(&Value::from(2.5_f64)),
+            PropValue::Float(2.5)
+        );
+        // Other scalars follow the documented contract; JSON null and the
+        // non-scalar shapes (array / object) collapse to `Null`.
+        assert_eq!(
+            PropValue::from_json(&Value::from(true)),
+            PropValue::Bool(true)
+        );
+        assert_eq!(
+            PropValue::from_json(&Value::from("s")),
+            PropValue::Str("s".to_string())
+        );
+        assert!(PropValue::from_json(&Value::Null).is_null());
+        assert!(PropValue::from_json(&Value::Array(vec![])).is_null());
+        assert!(PropValue::from_json(&Value::Object(Default::default())).is_null());
+        // The `None => Null` arm cannot be exercised through a constructed
+        // `Value` in this build (`serde_json` without `arbitrary_precision`
+        // returns `Some` for every `Number`, and the deserializer rejects
+        // non-finite floats), so this locks the reachable contract; the arm
+        // is guarded for contract-correctness under reuse.
     }
 }
