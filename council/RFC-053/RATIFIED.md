@@ -48,7 +48,8 @@ sound by all four lenses independently in R1.
    call_visitor/literal_visitor into one shared helper with first-ever unit tests.
 5. **Resolver reuse settled at primitive level (rust-systems ↔ clean-arch ↔ solid, converged).**
    Standalone short `resolve_deferred_match_targets` calling `resolve_type_string` +
-   `build_last_segment_index` (promoted `pub(crate)`, gaining first direct unit tests in 53-B).
+   `build_last_segment_index` (gaining first direct unit tests in 53-B; visibility stays
+   private if the tests land as an inline `#[cfg(test)]` child module — R2 solid refinement).
    No generic combinator (genuine divergence: tuple arity, tier count, `kind="enum"` filter);
    no copied orchestration (the debt class this RFC fences).
 6. **`matches!()` disposition (rust-systems + solid, doubly confirmed after a mid-council

@@ -125,8 +125,10 @@ from bindings at syn level. Named recall limit #1, measured by the 53-A fixture.
 `MATCHES_ON` resolution is a **standalone short `resolve_deferred_match_targets` in
 `resolver.rs`**, calling the *same pure primitives* the RETURNS/TYPE_OF passes use —
 `resolve_type_string` (tier 1: exact qname; tier 2: unique last-segment via
-`build_last_segment_index`; ambiguous drops silently; both promoted `pub(crate)` — currently
-private). The reuse is **primitive-level, deliberately not function-level** (R1 converged
+`build_last_segment_index`; ambiguous drops silently; both currently private — widen to
+`pub(crate)` ONLY if 53-B's unit tests cannot land as an inline `#[cfg(test)] mod tests` inside
+`resolver.rs`, the established pattern here, which sees private siblings via `use super::*`
+and needs no promotion at all — R2 solid). The reuse is **primitive-level, deliberately not function-level** (R1 converged
 position, rust-systems ↔ clean-arch ↔ solid): the three orchestrations genuinely diverge —
 different queue tuple arity, MATCHES_ON has no tier-3 and a `kind="enum"` filter the others
 lack — so a generic combinator would need enough parameters to be worse than three short
@@ -377,8 +379,8 @@ Tests:
 ### 53-B — `MATCHES_ON` resolution pass
 
 Standalone short `resolve_deferred_match_targets` calling the shared primitives
-`resolve_type_string` / `build_last_segment_index` (both promoted `pub(crate)`; no generic
-combinator, no parallel tier copy — §3.2 converged position); enum-side survey query in
+`resolve_type_string` / `build_last_segment_index` (visibility unchanged if tests land inline
+per §3.2; no generic combinator, no parallel tier copy — §3.2 converged position); enum-side survey query in
 `examples/queries/` (top matched-on enums). Issue
 text states explicitly: **schema vocabulary landed in 53-A; this slice adds no labels and no
 SchemaVersion change** — no second lockstep PR.
