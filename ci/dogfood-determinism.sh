@@ -40,7 +40,15 @@ fi
 # Single combined extract for all 7 passes. RFC §3.4: "one combined
 # extract feeds all 7 queries — cheaper than the per-predicate pattern
 # in predicate-determinism.sh".
-WORKDIR="$(mktemp -d)"
+#
+# The workdir lives under the repo's own target/ (gitignored), NOT the
+# system tmpdir: on the CI runner, /cache/tmp is subject to concurrent
+# housekeeping that has deleted capture files mid-run, which the diff
+# below then misreported as a determinism failure (2026-07-15 run:
+# "diff: enrich-rfc-docs-a.txt: No such file or directory" →
+# "STDOUT DIFFERS"). target/ is never externally cleaned mid-job.
+mkdir -p "$REPO_ROOT/target"
+WORKDIR="$(mktemp -d -p "$REPO_ROOT/target" dogfood-determinism.XXXXXX)"
 trap 'rm -rf "$WORKDIR"' EXIT
 
 DB_DIR="$WORKDIR/db"
@@ -105,6 +113,15 @@ for pass in "${PASSES[@]}"; do
 
     if [ "$rc_a" = "1" ] || [ "$rc_b" = "1" ]; then
         echo "dogfood-determinism: $pass — runtime error (exit $rc_a / $rc_b), skipping (likely I5.1 feature missing)"
+        continue
+    fi
+
+    # A missing capture file is an infrastructure error (something ate
+    # the workdir), NOT nondeterminism — report it distinctly so a
+    # runner flake is never attributed to the enrichment pass.
+    if [ ! -f "$out_a" ] || [ ! -f "$out_b" ]; then
+        echo "dogfood-determinism: $pass — capture file missing ($out_a / $out_b): infrastructure error, not a determinism verdict (FAIL)" >&2
+        failed=$((failed + 1))
         continue
     fi
 
