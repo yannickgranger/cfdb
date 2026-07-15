@@ -8,6 +8,7 @@ members = [
     "ws_fx",
     "test_bench_fx",
     "clap",
+    "axum",
 ]
 
 # Fixture workspace for `tests/v02_1_coverage.rs` (Issue #126, RFC-029
@@ -20,11 +21,11 @@ members = [
 # attribute-text + literal-arg): every member declares its idiom with a
 # local stand-in `pub struct` / `pub trait`, never the real framework
 # crate. The RFC-049 §3.1 manifest gate is crate-name-only, so a member
-# whose detector is manifest-gated (cli_fx → `clap`) carries an EMPTY
-# stub crate of the framework's name as a path dependency, purely so the
-# crate graph exposes that name. mcp/cron/websocket detectors are not
-# manifest-gated. This matches the stub-dep pattern in
-# `tests/entry_point.rs` and `tests/http_route.rs`.
+# whose detector is manifest-gated (cli_fx → `clap`, http_fx → `axum`)
+# carries an EMPTY stub crate of the framework's name as a path
+# dependency, purely so the crate graph exposes that name. mcp/cron/
+# websocket detectors are not manifest-gated. This matches the stub-dep
+# pattern in `tests/entry_point.rs` and `tests/http_route.rs`.
 #
 # This nested workspace is NOT a member of the parent cfdb workspace —
 # the root `Cargo.toml` uses an explicit member list, and cargo treats

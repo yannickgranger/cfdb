@@ -94,7 +94,9 @@ pub fn extract_entry_points<DB>(
 where
     DB: HirDatabase + Sized,
 {
-    attach_db(db, || extract_entry_points_attached(db, vfs, workspace_root))
+    attach_db(db, || {
+        extract_entry_points_attached(db, vfs, workspace_root)
+    })
 }
 
 fn extract_entry_points_attached<DB>(

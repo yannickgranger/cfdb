@@ -64,7 +64,11 @@ fn member_cargo_toml_with_deps(name: &str, deps: &[&str]) -> String {
 /// `member_cargo_toml_with_deps(.., &[name])` dependency and a `name`
 /// entry in the workspace member list.
 fn write_stub_crate(root: &Path, name: &str) {
-    write(root, &format!("{name}/Cargo.toml"), &member_cargo_toml(name));
+    write(
+        root,
+        &format!("{name}/Cargo.toml"),
+        &member_cargo_toml(name),
+    );
     write(root, &format!("{name}/src/lib.rs"), "");
 }
 
@@ -92,7 +96,11 @@ fn attribute_based_entry_point_detection_covers_cli_and_mcp() {
     let tmp = tempdir().expect("tempdir");
     let root = tmp.path();
 
-    write(root, "Cargo.toml", &workspace_cargo_toml(&["epfixture", "clap"]));
+    write(
+        root,
+        "Cargo.toml",
+        &workspace_cargo_toml(&["epfixture", "clap"]),
+    );
     // A stub `clap` path-dep satisfies the RFC-049 §3.1 manifest gate
     // (crate-name-only); the fixture still declares the derive idiom
     // with a local stand-in trait — detection stays attribute-textual,
@@ -226,7 +234,8 @@ pub fn register_jobs() {
 
     let (db, vfs, _pm_client) =
         build_hir_database(root, false).expect("build_hir_database on cronfix");
-    let (nodes, edges) = extract_entry_points(&db, &vfs, root).expect("extract_entry_points on cronfix");
+    let (nodes, edges) =
+        extract_entry_points(&db, &vfs, root).expect("extract_entry_points on cronfix");
 
     let eps: Vec<_> = entry_points(&nodes)
         .into_iter()
@@ -392,7 +401,8 @@ pub fn mount_ws(upgrade: WebSocketUpgrade) -> Response {
 
     let (db, vfs, _pm_client) =
         build_hir_database(root, false).expect("build_hir_database on wsnamed");
-    let (nodes, edges) = extract_entry_points(&db, &vfs, root).expect("extract_entry_points on wsnamed");
+    let (nodes, edges) =
+        extract_entry_points(&db, &vfs, root).expect("extract_entry_points on wsnamed");
 
     let eps: Vec<_> = entry_points(&nodes)
         .into_iter()
@@ -503,7 +513,11 @@ fn clap_parser_struct_emits_one_registers_param_per_arg_field() {
     // dsts = field_node_id(struct_qname, field_name) for each.
     let tmp = tempdir().expect("tempdir");
     let root = tmp.path();
-    write(root, "Cargo.toml", &workspace_cargo_toml(&["clapargs", "clap"]));
+    write(
+        root,
+        "Cargo.toml",
+        &workspace_cargo_toml(&["clapargs", "clap"]),
+    );
     write(
         root,
         "clapargs/Cargo.toml",
@@ -580,7 +594,11 @@ fn clap_subcommand_enum_emits_one_registers_param_per_variant() {
     // follow-up RFC.
     let tmp = tempdir().expect("tempdir");
     let root = tmp.path();
-    write(root, "Cargo.toml", &workspace_cargo_toml(&["subcmd", "clap"]));
+    write(
+        root,
+        "Cargo.toml",
+        &workspace_cargo_toml(&["subcmd", "clap"]),
+    );
     write(
         root,
         "subcmd/Cargo.toml",
@@ -604,7 +622,8 @@ pub enum Command {
 
     let (db, vfs, _pm_client) =
         build_hir_database(root, false).expect("build_hir_database on subcmd");
-    let (_nodes, edges) = extract_entry_points(&db, &vfs, root).expect("extract_entry_points on subcmd");
+    let (_nodes, edges) =
+        extract_entry_points(&db, &vfs, root).expect("extract_entry_points on subcmd");
 
     let enum_qname = "subcmd::Command";
     let entry_point_id = format!("entrypoint:cli_command:{enum_qname}");
@@ -645,7 +664,11 @@ fn clap_parser_struct_with_no_arg_fields_emits_zero_registers_param() {
     // but REGISTERS_PARAM count is zero.
     let tmp = tempdir().expect("tempdir");
     let root = tmp.path();
-    write(root, "Cargo.toml", &workspace_cargo_toml(&["noargs", "clap"]));
+    write(
+        root,
+        "Cargo.toml",
+        &workspace_cargo_toml(&["noargs", "clap"]),
+    );
     write(
         root,
         "noargs/Cargo.toml",
@@ -667,7 +690,8 @@ pub struct Cli {
 
     let (db, vfs, _pm_client) =
         build_hir_database(root, false).expect("build_hir_database on noargs");
-    let (nodes, edges) = extract_entry_points(&db, &vfs, root).expect("extract_entry_points on noargs");
+    let (nodes, edges) =
+        extract_entry_points(&db, &vfs, root).expect("extract_entry_points on noargs");
 
     // Sanity: the :EntryPoint still emits.
     let eps = entry_points(&nodes);
@@ -727,7 +751,8 @@ pub enum Command {
 
     let (db, vfs, _pm_client) =
         build_hir_database(root, false).expect("build_hir_database on nodep");
-    let (nodes, _edges) = extract_entry_points(&db, &vfs, root).expect("extract_entry_points on nodep");
+    let (nodes, _edges) =
+        extract_entry_points(&db, &vfs, root).expect("extract_entry_points on nodep");
 
     let cli: Vec<_> = entry_points(&nodes)
         .into_iter()
@@ -737,6 +762,73 @@ pub enum Command {
         cli.is_empty(),
         "clap detector must be inert without a `clap` dependency; got {} cli_command \
          :EntryPoint(s): {:?}",
+        cli.len(),
+        cli.iter().map(|n| &n.id).collect::<Vec<_>>(),
+    );
+}
+
+#[test]
+fn clap_detector_inert_when_clap_is_transitive_only() {
+    // RFC-049 §3.1/§4: the manifest gate consults a workspace MEMBER's
+    // own [dependencies]. A `clap` that reaches the crate graph only
+    // transitively — as a dependency of a NON-member crate — must not
+    // make the detector present. Here the member `consumer` declares the
+    // clap-derive idiom and depends on `midlib`, which lives OUTSIDE the
+    // workspace directory (so it is a non-member) and in turn depends on
+    // a stub `clap`. `clap` is in the graph but is no member's direct
+    // dependency, so the detector stays inert. This pins the shared
+    // manifest gate against the transitive-closure defect; the clap side
+    // suffices — the axum/actix detector consults the same gate.
+    let tmp = tempdir().expect("tempdir");
+    let base = tmp.path();
+
+    // Workspace at <base>/ws with a single member `consumer`.
+    write(base, "ws/Cargo.toml", &workspace_cargo_toml(&["consumer"]));
+    write(
+        base,
+        "ws/consumer/Cargo.toml",
+        // `midlib` is a sibling of the workspace dir → a non-member.
+        "[package]\nname = \"consumer\"\nversion = \"0.0.1\"\nedition = \"2021\"\n\n\
+         [dependencies]\nmidlib = { path = \"../../midlib\" }\n",
+    );
+    write(
+        base,
+        "ws/consumer/src/lib.rs",
+        r#"
+pub trait Parser {}
+
+#[derive(Parser)]
+pub struct Cli {
+    pub arg: String,
+}
+"#,
+    );
+    // Non-member `midlib` (outside <base>/ws) depends on the stub clap.
+    write(
+        base,
+        "midlib/Cargo.toml",
+        "[package]\nname = \"midlib\"\nversion = \"0.0.1\"\nedition = \"2021\"\n\n\
+         [dependencies]\nclap = { path = \"../clap\" }\n",
+    );
+    write(base, "midlib/src/lib.rs", "");
+    // Stub `clap` — present in the graph, but only via the non-member.
+    write(base, "clap/Cargo.toml", &member_cargo_toml("clap"));
+    write(base, "clap/src/lib.rs", "");
+
+    let ws_root = base.join("ws");
+    let (db, vfs, _pm_client) =
+        build_hir_database(&ws_root, false).expect("build_hir_database on transitive-clap");
+    let (nodes, _edges) =
+        extract_entry_points(&db, &vfs, &ws_root).expect("extract_entry_points on transitive-clap");
+
+    let cli: Vec<_> = entry_points(&nodes)
+        .into_iter()
+        .filter(|n| kind_of(n) == Some("cli_command"))
+        .collect();
+    assert!(
+        cli.is_empty(),
+        "clap detector must be inert when `clap` is only a transitive (non-member) dependency; \
+         got {} cli_command :EntryPoint(s): {:?}",
         cli.len(),
         cli.iter().map(|n| &n.id).collect::<Vec<_>>(),
     );
