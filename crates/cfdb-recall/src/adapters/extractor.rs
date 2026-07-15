@@ -276,5 +276,13 @@ mod tests {
                 .collect();
         let extractor: std::collections::BTreeSet<&str> = KEPT_ITEM_KINDS.iter().copied().collect();
         assert_eq!(ground_truth, extractor);
+        // Set equality alone would let a duplicate entry in either list
+        // collapse unnoticed; assert raw lengths so both lists stay
+        // duplicate-free too.
+        assert_eq!(
+            crate::adapters::ground_truth::KEPT_ITEM_KINDS.len(),
+            KEPT_ITEM_KINDS.len()
+        );
+        assert_eq!(extractor.len(), KEPT_ITEM_KINDS.len());
     }
 }
