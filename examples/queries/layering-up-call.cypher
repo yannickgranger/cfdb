@@ -32,6 +32,23 @@
 // keyspace this query is smoke-parsed only (row count ignored). Do NOT read a
 // zero-row syn result as a passing layering assertion.
 //
+// # Second false-clean: stubbed callees carry no crate (--hir path)
+//
+// Even under --hir a genuine up-call can silently drop out. When the resolver
+// produces a CALLS edge to a callee that was not itself extracted as a node,
+// `cfdb-hir-petgraph-adapter::synthesize_callee_stubs` synthesises a stub
+// :Item for it via `build_callee_stub` (`lib.rs:191-210`). That stub carries a
+// `crate` STRING prop but NO `:IN_CRATE` edge to a `:Crate` node. Its own doc
+// (`lib.rs:145-148`) admits the stub path fires for "an in-workspace callee
+// that somehow missed syn extraction (conditional compilation, ...)". An
+// up-call whose callee is such a stub never binds the
+// `MATCH (callee)-[:IN_CRATE]->(dc:Crate)` hop, so the row is dropped and the
+// violation is not reported — a false clean distinct from the syn-only one
+// above. A zero-row result is therefore not proof of a clean layer when
+// cfg-gated code is in play. The fix is upstream (the stub should emit
+// IN_CRATE, or the join should read crate_tier off the `crate` prop), not in
+// this query — recorded here so a reader does not over-trust the empty result.
+//
 // # Why the is_test filter is load-bearing (RFC-050 §3.2 / §5)
 //
 // The tier DAG is normal-`[dependencies]`-only: dev/build deps are excluded so

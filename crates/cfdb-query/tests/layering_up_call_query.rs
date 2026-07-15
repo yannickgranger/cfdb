@@ -2,18 +2,20 @@
 //! (`examples/queries/layering-up-call.cypher`).
 //!
 //! The shipped `.cypher` is smoke-parsed by CI, but smoke ignores structure:
-//! a silent edit that inverted the tier comparison (`<` → `>`) or dropped the
-//! load-bearing `is_test = false` filter would still parse and still pass
-//! smoke, yet the detector would then flag legitimate downward calls / spurious
-//! dev-dep test back-edges. This test pins the AST to the up-call shape so
-//! those regressions fail the build. Mirrors `arch_ban_rfc_rules_parse.rs`'s
-//! parse-then-walk helper shape.
+//! a silent edit could invert or defang the detector while still parsing and
+//! still passing smoke. This test pins the AST to the up-call shape so those
+//! mutations fail the build. The comparison is bound END-TO-END to the CALL
+//! direction — the caller's crate must be the LEFT (smaller) side of `<` — so
+//! a bare variable-swap (`WHERE dc.crate_tier < cc.crate_tier`), which
+//! semantically inverts the detector into flagging legitimate downward calls,
+//! is caught. Mirrors `arch_ban_rfc_rules_parse.rs`'s parse-then-walk shape.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use cfdb_core::fact::PropValue;
-use cfdb_core::query::{CompareOp, Expr, Pattern, Predicate, Query};
+use cfdb_core::query::{CompareOp, Expr, NodePattern, PathPattern, Pattern, Predicate, Query};
 use cfdb_core::schema::{EdgeLabel, Label};
 
 /// `crates/cfdb-query/` is two levels below the workspace root.
@@ -34,6 +36,33 @@ fn up_call_query() -> Query {
     let source =
         fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     cfdb_query::parse(&source).unwrap_or_else(|e| panic!("parse {}: {e}", path.display()))
+}
+
+fn paths(query: &Query) -> Vec<&PathPattern> {
+    query
+        .match_clauses
+        .iter()
+        .filter_map(|p| match p {
+            Pattern::Path(pp) => Some(pp),
+            _ => None,
+        })
+        .collect()
+}
+
+fn edge_label(p: &PathPattern) -> Option<&str> {
+    p.edge.label.as_ref().map(|l| l.as_str())
+}
+
+fn node_label(n: &NodePattern) -> Option<&str> {
+    n.label.as_ref().map(|l| l.as_str())
+}
+
+/// The variable name of a `<var>.<name>` property access, if `e` is one.
+fn prop_var(e: &Expr) -> Option<&str> {
+    match e {
+        Expr::Property { var, .. } => Some(var.as_str()),
+        _ => None,
+    }
 }
 
 /// True iff `e` is a property access `<var>.<name>` on the given property.
@@ -58,25 +87,6 @@ fn compares<'q>(pred: &'q Predicate, out: &mut Vec<(CompareOp, &'q Expr, &'q Exp
     }
 }
 
-/// Every `(from_label, edge_label, to_label)` triple across the MATCH clauses,
-/// each as an owned `String` for easy comparison against schema constants.
-fn path_edges(query: &Query) -> Vec<(Option<String>, Option<String>, Option<String>)> {
-    let lbl = |l: Option<&Label>| l.map(|l| l.as_str().to_string());
-    let edge = |l: Option<&EdgeLabel>| l.map(|l| l.as_str().to_string());
-    query
-        .match_clauses
-        .iter()
-        .filter_map(|p| match p {
-            Pattern::Path(pp) => Some((
-                lbl(pp.from.label.as_ref()),
-                edge(pp.edge.label.as_ref()),
-                lbl(pp.to.label.as_ref()),
-            )),
-            _ => None,
-        })
-        .collect()
-}
-
 #[test]
 fn up_call_query_parses_as_single_statement() {
     // Panics inside the helper on any parse error.
@@ -84,55 +94,101 @@ fn up_call_query_parses_as_single_statement() {
 }
 
 #[test]
-fn joins_calls_to_two_in_crate_hops() {
-    let edges = path_edges(&up_call_query());
-
-    // The CALLS edge carries the cross-tier call itself.
-    assert!(
-        edges
-            .iter()
-            .any(|(_, e, _)| e.as_deref() == Some(EdgeLabel::CALLS)),
-        "up-call query must traverse a [:CALLS] edge; MATCH edges = {edges:?}"
-    );
-
-    // Each endpoint reaches its crate via IN_CRATE so crate_tier is comparable.
-    let in_crate_to_crate = edges
-        .iter()
-        .filter(|(_, e, to)| {
-            e.as_deref() == Some(EdgeLabel::IN_CRATE) && to.as_deref() == Some(Label::CRATE)
-        })
-        .count();
-    assert_eq!(
-        in_crate_to_crate, 2,
-        "up-call query must join BOTH caller and callee to their :Crate via \
-         [:IN_CRATE] (one hop each — RFC-050 killed :Item.layer); found {in_crate_to_crate}"
-    );
-}
-
-#[test]
-fn compares_caller_tier_strictly_below_callee_tier() {
+fn binds_call_direction_through_in_crate_to_the_tier_comparison() {
     let query = up_call_query();
+    let all_paths = paths(&query);
+
+    // (1) The CALLS edge carries the cross-tier call:
+    //     (caller:Item)-[:CALLS]->(callee:Item). The edge DIRECTION names which
+    //     side is the caller (source) and which is the callee (dest).
+    let calls = all_paths
+        .iter()
+        .copied()
+        .find(|p| edge_label(p) == Some(EdgeLabel::CALLS))
+        .expect("query must traverse a [:CALLS] edge");
+    assert_eq!(
+        node_label(&calls.from),
+        Some(Label::ITEM),
+        "CALLS source must be an :Item"
+    );
+    assert_eq!(
+        node_label(&calls.to),
+        Some(Label::ITEM),
+        "CALLS dest must be an :Item"
+    );
+    let caller_item = calls.from.var.as_deref().expect("CALLS source is bound");
+    let callee_item = calls.to.var.as_deref().expect("CALLS dest is bound");
+    assert_eq!(caller_item, "caller", "CALLS source var");
+    assert_eq!(callee_item, "callee", "CALLS dest var");
+
+    // (2) One IN_CRATE hop per call endpoint, each reaching a :Crate. Build
+    //     item_var -> crate_var so the tier comparison in (3) can be bound to
+    //     the CALL direction rather than to bare variable names.
+    let mut item_to_crate: BTreeMap<&str, &str> = BTreeMap::new();
+    let mut in_crate_count = 0;
+    for p in all_paths.iter().copied() {
+        if edge_label(p) != Some(EdgeLabel::IN_CRATE) {
+            continue;
+        }
+        in_crate_count += 1;
+        assert_eq!(
+            node_label(&p.to),
+            Some(Label::CRATE),
+            "IN_CRATE target must be a :Crate"
+        );
+        let item_var = p.from.var.as_deref().expect("IN_CRATE source is bound");
+        let crate_var = p.to.var.as_deref().expect("IN_CRATE crate is bound");
+        item_to_crate.insert(item_var, crate_var);
+    }
+    assert_eq!(
+        in_crate_count, 2,
+        "up-call query must join BOTH caller and callee to their :Crate via \
+         [:IN_CRATE] (one hop each — RFC-050 killed :Item.layer)"
+    );
+    let caller_crate = item_to_crate
+        .get(caller_item)
+        .copied()
+        .unwrap_or_else(|| panic!("caller `{caller_item}` has no IN_CRATE hop to a :Crate"));
+    let callee_crate = item_to_crate
+        .get(callee_item)
+        .copied()
+        .unwrap_or_else(|| panic!("callee `{callee_item}` has no IN_CRATE hop to a :Crate"));
+    assert_eq!(caller_crate, "cc", "caller's crate var");
+    assert_eq!(callee_crate, "dc", "callee's crate var");
+
+    // (3) The tier comparison must read the CALLER's crate on the LEFT (the
+    //     smaller side of `<`) and the CALLEE's crate on the RIGHT — a lower
+    //     layer calling UP. Binding the operands to the crate vars derived in
+    //     (2) (which are in turn derived from the CALL direction in (1)) is
+    //     what makes a var-swap `dc.crate_tier < cc.crate_tier` — which inverts
+    //     the detector into flagging legitimate downward calls — fail here.
     let pred = query
         .where_clause
         .as_ref()
         .expect("up-call query has a WHERE clause");
     let mut cmps = Vec::new();
     compares(pred, &mut cmps);
-
-    // The load-bearing predicate: caller_crate.crate_tier < callee_crate.crate_tier.
-    // The direction (Lt) IS the semantics — a lower tier calling up into a
-    // higher one. A flip to `>` would flag legitimate downward calls, `<=`
-    // would flag same-tier intra-layer calls. Exactly one, strictly `<`.
-    let tier_ops: Vec<CompareOp> = cmps
+    let tier_cmp = cmps
         .iter()
-        .filter(|c| is_prop(c.1, "crate_tier") && is_prop(c.2, "crate_tier"))
-        .map(|c| c.0)
-        .collect();
+        .find(|c| is_prop(c.1, "crate_tier") && is_prop(c.2, "crate_tier"))
+        .expect("query must compare crate_tier to crate_tier");
     assert_eq!(
-        tier_ops,
-        vec![CompareOp::Lt],
-        "up-call query must have exactly one crate_tier-to-crate_tier comparison, \
-         strictly `<` (caller tier below callee tier); found {tier_ops:?}"
+        tier_cmp.0,
+        CompareOp::Lt,
+        "tier comparison must be strictly `<` (caller tier below callee tier); \
+         `>`/`<=` invert or loosen the up-call semantics"
+    );
+    assert_eq!(
+        prop_var(tier_cmp.1),
+        Some(caller_crate),
+        "LEFT of `<` must be the CALLER's crate tier ({caller_crate}.crate_tier) — the \
+         lower layer; a var-swap here silently inverts the detector"
+    );
+    assert_eq!(
+        prop_var(tier_cmp.2),
+        Some(callee_crate),
+        "RIGHT of `<` must be the CALLEE's crate tier ({callee_crate}.crate_tier) — the \
+         higher layer being called up into"
     );
 }
 
