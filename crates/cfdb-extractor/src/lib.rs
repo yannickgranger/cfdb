@@ -316,14 +316,30 @@ pub fn extract_workspace_profiled(
     // nodes which queue their own TYPE_OF entries).
     resolver::resolve_deferred_type_of(&mut emitter);
 
-    // Step 5 (post-walk) — synthesize minimal `:Item` nodes for edge dst
+    // Step 5 (post-walk) — MATCHES_ON resolution (RFC-053 §3.2, slice
+    // 53-B). For each (matchsite_id, matched_path_prefix) queued by the
+    // match visitor, emit a MATCHES_ON edge when the name-level prefix
+    // resolves to a workspace enum. Reuses the RETURNS / TYPE_OF two-tier
+    // primitive (exact-match + unique last-segment) with a `kind="enum"`
+    // filter, a §3.5 homonym guard (a name-level resolution is trusted
+    // only when the matched-path prefix is a segment-suffix of the resolved
+    // qname), and no wrapper-unwrap third tier — a matched path is a
+    // pattern-path prefix, not a wrapped type. An external prefix
+    // (`syn::Visibility`) is not a suffix of the same-named workspace enum
+    // and resolves to nothing, so its `:MatchSite` keeps no MATCHES_ON edge
+    // (the honest name-level-only representation).
+    // Runs BEFORE synthesis for the same reason RETURNS / TYPE_OF do —
+    // the resolver's exact-match tier must not see synthesised entries.
+    resolver::resolve_deferred_match_targets(&mut emitter);
+
+    // Step 6 (post-walk) — synthesize minimal `:Item` nodes for edge dst
     // qnames that no walk path emitted: foreign traits (`std::fmt::Display`),
     // foreign types (`serde::Value`), or any same-workspace item referenced
     // by edge before walking. Without this pass `cfdb-petgraph::ingest_one_edge`
     // drops every IMPLEMENTS / IMPLEMENTS_FOR / RETURNS / TYPE_OF whose dst
     // is unknown — issue #317 (reframed from withdrawn RFC-039). Runs AFTER
-    // RETURNS / TYPE_OF resolution so the resolvers' exact-match tier is
-    // not contaminated by synthesised entries; runs BEFORE finish() so
+    // RETURNS / TYPE_OF / MATCHES_ON resolution so the resolvers' exact-match
+    // tier is not contaminated by synthesised entries; runs BEFORE finish() so
     // synthesised nodes/edges land in the same canonical sort.
     synthesize::synthesize_referenced_items(&mut emitter, &overrides);
 
