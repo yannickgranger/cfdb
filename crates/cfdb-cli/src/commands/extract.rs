@@ -22,17 +22,18 @@ pub fn extract(
     hir: bool,
     no_proc_macro: bool,
     rev: Option<String>,
+    profile: bool,
 ) -> Result<(), crate::CfdbCliError> {
     // The `Some(rev) if is_url_at_sha(rev)` guard is the SINGLE resolution
     // point for URL-vs-SHA discrimination. Do not duplicate this check
     // inside `extract_at_rev` or `extract_at_url_rev` — see the Wiring
     // Assertion in `.prescriptions/96.md`.
     match rev.as_deref() {
-        None => extract_at_path(&workspace, &db, keyspace, hir, no_proc_macro),
+        None => extract_at_path(&workspace, &db, keyspace, hir, no_proc_macro, profile),
         Some(rev) if is_url_at_sha(rev) => {
-            extract_at_url_rev(rev, &db, keyspace, hir, no_proc_macro)
+            extract_at_url_rev(rev, &db, keyspace, hir, no_proc_macro, profile)
         }
-        Some(rev) => extract_at_rev(&workspace, rev, &db, keyspace, hir, no_proc_macro),
+        Some(rev) => extract_at_rev(&workspace, rev, &db, keyspace, hir, no_proc_macro, profile),
     }
 }
 
@@ -45,11 +46,22 @@ fn extract_at_path(
     keyspace: Option<String>,
     hir: bool,
     no_proc_macro: bool,
+    profile: bool,
 ) -> Result<(), crate::CfdbCliError> {
     let ks_name = keyspace.unwrap_or_else(|| workspace_basename(workspace));
     let ks = Keyspace::new(&ks_name);
 
     eprintln!("extract: walking {}", workspace.display());
+
+    // RFC-048 §3.1 (slice 48-A) — the profiled path attributes wall-clock
+    // across the extract's phases and prints the breakdown to stderr. It is
+    // Rust-specific (the phases are the Rust extract pipeline's, RFC-048 §1),
+    // so it runs the Rust extractor directly rather than the polyglot
+    // producer registry below. Timings never touch the keyspace, so a
+    // profiled extract's graph is byte-identical to a plain one (RFC-048 §4).
+    if profile {
+        return run_profiled_extract(workspace, db, &ks, &ks_name, hir, no_proc_macro);
+    }
 
     // RFC-041 Phase 1 / Slice 41-C dispatcher — replaces the direct
     // `cfdb_extractor::extract_workspace` call with a producer-trait
@@ -125,6 +137,7 @@ fn extract_at_rev(
     keyspace: Option<String>,
     hir: bool,
     no_proc_macro: bool,
+    profile: bool,
 ) -> Result<(), crate::CfdbCliError> {
     if !repo.join(".git").exists() && !repo.join(".git").is_file() {
         return Err(crate::CfdbCliError::Usage(format!(
@@ -146,7 +159,14 @@ fn extract_at_rev(
 
     // Run the normal extract against the temp worktree. If it fails, the
     // guard's Drop still removes the worktree.
-    let result = extract_at_path(worktree_guard.path(), db, Some(ks_name), hir, no_proc_macro);
+    let result = extract_at_path(
+        worktree_guard.path(),
+        db,
+        Some(ks_name),
+        hir,
+        no_proc_macro,
+        profile,
+    );
 
     // Explicit remove so we surface removal errors rather than swallowing
     // them in Drop. If removal fails, we still return the extract result —
@@ -173,6 +193,7 @@ fn extract_at_url_rev(
     keyspace: Option<String>,
     hir: bool,
     no_proc_macro: bool,
+    profile: bool,
 ) -> Result<(), crate::CfdbCliError> {
     let (url, sha) = parse_url_at_sha(url_at_sha).ok_or_else(|| {
         crate::CfdbCliError::Usage(format!(
@@ -201,7 +222,7 @@ fn extract_at_url_rev(
     }
 
     let ks_name = keyspace.unwrap_or_else(|| short_rev(sha));
-    extract_at_path(&cache_dir, db, Some(ks_name), hir, no_proc_macro)
+    extract_at_path(&cache_dir, db, Some(ks_name), hir, no_proc_macro, profile)
 }
 
 /// Ensure the parent directory exists and remove any half-populated cache
@@ -459,6 +480,88 @@ impl Drop for GitWorktree {
                 .status();
         }
     }
+}
+
+/// RFC-048 §3.1 (slice 48-A) profiled extract. Runs the Rust extractor's
+/// profiled entry point for the three `extract`-internal phase timings
+/// (cargo-metadata, syn-walk, deferred-resolve), times the CLI-owned
+/// ingest / `--hir` load / save phases around their existing calls, and
+/// renders the [`crate::ExtractProfile`] breakdown to stderr. The keyspace
+/// bytes are identical to a non-profiled extract — the timers are `Instant`
+/// reads that never enter the graph (RFC-048 §4).
+///
+/// Rust-only: the profiled phase vocabulary is the Rust pipeline's, so this
+/// runs `cfdb_extractor` directly instead of the polyglot producer registry.
+/// Compiled only under the `lang-rust` feature; the slim build hits the stub
+/// below and reports the missing feature instead of silently no-op'ing.
+#[cfg(feature = "lang-rust")]
+fn run_profiled_extract(
+    workspace: &Path,
+    db: &Path,
+    ks: &Keyspace,
+    ks_name: &str,
+    hir: bool,
+    no_proc_macro: bool,
+) -> Result<(), crate::CfdbCliError> {
+    use std::time::Instant;
+
+    use crate::ExtractProfile;
+
+    let t_total = Instant::now();
+    // `ExtractError` maps into `CfdbCliError::Extract` via `#[from]` (both
+    // are `lang-rust`-gated), so `?` surfaces the same typed failure the
+    // non-profiled path's `ExtractError` consumers see.
+    let (nodes, edges, rust_phases) = cfdb_extractor::extract_workspace_profiled(workspace)?;
+    eprintln!("extract: {} nodes, {} edges", nodes.len(), edges.len());
+
+    let mut store = compose::empty_store();
+    let t_ingest = Instant::now();
+    store.ingest_nodes(ks, nodes)?;
+    store.ingest_edges(ks, edges)?;
+    let ingest = t_ingest.elapsed();
+
+    let hir_load = if hir {
+        let t_hir = Instant::now();
+        extract_hir(&mut store, ks, workspace, !no_proc_macro)?;
+        Some(t_hir.elapsed())
+    } else {
+        None
+    };
+
+    let t_save = Instant::now();
+    let path = compose::save_store(&store, ks, db)?;
+    let save = t_save.elapsed();
+    eprintln!("extract: saved keyspace `{ks_name}` to {}", path.display());
+
+    let profile = ExtractProfile {
+        cargo_metadata: rust_phases.cargo_metadata,
+        syn_walk: rust_phases.syn_walk,
+        deferred_resolve: rust_phases.deferred_resolve,
+        ingest,
+        hir_load,
+        save,
+        total: t_total.elapsed(),
+    };
+    eprint!("{}", profile.render());
+    Ok(())
+}
+
+/// Slim-build stub — `--profile` is a Rust-pipeline diagnostic (RFC-048 §1),
+/// so a build with no `lang-rust` feature cannot honour it. Mirrors the
+/// [`extract_hir`] `#[cfg(not(...))]` stub: a clear error, never a silent
+/// no-op.
+#[cfg(not(feature = "lang-rust"))]
+fn run_profiled_extract(
+    _workspace: &Path,
+    _db: &Path,
+    _ks: &Keyspace,
+    _ks_name: &str,
+    _hir: bool,
+    _no_proc_macro: bool,
+) -> Result<(), crate::CfdbCliError> {
+    Err(crate::CfdbCliError::from(
+        "`--profile` requires the `lang-rust` feature — RFC-048 profiles the Rust extract pipeline (rebuild with default features or `--features lang-rust`)".to_string(),
+    ))
 }
 
 /// Run the HIR pipeline when the `hir` feature is compiled in. The

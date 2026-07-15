@@ -28,6 +28,7 @@ mod hir;
 mod lang;
 mod output;
 mod param_resolver;
+mod profile;
 mod scope;
 mod stubs;
 
@@ -43,6 +44,7 @@ pub use error::CfdbCliError;
 #[cfg(feature = "hir")]
 pub use hir::{extract_and_ingest_hir, HirExtractError};
 pub use output::{emit_json, OutputFormat};
+pub use profile::ExtractProfile;
 pub use scope::scope;
 pub use stubs::{
     drop_keyspace_cmd, list_items_matching, schema_describe_cmd, snapshots, typed_stub,
