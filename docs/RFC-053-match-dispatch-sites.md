@@ -1,10 +1,13 @@
 # RFC-053 — `:MatchSite` + `MATCHES_ON`: enum-dispatch facts for split-resolution-point fences
 
 ```
-status: Draft — pending 4-lens council review
-author: A0 (use-case analysis session 2026-07-15)
-schema: V0_6_0 → V0_7_0 (new node label + two edge labels)
-refs: #478, #430, RFC-040, RFC-041 (literal extraction), RFC-043, RFC-036 (Draft), RFC-037 §7
+status: Draft R2 — R1 council: 4× REQUEST CHANGES (all prescribed changes applied in this
+        revision), pending R2 confirmation
+author: A0 (use-case analysis session 2026-07-15; R1 council same day)
+schema: V0_6_0 → V0_7_0 (one bump, landing in slice 53-A: one node label + two edge labels)
+refs: #279 (W17 audit EPIC), #430 + RFC-044 §3.7 (wildcard-arm policy record), boy-scout #107
+      (commit 2aedd013 — the historical Visibility split-brain fix), RFC-040, RFC-041 (literal
+      extraction), RFC-043, RFC-036 (Draft), RFC-037 §7, agentry #496 (fence family)
 ```
 
 ## 1. Problem
@@ -14,48 +17,60 @@ contracted to fence in its target repos (agentry, qbot-core) and in itself, not 
 missing syntax nodes. Five use cases were analyzed; four are already covered or in flight; one is
 a genuine blind spot.
 
-| UC | Debt class | On-record instances | Structural signal needed | Status today |
+| UC | Debt class | Evidence (source-verified at R1 council) | Structural signal needed | Status today |
 |---|---|---|---|---|
-| UC1 | **Split resolution point** — the same enum dispatched to values/behavior at N sites | `Visibility` AST→wire→enum at 3 sites (#478); output `--format` flag with 3 implementations (2026-W17 audit Pattern 1); agentry FSM phase enum (agentry #496 fence family) | *which type each `match` dispatches on, per site* | **INVISIBLE — this RFC** |
-| UC2 | Same formula reimplemented (`qname` 2 paths, `last_segment` 2 sites) | 2026-W17 audit Pattern 1 | body-shape similarity (`dup_cluster_id`) | RFC-036 (Draft, pending R2) — no new vocabulary needed |
+| UC1 | **Split resolution point** — the same enum dispatched to values/behavior at N sites | agentry FSM phase enum (agentry #496 fence family — construction-side fences 1–2 shipped; the *matching-side* fence is inexpressible today); cfdb's own historical `parse_syn_visibility` split-brain (fixed 2026-04-20, boy-scout #107 / commit `2aedd013` — see narrative below); #279's W17-audit list also names a `--format` flag with 3 implementations (liveness NOT re-verified — 53-C must re-verify before using it as a fence target) | *which type each `match` dispatches on, per site* | **INVISIBLE — this RFC** |
+| UC2 | Same formula reimplemented (`qname` 2 paths, `last_segment` 2 sites) | #279 W17 audit Pattern 1 | body-shape similarity (`dup_cluster_id`) | RFC-036 (Draft, pending R2) — no new vocabulary needed |
 | UC3 | Const/alias table divergence | qbot currency alias maps (RFC-040 origin) | `:ConstTable.entries_hash` overlap | Shipped (RFC-040) |
 | UC4 | Hardcoded literal domain scattered | agentry phase-name strings | `:Literal` value overlap | Shipped (RFC-041 literal extraction, v0.4.0) |
-| UC5 | Sites have already *diverged* (site A maps `PubCrate → "pub(crate)"`, site B → `"crate"`) | #478 drift risk | arm→output pairing | **Deliberately NOT built** — forensic, not preventive; once UC1 narrows 40k items to 2 fns, an agent reads both bodies. Arm-level nodes stay retired (RFC-037 §7) |
+| UC5 | Sites have already *diverged* (site A maps a variant to `"pub(crate)"`, site B to `"crate"`) | drift risk inherent to UC1 | arm→output pairing | **Deliberately NOT built** — forensic, not preventive; once UC1 narrows 40k items to 2 fns, an agent reads both bodies. Arm-level nodes stay retired (RFC-037 §7) |
 
-**The blind spot, precisely.** cfdb sees enum-variant **construction** (a call expression →
-`:CallSite`, RFC-043) and string **outputs** of a mapping (`:Literal`, RFC-041). It cannot see
-variant **matching/destructuring** — the `match`/dispatch half of every split resolution point.
-Consequence: the fence for "a second site now dispatches on this enum" is inexpressible as a
-Cypher rule, and `/audit-all` found ZERO of the W17 Pattern-1 instances for exactly this reason
-(#279 dogfood evidence).
+**The worked instance — and why it argues for a fence, not a fix.** cfdb had a real UC1
+split-brain: `parse_syn_visibility` used to construct `Visibility` variants directly, bypassing
+`Visibility::FromStr` — two resolution points for the same mapping. `audit-split-brain` (a
+semantic tool, run during a manual audit) caught it; boy-scout #107 (commit `2aedd013`,
+2026-04-20) collapsed it. Five days later the W17 audit EPIC (#279, filed 2026-04-25) still
+documented it as live — **the prose debt record was stale within a week of being written.**
+Today the conversion is genuinely single-owner, and `crates/cfdb-extractor/src/item_visitor.rs`
+self-documents it as "the canonical (and only) AST → Visibility mapping" — i.e. canonicality is
+currently enforced by **a doc-comment alone**. Nothing structural prevents a second site from
+reappearing, and cfdb cannot express the rule that would catch it, because matching/destructuring
+is invisible to extraction. That is the precise blind spot: cfdb sees enum-variant
+**construction** (`:CallSite`, RFC-043) and mapping **outputs** (`:Literal`, RFC-041), never the
+**match** half of a resolution point. `/audit-all`'s structural detectors found ZERO of the W17
+Pattern-1 instances for exactly this reason (#279 dogfood evidence).
 
-**Secondary consumer — wildcard-arm hygiene.** cfdb's own gate-domain record documents the
-`_ =>` catch-all-on-schema-enum hazard (#430, RFC-044 §3.7 AC (c)): a wildcard arm silently
-absorbs future variants. A `wildcard` flag per match site makes "no catch-all arms on
-`#[non_exhaustive]` schema enums outside the designated evolution point" a writable rule.
+**Secondary consumer — wildcard-arm policy.** RFC-044 §3.7 AC (c) prescribed explicit,
+non-silent handling for the `_ =>` arm on a schema enum, and #430 is the standing amendment
+record for that prescription — evidence that *where wildcard arms may appear on evolving enums*
+is a real, reviewed policy concern in this repo. A `wildcard` fact per match site makes
+"wildcard arms on `#[non_exhaustive]` schema enums only at designated evolution points" a
+writable rule instead of a per-PR review-memory item.
 
-**Why not a direct `(:Item{fn})-[:MATCHES_ON]->(:Item{enum})` edge?** The flagship instance
-kills it: #478's three sites match on `syn::Visibility` — an **external** type with no workspace
-`:Item` node. A direct edge would either miss the flagship use case or require a synthesized
-external-type stub node, which is the exact anti-pattern this repo has rejected before
-(stub-discriminator = two types conflated and re-split with a flag). The ratified precedent for
-"per-site fact whose target may not resolve" is `:CallSite`: a site node carrying the
-**name-level path as written**, plus a resolved edge only when resolution succeeds. This RFC
-follows that precedent symmetrically.
+**Why not a direct `(:Item{fn})-[:MATCHES_ON]->(:Item{enum})` edge?** The verified instance
+kills it: `parse_syn_visibility` matches on `syn::Visibility` — an **external** type with no
+workspace `:Item` node. A direct edge would either miss external-type dispatch entirely or
+require a synthesized stub node, which this repo has rejected before (a stub discriminator =
+two types conflated and re-split with a flag). The ratified precedent for "per-site fact whose
+target may not resolve" is `:CallSite`: a site node carrying the **name-level path as written**,
+plus a resolved edge only when resolution succeeds. This RFC follows that precedent
+symmetrically.
 
 ## 2. Scope
 
 Ships:
 
-1. `:MatchSite` node — one per `syn::ExprMatch` × distinct matched-type prefix, emitted by the
-   syn extractor during the existing fn-body walk.
-2. `DISPATCHES_AT` edge — `(:Item{kind∈{fn,method}})-[:DISPATCHES_AT]->(:MatchSite)`, mirroring
-   `INVOKES_AT`.
+1. `:MatchSite` node — one per `syn::ExprMatch` × distinct matched-path prefix, emitted by the
+   syn extractor during the established per-fn-body visitor walk.
+2. `MATCHES_AT` edge — `(:Item{kind∈{fn,method}})-[:MATCHES_AT]->(:MatchSite)`, mirroring
+   `INVOKES_AT` (one verb root — *match* — across the whole family).
 3. `MATCHES_ON` edge — `(:MatchSite)-[:MATCHES_ON]->(:Item{kind:"enum"})`, emitted post-walk by
    the existing deferred-resolution pipeline when the name-level prefix resolves to a workspace
    enum.
-4. `SchemaVersion` bump `V0_6_0 → V0_7_0` + graph-specs lockstep PR (RFC-033 §4 I2).
-5. A split-resolution-point fence rule template (`examples/queries/`) + the first live fence.
+4. `SchemaVersion` bump `V0_6_0 → V0_7_0` + graph-specs lockstep PR (RFC-033 §4 I2) — **once**,
+   in slice 53-A; 53-B and 53-C add no schema surface.
+5. A split-resolution-point fence rule template (`examples/queries/`) + the first live fence
+   (the `syn::Visibility` regression guard — zero-violation baseline exists today, §7 53-C).
 
 Does not ship: anything in §6 (Non-goals).
 
@@ -63,240 +78,361 @@ Does not ship: anything in §6 (Non-goals).
 
 ### 3.1 `:MatchSite` node
 
-One node per (match expression, distinct matched-type prefix) pair. Id follows the `:CallSite`
-discipline: deterministic, position-discriminated, built by a `cfdb_core::qname` helper (slice
-53-A reuses/extends the existing call-site id helper; no new id scheme).
+One node per (match expression, distinct matched-path prefix) pair. Id is **extractor-local**,
+mirroring the verified `:CallSite` formula (`call_visitor.rs:190-193`:
+`callsite:{caller_qname}:{callee_path}:{local_idx}`) as
+`matchsite:{fn_qname}:{prefix}:{local_idx}`, where `local_idx` is a per-prefix-text occurrence
+counter within one fn body — deliberately NOT a `cfdb_core::qname` helper, because RFC-032 §3's
+resolver-discriminator contract keeps site-id schemes out of core (syn-tier and HIR-tier site
+ids must be free to differ). The prefix is a mandatory id component (one match expression can
+emit several sites), and **prefix dedup must happen per match expression BEFORE the counter
+increments** — a naive per-arm-emit-then-dedup implementation over-increments the shared
+counter (R1 rust-systems: a correctness bug, not just a determinism bug; 53-A carries both
+dedup tests).
 
 | attr | type | semantics |
 |---|---|---|
-| `matched_type` | string | **Name-level, unresolved** — the all-but-last-segment prefix of a multi-segment arm-pattern path, *as the author wrote it* (`Visibility`, `syn::Visibility`, `cfdb_core::visibility::Visibility` are three distinct values for the same type). Same "textual view" doctrine as `:CallSite.callee` (`call_visitor.rs` header). |
+| `matched_path` | string | **Name-level, unresolved** — the all-but-last-segment prefix of a multi-segment arm-pattern path, *as the author wrote it* (`Visibility`, `syn::Visibility`, `cfdb_core::visibility::Visibility` are three distinct values for the same type). Same doctrine as `:CallSite.callee_path`. Named `matched_path`, NOT `matched_type`: it is a syntactic pattern-path prefix, not the scrutinee's resolved type — that distinct concept is reserved for the future HIR tier (§6). |
 | `file` | string | workspace-relative path |
 | `line` | u32 | 1-indexed, match expression start |
 | `arm_count` | u32 | number of arms of the enclosing match expression |
-| `wildcard` | bool | true iff the match has a `_` or unbound-identifier catch-all arm (consumer: #430-class rules) |
+| `wildcard` | bool | true iff the match has a wildcard arm — RFC-044 §3.7's vocabulary. Detection: a top-level `Pat::Wild`, or a bare `Pat::Ident` with no sub-pattern whose identifier starts lowercase (Rust naming convention distinguishes a fresh binding from a unit-variant/const path; syn does no name resolution, so this is a **documented heuristic** — named recall limit #2, measured by the 53-A fixture). |
 | `is_test` | bool | same `#[cfg(test)]`-depth propagation as `:CallSite` / `:Literal` — the predicate is threaded, never re-evaluated (RFC-041 §4 fidelity invariant applies verbatim) |
 | `crate` | string | owning crate |
 
-**Prefix extraction rule (deterministic, closed).** Walk each arm's `syn::Pat` recursively
-(`Pat::Path`, `Pat::TupleStruct`, `Pat::Struct`, through `Pat::Reference` / `Pat::Or` /
-`Pat::Paren` / nested tuple-struct args). For every path with ≥ 2 segments, the prefix is all
-but the last segment. Collect distinct prefixes across all arms of one match expression; emit
-one `:MatchSite` per prefix (so `Some(Visibility::Pub)` under `match opt` yields one site with
-`matched_type = "Visibility"`; the single-segment `Some` is skipped). Single-segment pattern
-paths (`use Visibility::*; match v { Pub => … }`) are **skipped** — a single segment cannot be
-distinguished from a unit-struct/binding name at syn level. Documented recall limit, measured by
-the 53-A fixture.
+**Prefix extraction rule (deterministic, closed).** Implemented as a pure function in its own
+module (`match_visitor/prefix.rs` — §3.3). Walk each arm's `syn::Pat` recursively through the
+closed variant list (syn 2.0.117, `Pat` is `#[non_exhaustive]`, 16 variants — R1
+rust-systems verified against the pinned registry): `Path`, `TupleStruct`, `Struct`
+(path-bearing); `Ident` (recurse `@` sub-pattern if present), `Reference`, `Or`, `Paren`,
+`Tuple`, `Slice` (recurse containers); `Wild`, `Rest`, `Lit`, `Range`, `Const`, `Macro`,
+`Verbatim`, `Type` (leaves — contribute no path). The compiler forces a trailing `_ => {}` arm
+against `#[non_exhaustive]` regardless, so future syn minor bumps cannot panic here — they fall
+through to no-contribution. For every path with ≥ 2
+segments, the prefix is all but the last segment. Collect distinct prefixes across all arms of
+one match expression; emit one `:MatchSite` per prefix (so `Some(Visibility::Pub)` yields one
+site with `matched_path = "Visibility"`; the single-segment `Some` is skipped). Single-segment
+pattern paths (`use Visibility::*; match v { Pub => … }`) are **skipped** — indistinguishable
+from bindings at syn level. Named recall limit #1, measured by the 53-A fixture.
 
 ### 3.2 Edges
 
 ```
-(:Item{kind:"fn"|"method"}) -[:DISPATCHES_AT]-> (:MatchSite)          # always, walk-time
-(:MatchSite)                -[:MATCHES_ON]->    (:Item{kind:"enum"})  # post-walk, when resolved
+(:Item{kind:"fn"|"method"}) -[:MATCHES_AT]-> (:MatchSite)          # always, walk-time
+(:MatchSite)                -[:MATCHES_ON]-> (:Item{kind:"enum"})  # post-walk, when resolved
 ```
 
-`MATCHES_ON` resolution reuses the RFC-037 §3.2/§3.4 deferred-resolution pipeline
-(`crates/cfdb-extractor/src/resolver.rs`) tiers 1–2 exactly: exact-qname match against
-`emitted_item_qnames`, else unique-last-segment via the `by_last_segment` index, ambiguous
-drops silently (safer than mis-attribution). Tier 3 (wrapper unwrap) does not apply — prefixes
-are paths, not types. Resolution targets are constrained to `kind = "enum"`; a prefix that
-resolves to a struct/trait emits nothing (struct destructuring is not dispatch — §6).
+`MATCHES_ON` resolution is a **standalone short `resolve_deferred_match_targets` in
+`resolver.rs`**, calling the *same pure primitives* the RETURNS/TYPE_OF passes use —
+`resolve_type_string` (tier 1: exact qname; tier 2: unique last-segment via
+`build_last_segment_index`; ambiguous drops silently; both promoted `pub(crate)` — currently
+private). The reuse is **primitive-level, deliberately not function-level** (R1 converged
+position, rust-systems ↔ clean-arch ↔ solid): the three orchestrations genuinely diverge —
+different queue tuple arity, MATCHES_ON has no tier-3 and a `kind="enum"` filter the others
+lack — so a generic combinator would need enough parameters to be worse than three short
+siblings, while a copy of the full orchestration would be the exact debt class this RFC fences.
+The primitives are currently zero-unit-tested; 53-B adds their direct unit tests as a
+prescribed byproduct. Tier 3 (wrapper unwrap) does not apply —
+prefixes are paths, not types. Resolution targets are constrained to `kind = "enum"`; a prefix
+resolving to a struct/trait emits nothing (struct destructuring is not dispatch — §6).
 
-External types (`syn::Visibility`) therefore get a `:MatchSite` with a name-level
-`matched_type` and **no** `MATCHES_ON` edge — the honest representation, and sufficient for
-regex-scoped fence rules. Workspace-local enums additionally get the resolved edge, which
-disambiguates same-named types across crates and enables enum-side aggregation.
+External types (`syn::Visibility`) therefore get a `:MatchSite` with a name-level `matched_path`
+and **no** `MATCHES_ON` edge — the honest representation. Workspace-local enums additionally get
+the resolved edge. **The two are complementary fence predicates**: an unqualified
+`Visibility::…` arm yields the same `matched_path` prefix for the workspace enum and an imported
+external type — name-level regex alone cannot distinguish same-named types; the presence or
+absence of `MATCHES_ON` can (§3.5).
 
 ### 3.3 Extractor integration
 
-New `match_visitor.rs` in `cfdb-extractor`, sibling of `call_visitor.rs` / `literal_visitor.rs`,
-driven from the same `syn::visit::visit_block` walk with the same `is_test` threading. Emits the
-`:MatchSite` node + `DISPATCHES_AT` edge inline; queues `(site_id, prefix_string)` on a new
-`Emitter.deferred_match_targets` for the post-walk `MATCHES_ON` pass. Determinism per the
-resolver.rs G1 note: deferred entries append in walk order; edges land before the final
-`edges.sort_by(sort_key)` in `extract_workspace`, so on-disk ordering is queue-order-independent.
+New **directory module** `crates/cfdb-extractor/src/match_visitor/{mod.rs, prefix.rs}` — a
+directory from day one, not a flat file (R1 solid: `type_render.rs` is at 496/500 LOC and
+`item_visitor/emit/mod.rs` at 452/500 against the 500-LOC gate; the near-gate-file failure mode
+is known). `prefix.rs` holds the pure §3.1 extraction function; `:MatchSite` emission is
+self-contained in the module and NOT routed through `item_visitor/emit/mod.rs`.
+
+The visitor is a **third independent `syn::visit::visit_block` pass** per fn body, driven from
+the same invocation site as the existing two — this is the established, shipped pattern
+(`item_visitor/visits.rs:103-119` already runs `walk_call_sites_with_test_flag` and
+`walk_literals_in_block` as separate passes), not a deviation. Deferred `(site_id,
+prefix_string)` entries queue on a new `Emitter.deferred_match_targets` — a third deferred queue
+is a natural extension of Emitter's single deferred-resolution responsibility; no
+`DeferredResolution` trait (R1 clean-arch: `.discovery/239.md:219` records "no trait dispatch"
+as the intentional prior choice; YAGNI).
+
+**Prescribed in-slice boy-scout (R1 rust-systems + solid, rule of three):** `walk_macro_tokens`
+is already duplicated **functionally byte-for-byte** between `call_visitor.rs` and
+`literal_visitor.rs`. 53-A does NOT add a third copy — it factors the existing two into one
+shared helper (own module, generic over the visitor), closing the pre-existing zero-unit-test
+gap on that logic in the same change. `match_visitor` uses the shared helper too, which means
+**match expressions inside re-parseable macro *invocation* bodies ARE extracted**, consistent
+with how call sites and literals already behave — only `macro_rules!` *definitions* are opaque
+(§3.6, §6).
+
+Determinism per the resolver.rs G1 note: deferred entries append in walk order; edges land
+before the final `edges.sort_by(sort_key)` in `extract_workspace`, so on-disk ordering is
+queue-order-independent.
 
 ### 3.4 Wire format / schema
 
-- `EdgeLabel::DISPATCHES_AT`, `EdgeLabel::MATCHES_ON` consts in
+- `EdgeLabel::MATCHES_AT`, `EdgeLabel::MATCHES_ON` consts in
   `cfdb-core/src/schema/labels.rs`; `Label::MATCH_SITE` node label.
 - `EdgeLabelDescriptor` entries with explicit `provenance: Extractor`, `from`/`to` grammar as in
   §3.2; `NodeLabelDescriptor` for `:MatchSite` with the §3.1 attribute table.
 - `SchemaVersion::V0_7_0`, `CURRENT = V0_7_0`. Per the V0_6_0/G4 precedent (50-A): additive
   vocabulary still bumps, because pre-V0_7_0 readers must refuse graphs whose rules may depend
   on `:MatchSite`. Pre-V0_7_0 keyspaces carry zero `:MatchSite` nodes (same compat language as
-  `:Literal`).
+  `:Literal`). One bump total, in 53-A.
 - New `pub` types get `specs/concepts/cfdb-core.md` entries (`make graph-specs-check`).
 
 ### 3.5 Cypher / CLI
 
-No new Cypher constructs, no new CLI verb. The fence rule is plain existing subset:
+No new Cypher constructs, no new CLI verb. Fence rules compose the two predicates from §3.2:
 
 ```cypher
-// split-resolution-point fence (concept-scoped — see §3.6)
+// external-type fence: nothing outside the canonical module may match syn::Visibility.
+// External type ⇒ no MATCHES_ON edge exists; the name-level regex is the only handle,
+// and same-named workspace types are excluded by requiring the edge's ABSENCE upstream
+// (via the resolved-edge complement query in the same rule file).
 MATCH (m:MatchSite)
-WHERE m.matched_type =~ '(^|::)Visibility$'
+WHERE m.matched_path =~ '(^|::)Visibility$'
   AND m.is_test = false
-  AND NOT m.file =~ '^crates/cfdb-core/src/visibility'
-RETURN m.file, m.line, m.matched_type
+  AND NOT m.file =~ '^crates/cfdb-extractor/src/item_visitor'
+RETURN m.file, m.line, m.matched_path
 ```
+
+For workspace enums the fence anchors on the resolved edge instead —
+`MATCH (t:Item{qname:$enum})<-[:MATCHES_ON]-(m:MatchSite) WHERE NOT m.file =~ $canonical …` —
+which is homonym-proof. 53-C ships both template forms.
 
 ### 3.6 Fence semantics — multiplicity is not a violation
 
 Matching on your own enum from many fns is normal Rust. Raw `MATCHES_ON` in-degree is a *survey*
 metric, not a ban signal. A **fence** requires a designation: "type T's dispatch-to-values is
-owned by module/fn F" — expressed either as a rule-file regex allowlist-of-one (the `NOT m.file`
-clause above; note this is a scoping predicate inside a reviewed `.cypher` source file, not a
-metric-ratchet baseline file — §3 no-ratchet rule is not implicated) or via the existing concept
-overlay (`CANONICAL_FOR`). cfdb ships the fact + the rule template; each repo designates its own
-canonical sites (agentry: phase enum; qbot-core: alias/normalization enums; cfdb: `Visibility`
-after #478 collapses the 3 sites to `cfdb-core::visibility`).
+owned by module/fn F" — expressed as a scoping predicate inside a reviewed `.cypher` rule file.
+This is not a metric-ratchet file (§3 no-ratchet rule): the allow-scope is closed, RFC-gated in
+kind (RFC-035/038/040 precedent), and guarded by the rule (R1 solid): **one fence file per
+fenced type, at most one canonical-site NOT-clause per file, never an accreting exception
+list** — a rule file that grows NOT-clauses has become a de facto allowlist and is rejected on
+sight. cfdb ships the fact + the rule templates; each repo designates its own canonical sites
+(agentry: phase enum; qbot-core: alias/normalization enums; cfdb: the `syn::Visibility`
+conversion at its self-documented canonical site).
+
+**Documented evasion paths** (fence docs must name all three): match arms inside
+`macro_rules!` **definitions** (genuinely opaque — syn never parses an `ItemMacro` token tree;
+note macro *invocation* bodies are NOT an evasion path, §3.3); **`matches!()` /
+`assert_matches!` invocations** (§6 — excluded by name in v0; the idiom appears in 26
+production `src/` files workspace-wide, so this is a measured in-scope limit, not a corner
+case); single-segment patterns under glob imports (§3.1 limit #1).
 
 ## 4. Invariants
 
 - **Determinism (G1).** Two extracts of an unchanged tree are byte-identical: walk-order
-  emission + final sort, position-discriminated ids, `BTreeMap` props. `ci/determinism-check.sh`
-  covers it automatically once emission lands.
-- **Recall.** rustdoc-json carries no match-expression facts — `cfdb-recall`'s ground truth
-  cannot oracle this fact kind (`includes_private: false` corpus is item-level). Per §2.5
-  hierarchy the prescribed substitute is (a) a fixture crate with a hand-counted match-site
-  inventory (unit-level ground truth) and (b) self-dogfood assertions against source-verified
-  known sites (#478's three `Visibility` conversion sites are a pre-counted oracle). The
-  single-segment-pattern recall limit (§3.1) is measured by the fixture and reported.
-- **No ratchet.** No baseline/allowlist files; fence scoping lives in reviewed `.cypher` rule
-  source (§3.6).
+  emission + final sort, prefix-bearing position-discriminated ids (§3.1), `BTreeMap` props.
+  `ci/determinism-check.sh` covers it automatically once emission lands. 53-A carries the
+  multi-prefix-same-expression dedup-before-id test.
+- **Recall.** rustdoc-json carries no match-expression facts — `cfdb-recall`'s rustdoc oracle
+  cannot cover this fact kind. Per §2.5 hierarchy the substitute is (a) a fixture crate with a
+  hand-counted match-site inventory and (b) self-dogfood assertions against the two
+  source-verified canonical sites in cfdb's own tree (§7 53-A). **Three named recall limits**
+  are measured by the fixture and documented, never silently absorbed: single-segment patterns
+  (§3.1), the lowercase-heuristic on bare-ident wildcard detection (§3.1), and `matches!()`
+  invocations (§6).
+- **No ratchet.** No baseline/allowlist files; fence scoping per §3.6 with the
+  one-clause guardrail.
 - **Keyspace backward compat.** V0_7_0 is a G4 breaking bump: V0_6_0 readers refuse V0_7_0
   graphs by design. Lockstep graph-specs PR per RFC-033 §4 I2 / `docs/cross-fixture-bump.md`
   §4 — merge cfdb first, fixture bump within minutes; exit-20 window documented.
 - **RFC-037 §7 stays ratified.** `:MatchSite` extends the *site-node* family (`:CallSite`
-  precedent), not a `:Statement`/`:Expression` granularity reopening; arms are counted
-  (`arm_count`) and flagged (`wildcard`), never modeled as nodes.
+  precedent), not a `:Statement`/`:Expression` granularity reopening — R1 ddd verified the
+  actual retirement rationale targets general AST-as-graph modeling, not narrow site nodes.
+  Arms are counted (`arm_count`) and flagged (`wildcard`), never modeled as nodes.
 
-## 5. Architect lenses
+## 5. Architect lenses — R1 verdicts (2026-07-15 agent-team council)
 
-> Verdicts to be captured inline by the agent-team council (CLAUDE.md §2.3). Questions are
-> pre-drafted; each lens also prescribes/ratifies the `Tests:` blocks in §7.
+All four lenses independently found the core architecture sound (site-node + optional resolved
+edge, `:CallSite` precedent, L1 placement, resolver reuse). All four returned **REQUEST
+CHANGES** on a bounded fix set, applied in this revision. R2 confirmation pending.
 
-### 5.1 Clean architecture — VERDICT: PENDING
+### 5.1 Clean architecture — R1: REQUEST CHANGES → applied
 
-- Is the deferred-resolution reuse (resolver.rs) a clean extension point, or does a second
-  deferred queue on `Emitter` start accreting a god-struct? (Emitter already carries
-  `deferred_returns`; assess before a third queue lands.)
-- `match_visitor.rs` sibling placement vs. folding into `call_visitor.rs` — one walk or two?
-  (Perf: the block is already visited once for call sites; a second `visit_block` pass per fn
-  body is O(2×). Council decides whether 53-A composes visitors in a single pass.)
+Found: dependency direction, StoreBackend purity, L1 classification all clean; two-pass visitor
+precedent verified at `visits.rs:103-119` (third pass ratified; do not compose one `Visit`
+impl); Emitter third queue is not god-struct accretion (no trait — YAGNI per `.discovery/239.md`);
+**the claimed `cfdb_core::qname` call-site id helper does not exist** — `:CallSite` id is a
+deliberate extractor-local inline format (RFC-032 §3 discriminator), §3.1 corrected to follow
+it; flagship citation defect (see §5 header + Appendix).
 
-### 5.2 DDD — VERDICT: PENDING
+### 5.2 DDD — R1: REQUEST CHANGES → applied
 
-- Homonym check: `matched_type` vs `:CallSite.callee` vs `:Item.qname` — is "name-level path as
-  written" the same ubiquitous concept in all three, and is the attribute name right?
-- Is `DISPATCHES_AT` the right verb (vs `MATCHES_AT`)? `INVOKES_AT` symmetry argues for
-  `*_AT` + a distinct verb per site family.
-- `wildcard` naming: `has_catch_all` may be closer to domain language (#430 uses "catch-all").
+Found: `matched_type` renamed `matched_path` (it is a pattern-path prefix under the
+`callee_path` doctrine, not a resolved scrutinee type — that name is reserved for the future HIR
+tier); `DISPATCHES_AT` renamed `MATCHES_AT` ("dispatch" is established cfdb vocabulary for
+*call-target resolution*; one verb root across the family); `wildcard` KEPT (RFC-044 §3.7's own
+vocabulary — the "catch-all" gloss was unsourced and is removed); `:CallSite.callee` corrected
+to `callee_path`; RFC-037 retirement compatibility and `kind="enum"` restriction ratified as
+domain-correct; flagship citation defect (dated the staleness: fix merged 5 days before the
+audit EPIC documenting it was filed).
 
-### 5.3 SOLID / component — VERDICT: PENDING
+### 5.3 SOLID / component — R1: RATIFY architecture, REQUEST CHANGES disposition → applied
 
-- SRP on `match_visitor.rs`: prefix extraction (§3.1) is a pure function — prescribe its
-  extraction into a unit-testable module from day one (500-LOC gate pressure on visitors is
-  a known failure mode, #467).
-- Does `:MatchSite` belong in the pure code-facts core (it does — L1 per #279's layer map) and
-  does anything here leak toward the classifier layer? (The fence *rule* is a consumer artifact,
-  not core vocabulary — verify the RFC keeps that boundary.)
+Found: directory module `match_visitor/{mod.rs,prefix.rs}` mandatory from day one (496/500 and
+452/500 near-gate precedents); 53-A/53-B are genuine vertical slices (RFC-045 45-D precedent);
+single SchemaVersion bump, stated explicitly in 53-B's issue text; §3.6 NOT-clause scoping is
+not a ratchet but needs the one-clause guardrail (adopted); `walk_macro_tokens` byte-duplicate
+factoring prescribed in 53-A (rule of three); resolver pure helpers get their first direct unit
+tests in 53-B; 53-C "Unit: none" escape hatch validly precedented (RFC-034/048); 53-A
+self-dogfood row rewritten to the real single-site oracle; 53-C ordering clause deleted
+(baseline already exists).
 
-### 5.4 Rust systems — VERDICT: PENDING
+### 5.4 Rust systems — R1: REQUEST CHANGES → applied
 
-- `syn::Pat` recursion completeness: confirm the §3.1 pattern-kind list covers `Pat::Ident`
-  with sub-pattern (`ident @ Visibility::Pub`), slice patterns, and rest patterns without
-  panicking on future syn minor versions.
-- Extraction cost at qbot-core scale (238 crates): the walk is already O(body); prefix
-  extraction adds O(arms × pattern-depth). Expect noise-level; 53-A target dogfood reports
-  wall-clock delta.
-- Macro-expanded matches: `syn` sees only source tokens — matches generated by `macro_rules!`
-  are invisible (RFC-041 §6 precedent). Confirm this is documented as an evasion path in the
-  fence rule docs rather than "fixed" via expansion.
+Found: **flagship claim fabricated as cited** — no live 3-site Visibility duplication exists
+(one `syn::Visibility` match site, self-documented canonical; `as_wire_str` matches the
+workspace enum; `FromStr` matches `&str` and emits zero `:MatchSite` under §3.1) — §1 rebuilt on
+the verified anatomy; **`matches!()` invisibility** — its `<expr>, <pat> [if <guard>]` grammar
+is structurally incompatible with all three existing `walk_macro_tokens` re-parse tiers
+(`Punctuated<Expr,Comma>` / `Block` / single `Expr`; none parse a bare `syn::Pat`) — resolved as
+a named v0 exclusion with a specified upgrade path (§6); `syn::Pat` closed list expanded
+(§3.1: `Ident@`, `Tuple`, `Slice` recursed; `Rest`, `Lit`, `Range`, `Const`, `Macro`,
+`Verbatim`, `Type` leaves; `#[non_exhaustive]` fall-through moots the future-variant panic
+worry); prefix-in-id + dedup-before-counter required (adopted, §3.1 + 53-A tests); wildcard
+lowercase-heuristic specified as named recall limit #2 (solid ratified); resolver reuse settled
+at **primitive level** after cross-lens deliberation — standalone short orchestration fn, no
+generic combinator (§3.2); macro claim split into precise halves — invocation bodies extractable
+via the shared helper, `macro_rules!` definitions opaque, `matches!()` named exclusion (§3.3,
+§3.6, §6; solid corrected the first cited example — `tests/` targets aren't extracted at all
+per `lib.rs:346`, the in-scope evidence is 26 production `src/` files); cost-at-scale credible
+as one additional O(body) pass alongside the existing two (53-A target dogfood reports the
+measured delta).
 
 ## 6. Non-goals
 
 - **`:MatchArm` / `:Statement` / `:Expression` nodes** — RFC-037 §7 retirement stands; UC5
   (content-divergence forensics) is an agent read, not a graph fact.
+- **`matches!()` / `assert_matches!` invocations** — excluded by name in v0, same template as
+  the if-let exclusion below (add only when a consumer rule demands it). Rationale: their
+  `<expr>, <pat> [if <guard>]` token grammar fits none of the three existing macro re-parse
+  tiers (verified against `syn::Arm`'s definition — no tier parses a bare `syn::Pat`), a
+  dedicated fourth tier (re-parse the trailing `Pat [if Expr]` after the last top-level comma)
+  is genuinely new parser logic, and a boolean-returning one-arm check carries less
+  split-brain weight than a full dispatch site. The idiom is common (26 production `src/`
+  files in cfdb's own workspace), so this is **named recall limit #3**, measured by the 53-A
+  fixture and called out in fence docs (§3.6) — the upgrade path is specified and becomes a new
+  slice the first time a live fence demonstrably needs it.
 - **`if let` / `while let` / `let-else`** — two-arm sugar; no on-record split-brain instance is
-  if-let-shaped. Add only when a consumer rule demands it (new RFC or amendment).
+  if-let-shaped. Add only when a consumer rule demands it.
 - **Struct destructuring patterns** — destructuring is not dispatch; `MATCHES_ON` targets
   enums only.
-- **HIR-resolved tier** — a future `MATCHES_ON` upgrade could type-resolve scrutinees the way
-  HIR CALLS resolves callees (catches `use X::*` single-segment arms and external types as
-  typed facts). Deferred until name-level recall proves insufficient on a real fence.
+- **HIR-resolved tier** — a future upgrade could type-resolve scrutinees the way HIR CALLS
+  resolves callees (catching glob-import single-segment arms, `matches!()` via HIR bodies, and
+  external types as typed facts) — and would own the `matched_type` name reserved by §3.1.
+  Deferred until 53-B's measured resolution rate proves name-level recall insufficient on a
+  real fence.
 - **Polyglot (PHP `match`/`switch`, TS `switch`/discriminated unions)** — carried by the
   TreeSitterProducer generalization (#476) once RFC'd; this RFC is Rust-only.
-- **Literal-scrutinee matches** (`match n { 0 => … }`) — no type prefix, no fact.
+- **Literal-scrutinee matches** (`match n { 0 => … }`) — no type prefix, no fact (this is why
+  `Visibility::FromStr`'s `&str` match correctly emits nothing).
 - **Divergence *content* detection** — see UC5.
 
 ## 7. Issue decomposition
 
-Vertical slices; each is observable end-to-end (extract → query returns rows). Architects
-finalize each `Tests:` block at council time; drafts below.
+Vertical slices; each is observable end-to-end (extract → query returns rows). R1 council
+prescriptions incorporated; R2 confirms.
 
-### 53-A — `:MatchSite` + `DISPATCHES_AT` end-to-end (schema + visitor + bump + lockstep)
+### 53-A — `:MatchSite` + `MATCHES_AT` end-to-end (schema + visitor + bump + lockstep)
 
-Label consts, descriptors, `match_visitor.rs` (prefix extraction as a pure module),
-`V0_7_0` bump, graph-specs lockstep PR, `specs/concepts/` entries.
+Label consts, descriptors, `match_visitor/{mod.rs, prefix.rs}` directory module, the
+`walk_macro_tokens` dedup-to-shared-helper boy-scout, `V0_7_0` bump (all three vocabulary
+additions), graph-specs lockstep PR, `specs/concepts/` entries.
 
 ```
 Tests:
-  - Unit: prefix-extraction pure fn on a fixture pattern set — multi-segment, nested
-    Some(X::Y), or-patterns, ref patterns, ident@ sub-patterns, single-segment skip,
-    wildcard/arm_count counting; hand-counted fixture-crate match-site inventory equality.
-  - Self dogfood (cfdb on cfdb): MATCH (m:MatchSite) WHERE m.matched_type =~ '(^|::)Visibility$'
-    returns ≥ the source-verified #478 site list; every :MatchSite has a DISPATCHES_AT parent;
-    determinism-check green.
+  - Unit: prefix-extraction pure fn (match_visitor/prefix.rs) on a fixture pattern set —
+    multi-segment, nested Some(X::Y), or-patterns, ref patterns, ident@ sub-patterns, tuple and
+    slice containers, single-segment skip (recall limit #1), wildcard heuristic incl. the
+    lowercase-ident ambiguity cases (recall limit #2), matches!() non-emission (recall limit #3),
+    arm_count; BOTH dedup-before-id tests — multi-prefix-same-expression (distinct sites,
+    prefix-bearing ids, no collision) AND multi-arm-single-prefix (the real post-#107
+    parse_syn_visibility 3-arm shape → exactly ONE site, occurrence counter increments once);
+    shared walk_macro_tokens helper unit tests (first coverage of previously duplicated,
+    untested logic) incl. a match-expression-inside-macro-invocation extraction case.
+  - Self dogfood (cfdb on cfdb): exactly ONE :MatchSite with matched_path =~ '^syn::Visibility$'
+    in crates/cfdb-extractor/src/item_visitor.rs (the self-documented canonical site); ≥1
+    :MatchSite with matched_path = 'Visibility' in crates/cfdb-core/src/visibility.rs
+    (as_wire_str); zero :MatchSite emitted for Visibility::FromStr's &str match; every
+    :MatchSite has a MATCHES_AT parent; determinism-check green.
   - Cross dogfood (graph-specs-rust at pinned SHA): zero rule rows (exit 30 blocks merge);
     lockstep .cfdb/cross-fixture.toml bump PR open before cfdb merge.
-  - Target dogfood (qbot-core at pinned SHA): report node count, top-10 matched_type values,
+  - Target dogfood (qbot-core at pinned SHA): report node count, top-10 matched_path values,
     and extract wall-clock delta vs develop in the PR body.
 ```
 
 ### 53-B — `MATCHES_ON` resolution pass
 
-Deferred queue + resolver tiers 1–2 constrained to `kind="enum"`; enum-side survey query in
-`examples/queries/` (top matched-on enums).
+Standalone short `resolve_deferred_match_targets` calling the shared primitives
+`resolve_type_string` / `build_last_segment_index` (both promoted `pub(crate)`; no generic
+combinator, no parallel tier copy — §3.2 converged position); enum-side survey query in
+`examples/queries/` (top matched-on enums). Issue
+text states explicitly: **schema vocabulary landed in 53-A; this slice adds no labels and no
+SchemaVersion change** — no second lockstep PR.
 
 ```
 Tests:
-  - Unit: resolution tiers on fixture — exact qname hit, unique last-segment hit, ambiguous
-    drop, struct-prefix drop, external-prefix (syn::Visibility) yields node-without-edge.
-  - Self dogfood (cfdb on cfdb): cfdb_core Visibility enum has ≥1 incoming MATCHES_ON from
-    crates/cfdb-core/src/visibility.rs sites; zero MATCHES_ON edges whose dst kind ≠ enum.
+  - Unit: first direct unit tests on resolve_type_string + build_last_segment_index (prescribed
+    byproduct — currently zero-unit-tested); resolution fixtures — exact qname hit, unique
+    last-segment hit, ambiguous drop, struct-prefix drop, external-prefix (syn::Visibility)
+    yields node-without-edge.
+  - Self dogfood (cfdb on cfdb): cfdb_core's Visibility enum has ≥1 incoming MATCHES_ON from a
+    site in crates/cfdb-core/src/visibility.rs; the syn::Visibility site from 53-A has NO
+    MATCHES_ON edge; zero MATCHES_ON edges whose dst kind ≠ enum.
   - Cross dogfood: zero rule rows at pinned SHA.
   - Target dogfood (qbot-core): report resolved-edge count + resolution rate
-    (MATCHES_ON ÷ MatchSite) in PR body — the number that decides whether the HIR tier
-    (§6) ever gets an RFC.
+    (MATCHES_ON ÷ MatchSite) in PR body — the number that decides whether the HIR tier (§6)
+    ever gets an RFC.
 ```
 
-### 53-C — split-resolution-point fence template + first live fence
+### 53-C — split-resolution-point fence templates + first live fence
 
-`examples/queries/split-resolution-point.cypher` template + docs section (fence semantics §3.6,
-macro evasion path §5.4) + the first `.cfdb/queries/` fence on cfdb-self. **Ordering:** the
-Visibility fence requires #478 (site collapse) merged first for a zero-violation baseline —
-the ban-rule-lands-with-proof rule (§3 dogfood table); if #478 stalls, council picks an
-alternative already-canonical concept for the first fence.
+Both template forms (§3.5: external-type regex form; workspace-enum resolved-edge form) in
+`examples/queries/`, fence-semantics docs (§3.6 incl. all three named evasion paths), and the
+first `.cfdb/queries/` fence: the **`syn::Visibility` regression guard** — no site outside
+`item_visitor.rs` may match `syn::Visibility`. The zero-violation baseline exists on develop
+today (single canonical site since boy-scout #107) — **no ordering dependency; this slice is
+unblocked now.** Before reusing #279's `--format` instance in docs or as a second fence, its
+liveness must be re-verified against the current tree (the W17 list has already been shown to
+go stale).
 
 ```
 Tests:
-  - Unit: none — rationale: the rule file is declarative; its behavior is the dogfood row.
-  - Self dogfood (cfdb on cfdb): fence rule returns 0 rows on develop (proof in PR);
-    red-test companion — a fixture branch adding a second Visibility match site trips exit 30.
-  - Cross dogfood: zero rule rows at pinned SHA (template must not fire on companion).
-  - Target dogfood (qbot-core): run the template scoped to one qbot alias enum; report row
-    count in PR body for maintainer triage (rows here are *findings*, not merge blockers —
-    qbot fences are qbot-repo decisions).
+  - Unit: none — rationale: the rule files are declarative; behavior is the dogfood rows
+    (escape-hatch use precedented by RFC-034 / RFC-048).
+  - Self dogfood (cfdb on cfdb): syn::Visibility fence returns 0 rows on develop (proof in PR);
+    red-test companion — a fixture branch adding a second syn::Visibility match site trips
+    exit 30.
+  - Cross dogfood: zero rule rows at pinned SHA (templates must not fire on companion).
+  - Target dogfood (qbot-core): run the workspace-enum template scoped to one qbot alias enum;
+    report row count in PR body for maintainer triage (rows here are *findings*, not merge
+    blockers — qbot fences are qbot-repo decisions).
 ```
 
-## Appendix — why the direct-edge design was rejected (decision record)
+## Appendix — decision record
 
-First sketch was `(:Item{fn})-[:MATCHES_ON {file,line}]->(:Item{enum})`, no site node. Killed
-during design verification: #478's sites match on `syn::Visibility`, which has no workspace
-`:Item` dst. The alternatives were (a) drop external-type sites — misses the flagship instance;
-(b) synthesize stub nodes for external types — rejected pattern (stub discriminator = conflated
-types); (c) site node with name-level prop + optional resolved edge — the `:CallSite` precedent.
-(c) ships. This also keeps `Edge` bag-semantics simple (no parallel-edge prop discrimination
-needed) and gives fence rules a regex surface that works identically for internal and external
-types.
+**Why the direct-edge design was rejected.** First sketch was
+`(:Item{fn})-[:MATCHES_ON {file,line}]->(:Item{enum})`, no site node. Killed during design
+verification, and the argument is structural, not instance-bound: **a match on any external
+type is unrepresentable as a direct edge**, because the dst `:Item` does not exist in the
+workspace graph (live verified example: `parse_syn_visibility` matching `syn::Visibility` —
+one site, external type). Alternatives: (a) drop external-type sites — misses the exact class
+the capability exists for; (b) synthesize stub nodes — rejected pattern; (c) site node with
+name-level prop + optional resolved edge — the `:CallSite` precedent. (c) ships.
+
+**R1 document-integrity postscript.** The R1 draft's flagship example cited "#478's three
+Visibility sites" — the council (all four lenses, independently) established that #478 is an
+unrelated issue, the real historical instance was already fixed by boy-scout #107 three months
+prior, and the "3 sites" anatomy was wrong even historically. The council's correction produced
+a *stronger* Problem statement: the debt-record staleness it exposed (a W17 audit bullet stale
+within 5 days of filing) is itself the argument for tree-derived structural fences over prose
+debt records, and the already-collapsed canonical site gives the first fence a zero-violation
+baseline with no prerequisite work. Recorded here per the gate-domain amendment discipline: the
+evidence trail was repaired, not repointed.
