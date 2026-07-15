@@ -83,6 +83,11 @@ pub mod call_site_emitter;
 pub mod error;
 pub mod hir_db;
 
+// Canonical crate-name prefix resolution, shared by the call-site and
+// entry-point emitters so a `[[bin]]` target whose name differs from its
+// package name produces the package-name qname prefix both agree on (#517).
+mod crate_name;
+
 // Slice 4 (Issue #86) — :EntryPoint catalog.
 pub mod entry_point_emitter;
 
