@@ -12,7 +12,7 @@ This is the user-facing guide to **named predicates** — the machine-checkable 
 
 - A **shared Cypher-subset parser** at `cfdb-query` (the same one that powers `cfdb query`, `cfdb violations`, `cfdb list-callers`).
 - A **named-predicate library** at `.cfdb/predicates/<name>.cypher` — one Cypher file per predicate, with a mandatory two-line first-line comment documenting params and the three-column return shape.
-- A **`--param <name>:<form>:<value>` CLI-arg resolver** (internal to `cfdb-cli`) that maps CLI strings to `cfdb_core::query::Param` values via four forms.
+- A **`--param <name>:<form>:<value>` CLI-arg resolver** (internal to `cfdb-cli`) that maps CLI strings to `cfdb_core::query::ParamBinding` values via four forms.
 - A **`cfdb check-predicate` verb** that loads a predicate, resolves its params, executes against a pinned keyspace, and emits the canonical three-column `(qname, line, reason)` violation format.
 - **CI-level dogfood + determinism gates** — `ci/predicate-determinism.sh` + an integration test that iterates every shipped seed against cfdb's own keyspace.
 
@@ -123,14 +123,14 @@ cfdb check-predicate \
 
 ## 4. Param-resolver syntax
 
-CLI-supplied params are strings of shape `<name>:<form>:<value>`. The Slice-1 resolver (`crates/cfdb-cli/src/param_resolver.rs`) dispatches on the `<form>` token and produces a `cfdb_core::query::Param` value bound to `<name>`.
+CLI-supplied params are strings of shape `<name>:<form>:<value>`. The Slice-1 resolver (`crates/cfdb-cli/src/param_resolver.rs`) dispatches on the `<form>` token and produces a `cfdb_core::query::ParamBinding` value bound to `<name>`.
 
 | Form | CLI literal | Result | Use case |
 |---|---|---|---|
-| **context** | `<param>:context:<concept-name>` | `Param::List` of every crate whose `.cfdb/concepts/<concept-name>.toml` context-set includes it, **sorted ascending** for determinism | Bind a named bounded-context's crate-set as a list, so the predicate can do `WHERE c.name IN $<param>` |
-| **regex** | `<param>:regex:<pattern>` | `Param::Scalar(PropValue::Str(pattern))` | Bind a string that the predicate uses in `=~` comparisons — path matches, type-signature matches, qname matches |
-| **literal** | `<param>:literal:<value>` | `Param::Scalar(PropValue::Str(value))` | Bind a single string that the predicate uses in `=` / `IN` comparisons against specific values |
-| **list** | `<param>:list:<a,b,c>` | `Param::List` of comma-separated strings, **preserving input order** (RFC-034 §3.4 semantic) | Bind a user-supplied set of strings for `WHERE c.name IN $<param>` without going through a concept file |
+| **context** | `<param>:context:<concept-name>` | `ParamBinding::List` of every crate whose `.cfdb/concepts/<concept-name>.toml` context-set includes it, **sorted ascending** for determinism | Bind a named bounded-context's crate-set as a list, so the predicate can do `WHERE c.name IN $<param>` |
+| **regex** | `<param>:regex:<pattern>` | `ParamBinding::Scalar(PropValue::Str(pattern))` | Bind a string that the predicate uses in `=~` comparisons — path matches, type-signature matches, qname matches |
+| **literal** | `<param>:literal:<value>` | `ParamBinding::Scalar(PropValue::Str(value))` | Bind a single string that the predicate uses in `=` / `IN` comparisons against specific values |
+| **list** | `<param>:list:<a,b,c>` | `ParamBinding::List` of comma-separated strings, **preserving input order** (RFC-034 §3.4 semantic) | Bind a user-supplied set of strings for `WHERE c.name IN $<param>` without going through a concept file |
 
 Three load-bearing invariants of the resolver:
 
