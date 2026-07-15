@@ -290,11 +290,37 @@ impl SchemaVersion {
         patch: 0,
     };
 
+    /// **v0.7.0 — RFC-053 slice 53-A: `:MatchSite` node + `MATCHES_AT` /
+    /// `MATCHES_ON` edge labels.** Introduces `Label::MATCH_SITE` (one node
+    /// per `match` expression × distinct name-level matched-path prefix,
+    /// emitted by the `cfdb-extractor` `match_visitor` as a third
+    /// independent per-fn-body pass), the walk-time `EdgeLabel::MATCHES_AT`
+    /// (`:Item` → `:MatchSite`), and the reserved `EdgeLabel::MATCHES_ON`
+    /// (`:MatchSite` → `:Item{kind:"enum"}`; producer lands in slice 53-B).
+    /// A new node label class + edge vocabulary warrants a minor bump per
+    /// the V0_2_0 / V0_4_0 / V0_5_0 precedent. One bump total for RFC-053;
+    /// 53-B and 53-C add no schema surface.
+    ///
+    /// **Breaking within 0.x:** V0_6_0 readers refuse V0_7_0 graphs per G4
+    /// (`can_read` returns false when graph.minor > reader.minor) — the
+    /// intended signal that V0_7_0 graphs may carry `:MatchSite` /
+    /// `MATCHES_AT` facts V0_6_0 readers do not understand. Pre-V0_7_0
+    /// keyspaces carry zero `:MatchSite` nodes (same compat language as
+    /// `:Literal`).
+    ///
+    /// Paired lockstep `graph-specs-rust` cross-fixture bump per cfdb
+    /// CLAUDE.md §3 / RFC-033 §4 I2 — merge cfdb first (53-A).
+    pub const V0_7_0: Self = Self {
+        major: 0,
+        minor: 7,
+        patch: 0,
+    };
+
     /// The schema version this build of cfdb-core writes and reads.
     /// Producers tag every keyspace persist with `CURRENT`. Consumers use
     /// `CURRENT.can_read(&file.schema_version)` to reject forward-
     /// incompatible graphs per G4.
-    pub const CURRENT: Self = Self::V0_6_0;
+    pub const CURRENT: Self = Self::V0_7_0;
 
     pub fn new(major: u16, minor: u16, patch: u16) -> Self {
         Self {

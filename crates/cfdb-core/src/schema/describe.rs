@@ -42,5 +42,6 @@ fn node_descriptors() -> Vec<NodeLabelDescriptor> {
         nodes::const_table_node_descriptor(),
         nodes::literal_node_descriptor(),
         nodes::argument_node_descriptor(),
+        nodes::match_site_node_descriptor(),
     ]
 }

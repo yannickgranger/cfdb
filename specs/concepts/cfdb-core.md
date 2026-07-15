@@ -52,6 +52,8 @@ The descriptor at `crates/cfdb-core/src/schema/describe/edges.rs` is authoritati
 - **CALLS** — static call edge between two fn Items (best-effort cross-crate). Attributes: resolved
 - **INVOKES_AT** — the containing fn/method Item points at a CallSite (Item → CallSite; direction corrected RFC-045 45-C). "Callers of X" walks `(cs:CallSite)<-[:INVOKES_AT]-(caller)`.
 - **HAS_ARG** — a CallSite owns a positional Argument (RFC-043 Slice A). No edge attributes; position lives on the `:Argument` node. SchemaVersion V0_5_0+.
+- **MATCHES_AT** — the containing fn/method Item points at a MatchSite (Item → MatchSite), mirroring INVOKES_AT for call sites (RFC-053). Emitted walk-time; SchemaVersion V0_7_0+.
+- **MATCHES_ON** — a MatchSite whose name-level matched_path resolves to a workspace enum points at that enum's Item (MatchSite → Item{kind:"enum"}). Reserved in slice 53-A per RFC-053 §3.2; first emissions in slice 53-B. SchemaVersion V0_7_0+.
 - **EXPOSES** — an EntryPoint dispatches to a handler fn Item.
 - **REGISTERS_PARAM** — an EntryPoint declares an entry-point-exposed input (`:Param`, `:Field`, or `:Variant`).
 - **LABELED_AS** — an Item carries a semantic Concept label.
@@ -110,6 +112,7 @@ The descriptor at `crates/cfdb-core/src/schema/describe/nodes.rs` is authoritati
 - **ConstTable** — a literal const slice/array recognized as a table of values (RFC-040). Attributes: crate, element_type, entries_hash, entries_normalized, entries_sample, entry_count, is_test, module_qpath, name, qname
 - **Literal** — a single string literal occurring in production source (RFC-041). Attributes: col, crate, file, is_test, line, value
 - **Argument** — a positional argument at a call site (RFC-043 Slice A). Emitted for every `ExprCall` and `ExprMethodCall`; position 0 is the implicit `self` receiver for method calls. Attributes: col, file, kind, line, position, source_text
+- **MatchSite** — a single `match` expression keyed per distinct name-level matched-path prefix (RFC-053; producer lands in slice 53-A via `cfdb-extractor::match_visitor`, a third per-fn-body pass alongside `:CallSite`/`:Literal`). `matched_path` is name-level and UNRESOLVED — the all-but-last-segment prefix of a multi-segment arm-pattern path as written (same doctrine as `:CallSite.callee_path`); an external-type match keeps its `:MatchSite` with no `MATCHES_ON` (that resolved edge is slice 53-B). Node id `matchsite:{fn_qname}:{prefix}:{local_idx}` (extractor-local per RFC-032 §3). SchemaVersion V0_7_0+. Attributes: arm_count, crate, file, is_test, line, matched_path, wildcard
 
 ## Node
 

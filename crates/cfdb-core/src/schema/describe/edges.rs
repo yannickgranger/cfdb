@@ -139,6 +139,23 @@ pub(super) fn edge_descriptors() -> Vec<EdgeLabelDescriptor> {
             to: vec![Label::new(Label::ARGUMENT)],
             provenance: Provenance::Extractor,
         },
+        // ---- Match dispatch (RFC-053) ---------------------------------------
+        EdgeLabelDescriptor {
+            label: EdgeLabel::new(EdgeLabel::MATCHES_AT),
+            description: "The fn/method Item that contains a `match` expression points at each :MatchSite emitted for it (Item → MatchSite), mirroring INVOKES_AT for call sites (one `match` verb root across the family). Emitted walk-time by `cfdb-extractor`'s `match_visitor`. SchemaVersion V0_7_0+; pre-V0_7_0 keyspaces carry zero MATCHES_AT edges.".into(),
+            attributes: vec![],
+            from: vec![Label::new(Label::ITEM)],
+            to: vec![Label::new(Label::MATCH_SITE)],
+            provenance: Provenance::Extractor,
+        },
+        EdgeLabelDescriptor {
+            label: EdgeLabel::new(EdgeLabel::MATCHES_ON),
+            description: "A :MatchSite whose name-level matched_path prefix resolves to a workspace enum points at that enum's Item (MatchSite → Item{kind:\"enum\"}). Reserved in slice 53-A per RFC-053 §3.2; first emissions land in slice 53-B (the deferred `resolve_deferred_match_targets` pass). An external-type prefix (e.g. syn::Visibility) resolves to no workspace Item and emits no MATCHES_ON — the honest name-level-only representation. SchemaVersion V0_7_0+; pre-V0_7_0 keyspaces carry zero MATCHES_ON edges.".into(),
+            attributes: vec![],
+            from: vec![Label::new(Label::MATCH_SITE)],
+            to: vec![Label::new(Label::ITEM)],
+            provenance: Provenance::Extractor,
+        },
         // ---- Entry points ----------------------------------------------------
         EdgeLabelDescriptor {
             label: EdgeLabel::new(EdgeLabel::EXPOSES),

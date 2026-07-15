@@ -33,6 +33,10 @@
 //! - [`file_walker`]  — recursive module walker + `#[path]` resolution
 //! - [`item_visitor`] — `syn::Visit` impl for module-level items
 //! - [`call_visitor`] — `syn::Visit` impl for call sites inside fn bodies
+//! - [`match_visitor`] — `syn::Visit` impl for `match`-dispatch sites
+//!   inside fn bodies (RFC-053)
+//! - [`macro_tokens`] — shared macro-body re-parse helper used by the
+//!   call, literal, and match visitors
 //!
 //! `lib.rs` keeps only the public entry point, the error type, and the
 //! shared [`Emitter`] sink that every submodule writes into.
@@ -61,6 +65,8 @@ mod emitter;
 mod file_walker;
 mod item_visitor;
 mod literal_visitor;
+mod macro_tokens;
+mod match_visitor;
 mod resolver;
 mod synthesize;
 mod type_render;
