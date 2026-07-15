@@ -135,7 +135,7 @@ fn item_attrs_extractor_metadata() -> Vec<AttributeDescriptor> {
 fn item_attrs_extractor_structural() -> Vec<AttributeDescriptor> {
     use Provenance::Extractor;
     vec![
-        attr("kind", "enum", "Item kind: `Struct`, `Enum`, `Trait`, `Impl`, `Fn`, `Const`, `TypeAlias`.", Extractor),
+        attr("kind", "enum", "Item kind, as the lowercase wire string emitted by the extractor. Top-level items: `struct`, `enum`, `trait`, `impl_block`, `fn`, `const`, `static`, `type_alias`. Impl members additionally appear with kind `method`.", Extractor),
         attr("line", "int", "1-based line number of the item's first token.", Extractor),
         attr("module_qpath", "string", "Fully-qualified path of the enclosing module.", Extractor),
         attr("name", "string", "Unqualified item name.", Extractor),
