@@ -130,24 +130,52 @@ pub fn is_g1_excluded(attr: &str) -> bool {
     G1_EXCLUDED_ATTRS.contains(&attr)
 }
 
-/// Canonical `:Item.props` constructor — single owner of the 5-key
-/// `(qname, name, kind, crate, bounded_context)` shape used by every
-/// `:Item` emitter in the workspace. Boy-scout fix for the split-brain
-/// flagged by `audit-split-brain` between
-/// `cfdb-extractor::synthesize::build_synthetic_item_props` and
-/// `cfdb-hir-petgraph-adapter::build_callee_stub`.
+/// Language-independent `:Item.props` core — single owner of the
+/// `{qname, name, kind, crate}` 4-subset shared by every crate-emitting
+/// `:Item` producer in the workspace: the Rust free-item, impl-block, and
+/// impl-method paths; the TypeScript declaration and method paths; and the
+/// synthetic / HIR paths (via [`build_item_props`]). Each producer layers
+/// its own keys (`bounded_context`, `module_qpath`, `ts_construct`,
+/// `impl_target`, `visibility`, …) on top of this core, so the four key
+/// strings and their `PropValue::Str` wrapping have exactly ONE
+/// construction point and cannot drift across producers (#478, the
+/// `audit-split-brain` target class).
 ///
-/// `name` is derived from `qname` via [`crate::qname::last_segment`] so the
-/// callers cannot disagree on the segmentation rule. Callers supply the
-/// other four `&str`s and this function owns the conversion to owned
-/// `PropValue::Str` values and the BTreeMap canonical insertion order.
-pub fn build_item_props(qname: &str, kind: &str, crate_name: &str, bounded_context: &str) -> Props {
-    let name = crate::qname::last_segment(qname).to_string();
+/// `name` is taken EXPLICITLY, not derived from `qname`. Free items and
+/// methods carry `name == last_segment(qname)`, but an impl-block `:Item`
+/// deliberately carries a human-readable `name` (`"impl Foo"`) that is NOT
+/// the qname's trailing segment (`"impl"`); deriving here would corrupt
+/// that shape. Callers wanting the derived name pass `last_segment(qname)`
+/// themselves (see [`build_item_props`]).
+///
+/// Not universal: a producer that emits no per-item `crate` prop — the PHP
+/// path, whose `:Item`s convey crate membership through the `IN_CRATE`
+/// edge alone — does NOT route through this helper. The 4-subset is
+/// genuinely common to the crate-emitting producers, not to every emitter.
+pub fn build_item_props_common(qname: &str, name: &str, kind: &str, crate_name: &str) -> Props {
     let mut props: Props = BTreeMap::new();
     props.insert("qname".to_string(), PropValue::Str(qname.to_string()));
-    props.insert("name".to_string(), PropValue::Str(name));
+    props.insert("name".to_string(), PropValue::Str(name.to_string()));
     props.insert("kind".to_string(), PropValue::Str(kind.to_string()));
     props.insert("crate".to_string(), PropValue::Str(crate_name.to_string()));
+    props
+}
+
+/// Canonical `:Item.props` constructor — single owner of the 5-key
+/// `(qname, name, kind, crate, bounded_context)` shape used by the
+/// synthetic (`cfdb-extractor::synthesize`) and HIR
+/// (`cfdb-hir-petgraph-adapter`) `:Item` paths. Extends
+/// [`build_item_props_common`] with the `bounded_context` key; the common
+/// 4-subset is owned there so this constructor and the Rust/TS emitters
+/// share one construction point (#478).
+///
+/// `name` is derived from `qname` via [`crate::qname::last_segment`] so
+/// these callers cannot disagree on the segmentation rule. Callers supply
+/// the other `&str`s and the helpers own the conversion to owned
+/// `PropValue::Str` values and the BTreeMap canonical insertion order.
+pub fn build_item_props(qname: &str, kind: &str, crate_name: &str, bounded_context: &str) -> Props {
+    let name = crate::qname::last_segment(qname);
+    let mut props = build_item_props_common(qname, name, kind, crate_name);
     props.insert(
         "bounded_context".to_string(),
         PropValue::Str(bounded_context.to_string()),
@@ -327,5 +355,65 @@ mod tests {
             .expect("Edge has derived Serialize over String/EdgeLabel/BTreeMap");
         let back: Edge = serde_json::from_str(&json).expect("round-trip of just-serialized Edge");
         assert_eq!(e, back);
+    }
+
+    // ---- :Item prop-key convergence (#478) --------------------------------
+
+    #[test]
+    fn build_item_props_common_is_exactly_the_four_subset() {
+        let props = build_item_props_common("a::b::Foo", "Foo", "struct", "mycrate");
+        assert_eq!(
+            props.get("qname").and_then(PropValue::as_str),
+            Some("a::b::Foo")
+        );
+        assert_eq!(props.get("name").and_then(PropValue::as_str), Some("Foo"));
+        assert_eq!(
+            props.get("kind").and_then(PropValue::as_str),
+            Some("struct")
+        );
+        assert_eq!(
+            props.get("crate").and_then(PropValue::as_str),
+            Some("mycrate")
+        );
+        // The common core is EXACTLY those four keys — every other key is a
+        // per-producer layer, so the helper must not smuggle in extras
+        // (`bounded_context`, `module_qpath`, …).
+        let mut keys: Vec<&str> = props.keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        assert_eq!(keys, ["crate", "kind", "name", "qname"]);
+    }
+
+    #[test]
+    fn build_item_props_common_takes_name_verbatim_not_derived_from_qname() {
+        // The impl-block emitter passes a human-readable `name` that is NOT
+        // the qname's trailing segment. The helper must store it verbatim —
+        // deriving it here would rewrite `"impl Display for Foo"` to
+        // `"impl_Display"` and move the byte-identical extraction output.
+        let props = build_item_props_common(
+            "m::Foo::impl_Display",
+            "impl Display for Foo",
+            "impl_block",
+            "mycrate",
+        );
+        assert_eq!(
+            props.get("name").and_then(PropValue::as_str),
+            Some("impl Display for Foo")
+        );
+    }
+
+    #[test]
+    fn build_item_props_extends_common_with_bounded_context() {
+        // The 5-key owner is the common 4-subset (with `name` derived from
+        // qname via `last_segment`) plus `bounded_context`, and nothing else.
+        let props = build_item_props("a::b::Foo", "struct", "mycrate", "b_context");
+        let common = build_item_props_common("a::b::Foo", "Foo", "struct", "mycrate");
+        for (k, v) in &common {
+            assert_eq!(props.get(k), Some(v), "5-key must contain 4-subset key {k}");
+        }
+        assert_eq!(
+            props.get("bounded_context").and_then(PropValue::as_str),
+            Some("b_context")
+        );
+        assert_eq!(props.len(), 5);
     }
 }

@@ -22,7 +22,7 @@
 
 use std::collections::BTreeMap;
 
-use cfdb_core::fact::{Edge, Node, PropValue};
+use cfdb_core::fact::{build_item_props_common, Edge, Node, PropValue};
 use cfdb_core::qname::{item_node_id, item_qname, method_qname, module_qpath};
 use cfdb_core::schema::{EdgeLabel, Label};
 
@@ -249,11 +249,11 @@ impl ItemVisitor<'_> {
             None => self.qname(name),
         };
         let id = item_node_id(&qname);
-        let mut props = BTreeMap::new();
-        props.insert("qname".into(), PropValue::Str(qname.clone()));
-        props.insert("name".into(), PropValue::Str(name.to_string()));
-        props.insert("kind".into(), PropValue::Str(kind.to_string()));
-        props.insert("crate".into(), PropValue::Str(self.crate_name.clone()));
+        // `{qname, name, kind, crate}` come from the shared owner; this path
+        // layers the Rust-specific keys (`bounded_context`, `module_qpath`,
+        // optional `impl_target`, `file`, `line`, `is_test`, `visibility`,
+        // attr metadata, optional `signature`) on top (#478).
+        let mut props = build_item_props_common(&qname, name, kind, &self.crate_name);
         props.insert(
             "bounded_context".into(),
             PropValue::Str(self.bounded_context.clone()),
@@ -334,14 +334,16 @@ impl ItemVisitor<'_> {
         let impl_qname = impl_block_qname(&self.module_stack, target, trait_qname);
         let impl_id = item_node_id(&impl_qname);
 
-        let mut props = BTreeMap::new();
-        props.insert("qname".into(), PropValue::Str(impl_qname.clone()));
-        props.insert(
-            "name".into(),
-            PropValue::Str(impl_block_name(target, trait_qname)),
+        // `{qname, name, kind, crate}` from the shared owner. The impl-block
+        // `name` (`"impl Foo"` / `"impl Bar for Foo"`) is passed explicitly:
+        // it is deliberately NOT `last_segment(qname)` (`"impl"` /
+        // `"impl_Bar"`), so the helper must take it verbatim (#478).
+        let mut props = build_item_props_common(
+            &impl_qname,
+            &impl_block_name(target, trait_qname),
+            "impl_block",
+            &self.crate_name,
         );
-        props.insert("kind".into(), PropValue::Str("impl_block".into()));
-        props.insert("crate".into(), PropValue::Str(self.crate_name.clone()));
         props.insert(
             "bounded_context".into(),
             PropValue::Str(self.bounded_context.clone()),

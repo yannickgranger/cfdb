@@ -9,7 +9,7 @@
 
 use std::collections::BTreeMap;
 
-use cfdb_core::fact::{Edge, Node, PropValue, Props};
+use cfdb_core::fact::{build_item_props_common, Edge, Node, PropValue, Props};
 use cfdb_core::schema::{EdgeLabel, Label};
 use tree_sitter::Node as TsNode;
 
@@ -235,11 +235,11 @@ fn emit_item_node(
     let line = (decl.start_position().row + 1) as i64;
     let visibility = if exported { "public" } else { "private" };
 
-    let mut props = Props::new();
-    props.insert("qname".into(), PropValue::Str(qname));
-    props.insert("name".into(), PropValue::Str(name.to_string()));
-    props.insert("kind".into(), PropValue::Str(kind.to_string()));
-    props.insert("crate".into(), PropValue::Str(crate_name.to_string()));
+    // `{qname, name, kind, crate}` from the shared owner; the TS path layers
+    // `module_qpath`, `file`, `line`, `is_test`, `visibility`, `language`,
+    // and (on class/interface decls) `ts_construct` — and deliberately emits
+    // NO `bounded_context` (#478).
+    let mut props = build_item_props_common(&qname, name, kind, crate_name);
     props.insert(
         "module_qpath".into(),
         PropValue::Str(module_qpath.to_string()),
