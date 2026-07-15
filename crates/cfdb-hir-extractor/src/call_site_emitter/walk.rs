@@ -40,7 +40,7 @@ pub(super) fn walk_file<DB>(
     // `AstNode::cast` moves by value, and an `if let / else if` chain
     // on `cast(descendant.clone())` flagged as a clone-in-loop in
     // quality-metrics. Matching on kind first lets each branch consume
-    // `descendant` directly. Same pattern as `entry_point_emitter::scan_file`.
+    // `descendant` directly. Same pattern as `entry_point_emitter`'s per-file registry dispatch.
     for descendant in source_file.syntax().descendants() {
         match descendant.kind() {
             SyntaxKind::METHOD_CALL_EXPR => {
