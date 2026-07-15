@@ -106,10 +106,20 @@ impl Manifest {
         workspace_root: &Path,
     ) -> Self {
         // Canonicalize so the root matches the (canonical) crate-graph
-        // file paths cargo metadata produces; fall back to the raw path.
-        let ws_root = workspace_root
-            .canonicalize()
-            .unwrap_or_else(|_| workspace_root.to_path_buf());
+        // file paths cargo metadata produces. Containment is only ever
+        // judged between LIKE representations: canonical-vs-canonical
+        // when both sides canonicalize, raw-vs-raw when either side
+        // fails — a mixed comparison silently misclassifies (a one-sided
+        // canonicalization dropped every member on a dual-mounted
+        // workspace).
+        //
+        // Known approximation, on purpose: a non-member crate physically
+        // nested UNDER the workspace root but reached via a member's
+        // path-dependency (a vendored or `exclude`d crate) passes this
+        // containment check — path containment cannot see cargo's member
+        // list (the true `is_member` bit never reaches the HIR layer).
+        // Non-members OUTSIDE the tree are excluded correctly.
+        let ws_root_canonical = workspace_root.canonicalize().ok();
         let mut dependency_names = BTreeSet::new();
         for krate in Crate::all(db) {
             if !krate.origin(db).is_local() {
@@ -119,14 +129,11 @@ impl Manifest {
             else {
                 continue;
             };
-            // Canonicalize the candidate too: the vfs may carry a
-            // different (symlinked/bind-mounted) alias of the same tree
-            // than the canonicalized root, and a one-sided comparison
-            // silently drops every member (observed on a dual-mounted
-            // workspace). Fall back to the raw path when the file is
-            // gone by containment-check time.
-            let root_path = root_path.canonicalize().unwrap_or(root_path);
-            if !root_path.starts_with(&ws_root) {
+            let contained = match (root_path.canonicalize().ok(), &ws_root_canonical) {
+                (Some(candidate), Some(root)) => candidate.starts_with(root),
+                _ => root_path.starts_with(workspace_root),
+            };
+            if !contained {
                 continue;
             }
             for dep in krate.dependencies(db) {
