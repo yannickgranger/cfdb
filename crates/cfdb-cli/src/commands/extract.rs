@@ -5,6 +5,11 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+// RFC-048 §3.1 (slice 48-A): the composition root owns the profiling clock —
+// the extractor emits pure phase markers and this crate does every wall-clock
+// read. Gated on `lang-rust` because only the Rust profiled path uses it.
+#[cfg(feature = "lang-rust")]
+use std::time::{Duration, Instant};
 
 use cfdb_core::schema::Keyspace;
 use cfdb_core::store::StoreBackend;
@@ -482,13 +487,61 @@ impl Drop for GitWorktree {
     }
 }
 
+/// Composition-root clock for RFC-048 profiling (slice 48-A). The extractor
+/// emits pure [`cfdb_extractor::ExtractPhaseMarker`] boundaries — it reads no
+/// clock (RFC-029 §12.1 G1) — and this observer timestamps each. All
+/// wall-clock reads for the extract-internal phases live here, never in the
+/// extractor.
+#[cfg(feature = "lang-rust")]
+#[derive(Default)]
+struct PhaseClock {
+    cargo_metadata_start: Option<Instant>,
+    syn_walk_start: Option<Instant>,
+    deferred_resolve_start: Option<Instant>,
+    finished: Option<Instant>,
+}
+
+#[cfg(feature = "lang-rust")]
+impl PhaseClock {
+    /// Record the wall-clock instant at which `marker` fired.
+    fn observe(&mut self, marker: cfdb_extractor::ExtractPhaseMarker) {
+        use cfdb_extractor::ExtractPhaseMarker as Marker;
+
+        let now = Instant::now();
+        match marker {
+            Marker::CargoMetadataStart => self.cargo_metadata_start = Some(now),
+            Marker::SynWalkStart => self.syn_walk_start = Some(now),
+            Marker::DeferredResolveStart => self.deferred_resolve_start = Some(now),
+            Marker::Finished => self.finished = Some(now),
+        }
+    }
+
+    /// The three extract-internal phase durations `(cargo-metadata, syn-walk,
+    /// deferred-resolve)` derived from the four boundary marks, or `None` if
+    /// any mark is missing. The extractor fires all four in order every run,
+    /// so `None` means the profiled contract broke — the caller surfaces that
+    /// as an error rather than reporting a fabricated zero.
+    fn phase_durations(&self) -> Option<(Duration, Duration, Duration)> {
+        let cargo_metadata_start = self.cargo_metadata_start?;
+        let syn_walk_start = self.syn_walk_start?;
+        let deferred_resolve_start = self.deferred_resolve_start?;
+        let finished = self.finished?;
+        Some((
+            syn_walk_start.saturating_duration_since(cargo_metadata_start),
+            deferred_resolve_start.saturating_duration_since(syn_walk_start),
+            finished.saturating_duration_since(deferred_resolve_start),
+        ))
+    }
+}
+
 /// RFC-048 §3.1 (slice 48-A) profiled extract. Runs the Rust extractor's
-/// profiled entry point for the three `extract`-internal phase timings
-/// (cargo-metadata, syn-walk, deferred-resolve), times the CLI-owned
-/// ingest / `--hir` load / save phases around their existing calls, and
-/// renders the [`crate::ExtractProfile`] breakdown to stderr. The keyspace
-/// bytes are identical to a non-profiled extract — the timers are `Instant`
-/// reads that never enter the graph (RFC-048 §4).
+/// profiled entry point with a [`PhaseClock`] observer that times the three
+/// `extract`-internal phases (cargo-metadata, syn-walk, deferred-resolve),
+/// times the CLI-owned ingest / `--hir` load / save phases around their
+/// existing calls, and renders the [`crate::ExtractProfile`] breakdown to
+/// stderr. The keyspace bytes are identical to a non-profiled extract — every
+/// clock read is here (RFC-029 §12.1 G1 keeps them out of the extractor) and
+/// none enters the graph (RFC-048 §4).
 ///
 /// Rust-only: the profiled phase vocabulary is the Rust pipeline's, so this
 /// runs `cfdb_extractor` directly instead of the polyglot producer registry.
@@ -503,16 +556,30 @@ fn run_profiled_extract(
     hir: bool,
     no_proc_macro: bool,
 ) -> Result<(), crate::CfdbCliError> {
-    use std::time::Instant;
-
     use crate::ExtractProfile;
 
     let t_total = Instant::now();
-    // `ExtractError` maps into `CfdbCliError::Extract` via `#[from]` (both
-    // are `lang-rust`-gated), so `?` surfaces the same typed failure the
+
+    // The composition root owns the clock: the extractor emits pure phase
+    // markers and this observer timestamps each. `PhaseClock` then derives the
+    // three extract-internal phase durations from the four marks. The `&mut`
+    // borrow of `clock` ends when the call returns, freeing it for the
+    // duration read below.
+    let mut clock = PhaseClock::default();
+    // `ExtractError` maps into `CfdbCliError::Extract` via `#[from]` (both are
+    // `lang-rust`-gated), so `?` surfaces the same typed failure the
     // non-profiled path's `ExtractError` consumers see.
-    let (nodes, edges, rust_phases) = cfdb_extractor::extract_workspace_profiled(workspace)?;
+    let (nodes, edges) =
+        cfdb_extractor::extract_workspace_profiled(workspace, &mut |m| clock.observe(m))?;
     eprintln!("extract: {} nodes, {} edges", nodes.len(), edges.len());
+
+    let (cargo_metadata, syn_walk, deferred_resolve) =
+        clock.phase_durations().ok_or_else(|| {
+            crate::CfdbCliError::from(
+                "profiled extract did not emit every phase marker — the observer contract broke"
+                    .to_string(),
+            )
+        })?;
 
     let mut store = compose::empty_store();
     let t_ingest = Instant::now();
@@ -534,9 +601,9 @@ fn run_profiled_extract(
     eprintln!("extract: saved keyspace `{ks_name}` to {}", path.display());
 
     let profile = ExtractProfile {
-        cargo_metadata: rust_phases.cargo_metadata,
-        syn_walk: rust_phases.syn_walk,
-        deferred_resolve: rust_phases.deferred_resolve,
+        cargo_metadata,
+        syn_walk,
+        deferred_resolve,
         ingest,
         hir_load,
         save,

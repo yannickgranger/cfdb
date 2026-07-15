@@ -46,7 +46,6 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
 
 use cargo_metadata::MetadataCommand;
 use cfdb_core::fact::{Edge, Node, PropValue};
@@ -157,61 +156,64 @@ impl cfdb_lang::LanguageProducer for RustProducer {
 /// fact sets; the trait method just wraps `ExtractError` into
 /// `LanguageError::Parse`.
 pub fn extract_workspace(workspace_root: &Path) -> Result<(Vec<Node>, Vec<Edge>), ExtractError> {
-    let (nodes, edges, _phases) = extract_workspace_profiled(workspace_root)?;
-    Ok((nodes, edges))
+    // Delegate with a no-op observer so profiled and un-profiled extraction
+    // share ONE implementation and cannot diverge.
+    extract_workspace_profiled(workspace_root, &mut |_| {})
 }
 
-/// Wall-clock breakdown of the three `extract`-internal phases the
-/// council fixed for RFC-048 §1: the `cargo metadata` subprocess, the
-/// `syn` walk (parse + per-file visit + context emission), and the
-/// post-walk deferred resolution (RETURNS / TYPE_OF resolvers, referenced-
-/// item synthesis, canonical sort).
+/// Phase-transition markers the profiled extract emits to an observer at each
+/// boundary between the `extract`-internal phases the council fixed for
+/// RFC-048 §1: the `cargo metadata` subprocess, the `syn` walk (parse +
+/// per-file visit + context emission), and the post-walk deferred resolution
+/// (RETURNS / TYPE_OF resolvers, referenced-item synthesis, canonical sort).
 ///
-/// This is build-process telemetry, never graph vocabulary — it carries no
-/// `Label`, no `:Item` attribute, and never reaches the emitted facts or
-/// their sha256 (RFC-048 §4). It is produced only by
-/// [`extract_workspace_profiled`]; the un-profiled [`extract_workspace`]
-/// discards it. The three durations attribute the whole of
-/// `extract_workspace_profiled`'s body; the small glue between phases is
-/// left for the caller to reconcile against an end-to-end measurement.
+/// Pure control-flow signals: the extractor reads no clock — RFC-029 §12.1 G1
+/// forbids wall-clock reads in this crate, and the fence at
+/// `tests/architecture_determinism.rs` enforces it at the source level. The
+/// composition root (cfdb-cli) supplies an observer that timestamps each
+/// marker and derives the per-phase durations; nothing here is telemetry,
+/// only the boundaries. Emitted in order, exactly once each, per run — so
+/// profiling is structurally incapable of perturbing the emitted facts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct RustExtractPhases {
-    /// Time spent in the `cargo metadata --no-deps` subprocess.
-    pub cargo_metadata: Duration,
-    /// Time spent loading concept overrides, computing the crate-tier DAG,
-    /// and walking every workspace file with `syn` (plus context emission).
-    pub syn_walk: Duration,
-    /// Time spent in the post-walk RETURNS / TYPE_OF resolution, referenced-
-    /// item synthesis, and the final canonical sort of nodes and edges.
-    pub deferred_resolve: Duration,
+pub enum ExtractPhaseMarker {
+    /// Emitted immediately before the `cargo metadata --no-deps` subprocess.
+    CargoMetadataStart,
+    /// Emitted after cargo-metadata completes, before the `syn` walk begins.
+    SynWalkStart,
+    /// Emitted after the `syn` walk, before post-walk deferred resolution.
+    DeferredResolveStart,
+    /// Emitted after deferred resolution + the canonical sort — extraction is
+    /// complete and `(nodes, edges)` is about to return.
+    Finished,
 }
 
 /// Profiled sibling of [`extract_workspace`] — identical work and
-/// byte-identical `(nodes, edges)` output, plus a [`RustExtractPhases`]
-/// wall-clock breakdown of the three `extract`-internal phases named in
-/// RFC-048 §1.
+/// byte-identical `(nodes, edges)` output. It emits an [`ExtractPhaseMarker`]
+/// to `observe` at each boundary between the three `extract`-internal phases
+/// named in RFC-048 §1, letting the composition root time them.
 ///
-/// [`extract_workspace`] is the un-profiled entry every existing caller
-/// uses; it delegates here and drops the timings, so the two paths share
-/// ONE implementation and cannot diverge. The timers are `Instant` reads
-/// only — they never enter the emitted facts, so determinism (RFC-048 §4,
-/// the `G1` byte-stable canonical dump) is unaffected.
+/// [`extract_workspace`] is the un-profiled entry every existing caller uses;
+/// it delegates here with a no-op observer, so the two paths share ONE
+/// implementation and cannot diverge. The extractor itself reads no clock —
+/// the markers are pure control flow (RFC-029 §12.1 G1); the observer owns the
+/// wall-clock. Determinism (RFC-048 §4, the `G1` byte-stable dump) is
+/// therefore structurally unaffected by profiling.
 pub fn extract_workspace_profiled(
     workspace_root: &Path,
-) -> Result<(Vec<Node>, Vec<Edge>, RustExtractPhases), ExtractError> {
+    observe: &mut dyn FnMut(ExtractPhaseMarker),
+) -> Result<(Vec<Node>, Vec<Edge>), ExtractError> {
     // Phase 1 (RFC-048 §1) — the `cargo metadata` subprocess.
-    let t_cargo_metadata = Instant::now();
+    observe(ExtractPhaseMarker::CargoMetadataStart);
     let manifest = workspace_root.join("Cargo.toml");
     let metadata = MetadataCommand::new()
         .manifest_path(&manifest)
         .no_deps()
         .exec()
         .map_err(|e| ExtractError::Metadata(e.to_string()))?;
-    let cargo_metadata = t_cargo_metadata.elapsed();
 
     // Phase 2 (RFC-048 §1) — the syn walk: concept-override load, crate-tier
     // DAG, the per-file `syn` parse + visit, and per-context node emission.
-    let t_syn_walk = Instant::now();
+    observe(ExtractPhaseMarker::SynWalkStart);
 
     // Step 1 (pre-walk): load `.cfdb/concepts/*.toml` overrides so the
     // per-crate bounded-context resolution in the loop below can honour
@@ -272,11 +274,10 @@ pub fn extract_workspace_profiled(
     for (name, (meta, source)) in &contexts_seen {
         emit_context_node(&mut emitter, name, meta, *source);
     }
-    let syn_walk = t_syn_walk.elapsed();
 
     // Phase 3 (RFC-048 §1) — post-walk deferred resolution: the RETURNS /
     // TYPE_OF resolvers, referenced-item synthesis, and the canonical sort.
-    let t_deferred_resolve = Instant::now();
+    observe(ExtractPhaseMarker::DeferredResolveStart);
 
     // Step 3 (post-walk) — RETURNS resolution (RFC-037 §3.2, #216).
     //
@@ -323,17 +324,11 @@ pub fn extract_workspace_profiled(
     let (mut nodes, mut edges) = emitter.finish();
     nodes.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
     edges.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
-    let deferred_resolve = t_deferred_resolve.elapsed();
 
-    Ok((
-        nodes,
-        edges,
-        RustExtractPhases {
-            cargo_metadata,
-            syn_walk,
-            deferred_resolve,
-        },
-    ))
+    // Final boundary (RFC-048 §1) — extraction complete; the observer times
+    // the deferred-resolve phase from here back to its start marker.
+    observe(ExtractPhaseMarker::Finished);
+    Ok((nodes, edges))
 }
 
 /// Emit the `:Crate` node, `BELONGS_TO` edge, synthesised `:Context`
