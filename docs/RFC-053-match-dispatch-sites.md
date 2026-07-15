@@ -1,8 +1,8 @@
 # RFC-053 — `:MatchSite` + `MATCHES_ON`: enum-dispatch facts for split-resolution-point fences
 
 ```
-status: Draft R2 — R1 council: 4× REQUEST CHANGES (all prescribed changes applied in this
-        revision), pending R2 confirmation
+status: RATIFIED — R2 council 4/4 RATIFY, 2026-07-15 (R1: 4× REQUEST CHANGES → amendments
+        applied → R2 unanimous). Verdict record: council/RFC-053/RATIFIED.md
 author: A0 (use-case analysis session 2026-07-15; R1 council same day)
 schema: V0_6_0 → V0_7_0 (one bump, landing in slice 53-A: one node label + two edge labels)
 refs: #279 (W17 audit EPIC), #430 + RFC-044 §3.7 (wildcard-arm policy record), boy-scout #107
@@ -96,7 +96,7 @@ dedup tests).
 | `file` | string | workspace-relative path |
 | `line` | u32 | 1-indexed, match expression start |
 | `arm_count` | u32 | number of arms of the enclosing match expression |
-| `wildcard` | bool | true iff the match has a wildcard arm — RFC-044 §3.7's vocabulary. Detection: a top-level `Pat::Wild`, or a bare `Pat::Ident` with no sub-pattern whose identifier starts lowercase (Rust naming convention distinguishes a fresh binding from a unit-variant/const path; syn does no name resolution, so this is a **documented heuristic** — named recall limit #2, measured by the 53-A fixture). |
+| `wildcard` | bool | true iff the match has a wildcard arm — RFC-044 §3.7's vocabulary. Detection: a top-level `Pat::Wild`, or a bare `Pat::Ident` with no sub-pattern whose identifier starts lowercase (Rust naming convention distinguishes a fresh binding from a unit-variant/const path; syn does no name resolution, so this is a **documented heuristic** — named recall limit #2, measured by the 53-A fixture). The implementation carries a doc-comment stating the flag covers BOTH forms — literal `_` and lowercase catch-all bindings (R2 ddd: the Reference reserves "wildcard" for `_` alone; the Book groups both as catch-all patterns). |
 | `is_test` | bool | same `#[cfg(test)]`-depth propagation as `:CallSite` / `:Literal` — the predicate is threaded, never re-evaluated (RFC-041 §4 fidelity invariant applies verbatim) |
 | `crate` | string | owning crate |
 
