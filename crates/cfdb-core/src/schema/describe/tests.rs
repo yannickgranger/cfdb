@@ -142,6 +142,59 @@ fn schema_describe_item_deprecation_attrs_are_extractor_provenanced() {
 /// It MUST NOT carry a `kind` attr: that would be a three-way homonym against
 /// `:Item.kind` (declaration kind) and `:ConstTable.element_type`. Future
 /// non-string literals use `lit_syntax`, not `kind`.
+/// #481 — the `:Item.kind` attribute descriptor must enumerate the LOWERCASE
+/// wire values the extractor actually emits on `:Item` nodes (`struct`, `enum`,
+/// `trait`, `impl_block`, `fn`, `const`, `static`, `type_alias`), NOT the
+/// capitalized council `ItemKind` spellings. Pre-fix the descriptor read
+/// `Struct, Enum, Trait, Impl, Fn, Const, TypeAlias` — capitalized (that is the
+/// CLI vocabulary users type, per `ItemKind::as_str`) and missing `static` — so
+/// it matched no real `:Item.kind` string a consumer would query against.
+#[test]
+fn schema_describe_item_kind_documents_lowercase_wire_values() {
+    use crate::query::ItemKind;
+
+    let d = schema_describe();
+    let item = d
+        .nodes
+        .iter()
+        .find(|n| n.label.as_str() == Label::ITEM)
+        .expect("Item node descriptor");
+    let kind = item
+        .attributes
+        .iter()
+        .find(|a| a.name == "kind")
+        .expect("Item.kind attribute descriptor");
+    let desc = &kind.description;
+
+    for variant in ItemKind::variants() {
+        // The extractor emits the lowercase wire spelling, never the council /
+        // CLI spelling. `to_extractor_str` is the single source of truth for
+        // that mapping (7 of the 8 wire values).
+        let wire = variant.to_extractor_str();
+        assert!(
+            desc.contains(wire),
+            "Item.kind descriptor must document wire value `{wire}` \
+             (ItemKind::to_extractor_str); description was: {desc:?}",
+        );
+        let council = variant.as_str();
+        assert!(
+            !desc.contains(council),
+            "Item.kind descriptor must not carry the capitalized council / CLI \
+             spelling `{council}` — `:Item.kind` wire strings are lowercase; \
+             description was: {desc:?}",
+        );
+    }
+
+    // `static` is emitted by `cfdb-extractor::visit_item_static` but is not a
+    // council `ItemKind` variant (`list_items_matching` has no Static — #479),
+    // so it is the one wire value asserted as an explicit literal.
+    assert!(
+        desc.contains("static"),
+        "Item.kind descriptor must document the `static` wire value \
+         (visit_item_static); description was: {desc:?}",
+    );
+}
+
 #[test]
 fn schema_describe_literal_attrs_match_rfc_041() {
     let d = schema_describe();
@@ -291,7 +344,7 @@ fn schema_describe_narrative_digest() {
     /// To update after a legitimate narrative change: set this to `"RECOMPUTE"`,
     /// run the test, copy the `actual digest:` value from the failure output.
     const FROZEN_NARRATIVE_DIGEST: &str =
-        "62bfa607816dce37634400450bf4c33df4e327053dffabce3f7031f8e6acbf96";
+        "95fc9918b0e27fd24830fdd091e8984c4ccbe9167d14bb5e322363b60b1682a3";
 
     let d = schema_describe();
 
