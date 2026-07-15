@@ -5,7 +5,7 @@
 //! missing / `Null` bindings propagate cleanly into comparisons.
 
 use cfdb_core::fact::PropValue;
-use cfdb_core::query::{CompareOp, Expr, Param, Predicate};
+use cfdb_core::query::{CompareOp, Expr, ParamBinding, Predicate};
 use cfdb_core::result::RowValue;
 
 use super::{Binding, Bindings, Evaluator};
@@ -92,7 +92,7 @@ impl<'a> Evaluator<'a> {
             }),
             Expr::Literal(p) => Some(p.clone()),
             Expr::Param(name) => match self.params.get(name) {
-                Some(Param::Scalar(p)) => Some(p.clone()),
+                Some(ParamBinding::Scalar(p)) => Some(p.clone()),
                 _ => None,
             },
             Expr::List(_) => None,
@@ -113,8 +113,8 @@ impl<'a> Evaluator<'a> {
                     .collect(),
             ),
             Expr::Param(name) => match self.params.get(name) {
-                Some(Param::List(items)) => Some(items.clone()),
-                Some(Param::Scalar(p)) => Some(vec![p.clone()]),
+                Some(ParamBinding::List(items)) => Some(items.clone()),
+                Some(ParamBinding::Scalar(p)) => Some(vec![p.clone()]),
                 None => None,
             },
             other => self.eval_expr(other, bindings).map(|p| vec![p]),

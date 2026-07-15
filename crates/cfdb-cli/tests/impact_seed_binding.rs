@@ -6,15 +6,15 @@
 //! `IN $seeds` has a path" for the forthcoming `cfdb impact` verb. The
 //! council's premise — *"no list-binding path exists today"* — was false
 //! (RFC-047a §1): the in-process path `impact` uses — `parse(template)` →
-//! `query.params.insert(name, Param::List(..))` → `store.execute` — already
+//! `query.params.insert(name, ParamBinding::List(..))` → `store.execute` — already
 //! ships and runs in production (`check-predicate` #147, the `list:` param
-//! form #145, the raid-plan suite #205). `cfdb_core::Param::List` exists; the
+//! form #145, the raid-plan suite #205). `cfdb_core::ParamBinding::List` exists; the
 //! evaluator already resolves a list param for `IN`. So there is no
 //! production code to write *for the binding*.
 //!
 //! What was NOT pinned anywhere is the EXACT shape `impact` composes: a
 //! variable-length REVERSE traversal `(seed)<-[:CALLS*1..]-(affected)`
-//! FILTERED by `WHERE seed.qname IN $seeds` bound as a `Param::List`. Both
+//! FILTERED by `WHERE seed.qname IN $seeds` bound as a `ParamBinding::List`. Both
 //! halves were tested independently; their composition was not. This test
 //! locks that composition. It depends on RFC-047a's B1 (the open form `*1..`
 //! parses) and B2 (the traversal is not silently clamped) — the two `src/`
@@ -37,7 +37,7 @@ use cfdb_petgraph::PetgraphStore;
 use cfdb_query::impact_query;
 
 // The canonical `cfdb impact` reverse-reachability query (RFC-047 §3.2) and
-// its `$seeds` `Param::List` binding are owned by `cfdb_query::impact_query`
+// its `$seeds` `ParamBinding::List` binding are owned by `cfdb_query::impact_query`
 // (slice 47-A / #489) — this test executes that composer's output against a
 // fact-injected fixture, so the canonical shape is defined once.
 
@@ -104,7 +104,7 @@ fn fixture() -> (PetgraphStore, Keyspace) {
 }
 
 /// Run the impact query (built by `cfdb_query::impact_query`, which binds
-/// `$seeds` as a `Param::List`) and collect the affected qnames as a set.
+/// `$seeds` as a `ParamBinding::List`) and collect the affected qnames as a set.
 fn affected_qnames(store: &PetgraphStore, ks: &Keyspace, seeds: &[&str]) -> BTreeSet<String> {
     let query = impact_query(seeds, None);
     store
@@ -132,7 +132,7 @@ fn string_set<'a>(items: impl IntoIterator<Item = &'a str>) -> BTreeSet<String> 
 fn reverse_calls_with_list_seeds_returns_caller_union() {
     let (store, ks) = fixture();
 
-    // Two seeds bound as one `Param::List` → the union of each seed's
+    // Two seeds bound as one `ParamBinding::List` → the union of each seed's
     // transitive callers. `leaf_a` is called by `mid_1` (depth 1), itself
     // called by `top_x` (depth 2); `leaf_b` is called by `mid_2` (depth 1).
     let affected = affected_qnames(&store, &ks, &["imp::leaf_a", "imp::leaf_b"]);

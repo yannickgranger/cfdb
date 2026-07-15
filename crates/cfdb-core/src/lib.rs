@@ -8,7 +8,7 @@
 //! The six public modules:
 //! - [`fact`]: Node, Edge, PropValue — the wire format for a single fact.
 //! - [`schema`]: Label, EdgeLabel, SchemaVersion, SchemaDescribe — RFC §7 schema.
-//! - [`query`]: Query AST, Pattern, Predicate, Aggregation, Param — the
+//! - [`query`]: Query AST, Pattern, Predicate, Aggregation, ParamBinding — the
 //!   interchange format between parser and evaluator.
 //! - [`result`]: QueryResult, Row, Warning — the shape returned to callers.
 //! - [`enrich`]: EnrichBackend trait and EnrichReport — the four `enrich_*`
@@ -35,9 +35,9 @@ pub use context_source::ContextSource;
 pub use enrich::{EnrichBackend, EnrichReport};
 pub use fact::{Edge, Node, PropValue, Props};
 pub use query::{
-    Aggregation, CompareOp, Direction, EdgePattern, Expr, ItemKind, NodePattern, OrderBy, Param,
-    PathPattern, Pattern, Predicate, Projection, ProjectionValue, Query, ReturnClause,
-    UnknownItemKind, WithClause,
+    Aggregation, CompareOp, Direction, EdgePattern, Expr, ItemKind, NodePattern, OrderBy,
+    ParamBinding, PathPattern, Pattern, Predicate, Projection, ProjectionValue, Query,
+    ReturnClause, UnknownItemKind, WithClause,
 };
 pub use result::{QueryResult, Row, RowValue, Warning, WarningKind};
 pub use schema::{

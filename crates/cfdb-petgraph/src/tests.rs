@@ -8,8 +8,8 @@ use std::collections::BTreeMap;
 
 use cfdb_core::fact::{Edge, Node, PropValue};
 use cfdb_core::query::{
-    Aggregation, CompareOp, Direction, EdgePattern, Expr, NodePattern, Param, PathPattern, Pattern,
-    Predicate, Projection, ProjectionValue, Query, ReturnClause, WithClause,
+    Aggregation, CompareOp, Direction, EdgePattern, Expr, NodePattern, ParamBinding, PathPattern,
+    Pattern, Predicate, Projection, ProjectionValue, Query, ReturnClause, WithClause,
 };
 use cfdb_core::result::{RowValue, WarningKind};
 use cfdb_core::schema::{EdgeLabel, Keyspace, Label};
@@ -641,7 +641,7 @@ fn unwind_list_param_cross_joins() {
     let mut params = BTreeMap::new();
     params.insert(
         "kinds".to_string(),
-        Param::List(vec![
+        ParamBinding::List(vec![
             PropValue::Str("fn".into()),
             PropValue::Str("struct".into()),
         ]),

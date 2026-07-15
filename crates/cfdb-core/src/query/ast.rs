@@ -34,7 +34,7 @@ pub struct Query {
     pub with_clause: Option<WithClause>,
     pub return_clause: ReturnClause,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub params: BTreeMap<String, Param>,
+    pub params: BTreeMap<String, ParamBinding>,
 }
 
 impl Query {
@@ -51,7 +51,7 @@ impl Query {
 
 /// Value bound to a `$name` parameter in a query.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum Param {
+pub enum ParamBinding {
     Scalar(PropValue),
     List(Vec<PropValue>),
 }

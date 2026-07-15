@@ -13,7 +13,7 @@ mod path;
 
 use coupling::*;
 
-use cfdb_core::query::{NodePattern, Param, Pattern, Predicate};
+use cfdb_core::query::{NodePattern, ParamBinding, Pattern, Predicate};
 use cfdb_core::result::{Warning, WarningKind};
 use petgraph::stable_graph::NodeIndex;
 
@@ -258,7 +258,7 @@ impl<'a> Evaluator<'a> {
         list_param: &'e str,
         var: &'e str,
     ) -> BindingStream<'e> {
-        let Some(Param::List(items)) = self.params.get(list_param) else {
+        let Some(ParamBinding::List(items)) = self.params.get(list_param) else {
             self.warnings.borrow_mut().push(Warning {
                 kind: WarningKind::EmptyResult,
                 message: format!("UNWIND ${}: parameter missing or not a list", list_param),

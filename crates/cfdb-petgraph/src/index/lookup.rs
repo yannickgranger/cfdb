@@ -52,7 +52,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use cfdb_core::query::{CompareOp, Expr, NodePattern, Param, Predicate};
+use cfdb_core::query::{CompareOp, Expr, NodePattern, ParamBinding, Predicate};
 use cfdb_core::schema::Label;
 use petgraph::stable_graph::NodeIndex;
 
@@ -92,7 +92,7 @@ pub(crate) fn candidates_from_index<F>(
     state: &KeyspaceState,
     np: &NodePattern,
     where_clause: Option<&Predicate>,
-    params: &BTreeMap<String, Param>,
+    params: &BTreeMap<String, ParamBinding>,
     bound_var_prop: &F,
 ) -> Option<Vec<NodeIndex>>
 where
@@ -158,7 +158,7 @@ fn collect_where_hints<F>(
     indexed_pairs: &BTreeMap<String, BTreeSet<IndexTag>>,
     target_var: &str,
     pred: &Predicate,
-    params: &BTreeMap<String, Param>,
+    params: &BTreeMap<String, ParamBinding>,
     bound_var_prop: &F,
     out: &mut Vec<(IndexTag, IndexValue)>,
 ) where
@@ -247,7 +247,7 @@ fn resolve_eq_hint(
     target_var: &str,
     left: &Expr,
     right: &Expr,
-    params: &BTreeMap<String, Param>,
+    params: &BTreeMap<String, ParamBinding>,
 ) -> Option<(String, IndexValue)> {
     match (left, right) {
         (Expr::Property { var, prop }, other) if var == target_var => {
@@ -264,12 +264,15 @@ fn resolve_eq_hint(
 /// unwrap directly; `$param` references look up a scalar value in
 /// the param bag. Anything else (list, property, function call) is
 /// unsupported for this slice and returns `None`.
-fn resolve_literal_value(expr: &Expr, params: &BTreeMap<String, Param>) -> Option<IndexValue> {
+fn resolve_literal_value(
+    expr: &Expr,
+    params: &BTreeMap<String, ParamBinding>,
+) -> Option<IndexValue> {
     match expr {
         Expr::Literal(pv) => index_key_of(pv),
         Expr::Param(name) => match params.get(name)? {
-            Param::Scalar(pv) => index_key_of(pv),
-            Param::List(_) => None,
+            ParamBinding::Scalar(pv) => index_key_of(pv),
+            ParamBinding::List(_) => None,
         },
         _ => None,
     }

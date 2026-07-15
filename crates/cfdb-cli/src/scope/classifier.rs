@@ -1,4 +1,4 @@
-use cfdb_core::{Param, PropValue};
+use cfdb_core::{ParamBinding, PropValue};
 use cfdb_query::{
     list_items_matching as compose_list_items_matching, parse, CanonicalCandidate, DebtClass,
     Finding,
@@ -65,7 +65,7 @@ pub(super) fn run_classifier_rule(
         parse(cypher).map_err(|e| format!("parse error in embedded classifier rule: {e}"))?;
     parsed.params.insert(
         "context".to_string(),
-        Param::Scalar(PropValue::Str(context.to_string())),
+        ParamBinding::Scalar(PropValue::Str(context.to_string())),
     );
     // Per-rule execution is infallible beyond store-level errors;
     // missing props silently return empty rows (parser / evaluator
@@ -105,7 +105,7 @@ pub(super) fn compose_inventory_query_for_context(context: &str) -> cfdb_core::q
     });
     q.params.insert(
         "context".into(),
-        Param::Scalar(PropValue::Str(context.into())),
+        ParamBinding::Scalar(PropValue::Str(context.into())),
     );
     q
 }
