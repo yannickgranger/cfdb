@@ -1,6 +1,6 @@
 # RFC-035 — Persistent inverted indexes on `:Item` props and computed keys
 
-Status: **Implemented on develop — pending vNEXT release (2026-04-24)**
+Status: **Released in v0.4.0 (2026-04-25)**
 Ratification: R2 (post-R1 council), 4/4 RATIFY (clean-arch, ddd, rust-systems, solid).
 Parent trace: #167 → #168 (PR #177, merged) → #178 (closed, subsumed) → **this RFC**
 Companion: #167 trial evidence — 148k-node keyspace, 428 MB RSS (fixed), 16+ min scope wall time (unfixed).
