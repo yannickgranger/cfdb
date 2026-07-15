@@ -64,7 +64,7 @@ edition = "2021"
 /// Extract http_route :EntryPoint rows from the fixture's extract output.
 fn http_routes(root: &Path) -> (Vec<Node>, Vec<cfdb_core::fact::Edge>) {
     let (db, vfs, _pm_client) = build_hir_database(root, false).expect("build_hir_database");
-    let (nodes, edges) = extract_entry_points(&db, &vfs).expect("extract_entry_points");
+    let (nodes, edges) = extract_entry_points(&db, &vfs, root).expect("extract_entry_points");
     let http = nodes
         .into_iter()
         .filter(|n| {

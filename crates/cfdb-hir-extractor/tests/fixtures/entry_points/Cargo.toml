@@ -7,6 +7,7 @@ members = [
     "cron_fx",
     "ws_fx",
     "test_bench_fx",
+    "clap",
 ]
 
 # Fixture workspace for `tests/v02_1_coverage.rs` (Issue #126, RFC-029
@@ -15,11 +16,14 @@ members = [
 # fails its own recall assertion rather than hiding in a cross-kind
 # aggregate.
 #
-# NO REAL FRAMEWORK DEPS. Every member declares a stand-in `pub struct`
-# / `pub trait` set inside its own `src/lib.rs` — the extractor's scan
-# is syntactic (method-name + attribute-text + literal-arg) so the real
-# `axum` / `actix-web` / `clap` / `rmcp` / `tokio_cron_scheduler` crates
-# are never needed. This matches the pattern in
+# FRAMEWORK DEPS ARE STUBS. Detection stays syntactic (method-name +
+# attribute-text + literal-arg): every member declares its idiom with a
+# local stand-in `pub struct` / `pub trait`, never the real framework
+# crate. The RFC-049 §3.1 manifest gate is crate-name-only, so a member
+# whose detector is manifest-gated (cli_fx → `clap`) carries an EMPTY
+# stub crate of the framework's name as a path dependency, purely so the
+# crate graph exposes that name. mcp/cron/websocket detectors are not
+# manifest-gated. This matches the stub-dep pattern in
 # `tests/entry_point.rs` and `tests/http_route.rs`.
 #
 # This nested workspace is NOT a member of the parent cfdb workspace —

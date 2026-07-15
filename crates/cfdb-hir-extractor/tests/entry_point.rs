@@ -46,6 +46,28 @@ fn member_cargo_toml(name: &str) -> String {
     )
 }
 
+/// Member manifest whose `[dependencies]` names one local path-dep stub
+/// crate per entry (`<dep> = { path = "../<dep>" }`), so the fixture's
+/// crate graph carries that dependency for the RFC-049 §3.1 manifest
+/// gate. The gate is crate-name-only; the stub carries no framework
+/// code (see [`write_stub_crate`]).
+fn member_cargo_toml_with_deps(name: &str, deps: &[&str]) -> String {
+    let mut manifest = member_cargo_toml(name);
+    for dep in deps {
+        manifest.push_str(&format!("{dep} = {{ path = \"../{dep}\" }}\n"));
+    }
+    manifest
+}
+
+/// Write a minimal empty stub crate `name` as a sibling workspace member
+/// so the loaded crate graph contains a crate of that name. Pairs with a
+/// `member_cargo_toml_with_deps(.., &[name])` dependency and a `name`
+/// entry in the workspace member list.
+fn write_stub_crate(root: &Path, name: &str) {
+    write(root, &format!("{name}/Cargo.toml"), &member_cargo_toml(name));
+    write(root, &format!("{name}/src/lib.rs"), "");
+}
+
 fn entry_points(nodes: &[Node]) -> Vec<&Node> {
     nodes
         .iter()
@@ -70,15 +92,18 @@ fn attribute_based_entry_point_detection_covers_cli_and_mcp() {
     let tmp = tempdir().expect("tempdir");
     let root = tmp.path();
 
-    write(root, "Cargo.toml", &workspace_cargo_toml(&["epfixture"]));
-    // We do NOT pull in actual `clap` or `rmcp` crates — the fixture
-    // only needs the attributes textually; the HIR extractor's scan
-    // is attribute-syntactic, not trait-resolution-based.
+    write(root, "Cargo.toml", &workspace_cargo_toml(&["epfixture", "clap"]));
+    // A stub `clap` path-dep satisfies the RFC-049 §3.1 manifest gate
+    // (crate-name-only); the fixture still declares the derive idiom
+    // with a local stand-in trait — detection stays attribute-textual,
+    // not trait-resolution-based. No stub is needed for `#[tool]`: the
+    // MCP detector is not manifest-gated in 49-A/B.
     write(
         root,
         "epfixture/Cargo.toml",
-        &member_cargo_toml("epfixture"),
+        &member_cargo_toml_with_deps("epfixture", &["clap"]),
     );
+    write_stub_crate(root, "clap");
     write(
         root,
         "epfixture/src/lib.rs",
@@ -114,7 +139,7 @@ pub fn unrelated_fn() {}
     let (db, vfs, _pm_client) =
         build_hir_database(root, false).expect("build_hir_database on epfixture");
     let (nodes, edges) =
-        extract_entry_points(&db, &vfs).expect("extract_entry_points on epfixture");
+        extract_entry_points(&db, &vfs, root).expect("extract_entry_points on epfixture");
 
     // Filter :EntryPoint nodes.
     let eps = entry_points(&nodes);
@@ -201,7 +226,7 @@ pub fn register_jobs() {
 
     let (db, vfs, _pm_client) =
         build_hir_database(root, false).expect("build_hir_database on cronfix");
-    let (nodes, edges) = extract_entry_points(&db, &vfs).expect("extract_entry_points on cronfix");
+    let (nodes, edges) = extract_entry_points(&db, &vfs, root).expect("extract_entry_points on cronfix");
 
     let eps: Vec<_> = entry_points(&nodes)
         .into_iter()
@@ -263,7 +288,7 @@ pub fn install_daily() {
     let (db, vfs, _pm_client) =
         build_hir_database(root, false).expect("build_hir_database on cronsync");
     let (nodes, _edges) =
-        extract_entry_points(&db, &vfs).expect("extract_entry_points on cronsync");
+        extract_entry_points(&db, &vfs, root).expect("extract_entry_points on cronsync");
 
     let eps: Vec<_> = entry_points(&nodes)
         .into_iter()
@@ -308,7 +333,7 @@ pub fn boot() {
     let (db, vfs, _pm_client) =
         build_hir_database(root, false).expect("build_hir_database on cronsched");
     let (nodes, edges) =
-        extract_entry_points(&db, &vfs).expect("extract_entry_points on cronsched");
+        extract_entry_points(&db, &vfs, root).expect("extract_entry_points on cronsched");
 
     let eps: Vec<_> = entry_points(&nodes)
         .into_iter()
@@ -367,7 +392,7 @@ pub fn mount_ws(upgrade: WebSocketUpgrade) -> Response {
 
     let (db, vfs, _pm_client) =
         build_hir_database(root, false).expect("build_hir_database on wsnamed");
-    let (nodes, edges) = extract_entry_points(&db, &vfs).expect("extract_entry_points on wsnamed");
+    let (nodes, edges) = extract_entry_points(&db, &vfs, root).expect("extract_entry_points on wsnamed");
 
     let eps: Vec<_> = entry_points(&nodes)
         .into_iter()
@@ -428,7 +453,7 @@ pub fn mount_ws_inline(upgrade: WebSocketUpgrade) -> Response {
     let (db, vfs, _pm_client) =
         build_hir_database(root, false).expect("build_hir_database on wsclosure");
     let (nodes, edges) =
-        extract_entry_points(&db, &vfs).expect("extract_entry_points on wsclosure");
+        extract_entry_points(&db, &vfs, root).expect("extract_entry_points on wsclosure");
 
     let eps: Vec<_> = entry_points(&nodes)
         .into_iter()
@@ -478,8 +503,13 @@ fn clap_parser_struct_emits_one_registers_param_per_arg_field() {
     // dsts = field_node_id(struct_qname, field_name) for each.
     let tmp = tempdir().expect("tempdir");
     let root = tmp.path();
-    write(root, "Cargo.toml", &workspace_cargo_toml(&["clapargs"]));
-    write(root, "clapargs/Cargo.toml", &member_cargo_toml("clapargs"));
+    write(root, "Cargo.toml", &workspace_cargo_toml(&["clapargs", "clap"]));
+    write(
+        root,
+        "clapargs/Cargo.toml",
+        &member_cargo_toml_with_deps("clapargs", &["clap"]),
+    );
+    write_stub_crate(root, "clap");
     write(
         root,
         "clapargs/src/lib.rs",
@@ -508,7 +538,7 @@ pub struct Cli {
     let (db, vfs, _pm_client) =
         build_hir_database(root, false).expect("build_hir_database on clapargs");
     let (_nodes, edges) =
-        extract_entry_points(&db, &vfs).expect("extract_entry_points on clapargs");
+        extract_entry_points(&db, &vfs, root).expect("extract_entry_points on clapargs");
 
     let struct_qname = "clapargs::Cli";
     let entry_point_id = format!("entrypoint:cli_command:{struct_qname}");
@@ -550,8 +580,13 @@ fn clap_subcommand_enum_emits_one_registers_param_per_variant() {
     // follow-up RFC.
     let tmp = tempdir().expect("tempdir");
     let root = tmp.path();
-    write(root, "Cargo.toml", &workspace_cargo_toml(&["subcmd"]));
-    write(root, "subcmd/Cargo.toml", &member_cargo_toml("subcmd"));
+    write(root, "Cargo.toml", &workspace_cargo_toml(&["subcmd", "clap"]));
+    write(
+        root,
+        "subcmd/Cargo.toml",
+        &member_cargo_toml_with_deps("subcmd", &["clap"]),
+    );
+    write_stub_crate(root, "clap");
     write(
         root,
         "subcmd/src/lib.rs",
@@ -569,7 +604,7 @@ pub enum Command {
 
     let (db, vfs, _pm_client) =
         build_hir_database(root, false).expect("build_hir_database on subcmd");
-    let (_nodes, edges) = extract_entry_points(&db, &vfs).expect("extract_entry_points on subcmd");
+    let (_nodes, edges) = extract_entry_points(&db, &vfs, root).expect("extract_entry_points on subcmd");
 
     let enum_qname = "subcmd::Command";
     let entry_point_id = format!("entrypoint:cli_command:{enum_qname}");
@@ -610,8 +645,13 @@ fn clap_parser_struct_with_no_arg_fields_emits_zero_registers_param() {
     // but REGISTERS_PARAM count is zero.
     let tmp = tempdir().expect("tempdir");
     let root = tmp.path();
-    write(root, "Cargo.toml", &workspace_cargo_toml(&["noargs"]));
-    write(root, "noargs/Cargo.toml", &member_cargo_toml("noargs"));
+    write(root, "Cargo.toml", &workspace_cargo_toml(&["noargs", "clap"]));
+    write(
+        root,
+        "noargs/Cargo.toml",
+        &member_cargo_toml_with_deps("noargs", &["clap"]),
+    );
+    write_stub_crate(root, "clap");
     write(
         root,
         "noargs/src/lib.rs",
@@ -627,7 +667,7 @@ pub struct Cli {
 
     let (db, vfs, _pm_client) =
         build_hir_database(root, false).expect("build_hir_database on noargs");
-    let (nodes, edges) = extract_entry_points(&db, &vfs).expect("extract_entry_points on noargs");
+    let (nodes, edges) = extract_entry_points(&db, &vfs, root).expect("extract_entry_points on noargs");
 
     // Sanity: the :EntryPoint still emits.
     let eps = entry_points(&nodes);
@@ -645,6 +685,60 @@ pub struct Cli {
             .iter()
             .map(|e| (&e.src, &e.dst))
             .collect::<Vec<_>>(),
+    );
+}
+
+// ---------------------------------------------------------------
+// RFC-049 49-A — manifest gate: clap detector inert off-framework
+// ---------------------------------------------------------------
+
+#[test]
+fn clap_detector_inert_without_clap_dependency() {
+    // RFC-049 §3.1/§4 (no false positives off-framework): a workspace
+    // that declares the clap-derive idiom but does NOT depend on `clap`
+    // yields zero cli_command :EntryPoints — the manifest gate keeps the
+    // detector inert. This is the observable behaviour 49-A adds over
+    // 49-0 (where the detector was unconditionally present); the positive
+    // path (same idiom + a `clap` dependency) is the clap fixtures above.
+    let tmp = tempdir().expect("tempdir");
+    let root = tmp.path();
+    // No `clap` member and no clap dependency — empty [dependencies].
+    write(root, "Cargo.toml", &workspace_cargo_toml(&["nodep"]));
+    write(root, "nodep/Cargo.toml", &member_cargo_toml("nodep"));
+    write(
+        root,
+        "nodep/src/lib.rs",
+        r#"
+pub trait Parser {}
+pub trait Subcommand {}
+
+#[derive(Parser)]
+pub struct Cli {
+    pub arg: String,
+}
+
+#[derive(Subcommand)]
+pub enum Command {
+    Run,
+    Stop,
+}
+"#,
+    );
+
+    let (db, vfs, _pm_client) =
+        build_hir_database(root, false).expect("build_hir_database on nodep");
+    let (nodes, _edges) = extract_entry_points(&db, &vfs, root).expect("extract_entry_points on nodep");
+
+    let cli: Vec<_> = entry_points(&nodes)
+        .into_iter()
+        .filter(|n| kind_of(n) == Some("cli_command"))
+        .collect();
+    assert!(
+        cli.is_empty(),
+        "clap detector must be inert without a `clap` dependency; got {} cli_command \
+         :EntryPoint(s): {:?}",
+        cli.len(),
+        cli.iter().map(|n| &n.id).collect::<Vec<_>>(),
     );
 }
 
@@ -701,7 +795,7 @@ impl Tools {
     let (db, vfs, _pm_client) =
         build_hir_database(root, false).expect("build_hir_database on impltools");
     let (nodes, edges) =
-        extract_entry_points(&db, &vfs).expect("extract_entry_points on impltools");
+        extract_entry_points(&db, &vfs, root).expect("extract_entry_points on impltools");
 
     // The canonical qname is derived via the canonical helper — if
     // the qname formula ever changes shape, this assertion updates

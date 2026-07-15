@@ -15,16 +15,23 @@
 //!
 //! [`extract_entry_points`]: super::extract_entry_points
 //!
-//! **Manifest gating is wired but permissive here.** Per RFC-049 §3.1
-//! each detector is meant to be gated on its framework's manifest
-//! presence (`present(manifest)`), so a detector never runs on a
-//! workspace that does not depend on its framework. In 49-0 every
-//! shipped Rust detector reports itself unconditionally present — the
-//! existing recognisers are attribute-/call-syntactic and the fixture
-//! corpus relies on that (fixtures declare the idiom without depending
-//! on the real crate). Narrowing each `present` to its framework's
-//! manifest key, together with the per-framework recall fixtures that
-//! prove no regression, is slices 49-A/49-B (#494 / #495).
+//! **Manifest gating (RFC-049 §3.1).** Each framework detector is gated
+//! on its framework's presence in the workspace crate graph
+//! (`present(manifest)`), so a detector never runs on a workspace that
+//! does not depend on its framework — the §4 "no false positives
+//! off-framework" invariant. The [`Manifest`] is populated from the
+//! loaded crate graph ([`Manifest::from_crate_graph`]) and carries the
+//! workspace dependency crate names. Slice 49-A (#494) gates the clap
+//! (`cli_command`) detector on the `clap` dependency; the axum/actix
+//! (`http_route`) detector is gated in 49-B (#495). The MCP, cron and
+//! websocket detectors remain unconditionally present — narrowing them
+//! is not in the 49-A/B scope.
+//!
+//! **Recall-neutral on cfdb-self.** cfdb depends on `clap`, so the clap
+//! detector fires identically before and after the gate. A recall
+//! fixture that declares the idiom carries a stub dependency of the
+//! framework's crate name so the gate observes it; a fixture with the
+//! idiom but no framework dependency proves the detector inert (§4).
 //!
 //! **Language scoping (RFC-049 §3.1 Q4).** This registry is the *Rust*
 //! detector set; its `detect` is parameterised by the Rust HIR AST. The
@@ -32,29 +39,110 @@
 //! crates over their own (tree-sitter) ASTs and never share this trait
 //! — a detector never reaches across a language-extractor boundary.
 
+use std::collections::BTreeSet;
 use std::path::Path;
 
 use cfdb_core::fact::{Edge, Node};
 use ra_ap_hir::db::HirDatabase;
-use ra_ap_hir::Semantics;
+use ra_ap_hir::{Crate, Semantics};
 use ra_ap_syntax::ast::{self, AstNode};
 use ra_ap_syntax::SyntaxKind;
+use ra_ap_vfs::Vfs;
 
 use super::registers_param::{
     emit_clap_enum_registers_param, emit_clap_struct_registers_param, emit_mcp_registers_param,
     has_clap_derive, has_tool_attr,
 };
 
-/// The workspace manifest view a [`FrameworkDetector::present`] gate
-/// consults (RFC-049 §3.1 — `Cargo.toml [dependencies]`).
+/// The workspace-member `[dependencies]` view a
+/// [`FrameworkDetector::present`] gate consults (RFC-049 §3.1 — the
+/// framework's crate in a workspace member's own dependency list).
 ///
-/// It carries no data in slice 49-0: every shipped Rust detector is
-/// unconditionally present (see the module docs), so nothing reads the
-/// manifest yet. The dependency-set population and the per-framework
-/// `depends_on(...)` gating land with the first real gate in 49-A/49-B.
-/// The type exists now so the `present(manifest)` contract — the shape
-/// the whole registry dispatches on — is fixed by this slice.
-pub(crate) struct Manifest;
+/// Populated from the loaded crate graph by [`from_crate_graph`]: the
+/// display-names of the direct dependencies of the workspace's own
+/// member crates. A framework reachable only transitively (a dependency
+/// of a non-member) is deliberately excluded, so a gate reports `false`
+/// unless a member actually depends on the framework — the RFC-049 §4
+/// "no false positives off-framework" invariant.
+///
+/// [`from_crate_graph`]: Manifest::from_crate_graph
+pub(crate) struct Manifest {
+    /// Normalized (`-` → `_`) display-names of the direct dependencies of
+    /// the workspace's member crates.
+    /// [`depends_on`](Manifest::depends_on) queries this set.
+    dependency_names: BTreeSet<String>,
+}
+
+impl Manifest {
+    /// Collect the direct `[dependencies]` of the workspace's own member
+    /// crates from the loaded crate graph, scoped by `workspace_root`.
+    /// For each crate, membership is decided by PATH CONTAINMENT: the
+    /// crate's root-file path (via `vfs`) must lie under `workspace_root`.
+    /// The display-name of each member's direct dependency is recorded.
+    ///
+    /// Path containment, not `CrateOrigin`, is the membership signal:
+    /// ra_ap 0.0.328's `origin(db).is_local()` is set by project_model
+    /// from `source.is_none()` (cargo_workspace.rs:399), which — per its
+    /// own comment — "includes all members of the current workspace, AS
+    /// WELL AS ANY PATH DEPENDENCY OUTSIDE THE WORKSPACE". So `is_local()`
+    /// alone would let a sibling path-dependency's transitive framework
+    /// dep leak in (defeating §4). The true `is_member` bit lives in
+    /// project_model's `PackageData`, which is unreachable through
+    /// `HirDatabase` — hence the root-file-path gate. `is_local()` is kept
+    /// as a cheap pre-filter (it excludes sysroot/registry crates).
+    ///
+    /// Transitive dependencies of non-member crates are excluded on
+    /// purpose: the gate consults a member's OWN manifest, so a framework
+    /// pulled in only below some unrelated non-member never makes it
+    /// "present" (RFC-049 §4). `CrateDisplayName` already renders the
+    /// `-` → `_` normalized crate name, so `actix-web` compares equal to
+    /// an `actix_web` gate key with no extra normalization here.
+    pub(crate) fn from_crate_graph<DB: HirDatabase>(
+        db: &DB,
+        vfs: &Vfs,
+        workspace_root: &Path,
+    ) -> Self {
+        // Canonicalize so the root matches the (canonical) crate-graph
+        // file paths cargo metadata produces; fall back to the raw path.
+        let ws_root = workspace_root
+            .canonicalize()
+            .unwrap_or_else(|_| workspace_root.to_path_buf());
+        let mut dependency_names = BTreeSet::new();
+        for krate in Crate::all(db) {
+            if !krate.origin(db).is_local() {
+                continue;
+            }
+            let Some(root_path) = super::vfs_path_to_pathbuf(vfs.file_path(krate.root_file(db)))
+            else {
+                continue;
+            };
+            // Canonicalize the candidate too: the vfs may carry a
+            // different (symlinked/bind-mounted) alias of the same tree
+            // than the canonicalized root, and a one-sided comparison
+            // silently drops every member (observed on a dual-mounted
+            // workspace). Fall back to the raw path when the file is
+            // gone by containment-check time.
+            let root_path = root_path
+                .canonicalize()
+                .unwrap_or(root_path);
+            if !root_path.starts_with(&ws_root) {
+                continue;
+            }
+            for dep in krate.dependencies(db) {
+                if let Some(display) = dep.krate.display_name(db) {
+                    dependency_names.insert(display.to_string());
+                }
+            }
+        }
+        Self { dependency_names }
+    }
+
+    /// Whether a workspace member depends on the crate named
+    /// `framework_crate` (given already normalized `-` → `_`).
+    fn depends_on(&self, framework_crate: &str) -> bool {
+        self.dependency_names.contains(framework_crate)
+    }
+}
 
 /// A per-framework, deterministic `:EntryPoint` recogniser (RFC-049
 /// §3.1). Each detector recognises one framework's entry idiom in the
@@ -156,8 +244,9 @@ impl<DB: HirDatabase> FrameworkRegistry<DB> {
 struct ClapDetector;
 
 impl<DB: HirDatabase> FrameworkDetector<DB> for ClapDetector {
-    fn present(&self, _manifest: &Manifest) -> bool {
-        true
+    fn present(&self, manifest: &Manifest) -> bool {
+        // RFC-049 §3.1/§4: run only where the workspace depends on clap.
+        manifest.depends_on("clap")
     }
 
     fn detect(
@@ -363,6 +452,7 @@ impl<DB: HirDatabase> FrameworkDetector<DB> for WebsocketDetector {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
     use std::path::Path;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
@@ -427,8 +517,13 @@ mod tests {
         let sema = Semantics::new(&db);
         let source_file = SourceFile::parse("", Edition::Edition2021).tree();
 
+        // The recording doubles ignore the manifest — an empty one keeps
+        // the test focused on the present-gated dispatch contract.
+        let manifest = Manifest {
+            dependency_names: BTreeSet::new(),
+        };
         let (nodes, edges) =
-            registry.detect_file(&Manifest, &sema, &source_file, Path::new("lib.rs"));
+            registry.detect_file(&manifest, &sema, &source_file, Path::new("lib.rs"));
 
         assert!(
             present_invoked.load(Ordering::SeqCst),
