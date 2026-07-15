@@ -76,18 +76,34 @@ const HTTP_ROUTE_METHOD_NAMES: &[&str] =
 /// sorted by node id (and edges by `(src, dst, label)`) before
 /// return for G1 byte-stability.
 ///
+/// `workspace_root` is the directory the workspace was loaded from; it
+/// scopes the RFC-049 §3.1 manifest gate to the workspace's own member
+/// crates (see [`framework::Manifest::from_crate_graph`]). The caller
+/// passes the same path it handed to
+/// [`build_hir_database`](crate::build_hir_database).
+///
 /// # Errors
 ///
 /// Returns [`HirError`] on VFS / parse failures. Individual items
 /// whose qname cannot be resolved are silently skipped.
-pub fn extract_entry_points<DB>(db: &DB, vfs: &Vfs) -> Result<(Vec<Node>, Vec<Edge>), HirError>
+pub fn extract_entry_points<DB>(
+    db: &DB,
+    vfs: &Vfs,
+    workspace_root: &Path,
+) -> Result<(Vec<Node>, Vec<Edge>), HirError>
 where
     DB: HirDatabase + Sized,
 {
-    attach_db(db, || extract_entry_points_attached(db, vfs))
+    attach_db(db, || {
+        extract_entry_points_attached(db, vfs, workspace_root)
+    })
 }
 
-fn extract_entry_points_attached<DB>(db: &DB, vfs: &Vfs) -> Result<(Vec<Node>, Vec<Edge>), HirError>
+fn extract_entry_points_attached<DB>(
+    db: &DB,
+    vfs: &Vfs,
+    workspace_root: &Path,
+) -> Result<(Vec<Node>, Vec<Edge>), HirError>
 where
     DB: HirDatabase + Sized,
 {
@@ -109,9 +125,11 @@ where
     files.sort_by(|a, b| a.1.cmp(&b.1));
 
     let registry = FrameworkRegistry::<DB>::rust_default();
-    // RFC-049 §3.1: 49-0 detectors are unconditionally present, so the
-    // manifest carries no data yet (see `framework::Manifest`).
-    let manifest = Manifest;
+    // RFC-049 §3.1: populate the manifest from the workspace members'
+    // own `[dependencies]` (scoped by `workspace_root`) so each
+    // detector's `present(manifest)` gate consults them (49-A gates clap
+    // on `clap`; 49-B gates the HTTP route detector on axum/actix).
+    let manifest = Manifest::from_crate_graph(db, vfs, workspace_root);
 
     for (file_id, file_path) in files {
         let source_file = sema.parse_guess_edition(file_id);

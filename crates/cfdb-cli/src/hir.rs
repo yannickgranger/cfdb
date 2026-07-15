@@ -58,7 +58,7 @@ pub fn extract_and_ingest_hir(
 
     eprintln!("extract --hir: scanning entry points");
     let (mut ep_nodes, mut ep_edges) =
-        extract_entry_points(&db, &vfs).map_err(HirExtractError::Hir)?;
+        extract_entry_points(&db, &vfs, workspace_root).map_err(HirExtractError::Hir)?;
 
     // Combine the two fact batches so the adapter sees one ingest.
     // Stable ordering is already guaranteed by each extractor's
