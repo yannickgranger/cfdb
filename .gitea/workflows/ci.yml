@@ -37,6 +37,16 @@ jobs:
           set -e
           apt-get clean && apt-get update && apt-get install -y --no-install-recommends git build-essential libssl-dev pkg-config curl ca-certificates jq
           mkdir -p /cache/cargo/registry /cache/cargo/git /cache/cargo/bin /cache/rustup ~/.cargo
+
+          # Route build scratch (cc/ld temp files + ld's mmap'd link buffers)
+          # to disk-backed /cache rather than the container's small /tmp
+          # tmpfs. The ra_ap-heavy test-binary links exhaust /tmp at link
+          # time — "No space left on device" writing cc's *.s, then
+          # "ld terminated with signal 7 [Bus error]" on the mmap'd region
+          # (#452). /cache (and /workspace) are disk-backed with room; /tmp
+          # is RAM-backed and small. Cleared each run so scratch can't leak.
+          rm -rf /cache/tmp && mkdir -p /cache/tmp
+          echo "TMPDIR=/cache/tmp" >> "$GITHUB_ENV"
           ln -sf /cache/cargo/registry ~/.cargo/registry
           ln -sf /cache/cargo/git ~/.cargo/git
 
@@ -63,6 +73,12 @@ jobs:
             curl -fsSL "https://github.com/mozilla/sccache/releases/download/${SCCACHE_VERSION}/sccache-${SCCACHE_VERSION}-x86_64-unknown-linux-musl.tar.gz" | \
               tar xzf - --strip-components=1 -C /cache/cargo/bin/ "sccache-${SCCACHE_VERSION}-x86_64-unknown-linux-musl/sccache"
             chmod +x /cache/cargo/bin/sccache
+          fi
+
+          # cargo-nextest — parallel test runner (cached binary, like sccache).
+          if [ ! -f "/cache/cargo/bin/cargo-nextest" ]; then
+            curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C /cache/cargo/bin/ cargo-nextest
+            chmod +x /cache/cargo/bin/cargo-nextest
           fi
           echo "PATH=/cache/cargo/bin:${PATH}" >> "$GITHUB_ENV"
 
@@ -132,10 +148,18 @@ jobs:
           cd repo
           cargo clippy --workspace --all-targets --all-features -- -D warnings
 
-      - name: Test
+      - name: Test (nextest — parallel across all binaries)
         run: |
           cd repo
-          cargo test --workspace --all-features
+          # cargo test runs the ~115 integration-test binaries SEQUENTIALLY;
+          # nextest schedules every test across all binaries in one parallel
+          # pool. nextest does not run doctests, so they get their own step.
+          cargo nextest run --workspace --all-features
+
+      - name: Doctests (nextest does not execute doctests)
+        run: |
+          cd repo
+          cargo test --workspace --all-features --doc
 
       - name: Check slim cfdb-recall (no runner feature)
         run: |
@@ -163,15 +187,35 @@ jobs:
             exit 1
           fi
 
+      - name: Producer syn-isolation guard (RFC-045 §3.1 / Invariant 6)
+        run: |
+          cd repo
+          # The tree-sitter producers MUST NOT parse via `syn` (CRP — they
+          # carry a tree-sitter dependency instead). `syn` is reachable from
+          # every `serde` user through the `serde_derive` PROC-MACRO, so the
+          # RFC's literal `cargo tree --invert syn` would always match; the
+          # meaningful isolation check excludes proc-macro edges
+          # (`--edges no-proc-macro`) — a documented deviation from the
+          # RFC §3.1 wording, same result. With proc-macro edges cut there
+          # must be NO path from `syn` to either producer.
+          for crate in cfdb-extractor-php cfdb-extractor-ts; do
+            if cargo tree -p "$crate" --invert syn --edges no-proc-macro 2>/dev/null | grep -q "$crate"; then
+              echo "FAIL: syn (non-proc-macro) leaked into $crate — it must parse via tree-sitter only"
+              cargo tree -p "$crate" --invert syn --edges no-proc-macro
+              exit 1
+            fi
+          done
+
       - name: Determinism check (§12.1 G1)
         run: |
           cd repo
-          # `--features hir` builds the rust-analyzer-backed extractor so
-          # the downstream `cfdb self-audit` extract step can pass
-          # `--hir` and populate `CALLS` + `EXPOSES` in the `cfdb-self`
-          # keyspace. Without the feature, those edge labels report
-          # dormant in the edge-liveness step (issue #381).
-          cargo build --release -p cfdb-cli --bin cfdb --features hir
+          # Plain (syn) build — fast, no `ra_ap_*` compile. The HIR-resolved
+          # self-audit (`extract --hir` + edge-liveness) moved to the nightly
+          # `ci-hir-self-audit-nightly.yml` workflow so the PR hot path no
+          # longer pays the ~26-min HIR extraction + the ra_ap build (#381
+          # X-ray gate now runs nightly; ban rules / query-smoke / self-enrich
+          # stay at PR time on the syn keyspace — they are syn-sufficient).
+          cargo build --release -p cfdb-cli --bin cfdb
           CFDB_BIN="$(pwd)/target/release/cfdb" bash ci/determinism-check.sh "$(pwd)/spikes/qa5-utc-now"
 
       - name: Predicate determinism (RFC-034 §4.1)
@@ -189,16 +233,24 @@ jobs:
         run: |
           cd repo
           mkdir -p .cfdb/db
-          # `--hir` runs the HIR-resolved extractor after syn so the
-          # downstream edge-liveness step sees `CALLS` + `EXPOSES`
-          # populated (issue #381). Requires the binary to be built
-          # with `--features hir` — paired with the determinism-check
-          # step above.
-          ./target/release/cfdb extract --workspace . --db .cfdb/db --keyspace cfdb-self --hir
-          # Run every arch-ban-*.cypher rule against cfdb's own source.
-          # v0.1 semantics (RFC-030 §3.2 as amended): any non-empty match
-          # blocks merge. Per-class routing awaits #48 (Finding classifier).
+          # Syn extract (fast, <1s). The HIR-resolved extract (`--hir`,
+          # which populates resolved `CALLS` + `EXPOSES`) + edge-liveness
+          # moved to `ci-hir-self-audit-nightly.yml`.
+          ./target/release/cfdb extract --workspace . --db .cfdb/db --keyspace cfdb-self
+          # Run the arch-ban-*.cypher rules against cfdb's own source. Any
+          # non-empty match blocks merge (RFC-030 §3.2). Rules that match
+          # HIR-only facts (`:EntryPoint` / `EXPOSES` / resolved `CALLS`) are
+          # DORMANT on a syn keyspace, so running them here would be a vacuous
+          # pass — they are skipped (logged) and run authoritatively on the
+          # `--hir` keyspace in `ci-hir-self-audit-nightly.yml`. The filter is
+          # dynamic, so a new HIR-dependent rule is auto-deferred to nightly.
+          # The textual rules (utc-now, f64-in-domain, reqwest, the rfc-043
+          # syn-discriminator invariants) run here and remain PR-blocking.
           for rule in examples/queries/arch-ban-*.cypher; do
+            if grep -qE ':EntryPoint|EXPOSES|:CALLS' "$rule"; then
+              echo ">> $rule (HIR-only — deferred to ci-hir-self-audit-nightly.yml)"
+              continue
+            fi
             echo ">> $rule"
             ./target/release/cfdb violations --db .cfdb/db --keyspace cfdb-self --rule "$rule"
           done
@@ -305,29 +357,6 @@ jobs:
               --cfdb-bin "$(pwd)/target/release/cfdb" \
               --workspace "$(pwd)"
           done
-
-      - name: Edge-liveness (RFC-037 §3.7 blocking)
-        run: |
-          cd repo
-          # Issue #222 — flag declared edge labels with zero instances in
-          # the cfdb-self keyspace. Promoted to BLOCKING via #385 after
-          # one release cycle of green observation (RFC-037 §3.7's
-          # v0.4.0 promotion clause is now honored). Any future addition
-          # to `cfdb-core::EdgeLabel` without a producer that emits ≥1
-          # instance on cfdb-self now fails CI loudly — the ratchet is
-          # earned. To intentionally reserve a new label without a
-          # producer (Phase B reservations), mark its schema descriptor
-          # `Provenance::Reserved` per #307 — the script suppresses
-          # reserved labels from the failure exit.
-          #
-          # Placement: AFTER the self-enrich step (issue #383). The
-          # enrichment-fed labels LABELED_AS / CANONICAL_FOR (emitted by
-          # enrich-concepts) and REFERENCED_BY (emitted by enrich-rfc-docs)
-          # only populate post-enrich; reading the keyspace pre-enrich
-          # makes them dormant by construction. Running this step at
-          # end-of-pipeline measures what the full producer chain emits,
-          # which is also what downstream consumers see.
-          CFDB_BIN="$(pwd)/target/release/cfdb" bash ci/edge-liveness.sh
 
       - name: Cross-dogfood — cfdb on graph-specs-rust (RFC-033 §3.2)
         env:

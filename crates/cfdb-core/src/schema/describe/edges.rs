@@ -70,8 +70,13 @@ pub(super) fn edge_descriptors() -> Vec<EdgeLabelDescriptor> {
         },
         EdgeLabelDescriptor {
             label: EdgeLabel::new(EdgeLabel::IMPLEMENTS),
-            description: "An impl Item implements a trait Item.".into(),
-            attributes: vec![],
+            description: "An implementing Item implements an implemented Item. Rust (resolver=\"syn\"): impl-block Item → trait Item, paired with an IMPLEMENTS_FOR edge for the receiver type. PHP/TS (resolver=\"tree-sitter-php\"/\"tree-sitter-typescript\", RFC-045): the implementing class Item → interface Item DIRECTLY, with NO companion IMPLEMENTS_FOR (there is no impl-block intermediary) — cross-language queries start from the source implementing Item, never an impl-block. PHP/TS edges are emitted only when the target interface qname resolves to an in-workspace :Item (closed-world; external targets produce no edge and no synthetic node). `extends`/inheritance is NOT an IMPLEMENTS edge (RFC-045 §3.3 D3-a defers it).".into(),
+            attributes: vec![attr(
+                "resolver",
+                "enum",
+                "Which producer resolved this edge: `syn` (cfdb-extractor — Rust impl-block → trait), `tree-sitter-php` (cfdb-extractor-php — PHP class/interface → interface), or `tree-sitter-typescript` (cfdb-extractor-ts — TS class → interface). Mirrors the `:CallSite.resolver` discriminator precedent so consumers filter on `resolver` to select a language's impl shape rather than splitting the edge label. Additive at the type level (no SchemaVersion bump). Present on every IMPLEMENTS edge from RFC-045 onward — the Rust producer backfills `\"syn\"` so the attribute is uniformly populated.",
+                Extractor,
+            )],
             from: vec![Label::new(Label::ITEM)],
             to: vec![Label::new(Label::ITEM)],
             provenance: Provenance::Extractor,
@@ -117,9 +122,37 @@ pub(super) fn edge_descriptors() -> Vec<EdgeLabelDescriptor> {
         },
         EdgeLabelDescriptor {
             label: EdgeLabel::new(EdgeLabel::INVOKES_AT),
-            description: "A CallSite invokes a concrete fn Item.".into(),
+            description: "The fn/method Item that contains a call points at the CallSite for that call (Item → CallSite). \"Callers of X\" walks `(cs:CallSite)<-[:INVOKES_AT]-(caller) WHERE cs.callee_path …`. Direction corrected in RFC-045 45-C: the descriptor previously declared CallSite → Item, contradicting every producer (`cfdb-extractor/src/item_visitor/emit/mod.rs`, `cfdb-extractor-php`) which emits Item → CallSite.".into(),
+            attributes: vec![],
+            from: vec![Label::new(Label::ITEM)],
+            to: vec![Label::new(Label::CALL_SITE)],
+            provenance: Provenance::Extractor,
+        },
+        EdgeLabelDescriptor {
+            label: EdgeLabel::new(EdgeLabel::HAS_ARG),
+            description: "A CallSite owns a positional Argument (RFC-043 Slice A). \
+                          No attributes — position lives on the :Argument node. \
+                          SchemaVersion V0_5_0+; pre-V0_5_0 keyspaces carry zero HAS_ARG edges."
+                .into(),
             attributes: vec![],
             from: vec![Label::new(Label::CALL_SITE)],
+            to: vec![Label::new(Label::ARGUMENT)],
+            provenance: Provenance::Extractor,
+        },
+        // ---- Match dispatch (RFC-053) ---------------------------------------
+        EdgeLabelDescriptor {
+            label: EdgeLabel::new(EdgeLabel::MATCHES_AT),
+            description: "The fn/method Item that contains a `match` expression points at each :MatchSite emitted for it (Item → MatchSite), mirroring INVOKES_AT for call sites (one `match` verb root across the family). Emitted walk-time by `cfdb-extractor`'s `match_visitor`. SchemaVersion V0_7_0+; pre-V0_7_0 keyspaces carry zero MATCHES_AT edges.".into(),
+            attributes: vec![],
+            from: vec![Label::new(Label::ITEM)],
+            to: vec![Label::new(Label::MATCH_SITE)],
+            provenance: Provenance::Extractor,
+        },
+        EdgeLabelDescriptor {
+            label: EdgeLabel::new(EdgeLabel::MATCHES_ON),
+            description: "A :MatchSite whose name-level matched_path prefix resolves to a workspace enum points at that enum's Item (MatchSite → Item{kind:\"enum\"}). Reserved in slice 53-A per RFC-053 §3.2; first emissions land in slice 53-B (the deferred `resolve_deferred_match_targets` pass). An external-type prefix (e.g. syn::Visibility) resolves to no workspace Item and emits no MATCHES_ON — the honest name-level-only representation. SchemaVersion V0_7_0+; pre-V0_7_0 keyspaces carry zero MATCHES_ON edges.".into(),
+            attributes: vec![],
+            from: vec![Label::new(Label::MATCH_SITE)],
             to: vec![Label::new(Label::ITEM)],
             provenance: Provenance::Extractor,
         },

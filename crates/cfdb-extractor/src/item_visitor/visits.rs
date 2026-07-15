@@ -12,6 +12,7 @@ use crate::attrs::{attrs_contain_cfg_test, extract_path_attr, extract_serde_defa
 use crate::call_visitor::walk_call_sites_with_test_flag;
 use crate::file_walker::PendingExternalMod;
 use crate::literal_visitor::{walk_literals_in_block, walk_literals_in_expr};
+use crate::match_visitor::walk_match_sites_with_test_flag;
 use crate::type_render::{render_fn_signature, render_path, render_type_string};
 
 use super::{span_line, ItemVisitor};
@@ -117,6 +118,17 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
             &node.block,
             is_test,
         );
+        // RFC-053 slice 53-A: emit `:MatchSite` + `MATCHES_AT` per `match`
+        // expression in the fn body — a third independent pass, same
+        // threaded `is_test` as the two above.
+        walk_match_sites_with_test_flag(
+            self.emitter,
+            &caller_qname,
+            &self.file_path,
+            &self.crate_name,
+            &node.block,
+            is_test,
+        );
     }
 
     fn visit_item_impl(&mut self, node: &'ast syn::ItemImpl) {
@@ -204,6 +216,15 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
         // RFC-041 slice 041-B (#370): impl-method body literals.
         walk_literals_in_block(
             self.emitter,
+            &self.file_path,
+            &self.crate_name,
+            &node.block,
+            is_test,
+        );
+        // RFC-053 slice 53-A: impl-method body match sites.
+        walk_match_sites_with_test_flag(
+            self.emitter,
+            &qname,
             &self.file_path,
             &self.crate_name,
             &node.block,

@@ -1,11 +1,11 @@
 //! `--param <name>:<form>:<value>` CLI-arg resolver for `cfdb check-predicate`.
 //!
 //! Four forms per RFC-034 §3.4:
-//! - `context:<concept-name>` → `Param::List` of crates from
+//! - `context:<concept-name>` → `ParamBinding::List` of crates from
 //!   `.cfdb/concepts/<name>.toml` (sorted ascending for determinism)
-//! - `regex:<pattern>`        → `Param::Scalar(PropValue::Str(pattern))`
-//! - `literal:<value>`        → `Param::Scalar(PropValue::Str(value))`
-//! - `list:<a,b,c>`           → `Param::List` of comma-separated strings
+//! - `regex:<pattern>`        → `ParamBinding::Scalar(PropValue::Str(pattern))`
+//! - `literal:<value>`        → `ParamBinding::Scalar(PropValue::Str(value))`
+//! - `list:<a,b,c>`           → `ParamBinding::List` of comma-separated strings
 //!   (insertion order preserved — semantic per RFC §3.4)
 //!
 //! Invariant §4.6: the `context:` branch reads `.cfdb/concepts/*.toml` ONLY
@@ -32,10 +32,10 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use cfdb_core::fact::PropValue;
-use cfdb_core::query::Param;
+use cfdb_core::query::ParamBinding;
 
 /// Errors surfaced while resolving a `--param <name>:<form>:<value>` CLI
-/// argument into a `cfdb_core::query::Param` value.
+/// argument into a `cfdb_core::query::ParamBinding` value.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum ParamResolveError {
     #[error("unknown param form `{form}` — expected one of context / regex / literal / list")]
@@ -69,7 +69,7 @@ impl From<cfdb_concepts::LoadError> for ParamResolveError {
 }
 
 /// Resolve a single `--param <name>:<form>:<value>` CLI argument into a
-/// `(param_name, Param)` pair ready for `Query::params.insert`.
+/// `(param_name, ParamBinding)` pair ready for `Query::params.insert`.
 ///
 /// Splits `cli_arg` on `:` into three parts: name, form, value. Unknown forms
 /// return [`ParamResolveError::UnknownForm`]; unknown contexts return
@@ -82,12 +82,12 @@ impl From<cfdb_concepts::LoadError> for ParamResolveError {
 pub(crate) fn resolve_param(
     workspace_root: &Path,
     cli_arg: &str,
-) -> Result<(String, Param), ParamResolveError> {
+) -> Result<(String, ParamBinding), ParamResolveError> {
     let (name, form, value) = split_cli_arg(cli_arg)?;
     let param = match form {
         "context" => resolve_context(workspace_root, value)?,
-        "regex" | "literal" => Param::Scalar(PropValue::Str(value.to_string())),
-        "list" => Param::List(
+        "regex" | "literal" => ParamBinding::Scalar(PropValue::Str(value.to_string())),
+        "list" => ParamBinding::List(
             value
                 .split(',')
                 .map(|s| PropValue::Str(s.to_string()))
@@ -103,14 +103,14 @@ pub(crate) fn resolve_param(
 }
 
 /// Resolve every `--param` CLI argument in `cli_args` into a
-/// `BTreeMap<String, Param>` suitable for assignment to `Query::params`.
+/// `BTreeMap<String, ParamBinding>` suitable for assignment to `Query::params`.
 ///
 /// Collects via `Result<BTreeMap, ParamResolveError>`; the first failing
 /// argument short-circuits (standard `collect` semantics).
 pub(crate) fn resolve_params(
     workspace_root: &Path,
     cli_args: &[String],
-) -> Result<BTreeMap<String, Param>, ParamResolveError> {
+) -> Result<BTreeMap<String, ParamBinding>, ParamResolveError> {
     cli_args
         .iter()
         .map(|arg| resolve_param(workspace_root, arg))
@@ -136,7 +136,7 @@ fn split_cli_arg(cli_arg: &str) -> Result<(&str, &str, &str), ParamResolveError>
 /// `context:<name>` branch — read `.cfdb/concepts/*.toml` via
 /// [`cfdb_concepts::load_concept_overrides`] and collect every crate whose
 /// owning context name equals `wanted`, sorted ascending.
-fn resolve_context(workspace_root: &Path, wanted: &str) -> Result<Param, ParamResolveError> {
+fn resolve_context(workspace_root: &Path, wanted: &str) -> Result<ParamBinding, ParamResolveError> {
     let overrides = cfdb_concepts::load_concept_overrides(workspace_root)?;
     if !overrides.declared_contexts().contains_key(wanted) {
         return Err(ParamResolveError::UnknownContext {
@@ -150,7 +150,7 @@ fn resolve_context(workspace_root: &Path, wanted: &str) -> Result<Param, ParamRe
         .map(|(crate_name, _)| crate_name.clone())
         .collect();
     crates.sort();
-    Ok(Param::List(
+    Ok(ParamBinding::List(
         crates.into_iter().map(PropValue::Str).collect(),
     ))
 }
@@ -172,7 +172,7 @@ mod tests {
         let tmp = tempdir().unwrap();
         let (name, param) = resolve_param(tmp.path(), "p:regex:^foo.*$").unwrap();
         assert_eq!(name, "p");
-        assert_eq!(param, Param::Scalar(propstr("^foo.*$")));
+        assert_eq!(param, ParamBinding::Scalar(propstr("^foo.*$")));
     }
 
     #[test]
@@ -180,7 +180,7 @@ mod tests {
         let tmp = tempdir().unwrap();
         let (name, param) = resolve_param(tmp.path(), "q:literal:hello").unwrap();
         assert_eq!(name, "q");
-        assert_eq!(param, Param::Scalar(propstr("hello")));
+        assert_eq!(param, ParamBinding::Scalar(propstr("hello")));
     }
 
     #[test]
@@ -190,7 +190,7 @@ mod tests {
         assert_eq!(name, "xs");
         assert_eq!(
             param,
-            Param::List(vec![propstr("alpha"), propstr("beta"), propstr("gamma")])
+            ParamBinding::List(vec![propstr("alpha"), propstr("beta"), propstr("gamma")])
         );
     }
 
@@ -212,7 +212,7 @@ crates = ["zeta", "alpha", "mu"]
         assert_eq!(name, "ctx");
         assert_eq!(
             param,
-            Param::List(vec![propstr("alpha"), propstr("mu"), propstr("zeta")])
+            ParamBinding::List(vec![propstr("alpha"), propstr("mu"), propstr("zeta")])
         );
     }
 
@@ -310,7 +310,7 @@ crates = ["a"]
         // split_cli_arg uses splitn(3), so additional colons belong to `value`.
         let tmp = tempdir().unwrap();
         let (_name, param) = resolve_param(tmp.path(), "p:regex:a:b:c").unwrap();
-        assert_eq!(param, Param::Scalar(propstr("a:b:c")));
+        assert_eq!(param, ParamBinding::Scalar(propstr("a:b:c")));
     }
 
     // --- plural wrapper ---
@@ -325,9 +325,12 @@ crates = ["a"]
         ];
         let out = resolve_params(tmp.path(), &args).unwrap();
         assert_eq!(out.len(), 3);
-        assert_eq!(out["p1"], Param::Scalar(propstr("one")));
-        assert_eq!(out["p2"], Param::Scalar(propstr("^two$")));
-        assert_eq!(out["p3"], Param::List(vec![propstr("a"), propstr("b")]));
+        assert_eq!(out["p1"], ParamBinding::Scalar(propstr("one")));
+        assert_eq!(out["p2"], ParamBinding::Scalar(propstr("^two$")));
+        assert_eq!(
+            out["p3"],
+            ParamBinding::List(vec![propstr("a"), propstr("b")])
+        );
     }
 
     #[test]
@@ -348,13 +351,13 @@ crates = ["a"]
     fn self_dogfood_context_cfdb_resolves_to_expected_crates() {
         // workspace_root = cargo's source root (the worktree). This test is
         // the Slice-1 "Self dogfood" proof per RFC §7: resolve_params on the
-        // real cfdb workspace returns Param::List containing the crates
+        // real cfdb workspace returns ParamBinding::List containing the crates
         // declared in .cfdb/concepts/cfdb.toml.
         //
         // We do NOT assert the exact crate list because it grows over time
         // (e.g. a new crate added to the cfdb context would break this test
         // under a strict-equality assertion). We assert structural invariants:
-        // (a) Param::List, (b) non-empty, (c) sorted ascending, (d) every
+        // (a) ParamBinding::List, (b) non-empty, (c) sorted ascending, (d) every
         // element is a String via PropValue::Str, (e) contains the seed set
         // {cfdb-core, cfdb-concepts, cfdb-cli}.
         let workspace_root = workspace_root_from_manifest();
@@ -362,8 +365,8 @@ crates = ["a"]
             resolve_param(&workspace_root, "ctx:context:cfdb").expect("context:cfdb resolves");
         assert_eq!(name, "ctx");
         let items = match param {
-            Param::List(xs) => xs,
-            other => panic!("expected Param::List, got {other:?}"),
+            ParamBinding::List(xs) => xs,
+            other => panic!("expected ParamBinding::List, got {other:?}"),
         };
         assert!(!items.is_empty(), "cfdb context has >=1 crate");
 

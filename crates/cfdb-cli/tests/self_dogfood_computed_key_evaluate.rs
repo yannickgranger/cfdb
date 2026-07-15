@@ -70,10 +70,14 @@ fn computed_key_evaluate_matches_qname_helper_on_every_item() {
     );
 
     for (id, qname) in &with_qname {
+        // `LastSegment` is total, so the dispatch is `Some(<helper
+        // output>)` (RFC-035 §3.3 — the dispatch surface must delegate
+        // to the canonical helper byte-for-byte).
         let via_dispatch = ComputedKey::LastSegment.evaluate(qname);
         let via_helper = cfdb_core::qname::last_segment(qname);
         assert_eq!(
-            via_dispatch, via_helper,
+            via_dispatch,
+            Some(via_helper),
             "RFC-035 §3.3 invariant violation on :Item {id:?} (qname {qname:?}):\n  \
              ComputedKey::LastSegment.evaluate → {via_dispatch:?}\n  \
              cfdb_core::qname::last_segment → {via_helper:?}\n\

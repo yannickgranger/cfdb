@@ -8,18 +8,23 @@
 //!
 //! # Computed-key dispatch (RFC-035 §3.3 invariant ownership)
 //!
-//! Computed keys (`IndexEntry::Computed { computed, ... }`) dispatch
-//! through [`ComputedKey::evaluate`](crate::index::spec::ComputedKey::evaluate),
-//! which routes each variant to its canonical `cfdb_core::qname::*`
-//! helper. `LastSegment` calls [`cfdb_core::qname::last_segment`] —
-//! `cfdb-core::qname` is the workspace's invariant owner for qname
-//! structure (RFC-035 §3.3 / R1 B3), and there is no parallel
-//! `last_segment` helper anywhere in `cfdb-petgraph`.
+//! Computed keys (`IndexEntry::Computed { computed, ... }`) read the
+//! key's `source_prop` (`qname` for `LastSegment`, `name` for
+//! `ConversionPrefix`) and dispatch through
+//! [`ComputedKey::evaluate`](crate::index::spec::ComputedKey::evaluate),
+//! the single canonical formula surface. `LastSegment` routes to
+//! [`cfdb_core::qname::last_segment`] (the workspace invariant owner for
+//! qname structure, RFC-035 §3.3 / R1 B3); `ConversionPrefix` routes to
+//! the vetted `CONVERSION_PREFIX_PATTERN` regex. `evaluate` is PARTIAL:
+//! `ConversionPrefix` over a `name` with no conversion prefix returns
+//! `None`, and that node contributes NO posting (SQL NULL-index
+//! semantics) — a scatter fork only buckets items whose name actually
+//! carries a conversion prefix.
 
 use cfdb_core::fact::{Node, PropValue};
 use cfdb_core::schema::Label;
 
-use crate::index::spec::{ComputedKey, IndexEntry};
+use crate::index::spec::IndexEntry;
 
 /// The inner-key type stored in `by_prop`. v0.1 indexes only
 /// round-trip-stable scalar values — [`PropValue::Str`], [`PropValue::Int`],
@@ -84,11 +89,14 @@ pub(crate) fn entry_value_for_node(
             if node.label != label {
                 return None;
             }
-            let raw = match computed {
-                ComputedKey::LastSegment => node.props.get("qname")?,
-            };
+            // Read the key's canonical source prop (`qname` for
+            // LastSegment, `name` for ConversionPrefix), then apply the
+            // formula. `evaluate` is PARTIAL — a `None` result (a name
+            // with no conversion prefix) means this node contributes no
+            // posting under the computed tag.
+            let raw = node.props.get(computed.source_prop())?;
             let source = raw.as_str()?;
-            let derived = computed.evaluate(source).to_string();
+            let derived = computed.evaluate(source)?.to_string();
             Some((label, computed.as_str().to_string(), derived))
         }
     }
@@ -97,7 +105,7 @@ pub(crate) fn entry_value_for_node(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::index::spec::IndexEntry;
+    use crate::index::spec::{ComputedKey, IndexEntry};
     use cfdb_core::fact::Node;
     use cfdb_core::schema::Label;
 
@@ -162,6 +170,50 @@ mod tests {
         assert_eq!(label.as_str(), "Item");
         assert_eq!(tag, "last_segment(qname)");
         assert_eq!(value, "baz");
+    }
+
+    #[test]
+    fn entry_value_for_node_computed_evaluates_conversion_prefix_from_name() {
+        // ConversionPrefix reads `name` (its source_prop), NOT `qname`,
+        // and buckets under the whole regex match.
+        let entry = IndexEntry::Computed {
+            label: "Item".into(),
+            computed: ComputedKey::ConversionPrefix,
+            notes: "test".into(),
+        };
+        let n = item("a")
+            .with_prop("qname", "crate_a::infra::compute_0_from_bps")
+            .with_prop("name", "compute_0_from_bps");
+        let (label, tag, value) = entry_value_for_node(&entry, &n).expect("matched");
+        assert_eq!(label.as_str(), "Item");
+        assert_eq!(tag, "conversion_prefix(name)");
+        assert_eq!(value, "compute_0_from_");
+    }
+
+    #[test]
+    fn entry_value_for_node_computed_conversion_prefix_non_match_contributes_nothing() {
+        // A name with no conversion prefix → evaluate None → no posting.
+        let entry = IndexEntry::Computed {
+            label: "Item".into(),
+            computed: ComputedKey::ConversionPrefix,
+            notes: "test".into(),
+        };
+        let n = item("a")
+            .with_prop("qname", "crate_a::infra::uniq_5")
+            .with_prop("name", "uniq_5");
+        assert_eq!(entry_value_for_node(&entry, &n), None);
+    }
+
+    #[test]
+    fn entry_value_for_node_computed_conversion_prefix_absent_name_contributes_nothing() {
+        // No `name` prop at all → None (source prop absent).
+        let entry = IndexEntry::Computed {
+            label: "Item".into(),
+            computed: ComputedKey::ConversionPrefix,
+            notes: "test".into(),
+        };
+        let n = item("a").with_prop("qname", "crate_a::infra::thing");
+        assert_eq!(entry_value_for_node(&entry, &n), None);
     }
 
     #[test]

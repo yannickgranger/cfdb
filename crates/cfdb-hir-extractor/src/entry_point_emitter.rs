@@ -1,6 +1,16 @@
 //! `extract_entry_points` — scan the HIR-loaded VFS and emit
 //! `:EntryPoint` nodes + `EXPOSES` edges for the v0.2 kind vocabulary
-//! (RFC-029 §A1.1). Two scan shapes coexist in a single pass:
+//! (RFC-029 §A1.1).
+//!
+//! Framework detection is dispatched through the [`framework`]
+//! `FrameworkDetector` registry (RFC-049 §3.1, slice 49-0): each
+//! framework recogniser is a registered detector, so adding a framework
+//! is a registration rather than a new dispatch arm. Test/bench
+//! classification is not a framework and runs as a dedicated pass
+//! ([`scan_test_bench_fns`]). The registry refactor is recall-neutral —
+//! the emitted fact set is byte-identical, guaranteed by the final sort
+//! in [`extract_entry_points`]. The detector recogniser contract,
+//! unchanged by 49-0, spans two scan shapes:
 //!
 //! - **Attribute-level** (Issue #86): `cli_command` for `struct`/`enum`
 //!   with `#[derive(Parser/Subcommand)]`; `mcp_tool` for `fn` with an
@@ -40,15 +50,14 @@ use ra_ap_vfs::{Vfs, VfsPath};
 
 use crate::error::HirError;
 
+mod framework;
 mod http_route;
 mod other_kinds;
 mod registers_param;
 mod test_bench;
 
-use registers_param::{
-    emit_clap_enum_registers_param, emit_clap_struct_registers_param, emit_mcp_registers_param,
-    has_clap_derive, has_tool_attr,
-};
+use framework::{FrameworkRegistry, Manifest};
+use registers_param::has_tool_attr;
 use test_bench::{has_bench_attr, has_test_attr, is_under_benches_dir, is_under_tests_dir};
 
 /// HTTP method verbs recognized on axum's `Router` and actix's `App`.
@@ -67,18 +76,34 @@ const HTTP_ROUTE_METHOD_NAMES: &[&str] =
 /// sorted by node id (and edges by `(src, dst, label)`) before
 /// return for G1 byte-stability.
 ///
+/// `workspace_root` is the directory the workspace was loaded from; it
+/// scopes the RFC-049 §3.1 manifest gate to the workspace's own member
+/// crates (see [`framework::Manifest::from_crate_graph`]). The caller
+/// passes the same path it handed to
+/// [`build_hir_database`](crate::build_hir_database).
+///
 /// # Errors
 ///
 /// Returns [`HirError`] on VFS / parse failures. Individual items
 /// whose qname cannot be resolved are silently skipped.
-pub fn extract_entry_points<DB>(db: &DB, vfs: &Vfs) -> Result<(Vec<Node>, Vec<Edge>), HirError>
+pub fn extract_entry_points<DB>(
+    db: &DB,
+    vfs: &Vfs,
+    workspace_root: &Path,
+) -> Result<(Vec<Node>, Vec<Edge>), HirError>
 where
     DB: HirDatabase + Sized,
 {
-    attach_db(db, || extract_entry_points_attached(db, vfs))
+    attach_db(db, || {
+        extract_entry_points_attached(db, vfs, workspace_root)
+    })
 }
 
-fn extract_entry_points_attached<DB>(db: &DB, vfs: &Vfs) -> Result<(Vec<Node>, Vec<Edge>), HirError>
+fn extract_entry_points_attached<DB>(
+    db: &DB,
+    vfs: &Vfs,
+    workspace_root: &Path,
+) -> Result<(Vec<Node>, Vec<Edge>), HirError>
 where
     DB: HirDatabase + Sized,
 {
@@ -99,9 +124,23 @@ where
         .collect();
     files.sort_by(|a, b| a.1.cmp(&b.1));
 
+    let registry = FrameworkRegistry::<DB>::rust_default();
+    // RFC-049 §3.1: populate the manifest from the workspace members'
+    // own `[dependencies]` (scoped by `workspace_root`) so each
+    // detector's `present(manifest)` gate consults them (49-A gates clap
+    // on `clap`; 49-B gates the HTTP route detector on axum/actix).
+    let manifest = Manifest::from_crate_graph(db, vfs, workspace_root);
+
     for (file_id, file_path) in files {
         let source_file = sema.parse_guess_edition(file_id);
-        scan_file(&sema, &source_file, &file_path, &mut nodes, &mut edges);
+        let (mut framework_nodes, mut framework_edges) =
+            registry.detect_file(&manifest, &sema, &source_file, &file_path);
+        nodes.append(&mut framework_nodes);
+        edges.append(&mut framework_edges);
+        // Test/bench entry points are not a manifest-gated framework, so
+        // they are classified in a dedicated pass that honours the
+        // `#[tool]` precedence (RFC-042 §3.1).
+        scan_test_bench_fns(&sema, &source_file, &file_path, &mut nodes, &mut edges);
     }
 
     nodes.sort_by(|a, b| a.id.cmp(&b.id));
@@ -116,7 +155,18 @@ where
     Ok((nodes, edges))
 }
 
-fn scan_file<DB>(
+/// Emit `test` / `bench` `:EntryPoint`s for the fns in `source_file`.
+///
+/// Test/bench classification is not a manifest-gated framework, so it
+/// runs outside the [`framework`] `FrameworkDetector` registry (RFC-049
+/// §3.1). It preserves the RFC-042 §3.1 precedence below `#[tool]`: a
+/// `#[tool]` fn is emitted as `mcp_tool` by the MCP detector and MUST
+/// NOT also be classified test/bench, so `#[tool]` fns are skipped here.
+/// Below that, attribute-based `#[test]` / `#[bench]` wins over the
+/// `tests/` / `benches/` file-location fallback (both resolved by
+/// [`test_bench_kind`]). Exactly one `:EntryPoint` per fn is preserved
+/// (no-duplicate invariant, RFC-042 §4).
+fn scan_test_bench_fns<DB>(
     sema: &Semantics<'_, DB>,
     source_file: &ast::SourceFile,
     file_path: &Path,
@@ -125,118 +175,20 @@ fn scan_file<DB>(
 ) where
     DB: HirDatabase + Sized,
 {
-    // Dispatch on `SyntaxKind` so only the matching branch casts
-    // (`AstNode::cast` moves by value, which would require a clone
-    // per branch in an `if let` chain; the metric scanner flags
-    // repeated `.clone()` inside a loop even though `SyntaxNode`
-    // clone is an `Rc` bump).
     for descendant in source_file.syntax().descendants() {
-        match descendant.kind() {
-            SyntaxKind::STRUCT => {
-                if let Some(strukt) = ast::Struct::cast(descendant) {
-                    if has_clap_derive(&strukt) {
-                        if let Some((name, qname)) = struct_name_and_qname(sema, &strukt) {
-                            emit(nodes, edges, &qname, &name, "cli_command", file_path, None);
-                            // REGISTERS_PARAM for clap `#[derive(Parser)]`
-                            // structs (#219 / RFC-037 §3.1, clap-struct row
-                            // of the crate-ownership table). Walk the
-                            // struct's named fields; for each one carrying
-                            // `#[arg(...)]` emit a REGISTERS_PARAM edge
-                            // pointing at the `:Field` node id the syn-side
-                            // extractor produced via `field_node_id`. The
-                            // HIR side does NOT emit `:Field` nodes itself —
-                            // it relies on the syn-side producer to have
-                            // emitted the node with the same canonical id
-                            // (crate-ownership B9 resolution).
-                            emit_clap_struct_registers_param(&qname, &strukt, edges);
-                        }
-                    }
-                }
-            }
-            SyntaxKind::ENUM => {
-                if let Some(enum_) = ast::Enum::cast(descendant) {
-                    if has_clap_derive(&enum_) {
-                        if let Some((name, qname)) = enum_name_and_qname(sema, &enum_) {
-                            emit(nodes, edges, &qname, &name, "cli_command", file_path, None);
-                            // REGISTERS_PARAM for clap `#[derive(Subcommand)]`
-                            // enums (#219 / RFC-037 §3.1, Subcommand row of
-                            // the crate-ownership table). One edge per
-                            // variant pointing at the `:Variant` node id the
-                            // syn-side extractor produces via
-                            // `variant_node_id`. Per-variant-field granularity
-                            // is deferred to a follow-up RFC that introduces
-                            // `:EntryPoint{kind:cli_subcommand}` (N1 —
-                            // transitional approximation).
-                            emit_clap_enum_registers_param(&qname, &enum_, edges);
-                        }
-                    }
-                }
-            }
-            SyntaxKind::FN => {
-                if let Some(fn_ast) = ast::Fn::cast(descendant) {
-                    classify_fn_entry_point(sema, &fn_ast, file_path, nodes, edges);
-                }
-            }
-            SyntaxKind::CALL_EXPR => {
-                if let Some(call) = ast::CallExpr::cast(descendant) {
-                    other_kinds::try_emit_cron_job(sema, &call, file_path, nodes, edges);
-                }
-            }
-            SyntaxKind::METHOD_CALL_EXPR => {
-                if let Some(mcall) = ast::MethodCallExpr::cast(descendant) {
-                    // Both detectors filter internally on method name
-                    // (`on_upgrade` vs `route|get|post|...`), so the
-                    // dispatch is O(n) and mutually exclusive in
-                    // practice.
-                    other_kinds::try_emit_websocket(sema, &mcall, file_path, nodes, edges);
-                    http_route::classify_http_route_method_call(
-                        sema, &mcall, file_path, nodes, edges,
-                    );
-                }
-            }
-            _ => {}
+        if descendant.kind() != SyntaxKind::FN {
+            continue;
         }
-    }
-}
-
-/// Dispatch a single `ast::Fn` to its entry-point classification per
-/// RFC-042 §3.1 precedence:
-///
-///   1. `#[tool]` wins (MCP first, even inside `tests/`) — emits
-///      `kind=mcp_tool` AND REGISTERS_PARAM edges.
-///   2. Attribute-based test/bench wins over file-location.
-///   3. File-location fallback (`tests/` → test, `benches/` → bench)
-///      catches helper fns in test/bench targets without their own
-///      attribute.
-///
-/// All branches are mutually exclusive — exactly one `:EntryPoint`
-/// per fn (no-duplicate invariant, RFC-042 §4). Extracted from
-/// `scan_file`'s FN dispatch to keep the outer match arm within the
-/// complexity budget.
-fn classify_fn_entry_point<DB>(
-    sema: &Semantics<'_, DB>,
-    fn_ast: &ast::Fn,
-    file_path: &Path,
-    nodes: &mut Vec<Node>,
-    edges: &mut Vec<Edge>,
-) where
-    DB: HirDatabase + Sized,
-{
-    if has_tool_attr(fn_ast) {
-        if let Some((name, qname)) = fn_name_and_qname(sema, fn_ast) {
-            emit(nodes, edges, &qname, &name, "mcp_tool", file_path, None);
-            // REGISTERS_PARAM for MCP `#[tool]` fns (#219 / RFC-037
-            // §3.1 MCP row — HIR-owned). `ast::Fn` covers free fns AND
-            // impl methods; kept HIR-side because :EntryPoint is
-            // emitted here; syn-side emission would dangle src and be
-            // dropped by cfdb-petgraph's ingest.
-            emit_mcp_registers_param(&qname, fn_ast, edges);
+        let Some(fn_ast) = ast::Fn::cast(descendant) else {
+            continue;
+        };
+        if has_tool_attr(&fn_ast) {
+            continue;
         }
-        return;
-    }
-    if let Some(kind) = test_bench_kind(fn_ast, file_path) {
-        if let Some((name, qname)) = fn_name_and_qname(sema, fn_ast) {
-            emit(nodes, edges, &qname, &name, kind, file_path, None);
+        if let Some(kind) = test_bench_kind(&fn_ast, file_path) {
+            if let Some((name, qname)) = fn_name_and_qname(sema, &fn_ast) {
+                emit(nodes, edges, &qname, &name, kind, file_path, None);
+            }
         }
     }
 }
@@ -363,11 +315,10 @@ where
     // trait is not object-safe). AC-6 on #124 enforces zero `dyn
     // HirDatabase` anywhere under `crates/cfdb-hir-extractor/src/`.
     let db = sema.db;
-    let crate_name = krate
-        .display_name(db)
-        .map(|n| n.to_string())
-        .unwrap_or_default()
-        .replace('-', "_");
+    // Key the crate segment off the PACKAGE name (not the bin TARGET name
+    // `display_name` yields) so the qname matches the syn extractor and the
+    // EXPOSES edge lands on a real :Item (#517).
+    let crate_name = crate::crate_name::crate_qname_prefix(db, krate);
 
     let mut stack: Vec<String> = module
         .path_to_root(db)

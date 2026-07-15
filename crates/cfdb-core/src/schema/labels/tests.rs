@@ -1,4 +1,7 @@
 use super::*;
+// `SchemaVersion` moved to `schema::version` (#498 god-file split); the
+// version tests below still live here alongside the label tests.
+use crate::schema::SchemaVersion;
 
 #[test]
 fn schema_version_compat() {
@@ -62,17 +65,18 @@ fn literal_label_serde_round_trip() {
 }
 
 #[test]
-fn schema_version_v0_4_0_is_current_and_g4_monotonic() {
-    // RFC-041 §3.3: :Literal is purely additive ⇒ minor bump within
-    // major 0. CURRENT advances from V0_3_2 to V0_4_0.
-    assert_eq!(SchemaVersion::CURRENT, SchemaVersion::V0_4_0);
-    assert!(SchemaVersion::CURRENT > SchemaVersion::V0_3_2);
+fn schema_version_v0_7_0_is_current_and_g4_monotonic() {
+    // RFC-053 53-A: :MatchSite node + MATCHES_AT/MATCHES_ON edge labels are
+    // new vocabulary ⇒ minor bump within major 0. CURRENT advances from
+    // V0_6_0 to V0_7_0.
+    assert_eq!(SchemaVersion::CURRENT, SchemaVersion::V0_7_0);
+    assert!(SchemaVersion::CURRENT > SchemaVersion::V0_6_0);
     // Same major — additive within 0.x (G4).
-    assert_eq!(SchemaVersion::CURRENT.major, SchemaVersion::V0_3_2.major);
-    // A V0_4_0 reader can read a V0_3_2 graph (older minor, same major).
-    assert!(SchemaVersion::CURRENT.can_read(&SchemaVersion::V0_3_2));
-    // A V0_3_2 reader refuses a V0_4_0 graph (newer minor — G4 reject).
-    assert!(!SchemaVersion::V0_3_2.can_read(&SchemaVersion::CURRENT));
+    assert_eq!(SchemaVersion::CURRENT.major, SchemaVersion::V0_6_0.major);
+    // A V0_7_0 reader can read a V0_6_0 graph (older minor, same major).
+    assert!(SchemaVersion::CURRENT.can_read(&SchemaVersion::V0_6_0));
+    // A V0_6_0 reader refuses a V0_7_0 graph (newer minor — G4 reject).
+    assert!(!SchemaVersion::V0_6_0.can_read(&SchemaVersion::CURRENT));
 }
 
 // ---- RFC-044 §3.1 sub-band 2: SchemaVersion::CURRENT lockstep ----------
@@ -112,6 +116,9 @@ fn schema_version_current_is_exhaustive_maximum() {
         SchemaVersion::V0_3_1,
         SchemaVersion::V0_3_2,
         SchemaVersion::V0_4_0,
+        SchemaVersion::V0_5_0,
+        SchemaVersion::V0_6_0,
+        SchemaVersion::V0_7_0,
     ];
 
     // (a) Strictly ascending — no duplicates, each entry < next.

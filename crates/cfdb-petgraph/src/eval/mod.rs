@@ -38,7 +38,7 @@
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 
-use cfdb_core::query::{Param, Pattern, Predicate, Query};
+use cfdb_core::query::{ParamBinding, Pattern, Predicate, Query};
 use cfdb_core::result::{QueryResult, RowValue, Warning, WarningKind};
 use petgraph::stable_graph::{EdgeIndex, NodeIndex};
 
@@ -59,8 +59,16 @@ mod target_dogfood_tests;
 mod util;
 mod with_clause;
 
-/// Maximum BFS depth when a variable-length pattern omits its upper bound.
-/// Matches the Gate 3 spike (`query_f2` uses 5).
+/// Defensive fallback BFS depth ceiling for a variable-length pattern that
+/// reaches `traverse_bfs` carrying no quantifier at all (the `None` arm of the
+/// `var_length` match — unreachable in practice, since the caller gates on
+/// `var_length.is_some()`).
+///
+/// NOTE (RFC-047a §3.2, #488): this is **never applied to an explicit or open
+/// bound**. Explicit `*N..M` is honoured as written, and the open form `*N..`
+/// (`u32::MAX`) is unbounded-via-visited-set. Historically this constant
+/// silently clamped *every* var-length pattern to 5 (`*1..10` → 5) — a latent
+/// bug this slice fixes.
 pub(super) const DEFAULT_VAR_LENGTH_MAX: u32 = 5;
 
 /// A bound value in the evaluator's scratch table.
@@ -103,7 +111,7 @@ pub(super) type BindingStream<'e> = Box<dyn Iterator<Item = Bindings> + 'e>;
 /// running into borrow-checker conflicts against a mutable receiver.
 pub(crate) struct Evaluator<'a> {
     pub(crate) state: &'a KeyspaceState,
-    pub(crate) params: &'a BTreeMap<String, Param>,
+    pub(crate) params: &'a BTreeMap<String, ParamBinding>,
     pub(crate) warnings: RefCell<Vec<Warning>>,
     /// Slice-7 (#186) — explain-trace collector. `None` for the regular
     /// `execute` path (zero allocation cost); `Some` when the caller
@@ -122,7 +130,10 @@ pub(crate) struct Evaluator<'a> {
 }
 
 impl<'a> Evaluator<'a> {
-    pub(crate) fn new(state: &'a KeyspaceState, params: &'a BTreeMap<String, Param>) -> Self {
+    pub(crate) fn new(
+        state: &'a KeyspaceState,
+        params: &'a BTreeMap<String, ParamBinding>,
+    ) -> Self {
         Self {
             state,
             params,
@@ -136,7 +147,7 @@ impl<'a> Evaluator<'a> {
     /// rows via [`Self::run_explained`].
     pub(crate) fn new_with_explain(
         state: &'a KeyspaceState,
-        params: &'a BTreeMap<String, Param>,
+        params: &'a BTreeMap<String, ParamBinding>,
     ) -> Self {
         Self {
             state,

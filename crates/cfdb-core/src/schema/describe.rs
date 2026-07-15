@@ -3,7 +3,7 @@
 //! RFC §6A.1 / PLAN-v1 §6.1. Deterministic and byte-stable per build (G1).
 
 use super::descriptors::{NodeLabelDescriptor, SchemaDescribe};
-use super::labels::SchemaVersion;
+use super::version::SchemaVersion;
 
 mod edges;
 mod nodes;
@@ -41,5 +41,7 @@ fn node_descriptors() -> Vec<NodeLabelDescriptor> {
         nodes::rfc_doc_node_descriptor(),
         nodes::const_table_node_descriptor(),
         nodes::literal_node_descriptor(),
+        nodes::argument_node_descriptor(),
+        nodes::match_site_node_descriptor(),
     ]
 }

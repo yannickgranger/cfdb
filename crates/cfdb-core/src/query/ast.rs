@@ -34,7 +34,7 @@ pub struct Query {
     pub with_clause: Option<WithClause>,
     pub return_clause: ReturnClause,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub params: BTreeMap<String, Param>,
+    pub params: BTreeMap<String, ParamBinding>,
 }
 
 impl Query {
@@ -51,7 +51,7 @@ impl Query {
 
 /// Value bound to a `$name` parameter in a query.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum Param {
+pub enum ParamBinding {
     Scalar(PropValue),
     List(Vec<PropValue>),
 }
@@ -103,7 +103,9 @@ pub struct EdgePattern {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<EdgeLabel>,
     pub direction: Direction,
-    /// `[:LABEL*1..5]` → `Some((1, 5))`; `[:LABEL]` → None.
+    /// `[:LABEL*1..5]` → `Some((1, 5))`; the open form `[:LABEL*1..]` (omitted
+    /// upper bound) → `Some((1, u32::MAX))`; `[:LABEL]` → None. The `u32::MAX`
+    /// sentinel signals an unbounded traversal to the evaluator (RFC-047a).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub var_length: Option<(u32, u32)>,
 }

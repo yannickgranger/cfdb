@@ -15,7 +15,8 @@ fn schema_describe_covers_all_node_labels() {
     // per RFC-040 slice 1/5 (issue #323 reservation; first emissions land
     // in slice 3/5, issue #325); `Literal` appended per RFC-041 slice
     // 041-A (issue #369 reservation; first emissions land in slice 041-B,
-    // issue #370).
+    // issue #370); `MatchSite` appended per RFC-053 slice 53-A (first
+    // emissions land in the same slice via `cfdb-extractor::match_visitor`).
     assert_eq!(
         labels,
         vec![
@@ -33,6 +34,8 @@ fn schema_describe_covers_all_node_labels() {
             "RfcDoc",
             "ConstTable",
             "Literal",
+            "Argument",
+            "MatchSite",
         ]
     );
 }
@@ -60,12 +63,17 @@ fn schema_describe_covers_all_edge_labels() {
         "BELONGS_TO",
         "CALLS",
         "INVOKES_AT",
+        "HAS_ARG",
         "EXPOSES",
         "REGISTERS_PARAM",
         "LABELED_AS",
         "CANONICAL_FOR",
         "EQUIVALENT_TO",
         "REFERENCED_BY",
+        // RFC-053 slice 53-A — MATCHES_AT (first emissions this slice),
+        // MATCHES_ON (reserved here, first emissions in slice 53-B).
+        "MATCHES_AT",
+        "MATCHES_ON",
     ];
     assert_eq!(edges.len(), expected.len());
     for e in &expected {
@@ -134,6 +142,59 @@ fn schema_describe_item_deprecation_attrs_are_extractor_provenanced() {
 /// It MUST NOT carry a `kind` attr: that would be a three-way homonym against
 /// `:Item.kind` (declaration kind) and `:ConstTable.element_type`. Future
 /// non-string literals use `lit_syntax`, not `kind`.
+/// #481 — the `:Item.kind` attribute descriptor must enumerate the LOWERCASE
+/// wire values the extractor actually emits on `:Item` nodes (`struct`, `enum`,
+/// `trait`, `impl_block`, `fn`, `const`, `static`, `type_alias`), NOT the
+/// capitalized council `ItemKind` spellings. Pre-fix the descriptor read
+/// `Struct, Enum, Trait, Impl, Fn, Const, TypeAlias` — capitalized (that is the
+/// CLI vocabulary users type, per `ItemKind::as_str`) and missing `static` — so
+/// it matched no real `:Item.kind` string a consumer would query against.
+#[test]
+fn schema_describe_item_kind_documents_lowercase_wire_values() {
+    use crate::query::ItemKind;
+
+    let d = schema_describe();
+    let item = d
+        .nodes
+        .iter()
+        .find(|n| n.label.as_str() == Label::ITEM)
+        .expect("Item node descriptor");
+    let kind = item
+        .attributes
+        .iter()
+        .find(|a| a.name == "kind")
+        .expect("Item.kind attribute descriptor");
+    let desc = &kind.description;
+
+    for variant in ItemKind::variants() {
+        // The extractor emits the lowercase wire spelling, never the council /
+        // CLI spelling. `to_extractor_str` is the single source of truth for
+        // that mapping (7 of the 8 wire values).
+        let wire = variant.to_extractor_str();
+        assert!(
+            desc.contains(wire),
+            "Item.kind descriptor must document wire value `{wire}` \
+             (ItemKind::to_extractor_str); description was: {desc:?}",
+        );
+        let council = variant.as_str();
+        assert!(
+            !desc.contains(council),
+            "Item.kind descriptor must not carry the capitalized council / CLI \
+             spelling `{council}` — `:Item.kind` wire strings are lowercase; \
+             description was: {desc:?}",
+        );
+    }
+
+    // `static` is emitted by `cfdb-extractor::visit_item_static` but is not a
+    // council `ItemKind` variant (`list_items_matching` has no Static — #479),
+    // so it is the one wire value asserted as an explicit literal.
+    assert!(
+        desc.contains("static"),
+        "Item.kind descriptor must document the `static` wire value \
+         (visit_item_static); description was: {desc:?}",
+    );
+}
+
 #[test]
 fn schema_describe_literal_attrs_match_rfc_041() {
     let d = schema_describe();
@@ -283,7 +344,7 @@ fn schema_describe_narrative_digest() {
     /// To update after a legitimate narrative change: set this to `"RECOMPUTE"`,
     /// run the test, copy the `actual digest:` value from the failure output.
     const FROZEN_NARRATIVE_DIGEST: &str =
-        "18eb52747c150aac5578dc63f81062ffbecc41e67980db8457170422671c08f4";
+        "95fc9918b0e27fd24830fdd091e8984c4ccbe9167d14bb5e322363b60b1682a3";
 
     let d = schema_describe();
 
@@ -431,6 +492,13 @@ fn schema_describe_call_site_narrative_pins() {
          Current description: {:?}",
         resolver.description,
     );
+    assert!(
+        resolver.description.contains("tree-sitter-php"),
+        ":CallSite.resolver description must enumerate valid value \
+         `tree-sitter-php` (cfdb-extractor-php) — RFC-045 45-C enum-pin extension. \
+         Current description: {:?}",
+        resolver.description,
+    );
 }
 
 /// RFC-044 §3.1 sub-band 1 (spec-coverage test) — asserts the `## Label` and
@@ -525,7 +593,7 @@ fn spec_sections_cover_all_schema_labels() {
 
     // Non-vacuity: the descriptor returned the full schema, not a degraded subset.
     assert!(
-        d.nodes.len() >= 14 && d.edges.len() >= 19,
+        d.nodes.len() >= 15 && d.edges.len() >= 20,
         "schema_describe() returned a degraded schema (nodes={}, edges={})",
         d.nodes.len(),
         d.edges.len(),

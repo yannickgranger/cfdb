@@ -5,3 +5,6 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
+# Stub `clap` (empty crate) — satisfies the RFC-049 §3.1 manifest gate
+# so the clap detector runs on this member. Detection stays textual.
+clap = { path = "../clap" }

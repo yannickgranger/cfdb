@@ -135,17 +135,15 @@ jobs:
           #   - cfdb-cli (binary; thin wrapper)
           #   - cfdb-hir-* (nightly + ra-ap-* — separate measurement story)
           # Adding a crate here is a reviewed change.
-          CRATES=(
-            cfdb-core
-            cfdb-concepts
-            cfdb-query
-            cfdb-petgraph
-            cfdb-extractor
-            cfdb-recall
-          )
-          CRATE_ARGS=()
-          for c in "${CRATES[@]}"; do
-            CRATE_ARGS+=(--crate "$c")
+          # Space-separated crate list. POSIX sh — the Gitea act runner
+          # executes run: blocks under /bin/sh (dash), which has no arrays
+          # (#459); mirrors the array-free style of ci.yml and
+          # enrich-dogfood-nightly.yml. Crate names carry no whitespace, so
+          # the intentional word-split of $CRATE_ARGS below is safe.
+          CRATES="cfdb-core cfdb-concepts cfdb-query cfdb-petgraph cfdb-extractor cfdb-recall"
+          CRATE_ARGS=""
+          for c in $CRATES; do
+            CRATE_ARGS="$CRATE_ARGS --crate $c"
           done
 
           # We capture the runner's exit code without short-circuiting
@@ -155,9 +153,11 @@ jobs:
           # on every crate, distinguishing infra problems from real
           # recall regressions.
           set +e
+          # shellcheck disable=SC2086 — word-splitting $CRATE_ARGS into
+          # repeated --crate <name> flags is intentional (POSIX, no arrays).
           ./target/release/cfdb-recall \
             --workspace "$(pwd)" \
-            "${CRATE_ARGS[@]}" \
+            $CRATE_ARGS \
             --json-out recall-ratios.json \
             --gaps-file recall-gaps.md \
             2>&1 | tee recall-stdout.log
@@ -274,18 +274,20 @@ jobs:
               --arg url "$TARGET_URL" \
               '{state: $state, context: "recall/total", description: $desc, target_url: $url}')"
 
-      - name: Upload recall-ratios.json artifact
+      - name: Echo recall artifacts to run log
         if: always()
-        # Skip artifact upload if the JSON was never produced (the status
-        # post step already surfaces `recall/total = error` in that case).
-        # The artifact is the operator's drilldown surface — `jq` against
-        # the downloaded file shows per-crate `missing_count` /
-        # `audited_count` for triage.
+        # Emit the recall JSON + gaps into the run log — this is the
+        # operator's drilldown surface. The node-based
+        # `actions/upload-artifact@v4` step was removed in #459: the
+        # `rust:1.93` container has no node, so it died with exit 127
+        # (`exec: "node": not found`) and reddened the job even when the
+        # statuses posted fine. Skipped silently if the JSON was never
+        # produced (the status post step already surfaces
+        # `recall/total = error` in that case).
         run: |
           cd repo
           if [ -f recall-ratios.json ]; then
             ls -la recall-ratios.json recall-gaps.md recall-stdout.log 2>/dev/null || true
-            echo "Artifact files staged for upload (Gitea Actions handles via uses: actions/upload-artifact when supported by the runner; otherwise the files persist in the workflow run log via the cat below)."
             echo "── recall-ratios.json ──"
             cat recall-ratios.json
             echo "── recall-gaps.md (head) ──"
@@ -293,15 +295,3 @@ jobs:
           else
             echo "No recall-ratios.json — see prior step output for failure mode"
           fi
-
-      - name: Upload artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: recall-ratios
-          path: |
-            repo/recall-ratios.json
-            repo/recall-gaps.md
-            repo/recall-stdout.log
-          if-no-files-found: warn
-          retention-days: 30

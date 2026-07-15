@@ -54,6 +54,7 @@ const KNOWN_NODE_LABELS: &[&str] = &[
     Label::VARIANT,
     Label::PARAM,
     Label::CALL_SITE,
+    Label::MATCH_SITE,
     Label::ENTRY_POINT,
     Label::CONCEPT,
     Label::CONTEXT,

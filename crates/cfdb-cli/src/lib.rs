@@ -28,14 +28,15 @@ mod hir;
 mod lang;
 mod output;
 mod param_resolver;
+mod profile;
 mod scope;
 mod stubs;
 
 pub use check::{check, TriggerId, UnknownTriggerId};
 pub use check_predicate::{check_predicate, PredicateRow, PredicateRunReport};
 pub use commands::{
-    classify, diff, dump, export, extract, keyspace_path, list_callers, list_keyspaces, query,
-    violations,
+    classify, diff, dump, export, extract, impact, keyspace_path, list_callers, list_keyspaces,
+    query, violations,
 };
 
 pub use enrich::{enrich, EnrichVerb};
@@ -43,6 +44,7 @@ pub use error::CfdbCliError;
 #[cfg(feature = "hir")]
 pub use hir::{extract_and_ingest_hir, HirExtractError};
 pub use output::{emit_json, OutputFormat};
+pub use profile::ExtractProfile;
 pub use scope::scope;
 pub use stubs::{
     drop_keyspace_cmd, list_items_matching, schema_describe_cmd, snapshots, typed_stub,

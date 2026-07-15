@@ -1,6 +1,6 @@
 use cfdb_core::schema::Keyspace;
 use cfdb_core::store::StoreBackend;
-use cfdb_core::{Param, PropValue, Query, RowValue};
+use cfdb_core::{ParamBinding, PropValue, Query, RowValue};
 use cfdb_query::{CanonicalCandidate, Finding};
 
 /// Validate that `context` is one of the `:Context` nodes in the keyspace.
@@ -112,7 +112,7 @@ pub(super) fn crates_for_context(
             let mut m = BTreeMap::new();
             m.insert(
                 "context".to_string(),
-                Param::Scalar(PropValue::Str(context.to_string())),
+                ParamBinding::Scalar(PropValue::Str(context.to_string())),
             );
             m
         },

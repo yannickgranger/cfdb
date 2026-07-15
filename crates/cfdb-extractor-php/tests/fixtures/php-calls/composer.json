@@ -1,0 +1,14 @@
+{
+    "name": "cfdb/php-calls-fixture",
+    "description": "Synthetic Composer project with resolvable + dynamic calls — fixture for cfdb-extractor-php :CallSite/CALLS edges (RFC-045 45-C / issue #465).",
+    "type": "library",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "App\\": "src/"
+        }
+    },
+    "require": {
+        "php": ">=8.1"
+    }
+}

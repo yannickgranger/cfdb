@@ -45,12 +45,15 @@ The descriptor at `crates/cfdb-core/src/schema/describe/edges.rs` is authoritati
 - **HAS_PARAM** — an fn Item owns a Param.
 - **HAS_CONST_TABLE** — a const Item owns a recognized literal table of values (RFC-040).
 - **TYPE_OF** — a Field, Param, or Variant payload references an Item used as its type.
-- **IMPLEMENTS** — an impl Item implements a trait Item.
+- **IMPLEMENTS** — an implementing Item implements an implemented Item (Rust impl-block → trait; PHP/TS class → interface directly, no companion IMPLEMENTS_FOR). Attributes: resolver (`syn` | `tree-sitter-php` | `tree-sitter-typescript`, RFC-045).
 - **IMPLEMENTS_FOR** — an impl Item targets a type Item (the receiver of the impl).
 - **RETURNS** — an fn Item returns a type Item.
 - **BELONGS_TO** — a Crate belongs to its bounded Context.
 - **CALLS** — static call edge between two fn Items (best-effort cross-crate). Attributes: resolved
-- **INVOKES_AT** — a CallSite invokes a concrete fn Item.
+- **INVOKES_AT** — the containing fn/method Item points at a CallSite (Item → CallSite; direction corrected RFC-045 45-C). "Callers of X" walks `(cs:CallSite)<-[:INVOKES_AT]-(caller)`.
+- **HAS_ARG** — a CallSite owns a positional Argument (RFC-043 Slice A). No edge attributes; position lives on the `:Argument` node. SchemaVersion V0_5_0+.
+- **MATCHES_AT** — the containing fn/method Item points at a MatchSite (Item → MatchSite), mirroring INVOKES_AT for call sites (RFC-053). Emitted walk-time; SchemaVersion V0_7_0+.
+- **MATCHES_ON** — a MatchSite whose name-level matched_path resolves to a workspace enum points at that enum's Item (MatchSite → Item{kind:"enum"}). Reserved in slice 53-A per RFC-053 §3.2; first emissions in slice 53-B. SchemaVersion V0_7_0+.
 - **EXPOSES** — an EntryPoint dispatches to a handler fn Item.
 - **REGISTERS_PARAM** — an EntryPoint declares an entry-point-exposed input (`:Param`, `:Field`, or `:Variant`).
 - **LABELED_AS** — an Item carries a semantic Concept label.
@@ -94,10 +97,10 @@ Open newtype wrapping a node-label string. The label vocabulary is defined by sc
 
 The descriptor at `crates/cfdb-core/src/schema/describe/nodes.rs` is authoritative; this spec section mirrors it for discoverability (it is documentation, not a second vocabulary definition — RFC-044 §3.1, ddd lens). Per-variant headings are deliberately NOT used: `graph-specs check` requires every markdown heading to map 1:1 to a `pub` type, and minting a marker type per label would be the very "second vocabulary source" the ddd lens forbids. The complete node-label vocabulary is therefore enumerated as a flat list, each bullet naming the label and its `NodeLabelDescriptor` attribute fields (the `spec_sections_cover_all_schema_labels` test asserts this list stays complete against `schema_describe()`):
 
-- **Crate** — a Cargo package in the workspace. Attributes: name, path, version
+- **Crate** — a Cargo package in the workspace. Attributes: crate_tier, name, path, version
 - **Module** — a Rust module (`mod` block or file-level module). Attributes: crate, file, is_inline, qpath
 - **File** — a source file walked by the extractor. Attributes: crate, loc, module_qpath, path
-- **Item** — a top-level item (struct, enum, trait, impl, fn, const, static, type alias). Attributes: bounded_context, cfg_gate, crate, cyclomatic, deprecation_since, doc_text, dup_cluster_id, file, git_commit_count, git_last_author, git_last_commit_unix_ts, impl_target, impl_trait, is_deprecated, is_test, kind, line, module_qpath, name, qname, reachable_entry_count, reachable_from_entry, reachable_from_production_entry, reachable_production_entry_count, signature, signature_hash, test_coverage, unwrap_count, visibility
+- **Item** — a top-level item (struct, enum, trait, impl, fn, const, static, type alias). Attributes: bounded_context, cfg_gate, crate, cyclomatic, deprecation_since, doc_text, dup_cluster_id, file, git_commit_count, git_last_author, git_last_commit_unix_ts, impl_target, impl_trait, is_deprecated, is_test, kind, line, module_qpath, name, php_construct, qname, reachable_entry_count, reachable_from_entry, reachable_from_production_entry, reachable_production_entry_count, signature, signature_hash, test_coverage, ts_construct, unwrap_count, visibility
 - **Field** — a struct field, tuple-struct element, or enum-variant field. Attributes: index, name, parent_qname, type_normalized, type_path
 - **Variant** — an enum variant. Attributes: index, name, parent_qname, payload_kind
 - **Param** — a function or method parameter. Attributes: index, is_self, name, parent_qname, type_normalized, type_path
@@ -108,6 +111,8 @@ The descriptor at `crates/cfdb-core/src/schema/describe/nodes.rs` is authoritati
 - **RfcDoc** — an RFC document file scanned for concept-name matches. Attributes: path, title
 - **ConstTable** — a literal const slice/array recognized as a table of values (RFC-040). Attributes: crate, element_type, entries_hash, entries_normalized, entries_sample, entry_count, is_test, module_qpath, name, qname
 - **Literal** — a single string literal occurring in production source (RFC-041). Attributes: col, crate, file, is_test, line, value
+- **Argument** — a positional argument at a call site (RFC-043 Slice A). Emitted for every `ExprCall` and `ExprMethodCall`; position 0 is the implicit `self` receiver for method calls. Attributes: col, file, kind, line, position, source_text
+- **MatchSite** — a single `match` expression keyed per distinct name-level matched-path prefix (RFC-053; producer lands in slice 53-A via `cfdb-extractor::match_visitor`, a third per-fn-body pass alongside `:CallSite`/`:Literal`). `matched_path` is name-level and UNRESOLVED — the all-but-last-segment prefix of a multi-segment arm-pattern path as written (same doctrine as `:CallSite.callee_path`); an external-type match keeps its `:MatchSite` with no `MATCHES_ON` (that resolved edge is slice 53-B). Node id `matchsite:{fn_qname}:{prefix}:{local_idx}` (extractor-local per RFC-032 §3). SchemaVersion V0_7_0+. Attributes: arm_count, crate, file, is_test, line, matched_path, wildcard
 
 ## Node
 
@@ -125,9 +130,9 @@ A single-node pattern with optional variable binding, optional label filter, opt
 
 An expression paired with a sort direction, used in the `ORDER BY` clause.
 
-## Param
+## ParamBinding
 
-A **query parameter binding** — named (`$name`) or positional. Lives at `query::ast::Param`. Homonym note (flagged by RFC-036 council DDD lens): the graph-node label string `"Param"` (`Label::PARAM`, producing `:Param` nodes carrying a fn/method parameter's `index`, `name`, `is_self`, `parent_qname`, `type_path`, `type_normalized`) is an **unrelated concept** — same word, different domain. The query-AST `Param` is a value supplied by the caller at query time; the graph-node `:Param` is a structural fact emitted by the extractor. A future boy-scout PR renames this query-AST type to `ParamBinding` to eliminate the homonym at source (per RFC-036 §3.1 council decision, DDD condition 2); until then, the two are disambiguated by context (`cfdb_core::query::ast::Param` vs `cfdb_core::schema::Label::PARAM`).
+A **query parameter binding** — named (`$name`) or positional. Lives at `query::ast::ParamBinding`. Homonym note (flagged by RFC-036 council DDD lens): the graph-node label string `"Param"` (`Label::PARAM`, producing `:Param` nodes carrying a fn/method parameter's `index`, `name`, `is_self`, `parent_qname`, `type_path`, `type_normalized`) is an **unrelated concept** — same word, different domain. The query-AST `ParamBinding` is a value supplied by the caller at query time; the graph-node `:Param` is a structural fact emitted by the extractor. This query-AST type was renamed from `Param` to `ParamBinding` to eliminate the homonym at source (per RFC-036 §3.1 council decision, DDD condition 2); the two concepts are now disambiguated by name (`cfdb_core::query::ast::ParamBinding` vs `cfdb_core::schema::Label::PARAM`).
 
 ## PathPattern
 
@@ -204,7 +209,7 @@ Five determinism guarantees govern the wire contract (RFC-029 §6, formalised an
 - **G4** — monotonic within a major: a v0.x graph is readable by any v0.y reader where `y ≥ x` (same major). A lower-(minor, patch) reader **correctly refuses** a higher-(minor, patch) graph per `SchemaVersion::can_read` (`schema/labels.rs:312-315`: `self.major == graph.major && graph <= self`) — this is the intended forward-incompatibility signal when a minor bump introduces new node/edge types older readers cannot handle.
 - **G5** — snapshots are immutable; keyspaces are never rewritten in place, only dropped or replaced wholesale.
 
-**G6 — toolchain-scoped attributes (RFC-036 §4, additive, no existing guarantee broken).** The `:Item.test_coverage` attribute (written by `enrich_metrics` via `cargo-llvm-cov` JSON) is byte-stable only **within the same Rust toolchain version**. It is **excluded from the G1 canonical-dump sha256** and declared as toolchain-version-scoped in `SchemaDescribe` output. Callers that need cross-toolchain comparability record the toolchain version alongside the keyspace themselves; cfdb does not record it automatically. Any future attribute with similar toolchain-dependent provenance must be declared under G6 at introduction and excluded from G1.
+**G6 — toolchain-scoped attributes (RFC-036 §4, additive, no existing guarantee broken).** The `:Item.test_coverage` attribute (written by `enrich_metrics` via `cargo-llvm-cov` JSON) is byte-stable only **within the same Rust toolchain version**. It is **excluded from the G1 canonical-dump sha256**, enforced by the `G1_EXCLUDED_ATTRS` const + `is_g1_excluded` predicate in `cfdb-core::fact` (#486) — co-located with the `Props` / G1 contract so EVERY `StoreBackend::canonical_dump` implementation drops any attribute in that set before serialization, so populating `test_coverage` (e.g. after `enrich_metrics --features llvm-cov`) cannot change the dump bytes. It is also declared as toolchain-version-scoped in `SchemaDescribe` output. Callers that need cross-toolchain comparability record the toolchain version alongside the keyspace themselves; cfdb does not record it automatically. Any future attribute with similar toolchain-dependent provenance must be declared under G6 at introduction **and added to `G1_EXCLUDED_ATTRS`** — the declaration is not real until the const enforces it.
 
 ## StoreBackend
 

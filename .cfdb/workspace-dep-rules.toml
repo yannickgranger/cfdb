@@ -56,16 +56,18 @@ forbidden = [
 # Walks a Rust workspace via syn + cargo_metadata, emits Node/Edge facts.
 # RFC-029 §8: depends ONLY on cfdb-core plus source-analysis tooling.
 allowed = [
-  "cfdb-core",       # the hub — produces Node/Edge defined there
-  "cfdb-concepts",   # shared .cfdb/concepts loader + bounded-context resolver
-  "cfdb-lang",       # RFC-041: RustProducer impls the LanguageProducer seam
-  "syn",             # Rust AST visitor
-  "proc-macro2",     # span-locations feature for real :Item.line (#273)
-  "cargo_metadata",  # workspace/crate metadata
-  "toml",            # .cfdb/concepts/*.toml override config
-  "serde",           # emit surface
-  "serde_json",      # :ConstTable wire-stable JSON arrays (RFC-040 #325)
-  "sha2",            # :ConstTable.entries_hash (RFC-040 #325)
+  "cfdb-core",                # the hub — produces Node/Edge defined there
+  "cfdb-concepts",            # shared .cfdb/concepts loader + bounded-context resolver
+  "cfdb-extractor-shared",    # RFC-043 Slice A — shared classify_arg_kind classifier
+  "cfdb-lang",                # RFC-041: RustProducer impls the LanguageProducer seam
+  "syn",                      # Rust AST visitor
+  "proc-macro2",              # span-locations feature for real :Item.line (#273)
+  "quote",                    # RFC-043 Slice A — ToTokens for :Argument.source_text
+  "cargo_metadata",           # workspace/crate metadata
+  "toml",                     # .cfdb/concepts/*.toml override config
+  "serde",                    # emit surface
+  "serde_json",               # :ConstTable wire-stable JSON arrays (RFC-040 #325)
+  "sha2",                     # :ConstTable.entries_hash (RFC-040 #325)
   "thiserror",
 ]
 forbidden = [
@@ -173,6 +175,28 @@ forbidden = [
   "cfdb-hir-extractor",  # canonical extractor only
   "cfdb-cli",            # cfdb-cli depends on cfdb-recall, not reverse
   "cfdb-http",
+  "tokio",
+  "axum",
+  "hyper",
+  "reqwest",
+]
+
+[cfdb-extractor-shared]
+# Shared syn-based argument-kind classifier (RFC-043 Slice A). Deliberately
+# small: holds ONLY the `classify_arg_kind` function that both `cfdb-extractor`
+# and (optionally) `cfdb-hir-extractor` can depend on. RFC-032 §3 boundary:
+# syn types cannot enter cfdb-core, so this shim crate sits between them.
+allowed = [
+  "syn",   # Rust AST — classify_arg_kind pattern-matches on syn::Expr variants
+]
+forbidden = [
+  "cfdb-core",         # boundary: cfdb-core must not know about syn
+  "cfdb-extractor",    # would create a cycle
+  "cfdb-hir-extractor",
+  "cfdb-petgraph",
+  "cfdb-cli",
+  "cfdb-http",
+  "cargo_metadata",
   "tokio",
   "axum",
   "hyper",

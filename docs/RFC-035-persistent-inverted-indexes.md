@@ -1,6 +1,6 @@
 # RFC-035 — Persistent inverted indexes on `:Item` props and computed keys
 
-Status: **Implemented on develop — pending vNEXT release (2026-04-24)**
+Status: **Released in v0.4.0 (2026-04-25)**
 Ratification: R2 (post-R1 council), 4/4 RATIFY (clean-arch, ddd, rust-systems, solid).
 Parent trace: #167 → #168 (PR #177, merged) → #178 (closed, subsumed) → **this RFC**
 Companion: #167 trial evidence — 148k-node keyspace, 428 MB RSS (fixed), 16+ min scope wall time (unfixed).
@@ -104,6 +104,8 @@ Computed keys are **wrappers around canonical qname-formula functions in `cfdb-c
 1. Be a pure function of a `:Item`'s properties (no I/O, no allocation beyond the return value).
 2. Reference a specific `cfdb-core::qname::*` helper as its semantic anchor, so the computed key's behaviour moves in lockstep with the canonical qname contract. If `cfdb-core::qname::module_qpath` changes, `last_segment(qname)` must either continue to be consistent with it or the index is invalidated and the computed-key registry entry is updated in the same PR.
 3. Be evaluated at ingest time and stored as a virtual prop on the node, tagged by the computed-function name. Subsequent reads see it as any other prop value.
+
+**Amendment (2026-07-15, reviewed PR — allowlist entry 2).** `conversion_prefix(name)` joins the registry: the vetted extractor `regexp_extract(name, '^(\\w+)_(?:from|to|for|as)_')` used by the RandomScattering classifier's fork equi-join, whose un-indexed form measured O(n²) (38 ms @ n=1 000 → 1.70 s @ n=10 000). Invariant 2's anchor requirement generalizes with this entry: a computed key anchors to **one canonical definition owned in code** — a `cfdb-core::qname` helper for qname-formula keys, or a single vetted pattern const co-located with the `ComputedKey` registry (`CONVERSION_PREFIX_PATTERN`) for prop-pattern keys. The lockstep discipline is unchanged: the recogniser accepts a `.cypher` literal only byte-for-byte equal to the const, a tripwire test pins the const to the decoded AST form, and drift invalidates the index + updates the registry entry in the same PR. Invariants 1 and 3 apply verbatim. Cardinality after this entry: 2 of the §3.4 anticipated 3–5 ceiling.
 
 For v0.1, `last_segment(qname)` splits at the last `::` in the qname string — semantically consistent with qname-path grammar established by `cfdb-core::qname` (syn extractor and HIR extractor both use this module; cross-extractor edge landing depends on it). A corresponding `pub fn last_segment(qname: &str) -> &str` helper lands in `cfdb-core::qname` as part of slice 3 (§7) to make the invariant explicit. (R1 B3 resolution — DDD lens.)
 

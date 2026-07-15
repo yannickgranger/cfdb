@@ -44,12 +44,16 @@
 //! `(label, id)` and edges by `(src, dst, label)` before return.
 //! Matches the canonical-dump shape `cfdb-extractor` already produces.
 
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use cfdb_core::fact::{Edge, Node, PropValue};
 use cfdb_core::schema::{EdgeLabel, Label};
 use cfdb_lang::{LanguageError, LanguageProducer};
+
+mod call_walker;
+mod emitter;
+mod implements;
+use emitter::{item_id, module_id, Emitter};
 
 /// Stable producer name reported by [`LanguageProducer::name`] and
 /// embedded in [`LanguageError::Parse::producer`]. Matches the
@@ -108,8 +112,21 @@ fn produce_facts(workspace_root: &Path) -> Result<(Vec<Node>, Vec<Edge>), Langua
 
     let php_files = collect_php_files(workspace_root)?;
     for path in php_files {
-        walk_file(&path, &mut emitter)?;
+        // `:CallSite.file` is workspace-relative, matching the Rust producer.
+        let file = path
+            .strip_prefix(workspace_root)
+            .unwrap_or(&path)
+            .to_string_lossy()
+            .into_owned();
+        walk_file(&path, &file, &mut emitter)?;
     }
+
+    // Pass 2: now that every class/interface/fn `:Item` exists, resolve the
+    // buffered `implements` targets into `IMPLEMENTS` edges and the buffered
+    // call sites into `:CallSite` + `INVOKES_AT` (+ resolved `CALLS`) facts
+    // (RFC-045 §3.2 / §3.4 — both are in-workspace-only two-passes).
+    emitter.resolve_pending_implements();
+    emitter.resolve_pending_call_sites();
 
     let (mut nodes, mut edges) = emitter.finish();
     nodes.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
@@ -149,7 +166,7 @@ fn walk_dir(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), LanguageError> {
 
 /// Parse one `.php` file and walk its syntax tree, emitting nodes +
 /// edges into the shared `Emitter`.
-fn walk_file(path: &Path, emitter: &mut Emitter) -> Result<(), LanguageError> {
+fn walk_file(path: &Path, file: &str, emitter: &mut Emitter) -> Result<(), LanguageError> {
     let source = std::fs::read_to_string(path).map_err(LanguageError::Io)?;
 
     let mut parser = tree_sitter::Parser::new();
@@ -170,7 +187,7 @@ fn walk_file(path: &Path, emitter: &mut Emitter) -> Result<(), LanguageError> {
     })?;
 
     let root = tree.root_node();
-    walk_top_level(root, source.as_bytes(), emitter);
+    walk_top_level(root, source.as_bytes(), file, emitter);
     Ok(())
 }
 
@@ -179,7 +196,7 @@ fn walk_file(path: &Path, emitter: &mut Emitter) -> Result<(), LanguageError> {
 /// AST does not nest declarations inside the namespace node — they
 /// follow it as siblings until the next `namespace_definition` (or
 /// EOF).
-fn walk_top_level(program: tree_sitter::Node, src: &[u8], emitter: &mut Emitter) {
+fn walk_top_level(program: tree_sitter::Node, src: &[u8], file: &str, emitter: &mut Emitter) {
     let mut current_ns: Option<String> = None;
     let mut cursor = program.walk();
     for child in program.children(&mut cursor) {
@@ -192,10 +209,10 @@ fn walk_top_level(program: tree_sitter::Node, src: &[u8], emitter: &mut Emitter)
                 current_ns = ns_name;
             }
             "class_declaration" | "interface_declaration" | "trait_declaration" => {
-                emit_class_like(child, src, current_ns.as_deref(), emitter);
+                emit_class_like(child, src, current_ns.as_deref(), file, emitter);
             }
             "function_definition" => {
-                emit_function(child, src, current_ns.as_deref(), emitter);
+                emit_function(child, src, current_ns.as_deref(), file, emitter);
             }
             _ => {}
         }
@@ -230,10 +247,6 @@ fn emit_module(emitter: &mut Emitter, namespace: &str) {
     );
 }
 
-fn module_id(namespace: &str) -> String {
-    format!("module:{namespace}")
-}
-
 /// Emit a `:Item { kind: "trait" }` for a PHP `class_declaration`,
 /// `interface_declaration`, or `trait_declaration` plus the corresponding
 /// `IN_CRATE` and (when available) `IN_MODULE` edges. Recurses into the
@@ -242,6 +255,7 @@ fn emit_class_like(
     node: tree_sitter::Node,
     src: &[u8],
     current_ns: Option<&str>,
+    file: &str,
     emitter: &mut Emitter,
 ) {
     let Some(name) = find_named_child(node, "name", src) else {
@@ -277,11 +291,24 @@ fn emit_class_like(
         ));
     }
 
-    // Walk the declaration_list for methods.
+    // IMPLEMENTS (pass 1): buffer `(this class, each implemented interface)`.
+    // Only `class_interface_clause` (the `implements` list) is walked —
+    // `base_clause` (`extends`) is intentionally excluded, since inheritance
+    // edges are deferred (RFC-045 §3.3 D3-a). Targets are resolved to
+    // in-workspace `:Item`s in pass 2 (`resolve_pending_implements`).
+    let mut clause_cursor = node.walk();
+    for child in node.children(&mut clause_cursor) {
+        if child.kind() == "class_interface_clause" {
+            implements::buffer_implements_targets(child, src, current_ns, &id, emitter);
+        }
+    }
+
+    // Walk the declaration_list for methods. The class qname is the
+    // enclosing-class context used to resolve `self::`/`static::` calls.
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         if child.kind() == "declaration_list" {
-            walk_declaration_list(child, src, current_ns, &qname, emitter);
+            walk_declaration_list(child, src, current_ns, &qname, file, emitter);
         }
     }
 }
@@ -293,23 +320,27 @@ fn walk_declaration_list(
     src: &[u8],
     current_ns: Option<&str>,
     parent_qname: &str,
+    file: &str,
     emitter: &mut Emitter,
 ) {
     let mut cursor = list.walk();
     for child in list.children(&mut cursor) {
         if child.kind() == "method_declaration" {
-            emit_method(child, src, current_ns, parent_qname, emitter);
+            emit_method(child, src, current_ns, parent_qname, file, emitter);
         }
     }
 }
 
 /// Emit one `:Item { kind: "fn" }` for a `method_declaration` plus
-/// `IN_CRATE` and (when available) `IN_MODULE` edges.
+/// `IN_CRATE` and (when available) `IN_MODULE` edges, then walk its body
+/// for call sites (RFC-045 §3.4). `parent_qname` is the enclosing class,
+/// used to resolve `self::`/`static::` calls.
 fn emit_method(
     node: tree_sitter::Node,
     src: &[u8],
     current_ns: Option<&str>,
     parent_qname: &str,
+    file: &str,
     emitter: &mut Emitter,
 ) {
     let Some(name) = find_named_child(node, "name", src) else {
@@ -338,13 +369,26 @@ fn emit_method(
             EdgeLabel::new(EdgeLabel::IN_MODULE),
         ));
     }
+
+    call_walker::walk_call_sites(
+        node,
+        src,
+        &qname,
+        Some(parent_qname),
+        current_ns,
+        file,
+        emitter,
+    );
 }
 
-/// Emit one `:Item { kind: "fn" }` for a top-level `function_definition`.
+/// Emit one `:Item { kind: "fn" }` for a top-level `function_definition`,
+/// then walk its body for call sites (RFC-045 §3.4). A free function has no
+/// enclosing class, so `self::`/`static::` cannot resolve inside it.
 fn emit_function(
     node: tree_sitter::Node,
     src: &[u8],
     current_ns: Option<&str>,
+    file: &str,
     emitter: &mut Emitter,
 ) {
     let Some(name) = find_named_child(node, "name", src) else {
@@ -373,6 +417,8 @@ fn emit_function(
             EdgeLabel::new(EdgeLabel::IN_MODULE),
         ));
     }
+
+    call_walker::walk_call_sites(node, src, &qname, None, current_ns, file, emitter);
 }
 
 // ---------------------------------------------------------------------------
@@ -395,7 +441,7 @@ fn find_named_child(node: tree_sitter::Node, kind: &str, src: &[u8]) -> Option<S
 /// UTF-8 substring of source at `node`'s byte range. Returns `None`
 /// only if the range crosses a non-UTF-8 boundary, which shouldn't
 /// happen for valid PHP source.
-fn text<'s>(node: tree_sitter::Node, src: &'s [u8]) -> Option<&'s str> {
+pub(crate) fn text<'s>(node: tree_sitter::Node, src: &'s [u8]) -> Option<&'s str> {
     std::str::from_utf8(&src[node.byte_range()]).ok()
 }
 
@@ -403,51 +449,10 @@ fn text<'s>(node: tree_sitter::Node, src: &'s [u8]) -> Option<&'s str> {
 /// (PHP separator); rendered into the `qname` prop verbatim. Cypher
 /// queries can normalise `\\` → `::` if they want to match Rust-style
 /// qualified names.
-fn qualify(ns: Option<&str>, name: &str) -> String {
+pub(crate) fn qualify(ns: Option<&str>, name: &str) -> String {
     match ns {
         Some(ns) if !ns.is_empty() => format!("{ns}\\{name}"),
         _ => name.to_string(),
-    }
-}
-
-fn item_id(qname: &str) -> String {
-    format!("item:{qname}")
-}
-
-// ---------------------------------------------------------------------------
-// Emitter — small helper that dedups :Module / :Crate node ids and
-// otherwise just collects everything for sorting at finish().
-// ---------------------------------------------------------------------------
-
-struct Emitter {
-    nodes: BTreeMap<String, Node>,
-    edges: Vec<Edge>,
-}
-
-impl Emitter {
-    fn new() -> Self {
-        Self {
-            nodes: BTreeMap::new(),
-            edges: Vec::new(),
-        }
-    }
-
-    fn emit_node(&mut self, node: Node) {
-        // dedup on id — if the same module/crate id is emitted twice
-        // (multi-file namespace), keep the first.
-        self.nodes.entry(node.id.clone()).or_insert(node);
-    }
-
-    fn has_node(&self, id: &str) -> bool {
-        self.nodes.contains_key(id)
-    }
-
-    fn emit_edge(&mut self, edge: Edge) {
-        self.edges.push(edge);
-    }
-
-    fn finish(self) -> (Vec<Node>, Vec<Edge>) {
-        (self.nodes.into_values().collect(), self.edges)
     }
 }
 

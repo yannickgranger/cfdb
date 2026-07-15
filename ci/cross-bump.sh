@@ -152,18 +152,38 @@ if [ -n "$DRY_RUN" ]; then
     exit 0
 fi
 
-# Check if branch already exists upstream (prior cron with same SHA).
+# A prior cron may have pushed this branch but FAILED to open the PR
+# (e.g. before the Actions token carried pull-requests:write). So
+# "branch exists" does NOT imply "PR exists" — check for an open PR and
+# open one if it is missing, rather than silently skipping. The blind
+# skip is exactly how the pin silently rotted ~6 weeks (Issue #67
+# post-mortem): the branch was pushed, PR creation 4xx'd, and every
+# subsequent run took this early-exit.
+branch_exists=0
 if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
-    log "branch ${BRANCH} already exists upstream — PR likely already open, skipping"
-    exit 0
+    branch_exists=1
+    open_pr="$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
+        "${API_BASE}/repos/${GITHUB_REPOSITORY}/pulls?state=open&limit=50" \
+        | python3 -c "import json,sys
+try:
+    print(sum(1 for p in json.load(sys.stdin) if p.get('head',{}).get('ref')=='${BRANCH}'))
+except Exception:
+    print(0)" 2>/dev/null || echo 0)"
+    if [ "${open_pr:-0}" -gt 0 ]; then
+        log "branch ${BRANCH} already has an open PR — nothing to do"
+        exit 0
+    fi
+    log "branch ${BRANCH} exists upstream but has NO open PR — opening it"
 fi
 
-git config user.email "cross-bump-cron@agency.lab"
-git config user.name  "cross-bump (Gitea Actions)"
-git checkout -b "$BRANCH"
-git add .cfdb/cross-fixture.toml
-git commit -m "chore: weekly cross-fixture bump → ${HEAD_SHA:0:12}"
-git push origin "$BRANCH"
+if [ "$branch_exists" -eq 0 ]; then
+    git config user.email "cross-bump-cron@agency.lab"
+    git config user.name  "cross-bump (Gitea Actions)"
+    git checkout -b "$BRANCH"
+    git add .cfdb/cross-fixture.toml
+    git commit -m "chore: weekly cross-fixture bump → ${HEAD_SHA:0:12}"
+    git push origin "$BRANCH"
+fi
 
 pr_body="$(python3 - <<PY
 import json
@@ -182,8 +202,18 @@ PY
 
 payload="$(python3 -c "import json,sys; print(json.dumps({'title':'chore: weekly cross-fixture bump → ${HEAD_SHA:0:12}','body':json.loads(sys.stdin.read()),'head':'${BRANCH}','base':'${BASE_BRANCH}'}))" <<< "$pr_body")"
 
-curl -sf -X POST -H "Authorization: token ${GITHUB_TOKEN}" \
+# Capture status + body so a failed PR creation is diagnosable in the job
+# log instead of dying as an opaque `curl exit 22` (the failure mode that
+# hid the broken token for ~6 weeks). Do NOT use `curl -f` here.
+pr_resp="$(curl -s -w $'\n%{http_code}' -X POST -H "Authorization: token ${GITHUB_TOKEN}" \
     -H "Content-Type: application/json" \
     "${API_BASE}/repos/${GITHUB_REPOSITORY}/pulls" \
-    -d "$payload" >/dev/null
-log "opened bump PR targeting ${BASE_BRANCH}"
+    -d "$payload")"
+pr_code="$(printf '%s' "$pr_resp" | tail -n1)"
+if [ "${pr_code:-0}" -ge 400 ]; then
+    log "FATAL: PR creation failed (HTTP ${pr_code}). Response body:"
+    printf '%s\n' "$pr_resp" | sed '$d' | sed 's/^/  /'
+    log "hint: the workflow must grant 'permissions: pull-requests: write'."
+    exit 1
+fi
+log "opened bump PR targeting ${BASE_BRANCH} (HTTP ${pr_code})"

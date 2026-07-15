@@ -3,7 +3,7 @@ mod last_segment_tests {
     use std::collections::BTreeMap;
 
     use cfdb_core::fact::PropValue;
-    use cfdb_core::query::{Expr, Param};
+    use cfdb_core::query::{Expr, ParamBinding};
 
     use crate::eval::Evaluator;
     use crate::graph::KeyspaceState;
@@ -24,7 +24,7 @@ mod last_segment_tests {
     #[test]
     fn call_last_segment_agrees_with_canonical_owner_byte_for_byte() {
         let state = KeyspaceState::new();
-        let params: BTreeMap<String, Param> = BTreeMap::new();
+        let params: BTreeMap<String, ParamBinding> = BTreeMap::new();
         let evaluator = Evaluator::new(&state, &params);
         let bindings: BTreeMap<String, crate::eval::Binding> = BTreeMap::new();
 
@@ -62,7 +62,7 @@ mod last_segment_tests {
     #[test]
     fn call_last_segment_returns_none_on_non_string_input() {
         let state = KeyspaceState::new();
-        let params: BTreeMap<String, Param> = BTreeMap::new();
+        let params: BTreeMap<String, ParamBinding> = BTreeMap::new();
         let evaluator = Evaluator::new(&state, &params);
         let bindings: BTreeMap<String, crate::eval::Binding> = BTreeMap::new();
 

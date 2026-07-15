@@ -54,8 +54,11 @@
 //
 // # Scope and known gaps (v0.3.1)
 //
-// - BFS bound `*1..10` — deeper chains truncate. Matches RFC-036's
-//   written bound and the pattern_b vertical-split-brain convention.
+// - BFS bound `*1..10` — the explicit bound is honoured exactly: the
+//   traversal walks all 10 hops (RFC-047a, #488; before that fix it was
+//   silently clamped to 5). Chains deeper than 10 truncate. Matches
+//   RFC-036's written bound and the pattern_b vertical-split-brain
+//   convention.
 // - `is_test = false` filter on `f` excludes test-scoped resolvers so
 //   scar-corpus assertions don't mask production-path regressions.
 // - Entry-point-scoped: two resolvers reachable from DIFFERENT entry

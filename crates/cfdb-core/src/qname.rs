@@ -25,7 +25,7 @@
 //! `cfdb_core::qname::field_node_id` (etc.) keep working unchanged.
 
 mod node_id;
-pub use node_id::{field_node_id, item_node_id, param_node_id, variant_node_id};
+pub use node_id::{argument_node_id, field_node_id, item_node_id, param_node_id, variant_node_id};
 
 /// Join the module stack into a `::`-delimited module qpath.
 ///

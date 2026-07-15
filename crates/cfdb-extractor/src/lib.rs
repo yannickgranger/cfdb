@@ -33,6 +33,10 @@
 //! - [`file_walker`]  — recursive module walker + `#[path]` resolution
 //! - [`item_visitor`] — `syn::Visit` impl for module-level items
 //! - [`call_visitor`] — `syn::Visit` impl for call sites inside fn bodies
+//! - [`match_visitor`] — `syn::Visit` impl for `match`-dispatch sites
+//!   inside fn bodies (RFC-053)
+//! - [`macro_tokens`] — shared macro-body re-parse helper used by the
+//!   call, literal, and match visitors
 //!
 //! `lib.rs` keeps only the public entry point, the error type, and the
 //! shared [`Emitter`] sink that every submodule writes into.
@@ -56,10 +60,13 @@ use thiserror::Error;
 mod attrs;
 mod call_visitor;
 mod const_table;
+mod crate_tier;
 mod emitter;
 mod file_walker;
 mod item_visitor;
 mod literal_visitor;
+mod macro_tokens;
+mod match_visitor;
 mod resolver;
 mod synthesize;
 mod type_render;
@@ -89,6 +96,9 @@ pub enum ExtractError {
 
     #[error("concept overrides: {0}")]
     Concepts(String),
+
+    #[error("crate_tier: cycle in the intra-workspace normal-dependency DAG involving crate `{0}` (RFC-050 §3.2 — normal deps must form a DAG)")]
+    CrateTierCycle(String),
 }
 
 // ---------------------------------------------------------------------------
@@ -152,12 +162,64 @@ impl cfdb_lang::LanguageProducer for RustProducer {
 /// fact sets; the trait method just wraps `ExtractError` into
 /// `LanguageError::Parse`.
 pub fn extract_workspace(workspace_root: &Path) -> Result<(Vec<Node>, Vec<Edge>), ExtractError> {
+    // Delegate with a no-op observer so profiled and un-profiled extraction
+    // share ONE implementation and cannot diverge.
+    extract_workspace_profiled(workspace_root, &mut |_| {})
+}
+
+/// Phase-transition markers the profiled extract emits to an observer at each
+/// boundary between the `extract`-internal phases the council fixed for
+/// RFC-048 §1: the `cargo metadata` subprocess, the `syn` walk (parse +
+/// per-file visit + context emission), and the post-walk deferred resolution
+/// (RETURNS / TYPE_OF resolvers, referenced-item synthesis, canonical sort).
+///
+/// Pure control-flow signals: the extractor reads no clock — RFC-029 §12.1 G1
+/// forbids wall-clock reads in this crate, and the fence at
+/// `tests/architecture_determinism.rs` enforces it at the source level. The
+/// composition root (cfdb-cli) supplies an observer that timestamps each
+/// marker and derives the per-phase durations; nothing here is telemetry,
+/// only the boundaries. Emitted in order, exactly once each, per run — so
+/// profiling is structurally incapable of perturbing the emitted facts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExtractPhaseMarker {
+    /// Emitted immediately before the `cargo metadata --no-deps` subprocess.
+    CargoMetadataStart,
+    /// Emitted after cargo-metadata completes, before the `syn` walk begins.
+    SynWalkStart,
+    /// Emitted after the `syn` walk, before post-walk deferred resolution.
+    DeferredResolveStart,
+    /// Emitted after deferred resolution + the canonical sort — extraction is
+    /// complete and `(nodes, edges)` is about to return.
+    Finished,
+}
+
+/// Profiled sibling of [`extract_workspace`] — identical work and
+/// byte-identical `(nodes, edges)` output. It emits an [`ExtractPhaseMarker`]
+/// to `observe` at each boundary between the three `extract`-internal phases
+/// named in RFC-048 §1, letting the composition root time them.
+///
+/// [`extract_workspace`] is the un-profiled entry every existing caller uses;
+/// it delegates here with a no-op observer, so the two paths share ONE
+/// implementation and cannot diverge. The extractor itself reads no clock —
+/// the markers are pure control flow (RFC-029 §12.1 G1); the observer owns the
+/// wall-clock. Determinism (RFC-048 §4, the `G1` byte-stable dump) is
+/// therefore structurally unaffected by profiling.
+pub fn extract_workspace_profiled(
+    workspace_root: &Path,
+    observe: &mut dyn FnMut(ExtractPhaseMarker),
+) -> Result<(Vec<Node>, Vec<Edge>), ExtractError> {
+    // Phase 1 (RFC-048 §1) — the `cargo metadata` subprocess.
+    observe(ExtractPhaseMarker::CargoMetadataStart);
     let manifest = workspace_root.join("Cargo.toml");
     let metadata = MetadataCommand::new()
         .manifest_path(&manifest)
         .no_deps()
         .exec()
         .map_err(|e| ExtractError::Metadata(e.to_string()))?;
+
+    // Phase 2 (RFC-048 §1) — the syn walk: concept-override load, crate-tier
+    // DAG, the per-file `syn` parse + visit, and per-context node emission.
+    observe(ExtractPhaseMarker::SynWalkStart);
 
     // Step 1 (pre-walk): load `.cfdb/concepts/*.toml` overrides so the
     // per-crate bounded-context resolution in the loop below can honour
@@ -190,10 +252,18 @@ pub fn extract_workspace(workspace_root: &Path) -> Result<(Vec<Node>, Vec<Edge>)
     let mut contexts_seen: BTreeMap<String, (ContextMeta, ContextSource)> =
         seed_declared_contexts(&overrides);
 
-    for package in metadata.workspace_packages() {
+    // RFC-050 50-A: compute each workspace crate's `crate_tier` (topological
+    // longest-path depth in the intra-workspace normal-`[dependencies]` DAG)
+    // up front — the DAG needs the full member set, so this precedes the
+    // per-crate emission loop. A cycle in the normal-deps DAG is fatal.
+    let packages = metadata.workspace_packages();
+    let crate_tiers = crate_tier::compute_crate_tiers(&packages)?;
+
+    for package in packages.iter().copied() {
         emit_crate_and_walk_targets(
             &mut emitter,
             package,
+            &crate_tiers,
             &overrides,
             &published_language,
             &mut contexts_seen,
@@ -210,6 +280,10 @@ pub fn extract_workspace(workspace_root: &Path) -> Result<(Vec<Node>, Vec<Edge>)
     for (name, (meta, source)) in &contexts_seen {
         emit_context_node(&mut emitter, name, meta, *source);
     }
+
+    // Phase 3 (RFC-048 §1) — post-walk deferred resolution: the RETURNS /
+    // TYPE_OF resolvers, referenced-item synthesis, and the canonical sort.
+    observe(ExtractPhaseMarker::DeferredResolveStart);
 
     // Step 3 (post-walk) — RETURNS resolution (RFC-037 §3.2, #216).
     //
@@ -242,20 +316,40 @@ pub fn extract_workspace(workspace_root: &Path) -> Result<(Vec<Node>, Vec<Edge>)
     // nodes which queue their own TYPE_OF entries).
     resolver::resolve_deferred_type_of(&mut emitter);
 
-    // Step 5 (post-walk) — synthesize minimal `:Item` nodes for edge dst
+    // Step 5 (post-walk) — MATCHES_ON resolution (RFC-053 §3.2, slice
+    // 53-B). For each (matchsite_id, matched_path_prefix) queued by the
+    // match visitor, emit a MATCHES_ON edge when the name-level prefix
+    // resolves to a workspace enum. Reuses the RETURNS / TYPE_OF two-tier
+    // primitive (exact-match + unique last-segment) with a `kind="enum"`
+    // filter, a §3.5 homonym guard (a name-level resolution is trusted
+    // only when the matched-path prefix is a segment-suffix of the resolved
+    // qname), and no wrapper-unwrap third tier — a matched path is a
+    // pattern-path prefix, not a wrapped type. An external prefix
+    // (`syn::Visibility`) is not a suffix of the same-named workspace enum
+    // and resolves to nothing, so its `:MatchSite` keeps no MATCHES_ON edge
+    // (the honest name-level-only representation).
+    // Runs BEFORE synthesis for the same reason RETURNS / TYPE_OF do —
+    // the resolver's exact-match tier must not see synthesised entries.
+    resolver::resolve_deferred_match_targets(&mut emitter);
+
+    // Step 6 (post-walk) — synthesize minimal `:Item` nodes for edge dst
     // qnames that no walk path emitted: foreign traits (`std::fmt::Display`),
     // foreign types (`serde::Value`), or any same-workspace item referenced
     // by edge before walking. Without this pass `cfdb-petgraph::ingest_one_edge`
     // drops every IMPLEMENTS / IMPLEMENTS_FOR / RETURNS / TYPE_OF whose dst
     // is unknown — issue #317 (reframed from withdrawn RFC-039). Runs AFTER
-    // RETURNS / TYPE_OF resolution so the resolvers' exact-match tier is
-    // not contaminated by synthesised entries; runs BEFORE finish() so
+    // RETURNS / TYPE_OF / MATCHES_ON resolution so the resolvers' exact-match
+    // tier is not contaminated by synthesised entries; runs BEFORE finish() so
     // synthesised nodes/edges land in the same canonical sort.
     synthesize::synthesize_referenced_items(&mut emitter, &overrides);
 
     let (mut nodes, mut edges) = emitter.finish();
     nodes.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
     edges.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
+
+    // Final boundary (RFC-048 §1) — extraction complete; the observer times
+    // the deferred-resolve phase from here back to its start marker.
+    observe(ExtractPhaseMarker::Finished);
     Ok((nodes, edges))
 }
 
@@ -267,6 +361,7 @@ pub fn extract_workspace(workspace_root: &Path) -> Result<(Vec<Node>, Vec<Edge>)
 fn emit_crate_and_walk_targets(
     emitter: &mut Emitter,
     package: &cargo_metadata::Package,
+    crate_tiers: &BTreeMap<String, i64>,
     overrides: &ConceptOverrides,
     published_language: &PublishedLanguageCrates,
     contexts_seen: &mut BTreeMap<String, (ContextMeta, ContextSource)>,
@@ -289,6 +384,18 @@ fn emit_crate_and_walk_targets(
         label: Label::new(Label::CRATE),
         props: {
             let mut p = BTreeMap::new();
+            // RFC-050 50-A. `crate_tiers` is total over the workspace member
+            // set, so the lookup always hits; `unwrap_or(0)` is a defensive
+            // non-panic for the structurally-impossible miss (a leaf default).
+            p.insert(
+                "crate_tier".into(),
+                PropValue::Int(
+                    crate_tiers
+                        .get(&package.name.to_string())
+                        .copied()
+                        .unwrap_or(0),
+                ),
+            );
             p.insert("name".into(), PropValue::Str(package.name.to_string()));
             p.insert(
                 "version".into(),

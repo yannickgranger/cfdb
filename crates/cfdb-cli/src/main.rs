@@ -102,7 +102,7 @@ fn run(cli: Cli) -> Result<(), CfdbCliError> {
         Command::Version => print_version(),
         Command::SchemaDescribe => schema_describe_cmd()?,
         cmd @ (Command::Extract(_)
-        | Command::Query { .. }
+        | Command::Query(..)
         | Command::Violations { .. }
         | Command::Check { .. }
         | Command::Dump { .. }
@@ -117,6 +117,7 @@ fn run(cli: Cli) -> Result<(), CfdbCliError> {
         | Command::EnrichMetrics { .. }) => dispatch_enrich(cmd)?,
         cmd @ (Command::FindCanonical { .. }
         | Command::ListCallers { .. }
+        | Command::Impact(..)
         | Command::ListBypasses { .. }
         | Command::ListItemsMatching { .. }
         | Command::Scope { .. }

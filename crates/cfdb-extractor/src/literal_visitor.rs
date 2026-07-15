@@ -6,7 +6,8 @@
 //! `syn::visit::visit_block` / `visit_expr`. The visitor emits one
 //! `:Literal` node per `syn::Lit::Str` it finds (including those
 //! inside `vec!`/`format!`/etc. expression-position macro invocations
-//! that are re-parsed via [`LiteralVisitor::walk_macro_tokens`]).
+//! that are re-parsed via the shared
+//! [`crate::macro_tokens::walk_macro_tokens`] helper).
 //!
 //! Per RFC-041 §3.1 the emitted `value` is the **raw inter-delimiter
 //! source bytes** of the literal token, NOT
@@ -39,7 +40,8 @@
 //!
 //! Expression-position literals inside macro **invocations** like
 //! `vec!["a"]` / `format!("...", x)` ARE in scope, and are reached by
-//! the same `walk_macro_tokens` re-parse trick used by `call_visitor`.
+//! the same shared [`crate::macro_tokens::walk_macro_tokens`] re-parse
+//! helper `call_visitor` and `match_visitor` use.
 
 use std::collections::BTreeMap;
 
@@ -109,10 +111,10 @@ impl<'ast> Visit<'ast> for LiteralVisitor<'_, '_> {
     /// Re-parse expression-position macro invocations so literals
     /// inside `vec!["a"]` / `format!("{}", x)` / `json!({...})` are
     /// captured (RFC-041 §6 — "Expression-position literals inside
-    /// macro invocations like vec!/format! remain reachable"). Same
-    /// three-shape strategy as [`crate::call_visitor`].
+    /// macro invocations like vec!/format! remain reachable"). Delegates
+    /// to the shared [`crate::macro_tokens::walk_macro_tokens`] helper.
     fn visit_expr_macro(&mut self, node: &'ast syn::ExprMacro) {
-        self.walk_macro_tokens(&node.mac);
+        crate::macro_tokens::walk_macro_tokens(self, &node.mac);
     }
 
     /// Statement-position macros (`assert_eq!(...);`, `tracing::info!(...);`,
@@ -120,37 +122,11 @@ impl<'ast> Visit<'ast> for LiteralVisitor<'_, '_> {
     /// this override every literal inside a statement-level macro would be
     /// invisible.
     fn visit_stmt_macro(&mut self, node: &'ast syn::StmtMacro) {
-        self.walk_macro_tokens(&node.mac);
+        crate::macro_tokens::walk_macro_tokens(self, &node.mac);
     }
 }
 
 impl LiteralVisitor<'_, '_> {
-    fn walk_macro_tokens(&mut self, mac: &syn::Macro) {
-        use syn::parse::Parser;
-        use syn::visit::Visit;
-        let tokens = mac.tokens.clone();
-
-        // (1) Punctuated<Expr, Comma> — vec!, format!, json!, assert_eq!,
-        //     and most function-like expression macros.
-        let punct_parser =
-            syn::punctuated::Punctuated::<syn::Expr, syn::Token![,]>::parse_terminated;
-        if let Ok(exprs) = punct_parser.parse2(tokens.clone()) {
-            for expr in &exprs {
-                self.visit_expr(expr);
-            }
-            return;
-        }
-        // (2) Block shape — macros with statement-block bodies.
-        if let Ok(block) = syn::parse2::<syn::Block>(tokens.clone()) {
-            self.visit_block(&block);
-            return;
-        }
-        // (3) Single-expression fallback.
-        if let Ok(expr) = syn::parse2::<syn::Expr>(tokens) {
-            self.visit_expr(&expr);
-        }
-    }
-
     fn emit_literal(&mut self, lit: &syn::LitStr) {
         let node = build_literal_node(lit, self.file_path, self.crate_name, self.is_test);
         self.emitter.emit_node(node);

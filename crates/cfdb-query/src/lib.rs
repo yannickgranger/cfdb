@@ -15,6 +15,7 @@
 pub mod builder;
 pub mod classify;
 pub mod diff;
+pub mod impact;
 pub mod inventory;
 pub mod list_items;
 pub mod parser;
@@ -27,6 +28,7 @@ pub use diff::{
     compute_diff, ChangedFact, DiffEnvelope, DiffError, DiffFact, KindsFilter,
     ENVELOPE_SCHEMA_VERSION,
 };
+pub use impact::{impact_query, items_with_files_query, IMPACT_QUERY};
 pub use inventory::{
     CanonicalCandidate, DebtClass, Finding, ReachabilityEntry, ScopeInventory, UnknownDebtClass,
 };

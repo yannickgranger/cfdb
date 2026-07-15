@@ -25,8 +25,8 @@ use std::time::Instant;
 
 use cfdb_core::fact::{Node, PropValue};
 use cfdb_core::query::{
-    CompareOp, Expr, NodePattern, Param, Pattern, Predicate, Projection, ProjectionValue, Query,
-    ReturnClause,
+    CompareOp, Expr, NodePattern, ParamBinding, Pattern, Predicate, Projection, ProjectionValue,
+    Query, ReturnClause,
 };
 use cfdb_core::result::RowValue;
 use cfdb_core::schema::{Keyspace, Label};
@@ -187,7 +187,10 @@ fn build_homonym_query(ctx: &str) -> Query {
         Box::new(Predicate::And(Box::new(last_seg_eq), Box::new(qname_ne))),
     );
     let mut params = BTreeMap::new();
-    params.insert("ctx".to_string(), Param::Scalar(PropValue::from(ctx)));
+    params.insert(
+        "ctx".to_string(),
+        ParamBinding::Scalar(PropValue::from(ctx)),
+    );
     Query {
         match_clauses: vec![Pattern::Node(a_np), Pattern::Node(b_np)],
         where_clause: Some(where_clause),

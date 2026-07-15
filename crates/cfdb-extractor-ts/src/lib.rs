@@ -66,7 +66,9 @@ use cfdb_core::schema::Label;
 use cfdb_lang::{LanguageError, LanguageProducer};
 use tree_sitter::Parser;
 
+mod call_walker;
 mod emit;
+mod methods;
 
 /// Stable producer identifier — matches the `lang-typescript` Cargo
 /// feature gate on `cfdb-cli` (RFC-041 §3.4) and the keyspace suffix
@@ -149,6 +151,7 @@ impl LanguageProducer for TypeScriptProducer {
                 message: format!("set_language(LANGUAGE_TYPESCRIPT): {e}"),
             })?;
 
+        let mut pending_implements: Vec<(String, String)> = Vec::new();
         for file_path in &ts_files {
             walk_file(
                 &mut parser,
@@ -158,8 +161,14 @@ impl LanguageProducer for TypeScriptProducer {
                 &crate_id,
                 &mut nodes,
                 &mut edges,
+                &mut pending_implements,
             )?;
         }
+
+        // Pass 2: now that every class/interface `:Item` exists, resolve the
+        // buffered `implements` references into `IMPLEMENTS` edges by name
+        // (RFC-045 §3.2 / §3.4, in-workspace-only).
+        emit::resolve_implements(pending_implements, &nodes, &mut edges);
 
         // Canonical sort — matches cfdb-extractor's contract so two
         // producers' output streams compose deterministically when
@@ -235,6 +244,7 @@ fn visit_dir(dir: &Path, acc: &mut Vec<PathBuf>) -> std::io::Result<()> {
 
 /// Parse one `.ts` file and emit its `:Module` node + child `:Item`
 /// nodes + structural edges.
+#[allow(clippy::too_many_arguments)]
 fn walk_file(
     parser: &mut Parser,
     workspace_root: &Path,
@@ -243,6 +253,7 @@ fn walk_file(
     crate_id: &str,
     nodes: &mut Vec<Node>,
     edges: &mut Vec<Edge>,
+    pending_implements: &mut Vec<(String, String)>,
 ) -> Result<(), LanguageError> {
     let source = fs::read_to_string(file_path).map_err(LanguageError::Io)?;
     let tree = parser.parse(&source, None).ok_or(LanguageError::Parse {
@@ -285,6 +296,7 @@ fn walk_file(
         &rel_path,
         nodes,
         edges,
+        pending_implements,
     );
     Ok(())
 }

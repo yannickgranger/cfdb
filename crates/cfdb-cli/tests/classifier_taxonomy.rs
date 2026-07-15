@@ -24,7 +24,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use assert_cmd::prelude::*;
-use tempfile::tempdir;
+
+mod common;
 
 fn queries_dir() -> PathBuf {
     let cfdb_root = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -58,60 +59,46 @@ fn copy_dir_recursive(src: &Path, dst: &Path) {
     }
 }
 
-/// Stand up the fixture in a tempdir and run the full extract + enrich
-/// pipeline. Returns `(db_dir, keyspace_name, workspace_path)`.
-fn build_and_enrich(tmp: &Path) -> (PathBuf, &'static str, PathBuf) {
-    let workspace = tmp.join("workspace");
-    copy_dir_recursive(&fixture_dir(), &workspace);
-    let db = tmp.join("db");
-    let ks = "cls";
+/// Shared HIR extract + enrich of the `classifier-taxonomy` fixture into
+/// keyspace `cls`, built once and reused read-only by every test. Replaces
+/// the former per-test `build_and_enrich`, which re-ran a `--hir` extract
+/// plus two enrich passes in each of the 8 tests (8 pipelines → 1). The
+/// enriched keyspace is read-only here (`scope` only reads it), so sharing
+/// is faithful — assertions see byte-identical data.
+fn shared_cls_db() -> PathBuf {
+    common::cached_db("classifier-taxonomy-cls", |db| {
+        let workspace = db.join("_workspace");
+        copy_dir_recursive(&fixture_dir(), &workspace);
+        // --no-proc-macro: this test exercises classifier logic, not
+        // proc-macro recall; without it the post-RFC-043 default invokes
+        // the sysroot proc-macro server and pulls the fixture's full
+        // transitive dep graph into the keyspace, exploding extract time.
+        common::extract(db, &workspace, "cls", &["--hir", "--no-proc-macro"]);
 
-    cfdb()
-        .args([
-            "extract",
-            "--workspace",
-            workspace.to_str().expect("workspace utf-8"),
-            "--db",
-            db.to_str().expect("db utf-8"),
-            "--keyspace",
-            ks,
-            "--hir",
-            // Test exercises classifier logic, not proc-macro recall.
-            // Without this flag the post-RFC-043 default would invoke
-            // the sysroot proc-macro server and pull the synthetic
-            // fixture's full transitive dep graph into the keyspace,
-            // exploding extract time (proc-macros are the right
-            // default for production but unnecessary cost here).
-            "--no-proc-macro",
-        ])
-        .assert()
-        .success();
+        cfdb()
+            .args([
+                "enrich-concepts",
+                "--db",
+                db.to_str().expect("db utf-8"),
+                "--keyspace",
+                "cls",
+                "--workspace",
+                workspace.to_str().expect("workspace utf-8"),
+            ])
+            .assert()
+            .success();
 
-    cfdb()
-        .args([
-            "enrich-concepts",
-            "--db",
-            db.to_str().expect("db utf-8"),
-            "--keyspace",
-            ks,
-            "--workspace",
-            workspace.to_str().expect("workspace utf-8"),
-        ])
-        .assert()
-        .success();
-
-    cfdb()
-        .args([
-            "enrich-reachability",
-            "--db",
-            db.to_str().expect("db utf-8"),
-            "--keyspace",
-            ks,
-        ])
-        .assert()
-        .success();
-
-    (db, ks, workspace)
+        cfdb()
+            .args([
+                "enrich-reachability",
+                "--db",
+                db.to_str().expect("db utf-8"),
+                "--keyspace",
+                "cls",
+            ])
+            .assert()
+            .success();
+    })
 }
 
 fn run_scope(db: &Path, ks: &str, context: &str) -> serde_json::Value {
@@ -157,8 +144,8 @@ fn qnames(bucket: &serde_json::Value) -> Vec<String> {
 
 #[test]
 fn classifier_emits_duplicated_feature_for_orderbook_pair() {
-    let tmp = tempdir().expect("tempdir");
-    let (db, ks, _ws) = build_and_enrich(tmp.path());
+    let db = shared_cls_db();
+    let ks = "cls";
     let inv = run_scope(&db, ks, "trading");
     let names = qnames(bucket(&inv, "duplicated_feature"));
     // Both halves of the pair should surface (one row per definition).
@@ -178,8 +165,8 @@ fn classifier_emits_duplicated_feature_for_orderbook_pair() {
 
 #[test]
 fn classifier_emits_unfinished_refactor_for_deprecated_item() {
-    let tmp = tempdir().expect("tempdir");
-    let (db, ks, _ws) = build_and_enrich(tmp.path());
+    let db = shared_cls_db();
+    let ks = "cls";
     let inv = run_scope(&db, ks, "trading");
     let names = qnames(bucket(&inv, "unfinished_refactor"));
     // The deprecated `OldSizer` struct and/or its deprecated `compute` fn
@@ -193,8 +180,8 @@ fn classifier_emits_unfinished_refactor_for_deprecated_item() {
 
 #[test]
 fn classifier_emits_context_homonym_for_position_value_pair() {
-    let tmp = tempdir().expect("tempdir");
-    let (db, ks, _ws) = build_and_enrich(tmp.path());
+    let db = shared_cls_db();
+    let ks = "cls";
     // Homonym surfaces in the `trading` context's inventory (the a-side
     // of the pair whose `bounded_context = trading`).
     let inv = run_scope(&db, ks, "trading");
@@ -209,8 +196,8 @@ fn classifier_emits_context_homonym_for_position_value_pair() {
 
 #[test]
 fn classifier_emits_random_scattering_for_compute_qty_fork() {
-    let tmp = tempdir().expect("tempdir");
-    let (db, ks, _ws) = build_and_enrich(tmp.path());
+    let db = shared_cls_db();
+    let ks = "cls";
     let inv = run_scope(&db, ks, "trading");
     let names = qnames(bucket(&inv, "random_scattering"));
     // Rule projects resolver A (lexicographically smaller) → `compute_qty_from_bps`.
@@ -222,8 +209,8 @@ fn classifier_emits_random_scattering_for_compute_qty_fork() {
 
 #[test]
 fn classifier_emits_canonical_bypass_for_orphan_isolated() {
-    let tmp = tempdir().expect("tempdir");
-    let (db, ks, _ws) = build_and_enrich(tmp.path());
+    let db = shared_cls_db();
+    let ks = "cls";
     let inv = run_scope(&db, ks, "trading");
     let names = qnames(bucket(&inv, "canonical_bypass"));
     // `Orphan::isolated` lives in the canonical crate (trading_domain_a)
@@ -238,8 +225,8 @@ fn classifier_emits_canonical_bypass_for_orphan_isolated() {
 
 #[test]
 fn classifier_emits_unwired_for_dead_function() {
-    let tmp = tempdir().expect("tempdir");
-    let (db, ks, _ws) = build_and_enrich(tmp.path());
+    let db = shared_cls_db();
+    let ks = "cls";
     let inv = run_scope(&db, ks, "trading");
     let names = qnames(bucket(&inv, "unwired"));
     assert!(
@@ -254,8 +241,8 @@ fn classifier_six_buckets_all_populated() {
     // bucket has at least one row. Mirrors the individual tests but is
     // cheaper for CI (single pipeline invocation) and catches regressions
     // where a fix to one class accidentally empties another.
-    let tmp = tempdir().expect("tempdir");
-    let (db, ks, _ws) = build_and_enrich(tmp.path());
+    let db = shared_cls_db();
+    let ks = "cls";
     let inv = run_scope(&db, ks, "trading");
     for class in [
         "duplicated_feature",

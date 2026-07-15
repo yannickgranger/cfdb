@@ -101,6 +101,10 @@ fn self_dogfood_cfdb_concept_and_labeled_as_coverage() {
         "cfdb-recall",
         "check-prelude-triggers",
         "dogfood-enrich",
+        // RFC-043 Slice A — shared syn-based argument-kind classifier used by
+        // both cfdb-extractor and cfdb-hir-extractor. Same operational bounded
+        // context per council-cfdb-wiring §B.1.2. Mirror .cfdb/concepts/cfdb.toml.
+        "cfdb-extractor-shared",
     ]
     .into_iter()
     .collect();

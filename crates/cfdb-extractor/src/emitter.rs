@@ -1,7 +1,9 @@
 //! Shared [`Emitter`] sink — holds the accumulating nodes + edges the
 //! AST walkers push into, plus the post-walk RETURNS / TYPE_OF
 //! resolution state (`emitted_item_qnames` + two deferred queues per
-//! RFC-037 §3.2, #216).
+//! RFC-037 §3.2, #216) and the MATCHES_ON resolution state
+//! (`emitted_enum_qnames` + a third deferred queue per RFC-053 §3.2,
+//! slice 53-B).
 //!
 //! Split from `lib.rs` (#239 slice) to keep the top-level module under
 //! the 500-LOC architecture threshold. The public surface is
@@ -63,6 +65,30 @@ pub(crate) struct Emitter {
     /// which queue their own TYPE_OF entries. Variant-level TYPE_OF
     /// is a documented follow-up (RFC-037 §3.4 / #220 non-goals).
     pub(crate) deferred_type_of: Vec<(String, String, &'static str, syn::Type)>,
+    /// Deferred MATCHES_ON edges — `(matchsite_id, matched_path_prefix)`
+    /// (RFC-053 §3.2, slice 53-B). Queued walk-time by
+    /// [`crate::match_visitor`] for every `:MatchSite` it emits;
+    /// [`crate::resolver::resolve_deferred_match_targets`] drains it after
+    /// the walk and emits a `MATCHES_ON` edge for each prefix that
+    /// resolves to a workspace *enum*. The stored prefix is the
+    /// name-level `matched_path` as written (`Visibility`,
+    /// `syn::Visibility`); resolution reuses the same two-tier
+    /// [`crate::resolver`] primitives RETURNS / TYPE_OF use, without the
+    /// third-tier wrapper unwrap (a matched path is a pattern-path
+    /// prefix, not a wrapped type). A third deferred queue is a natural
+    /// extension of the single deferred-resolution responsibility — no
+    /// `DeferredResolution` trait (RFC-053 §3.3, YAGNI).
+    pub(crate) deferred_match_targets: Vec<(String, String)>,
+    /// Qnames of every emitted `:Item` whose `kind` is `"enum"` — the
+    /// `MATCHES_ON` kind filter (RFC-053 §3.2: resolution targets are
+    /// constrained to `kind = "enum"`; a prefix resolving to a
+    /// struct/trait emits nothing). A subset of
+    /// [`Self::emitted_item_qnames`], populated at the same single `:Item`
+    /// emission site
+    /// ([`crate::item_visitor::ItemVisitor::emit_item_with_flags`]). Held
+    /// on the workspace-scoped `Emitter` so the post-walk resolver sees
+    /// every enum across every file regardless of walk order.
+    pub(crate) emitted_enum_qnames: std::collections::BTreeSet<String>,
 }
 
 impl Emitter {
@@ -73,6 +99,8 @@ impl Emitter {
             emitted_item_qnames: std::collections::BTreeSet::new(),
             deferred_returns: Vec::new(),
             deferred_type_of: Vec::new(),
+            deferred_match_targets: Vec::new(),
+            emitted_enum_qnames: std::collections::BTreeSet::new(),
         }
     }
 

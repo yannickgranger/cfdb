@@ -97,7 +97,7 @@ fn v02_1_coverage_gate_meets_95_percent_recall_per_kind() {
 
     let (db, vfs, _pm_client) = build_hir_database(&root, false)
         .unwrap_or_else(|e| panic!("build_hir_database({}) failed: {e}", root.display()));
-    let (nodes, _edges) = extract_entry_points(&db, &vfs)
+    let (nodes, _edges) = extract_entry_points(&db, &vfs, &root)
         .unwrap_or_else(|e| panic!("extract_entry_points on fixture failed: {e}"));
 
     // Index emitted EntryPoints by (kind, handler_qname) so lookups

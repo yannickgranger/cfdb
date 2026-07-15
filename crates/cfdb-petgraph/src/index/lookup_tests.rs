@@ -11,7 +11,7 @@
 use std::collections::BTreeMap;
 
 use cfdb_core::fact::{Node, PropValue};
-use cfdb_core::query::{CompareOp, Expr, NodePattern, Param, Predicate};
+use cfdb_core::query::{CompareOp, Expr, NodePattern, ParamBinding, Predicate};
 use cfdb_core::schema::Label;
 
 use crate::graph::KeyspaceState;
@@ -174,7 +174,10 @@ fn where_eq_param_becomes_a_hint() {
         right: Expr::Param("q".into()),
     };
     let mut params = BTreeMap::new();
-    params.insert("q".to_string(), Param::Scalar(PropValue::from("foo::b")));
+    params.insert(
+        "q".to_string(),
+        ParamBinding::Scalar(PropValue::from("foo::b")),
+    );
     let got =
         candidates_from_index(&state, &np, Some(&pred), &params, &no_bound).expect("indexed path");
     assert_eq!(got.len(), 1);

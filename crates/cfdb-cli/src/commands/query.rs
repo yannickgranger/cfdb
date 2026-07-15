@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 
 use cfdb_core::store::StoreBackend;
-use cfdb_core::{Param, PropValue, Query};
+use cfdb_core::{ParamBinding, PropValue, Query};
 use cfdb_query::{lint_shape, parse, ShapeLint};
 
 use crate::compose;
@@ -98,7 +98,7 @@ fn bind_single_param(
         | serde_json::Value::Null => {
             parsed
                 .params
-                .insert(k.to_string(), Param::Scalar(PropValue::from_json(v)));
+                .insert(k.to_string(), ParamBinding::Scalar(PropValue::from_json(v)));
             Ok(())
         }
         serde_json::Value::Array(_) | serde_json::Value::Object(_) => Err(format!(
@@ -126,9 +126,10 @@ pub fn list_callers(
 
     let mut parsed = parse(LIST_CALLERS_CYPHER)
         .map_err(|e| format!("parse error in embedded list-callers template: {e}"))?;
-    parsed
-        .params
-        .insert("qname".to_string(), Param::Scalar(PropValue::Str(qname)));
+    parsed.params.insert(
+        "qname".to_string(),
+        ParamBinding::Scalar(PropValue::Str(qname)),
+    );
 
     let (store, ks) = compose::load_store(&db, &keyspace)?;
     let result = store.execute(&ks, &parsed)?;
