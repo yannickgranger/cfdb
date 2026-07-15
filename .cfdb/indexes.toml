@@ -46,3 +46,8 @@ notes = "Slice-5 narrow — every classifier filters `is_test = false`. Low-card
 label = "Item"
 prop = "dup_cluster_id"
 notes = "Hash-join bucket for `.cfdb/queries/hsb-cluster.cypher` — the v2 HSB detector joins on `a.dup_cluster_id = b.dup_cluster_id` (RFC-036 §3.4 signal S1). Without this entry the rule falls back to label scan + per-pair Cartesian on `:Item` (~80k items on cfdb-self post-extract), regressed cfdb-self smoke from ~1s to ~8min. Populated by `enrich_metrics` (RFC-036 §3.3, slice #203) as `sha256(lex_sorted(member_qnames))` keyed by shared `signature_hash`; sparse — only items in a fingerprint-duplicate cluster carry the prop. Sparse-prop buckets are cheap to index."
+
+[[index]]
+label = "Item"
+computed = "conversion_prefix(name)"
+notes = "Fork-join bucket for the RandomScattering classifier (examples/queries/classifier-random-scattering.cypher / RFC-035 §3.6 cross-MATCH). Buckets `:Item.name` by the leading `<stem>_<from|to|for|as>_` conversion prefix via the vetted regex; names without a conversion prefix contribute no posting (SQL NULL-index semantics). Without this entry the rule's `regexp_extract(a.name, …) = regexp_extract(b.name, …)` equi-join is an O(n²) Cartesian at scope time — measured 38ms @ n=1000 → 1.70s @ n=10000 locally, multi-minute at fleet-target scale. The recognition is byte-for-byte on the pattern literal (cfdb_petgraph::index::spec::CONVERSION_PREFIX_PATTERN)."

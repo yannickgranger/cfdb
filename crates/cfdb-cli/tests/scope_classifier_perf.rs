@@ -24,12 +24,14 @@
 //! - `Unwired`            : ~0.004 s
 //!
 //! On qbot-core (~192k :Item) DuplicatedFeature alone runs for
-//! ~324 seconds (5.4 min) before returning zero rows. The two slow
-//! rules are `MATCH (a:Item), (b:Item)` cartesians whose join
-//! predicates fall outside the slice-6 fast-path allowlist
-//! (`last_segment` only) — `a.name = b.name` is a plain prop-to-prop
-//! equi-join the optimizer cannot use today, and
-//! `regexp_extract(...)` is not in `match_computed_call_name`.
+//! ~324 seconds (5.4 min) before returning zero rows. Both slow rules
+//! were `MATCH (a:Item), (b:Item)` cartesians whose join predicates
+//! fell outside the slice-6 fast-path allowlist: `a.name = b.name`
+//! (DuplicatedFeature) is now the slice-6b prop-to-prop bucket, and
+//! `regexp_extract(a.name, …) = regexp_extract(b.name, …)`
+//! (RandomScattering) is now the `ConversionPrefix` computed key —
+//! recognised byte-for-byte on the vetted pattern literal by
+//! `index::lookup::match_computed_call`.
 //!
 //! This file pins the per-rule budgets at small scale so a regression
 //! (e.g. dropping the slice-6 fast path, or making the cartesian
@@ -79,10 +81,10 @@ fn fixture_scale() -> usize {
 
 /// Mirror of the production `.cfdb/indexes.toml` shipped in the
 /// cfdb workspace — `Item.qname`, `Item.bounded_context`,
-/// `Item.name`, and the `Item.last_segment(qname)` computed index.
-/// The benchmark exercises the same index surface a real `cfdb
-/// scope` invocation sees, so per-rule timings are comparable to
-/// production wall-time.
+/// `Item.name`, the `Item.last_segment(qname)` computed index, and
+/// the `Item.conversion_prefix(name)` computed index. The benchmark
+/// exercises the same index surface a real `cfdb scope` invocation
+/// sees, so per-rule timings are comparable to production wall-time.
 fn production_index_spec() -> IndexSpec {
     IndexSpec {
         entries: vec![
@@ -116,7 +118,33 @@ fn production_index_spec() -> IndexSpec {
                 computed: ComputedKey::LastSegment,
                 notes: "perf bench — homonym bucket key".into(),
             },
+            IndexEntry::Computed {
+                label: "Item".into(),
+                computed: ComputedKey::ConversionPrefix,
+                notes: "perf bench — RandomScattering fork-join bucket".into(),
+            },
         ],
+    }
+}
+
+/// Variant WITHOUT the `Item.conversion_prefix(name)` computed index —
+/// represents the pre-fix index surface where RandomScattering's
+/// `regexp_extract(a.name, …) = regexp_extract(b.name, …)` equi-join
+/// falls back to a Cartesian. Used by the slice-6c comparison test to
+/// prove the conversion-prefix fast path is firing.
+fn without_conversion_prefix_index_spec() -> IndexSpec {
+    IndexSpec {
+        entries: production_index_spec()
+            .entries
+            .into_iter()
+            .filter(|e| {
+                !matches!(
+                    e,
+                    IndexEntry::Computed { computed, .. }
+                        if *computed == ComputedKey::ConversionPrefix
+                )
+            })
+            .collect(),
     }
 }
 
@@ -378,7 +406,7 @@ fn scope_classifier_perf_at_default_scale() {
     //   DuplicatedFeature   ~0.7 ms      ~9 ms          50 ms
     //   ContextHomonym      ~0.5 ms      ~8 ms          50 ms
     //   UnfinishedRefactor  ~0.1 ms      ~1 ms          25 ms
-    //   RandomScattering    ~4 ms        ~80 ms        300 ms
+    //   RandomScattering    ~20 ms*      ~40 ms (est)   150 ms (was 300 ms)
     //   CanonicalBypass     ~0.001 ms    ~0.01 ms      10 ms
     //   Unwired             ~0.5 ms      ~6 ms          50 ms
     //
@@ -389,10 +417,22 @@ fn scope_classifier_perf_at_default_scale() {
     //     un-indexed equivalent at n=1_000 is ~250 ms, so the 50 ms
     //     budget catches the "fast path stopped firing" breakage with
     //     ≥5× margin.
-    //   - `RandomScattering`: regex-cache-disabled baseline at
-    //     n=1_000 was ~760 ms; pre-slice-5-narrow baseline was higher
-    //     still. The 300 ms budget catches either regression with
-    //     ≥2.5× margin.
+    //   - `RandomScattering`: with the `ConversionPrefix` computed-key
+    //     fast path (RFC-035 §3.6) the rule now behaves like the other
+    //     index-fast-path cartesians — the fork equi-join is a single
+    //     posting-list bucket per outer row and non-conversion outer
+    //     rows narrow to empty, so the O(n²) Cartesian is gone.
+    //     Lead-measured evidence (2026-07-15, debug build, dev box):
+    //     pre-fix 38 ms @ n=1_000 → 1.70 s @ n=10_000 (O(n²));
+    //     post-fix 19.9 ms @ n=1_000 → 22.6 ms @ n=10_000 (flat —
+    //     the residual is the outer narrowed scan's per-row regex
+    //     WHERE, linear). *The ~20 ms Dev figure above is that debug
+    //     measurement — roughly 4× the other fast-path rules, so the
+    //     CI column is estimated at the same ratio (~40 ms) until the
+    //     first green run records a real p95; 150 ms keeps the
+    //     protocol's ~4-5× margin over that estimate. The sharp
+    //     O(n²)-reversion guard is NOT this budget — it is the
+    //     slice-6c ratio test below (28× separation at n=6_000).
     //
     // The wide CI/dev gap is steady-state shared-runner overhead, not
     // transient noise — bumping below ~5× CI re-introduces flakes on
@@ -404,7 +444,10 @@ fn scope_classifier_perf_at_default_scale() {
             ("DuplicatedFeature", Duration::from_millis(50)),
             ("ContextHomonym", Duration::from_millis(50)),
             ("UnfinishedRefactor", Duration::from_millis(25)),
-            ("RandomScattering", Duration::from_millis(300)),
+            // Tightened from 300 ms with the ConversionPrefix fast
+            // path (evidence block above); the slice-6c ratio test is
+            // the sharp O(n²)-reversion guard.
+            ("RandomScattering", Duration::from_millis(150)),
             ("CanonicalBypass", Duration::from_millis(10)),
             ("Unwired", Duration::from_millis(50)),
         ];
@@ -554,5 +597,57 @@ fn scope_classifier_slice6_fast_path_beats_full_scan_10x() {
         "slice-6 fast path should be ≥10× faster than full scan; \
          observed ratio={ratio:.1}× (indexed={indexed_elapsed:?}, bare={bare_elapsed:?}). \
          If this drops below 10×, the slice-6 `last_segment` hint is no longer firing."
+    );
+}
+
+/// Quantify the slice-6c (ConversionPrefix computed-key) fast path: at
+/// the same fixture size, `RandomScattering` with the
+/// `conversion_prefix(name)` computed index should be at least 10×
+/// faster than without it. The rule joins `regexp_extract(a.name, …) =
+/// regexp_extract(b.name, …)`; without the computed index it is an
+/// O(n²) Cartesian over the reachable-in-context `:Item` set, with it
+/// each outer row narrows `b` to a single posting-list bucket (and
+/// non-conversion outer rows narrow to empty).
+///
+/// This guards against regressions in the conversion-prefix hint path —
+/// if recognition stops firing (e.g. the vetted pattern literal drifts
+/// from `CONVERSION_PREFIX_PATTERN`, or the WHERE walker stops
+/// descending through `And`), the rule silently reverts to O(n²) and
+/// this test catches it. The row-set-equality assertion additionally
+/// guards correctness: the fast path must not drop or add a finding.
+#[test]
+fn scope_classifier_slice6c_conversion_prefix_fast_path_beats_full_scan_10x() {
+    let n = fixture_scale().max(6_000);
+    let (with_store, with_ks) = build_store(production_index_spec(), n);
+    let (without_store, without_ks) = build_store(without_conversion_prefix_index_spec(), n);
+
+    // Warm-up
+    let _ = run_rule(&with_store, &with_ks, RANDOM_SCATTERING_CYPHER, CTX);
+    let _ = run_rule(&without_store, &without_ks, RANDOM_SCATTERING_CYPHER, CTX);
+
+    let (with_rows, with_elapsed) = run_rule(&with_store, &with_ks, RANDOM_SCATTERING_CYPHER, CTX);
+    let (without_rows, without_elapsed) =
+        run_rule(&without_store, &without_ks, RANDOM_SCATTERING_CYPHER, CTX);
+
+    println!(
+        "slice-6c conversion-prefix fast-path comparison at n={n}: \
+         with conversion_prefix indexed={with_elapsed:?} (rows={with_rows}) vs \
+         without={without_elapsed:?} (rows={without_rows})"
+    );
+
+    assert_eq!(
+        with_rows, without_rows,
+        "RandomScattering must return the same row set whether or not \
+         conversion_prefix(name) is indexed — the fast path is a pure optimisation"
+    );
+
+    let ratio = without_elapsed.as_nanos() as f64 / with_elapsed.as_nanos().max(1) as f64;
+    assert!(
+        ratio >= 10.0,
+        "slice-6c conversion-prefix fast path should be ≥10× faster than full scan; \
+         observed ratio={ratio:.1}× (with-index={with_elapsed:?}, \
+         without={without_elapsed:?}). If this drops below 10×, the conversion-prefix \
+         hint in `resolve_cross_ref_computed_hint` is no longer firing (check the \
+         byte-for-byte pattern-literal recognition)."
     );
 }

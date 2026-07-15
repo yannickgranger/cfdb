@@ -36,7 +36,9 @@
 //! `IndexEntry` enum is serde-`untagged`) plus `label` and `notes`.
 
 use std::path::Path;
+use std::sync::LazyLock;
 
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 
 /// Parsed `.cfdb/indexes.toml` content. Owns a `Vec<IndexEntry>` in
@@ -151,19 +153,56 @@ impl<'de> Deserialize<'de> for IndexEntry {
 
 /// Allowlisted computed-key functions. Closed `const`-sized enum —
 /// NOT a trait registry (RFC-035 §3.4 OCP decision / R1 B4
-/// resolution). Each variant is a wrapper around a canonical
-/// `cfdb_core::qname::*` helper that serves as its invariant owner
-/// (RFC-035 §3.3 / R1 B3 resolution).
+/// resolution). Each variant is anchored to a single canonical
+/// definition of its formula so the computed key cannot drift from the
+/// contract it realises (RFC-035 §3.3 / R1 B3 resolution): `LastSegment`
+/// anchors to `cfdb_core::qname::last_segment`; `ConversionPrefix`
+/// anchors to the vetted [`CONVERSION_PREFIX_PATTERN`] regex, which the
+/// Cypher `regexp_extract` UDF and this index build both evaluate.
 ///
-/// v0.1 ships only `LastSegment`. Extending the allowlist ships with
-/// its own follow-up RFC.
+/// Adding a key is a reviewed PR referencing RFC-035 (§3.2 / §4
+/// no-ratchet); the const-vs-trait decision (§3.4) is re-opened only if
+/// the allowlist exceeds five keys. At two keys it stands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ComputedKey {
     /// `last_segment(qname)` — splits the qname at the last `::` and
     /// returns the trailing segment. Semantic anchor:
-    /// `cfdb_core::qname::last_segment` (helper lands in slice 3).
+    /// `cfdb_core::qname::last_segment`. Total: every qname has a last
+    /// segment, so [`Self::evaluate`] always returns `Some`.
     LastSegment,
+    /// `conversion_prefix(name)` — the leading `<stem>_<kw>_` conversion
+    /// prefix of an item's `name`, extracted by the vetted
+    /// [`CONVERSION_PREFIX_PATTERN`] regex. Join key for the
+    /// RandomScattering classifier's fork detector
+    /// (`examples/queries/classifier-random-scattering.cypher`), which
+    /// equi-joins `regexp_extract(a.name, '<pattern>') =
+    /// regexp_extract(b.name, '<pattern>')`. Unlike [`Self::LastSegment`]
+    /// it reads `name` (not `qname`) and is PARTIAL — a name that does
+    /// not carry a conversion prefix yields `None` from
+    /// [`Self::evaluate`], contributing no posting (SQL NULL-index
+    /// semantics).
+    ConversionPrefix,
 }
+
+/// Vetted regex for [`ComputedKey::ConversionPrefix`]. It MUST equal the
+/// `regexp_extract` pattern literal in
+/// `examples/queries/classifier-random-scattering.cypher` BYTE-FOR-BYTE:
+/// the evaluator's cross-MATCH fast path (`index::lookup`) recognises
+/// the computed join only when the Cypher call's pattern argument is
+/// exactly this string. The Cypher lexer decodes the source
+/// `'^(\\w+)_(?:from|to|for|as)_'` (double-backslash) to this
+/// single-backslash form, so this raw literal is the decoded pattern the
+/// AST carries.
+pub(crate) const CONVERSION_PREFIX_PATTERN: &str = r"^(\w+)_(?:from|to|for|as)_";
+
+/// Compiled [`CONVERSION_PREFIX_PATTERN`], built once. The extractor is
+/// `regex::Regex::find` — the SAME engine + pattern the Cypher
+/// `regexp_extract` UDF uses (`eval::predicate::call_regexp_extract`) —
+/// so an index bucket key is byte-identical to the query-time join
+/// value the WHERE clause compares.
+static CONVERSION_PREFIX_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(CONVERSION_PREFIX_PATTERN).expect("vetted ConversionPrefix regex compiles")
+});
 
 impl ComputedKey {
     /// Canonical string form used on the TOML surface and as the
@@ -171,26 +210,52 @@ impl ComputedKey {
     pub fn as_str(self) -> &'static str {
         match self {
             ComputedKey::LastSegment => "last_segment(qname)",
+            ComputedKey::ConversionPrefix => "conversion_prefix(name)",
         }
     }
 
-    /// Compile-time dispatch from a computed key to its underlying
-    /// `cfdb-core::qname` helper (RFC-035 §3.3 invariant ownership +
-    /// §3.4 closed-enum compile-time dispatch / R1 B3 + B4).
+    /// The `:Item` property this computed key reads. `LastSegment` reads
+    /// `qname`; `ConversionPrefix` reads `name`. The build pass
+    /// ([`crate::index::build::entry_value_for_node`]) fetches the raw
+    /// source value through this, and the evaluator cross-MATCH fast
+    /// path (`index::lookup`) uses it to confirm the recognised call
+    /// reads the key's canonical prop — a call over any other prop is
+    /// not this key and must not narrow through its posting list.
+    pub fn source_prop(self) -> &'static str {
+        match self {
+            ComputedKey::LastSegment => "qname",
+            ComputedKey::ConversionPrefix => "name",
+        }
+    }
+
+    /// Compile-time dispatch from a computed key to its canonical
+    /// formula (RFC-035 §3.3 invariant ownership + §3.4 closed-enum
+    /// compile-time dispatch / R1 B3 + B4). `source` is the raw value of
+    /// the [`Self::source_prop`] property.
     ///
     /// This is the single dispatch surface for index-build consumers
-    /// and any future evaluator fast-path consumer (slice 5 / #184).
-    /// Inline switching on `ComputedKey` outside this method
-    /// re-introduces the split-brain that §3.3's invariant-owner rule
-    /// is designed to prevent — always route through `evaluate`.
+    /// and the evaluator fast-path consumer (slice 5/6). Inline
+    /// switching on `ComputedKey` outside this method re-introduces the
+    /// split-brain that §3.3's invariant-owner rule is designed to
+    /// prevent — always route through `evaluate`.
     ///
-    /// `LastSegment` delegates to [`cfdb_core::qname::last_segment`],
-    /// which is the canonical owner of the `last_segment` formula for
-    /// the entire workspace.
+    /// Returns `None` for a PARTIAL key whose formula does not apply to
+    /// the input: `ConversionPrefix` over a `name` with no conversion
+    /// prefix yields `None`, so the node contributes no posting and (at
+    /// query time) the equi-join conjunct comparing it is unsatisfiable.
+    /// `LastSegment` is total and always returns `Some`.
+    ///
+    /// `LastSegment` delegates to [`cfdb_core::qname::last_segment`], the
+    /// canonical owner of the `last_segment` formula. `ConversionPrefix`
+    /// returns the whole first match of [`CONVERSION_PREFIX_PATTERN`] —
+    /// byte-identical to what the Cypher `regexp_extract(name,
+    /// '<pattern>')` UDF returns for the same pattern, because both use
+    /// the same `regex` engine (see [`CONVERSION_PREFIX_RE`]).
     #[must_use]
-    pub fn evaluate(self, qname: &str) -> &str {
+    pub fn evaluate(self, source: &str) -> Option<&str> {
         match self {
-            ComputedKey::LastSegment => cfdb_core::qname::last_segment(qname),
+            ComputedKey::LastSegment => Some(cfdb_core::qname::last_segment(source)),
+            ComputedKey::ConversionPrefix => CONVERSION_PREFIX_RE.find(source).map(|m| m.as_str()),
         }
     }
 }
@@ -207,6 +272,7 @@ impl std::str::FromStr for ComputedKey {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "last_segment(qname)" => Ok(ComputedKey::LastSegment),
+            "conversion_prefix(name)" => Ok(ComputedKey::ConversionPrefix),
             other => Err(UnknownComputedKey(other.to_string())),
         }
     }
@@ -222,7 +288,7 @@ impl std::fmt::Display for UnknownComputedKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "unknown computed key `{}` — allowed: last_segment(qname)",
+            "unknown computed key `{}` — allowed: last_segment(qname), conversion_prefix(name)",
             self.0
         )
     }
@@ -449,14 +515,71 @@ notes = "not in allowlist"
         // canonical `cfdb_core::qname::last_segment` (RFC-035 §3.3).
         // This unit test pins the agreement on a representative input
         // set; the self-dogfood integration test extends it to every
-        // `:Item` in cfdb's own extracted keyspace.
+        // `:Item` in cfdb's own extracted keyspace. `LastSegment` is
+        // total, so the dispatch is `Some(<helper output>)`.
         let inputs = ["foo::bar::baz", "foo", "", "cfdb_core::qname::last_segment"];
         for q in inputs {
             assert_eq!(
                 ComputedKey::LastSegment.evaluate(q),
-                cfdb_core::qname::last_segment(q),
+                Some(cfdb_core::qname::last_segment(q)),
                 "dispatch ≠ canonical helper for input {q:?}",
             );
         }
+    }
+
+    #[test]
+    fn conversion_prefix_round_trips_as_canonical_string() {
+        assert_eq!(
+            ComputedKey::ConversionPrefix.as_str(),
+            "conversion_prefix(name)"
+        );
+        assert_eq!(
+            "conversion_prefix(name)"
+                .parse::<ComputedKey>()
+                .expect("parse"),
+            ComputedKey::ConversionPrefix
+        );
+    }
+
+    #[test]
+    fn source_prop_names_the_read_property_per_key() {
+        assert_eq!(ComputedKey::LastSegment.source_prop(), "qname");
+        assert_eq!(ComputedKey::ConversionPrefix.source_prop(), "name");
+    }
+
+    #[test]
+    fn conversion_prefix_pattern_matches_cypher_literal_decoded_form() {
+        // The Cypher lexer decodes `'^(\\w+)_(?:from|to|for|as)_'` (the
+        // literal in classifier-random-scattering.cypher) to this
+        // single-backslash form. Recognition of the fork equi-join is
+        // byte-for-byte, so the const MUST equal it. If this fails, the
+        // const drifted from the .cypher — re-vet both together.
+        assert_eq!(CONVERSION_PREFIX_PATTERN, r"^(\w+)_(?:from|to|for|as)_");
+    }
+
+    #[test]
+    fn conversion_prefix_evaluate_returns_whole_match_or_none() {
+        // Whole first match, exactly as `regexp_extract` returns it —
+        // includes the trailing conversion keyword + `_` (see the
+        // pattern_b_vertical_split_brain scar: `stop_from_bps` →
+        // `stop_from_`).
+        assert_eq!(
+            ComputedKey::ConversionPrefix.evaluate("compute_0_from_bps"),
+            Some("compute_0_from_")
+        );
+        assert_eq!(
+            ComputedKey::ConversionPrefix.evaluate("compute_0_from_pct"),
+            Some("compute_0_from_"),
+            "both fork partners must bucket under the same prefix"
+        );
+        assert_eq!(
+            ComputedKey::ConversionPrefix.evaluate("qty_to_notional"),
+            Some("qty_to_")
+        );
+        // Names with no conversion prefix are PARTIAL → None → no
+        // posting (SQL NULL-index semantics).
+        assert_eq!(ComputedKey::ConversionPrefix.evaluate("uniq_42"), None);
+        assert_eq!(ComputedKey::ConversionPrefix.evaluate("DupStruct"), None);
+        assert_eq!(ComputedKey::ConversionPrefix.evaluate(""), None);
     }
 }

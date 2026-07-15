@@ -85,8 +85,10 @@ fn loads_cfdb_own_indexes_toml() {
         .collect();
     assert_eq!(
         computed_keys,
-        vec![ComputedKey::LastSegment],
-        "expected exactly one computed-key entry: last_segment(qname)"
+        vec![ComputedKey::LastSegment, ComputedKey::ConversionPrefix],
+        "expected two computed-key entries in document order: \
+         last_segment(qname) then conversion_prefix(name) \
+         (RandomScattering fork-join bucket, RFC-035 §3.6)"
     );
 
     for (idx, entry) in spec.entries.iter().enumerate() {
