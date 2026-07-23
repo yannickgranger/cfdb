@@ -195,6 +195,56 @@ fn schema_describe_item_kind_documents_lowercase_wire_values() {
     );
 }
 
+/// #538 — the `:Item` node descriptor's own top-level `description` must not
+/// contradict its `visibility` attribute's value enumeration. Pre-fix the
+/// description read "A top-level `pub`/`pub(crate)` item" — implying only
+/// two of the five `Visibility` wire values (`pub`, `pub(crate)`) are ever
+/// emitted — while the `visibility` attribute descriptor documents all five
+/// (`pub`, `pub(crate)`, `pub(super)`, `private`, `pub(in <path>)`) and the
+/// extractor (`cfdb-extractor::item_visitor::parse_syn_visibility`) emits
+/// `:Item` nodes for every visibility unconditionally, with no filter. Third
+/// manifestation of the #481 descriptor-drift class; Tier-1 text correction,
+/// standalone (the durable generative fix is #479, out of scope here).
+#[test]
+fn schema_describe_item_description_documents_any_visibility() {
+    let d = schema_describe();
+    let item = d
+        .nodes
+        .iter()
+        .find(|n| n.label.as_str() == Label::ITEM)
+        .expect("Item node descriptor");
+    let desc = &item.description;
+
+    assert!(
+        !desc.contains("pub`/`pub(crate)`"),
+        "Item description must not claim the node is restricted to \
+         `pub`/`pub(crate)` visibility — private and pub(super)/pub(in ...) \
+         items are emitted too; description was: {desc:?}",
+    );
+
+    // The corrected text must agree with the `visibility` attribute's own
+    // enumeration rather than re-narrowing it.
+    let visibility_attr = item
+        .attributes
+        .iter()
+        .find(|a| a.name == "visibility")
+        .expect("Item.visibility attribute descriptor");
+    for wire in ["pub", "pub(crate)", "pub(super)", "private", "pub(in"] {
+        assert!(
+            visibility_attr.description.contains(wire),
+            "sanity: Item.visibility attribute must document `{wire}` \
+             (test fixture assumption broke); description was: {:?}",
+            visibility_attr.description,
+        );
+        assert!(
+            desc.contains(wire),
+            "Item description must document every visibility form the \
+             `visibility` attribute enumerates, including `{wire}`; \
+             description was: {desc:?}",
+        );
+    }
+}
+
 #[test]
 fn schema_describe_literal_attrs_match_rfc_041() {
     let d = schema_describe();

@@ -95,7 +95,7 @@ pub(in crate::schema::describe) fn item_node_descriptor() -> NodeLabelDescriptor
     attributes.sort_by(|a, b| a.name.cmp(&b.name));
     NodeLabelDescriptor {
         label: Label::new(Label::ITEM),
-        description: "A top-level `pub`/`pub(crate)` item — struct, enum, trait, impl, fn, const, static, or type alias.".into(),
+        description: "A top-level item of any visibility (`pub`, `pub(crate)`, `pub(super)`, private, or `pub(in <path>)`, per the `visibility` attribute) — struct, enum, trait, impl, fn, const, static, or type alias.".into(),
         attributes,
     }
 }
