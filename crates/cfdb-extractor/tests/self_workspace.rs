@@ -475,3 +475,44 @@ fn crate_tier_self_dogfood_core_is_zero_cli_is_max() {
         );
     }
 }
+
+/// #538 self-dogfood: falsifies the (now-corrected) `:Item` describe-doc
+/// claim that only `pub`/`pub(crate)` items are ever emitted. cfdb's own
+/// tree has plenty of private (no-modifier) top-level items — helper fns,
+/// private structs backing a `pub` API, etc. — and the extractor
+/// (`item_visitor::parse_syn_visibility`) carries no visibility filter, so
+/// self-extraction must produce at least one `:Item{visibility:"private"}`
+/// node against real infra, not a synthetic fixture.
+#[test]
+fn self_workspace_emits_private_items() {
+    let root = cfdb_workspace_root();
+    let (nodes, _edges) = extract_workspace(root).expect("extract cfdb sub-workspace");
+
+    let private_items = nodes
+        .iter()
+        .filter(|n| {
+            n.label.as_str() == Label::ITEM
+                && n.props.get("visibility").and_then(PropValue::as_str) == Some("private")
+        })
+        .count();
+    assert!(
+        private_items > 0,
+        "expected at least one :Item{{visibility:\"private\"}} node from cfdb's own \
+         non-pub helper fns/structs — got 0, which would mean either the extractor \
+         started filtering private items or visibility tagging broke"
+    );
+
+    // And at least one `pub` item — the describe-doc's corrected claim is
+    // "any visibility", not "private only" either.
+    let pub_items = nodes
+        .iter()
+        .filter(|n| {
+            n.label.as_str() == Label::ITEM
+                && n.props.get("visibility").and_then(PropValue::as_str) == Some("pub")
+        })
+        .count();
+    assert!(
+        pub_items > 0,
+        "expected at least one :Item{{visibility:\"pub\"}} node from cfdb's own public API"
+    );
+}
