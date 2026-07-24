@@ -1,0 +1,10 @@
+[workspace]
+resolver = "2"
+members = ["relfixture"]
+
+# Fixture for issue #527 — a relative `--workspace` argument (as CI's
+# `cfdb extract --workspace .` passes) must still yield workspace-relative
+# `:File.path` facts. See `tests/workspace_relative_paths.rs`.
+#
+# Not ingested by the top-level cargo build — excluded from the workspace
+# `members` list in the repo root `Cargo.toml`.

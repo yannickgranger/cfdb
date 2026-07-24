@@ -99,6 +99,24 @@ pub enum ExtractError {
 
     #[error("crate_tier: cycle in the intra-workspace normal-dependency DAG involving crate `{0}` (RFC-050 §3.2 — normal deps must form a DAG)")]
     CrateTierCycle(String),
+
+    #[error("cannot canonicalize workspace root {path}: {source}")]
+    WorkspaceRoot {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
+    #[error(
+        "file {file} lies outside the canonical workspace root {workspace_root} — refusing to \
+         silently emit an absolute :File.path (issue #527: every emitted file path must be \
+         workspace-relative; a residual strip_prefix mismatch is a hard error, not a warned-\
+         and-shipped absolute path)"
+    )]
+    PathNotInWorkspace {
+        file: PathBuf,
+        workspace_root: PathBuf,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -208,6 +226,26 @@ pub fn extract_workspace_profiled(
     workspace_root: &Path,
     observe: &mut dyn FnMut(ExtractPhaseMarker),
 ) -> Result<(Vec<Node>, Vec<Edge>), ExtractError> {
+    // Resolve the workspace root canonically ONCE, before any phase begins
+    // (issue #527). `cargo_metadata` always returns absolute file paths for
+    // every target `src_path`; every emitted `:File.path` is computed by
+    // stripping this same root from those absolute paths
+    // (`file_walker::visit_file_inner`). Canonicalizing here makes the root
+    // match cargo's absolute form regardless of how the caller spelled it
+    // (`.`, a relative path, a path through a symlink) — CI's
+    // `cfdb extract --workspace .` used to make every `strip_prefix` miss
+    // and silently fall back to an absolute path: a file-scoped fence
+    // anchored on a relative path became a silently dead rule (zero rows
+    // forever).
+    let workspace_root_buf =
+        workspace_root
+            .canonicalize()
+            .map_err(|e| ExtractError::WorkspaceRoot {
+                path: workspace_root.to_path_buf(),
+                source: e,
+            })?;
+    let workspace_root: &Path = &workspace_root_buf;
+
     // Phase 1 (RFC-048 §1) — the `cargo metadata` subprocess.
     observe(ExtractPhaseMarker::CargoMetadataStart);
     let manifest = workspace_root.join("Cargo.toml");

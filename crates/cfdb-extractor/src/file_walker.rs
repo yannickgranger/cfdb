@@ -84,9 +84,20 @@ fn visit_file_inner(
         message: e.to_string(),
     })?;
 
+    // Issue #527: a `strip_prefix` mismatch here used to fall back to the
+    // absolute `file_path` silently, making every file-scoped fence anchored
+    // on a relative path a silently dead rule (zero rows forever). The
+    // workspace root is canonicalized once at extraction entry
+    // (`extract_workspace_profiled`), so a mismatch now means `file_path`
+    // genuinely lies outside it — surface that loudly instead of shipping
+    // a fact that violates the "every :File.path is workspace-relative"
+    // contract.
     let rel_path = file_path
         .strip_prefix(workspace_root)
-        .unwrap_or(file_path)
+        .map_err(|_| ExtractError::PathNotInWorkspace {
+            file: file_path.to_path_buf(),
+            workspace_root: workspace_root.to_path_buf(),
+        })?
         .to_string_lossy()
         .into_owned();
 
