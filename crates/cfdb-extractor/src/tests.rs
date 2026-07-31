@@ -5,7 +5,7 @@
 //! `Heuristic`. Pre-seeding declared contexts first + `or_insert_with`
 //! for heuristic crates implements this implicitly.
 
-use super::{accumulate_heuristic_context, seed_declared_contexts};
+use super::workspace_nodes::{accumulate_heuristic_context, seed_declared_contexts};
 use cfdb_concepts::{compute_bounded_context, ConceptOverrides, ContextMeta};
 use cfdb_core::ContextSource;
 use std::collections::BTreeMap;

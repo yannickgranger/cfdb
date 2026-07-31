@@ -179,8 +179,7 @@ fn visit_file_inner(
 /// count against the `clones-in-loops` quality gate — the clone is
 /// necessary (each recursive call owns its own stack) but belongs to
 /// the helper body rather than the outer loop scope.
-#[allow(clippy::too_many_arguments)]
-#[allow(clippy::too_many_arguments)] // per-target-root context threading (RFC-054), same axis as bounded_context
+#[allow(clippy::too_many_arguments)] // 10 args: per-target-root context threading (RFC-054) joins the pre-existing walk state
 fn descend_into_pending_mod(
     emitter: &mut Emitter,
     crate_id: &str,
