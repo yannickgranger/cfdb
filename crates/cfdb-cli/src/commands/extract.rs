@@ -13,7 +13,6 @@ use std::time::{Duration, Instant};
 
 use cfdb_core::schema::Keyspace;
 use cfdb_core::store::StoreBackend;
-use cfdb_petgraph::PetgraphStore;
 
 use crate::compose;
 
@@ -122,26 +121,11 @@ fn extract_at_path(
         extract_hir(&mut store, &ks, workspace, !no_proc_macro)?;
     }
 
-    surface_ingest_warnings(&store, &ks);
+    compose::surface_ingest_warnings(&store, &ks);
 
     let path = compose::save_store(&store, &ks, db)?;
     eprintln!("extract: saved keyspace `{ks_name}` to {}", path.display());
     Ok(())
-}
-
-/// Surface ingest-time diagnostics on stderr (RFC-054 §3.4, 54-A #556).
-/// Exit stays 0 — the warning is diagnostic, not failure. Runs after every
-/// ingest (syn + optional HIR) so cross-producer contention is covered, and
-/// before save so the count on stderr matches what the keyspace persists.
-fn surface_ingest_warnings(store: &PetgraphStore, ks: &Keyspace) {
-    let warnings = store.ingest_warnings(ks);
-    if warnings.is_empty() {
-        return;
-    }
-    eprintln!("extract: {} ingest warning(s)", warnings.len());
-    for w in &warnings {
-        eprintln!("extract: warning: {}", w.message);
-    }
 }
 
 /// Extract against a specific git revision (commit SHA / tag / branch).
@@ -613,7 +597,7 @@ fn run_profiled_extract(
         None
     };
 
-    surface_ingest_warnings(&store, ks);
+    compose::surface_ingest_warnings(&store, ks);
 
     let t_save = Instant::now();
     let path = compose::save_store(&store, ks, db)?;
