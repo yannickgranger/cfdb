@@ -30,8 +30,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::PetgraphStore;
 
-/// On-disk representation of one keyspace. Serialized as pretty JSON so
-/// humans can diff it against the canonical dump if needed.
+/// On-disk representation of one keyspace. Serialized as COMPACT JSON
+/// (#551): the file is a machine-read artifact re-parsed in full on every
+/// query, and pretty-printing was pure size/parse tax at scale (356MB on
+/// qbot-core). Humans diff the canonical dump (G6) or `jq` on demand;
+/// parsing is whitespace-insensitive, so pre-#551 pretty files load
+/// unchanged.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct KeyspaceFile {
     pub schema_version: SchemaVersion,
@@ -60,7 +64,7 @@ pub fn save(store: &PetgraphStore, keyspace: &Keyspace, path: &Path) -> Result<(
         nodes,
         edges,
     };
-    let bytes = serde_json::to_vec_pretty(&file)
+    let bytes = serde_json::to_vec(&file)
         .map_err(|e| StoreError::Other(format!("serialize keyspace: {e}")))?;
 
     if let Some(parent) = path.parent() {
