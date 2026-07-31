@@ -30,6 +30,7 @@ mod eval;
 pub mod explain;
 mod graph;
 pub mod index;
+mod ingest_contention;
 pub mod persist;
 
 #[cfg(test)]
@@ -42,7 +43,7 @@ use std::path::{Path, PathBuf};
 
 use cfdb_core::fact::{Edge, Node};
 use cfdb_core::query::Query;
-use cfdb_core::result::QueryResult;
+use cfdb_core::result::{QueryResult, Warning};
 use cfdb_core::schema::{Keyspace, SchemaVersion};
 use cfdb_core::store::{StoreBackend, StoreError};
 use petgraph::visit::IntoEdgeReferences;
@@ -208,6 +209,34 @@ impl PetgraphStore {
         prepended.append(&mut result.warnings);
         result.warnings = prepended;
         Ok((result, explain))
+    }
+
+    /// Ingest-time diagnostics for one keyspace (RFC-054 §3.4, 54-A #556).
+    ///
+    /// Deliberately an inherent method, NOT on [`StoreBackend`] — the
+    /// observability surface stays internal to `cfdb-petgraph`, same
+    /// pattern as [`Self::execute_explained`] (RFC-035 §4). The extract
+    /// path reads this after ingest to surface identity contention on
+    /// stderr; an unknown keyspace yields an empty vec.
+    #[must_use]
+    pub fn ingest_warnings(&self, keyspace: &Keyspace) -> Vec<Warning> {
+        self.keyspaces
+            .get(keyspace)
+            .map(|s| s.ingest_warnings.clone())
+            .unwrap_or_default()
+    }
+
+    /// Splice persisted extract-time warnings ahead of any load-time ones —
+    /// chronological order, extract happened first (RFC-054 54-A #556; used
+    /// by [`persist::load`]).
+    pub(crate) fn prepend_ingest_warnings(
+        &mut self,
+        keyspace: &Keyspace,
+        mut warnings: Vec<Warning>,
+    ) {
+        let state = self.keyspace_mut(keyspace);
+        warnings.append(&mut state.ingest_warnings);
+        state.ingest_warnings = warnings;
     }
 }
 

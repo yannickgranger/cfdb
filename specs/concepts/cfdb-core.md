@@ -231,11 +231,11 @@ Rust item visibility captured on `:Item` facts: `Public` (`pub`), `CrateLocal` (
 
 ## Warning
 
-Non-fatal diagnostic produced during query evaluation — a `WarningKind` plus a human-readable message.
+Non-fatal diagnostic produced during query evaluation or keyspace ingest — a `WarningKind` plus a human-readable message. Ingest-time warnings persist with the keyspace and are prepended to every subsequent query result.
 
 ## WarningKind
 
-Categories of warning — undocumented label, undocumented edge, undocumented attribute, unresolved parameter.
+Categories of warning — undocumented label, undocumented edge, undocumented attribute, pathological query shape, empty result, and identity contention at ingest (two distinct nodes claiming one id, RFC-054 §3.4).
 
 ## WithClause
 

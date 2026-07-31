@@ -8,7 +8,7 @@ The concrete `StoreBackend` implementor. Holds one `StableDiGraph` per keyspace,
 
 ## KeyspaceFile
 
-The on-disk persistence envelope for a serialised keyspace. Wraps the canonical JSON dump with a schema-version header so the loader can detect version mismatches before touching the graph.
+The on-disk persistence envelope for a serialised keyspace. Wraps the canonical JSON dump with a schema-version header so the loader can detect version mismatches before touching the graph, plus the extract-time ingest warnings (RFC-054 54-A) so contention diagnostics survive into later query processes — the field defaults to empty, keeping pre-054 files loading unchanged and clean keyspaces byte-identical.
 
 ## IndexSpec
 

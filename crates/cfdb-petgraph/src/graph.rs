@@ -12,6 +12,8 @@ use cfdb_core::fact::{Edge, Node};
 use cfdb_core::result::{Warning, WarningKind};
 use cfdb_core::schema::{EdgeLabel, Label};
 use indexmap::IndexMap;
+
+use crate::ingest_contention::{classify_reingest, contention_warning, ReingestClass};
 use petgraph::stable_graph::{NodeIndex, StableDiGraph};
 
 use crate::index::build::{entry_value_for_node, IndexTag, IndexValue};
@@ -118,6 +120,20 @@ impl KeyspaceState {
     /// dispatch).
     fn ingest_one_node(&mut self, node: Node) {
         if let Some(&idx) = self.id_to_idx.get(&node.id) {
+            // RFC-054 §3.4 (54-A #556): a *different* node claiming an
+            // existing id is about to silently replace it — make the loss
+            // loud. Same-node re-ingest stays silent (additive-load contract).
+            let contention = match self.graph.node_weight(idx) {
+                Some(existing)
+                    if classify_reingest(existing, &node) == ReingestClass::Contention =>
+                {
+                    Some(contention_warning(existing, &node))
+                }
+                _ => None,
+            };
+            if let Some(w) = contention {
+                self.ingest_warnings.push(w);
+            }
             // Snapshot pre-update index entries via an immutable graph
             // borrow so we can reconcile `by_prop` after the mutation
             // without fighting the borrow-checker over `self.graph`.
