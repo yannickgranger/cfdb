@@ -85,8 +85,27 @@ pub fn method_qname(module_stack: &[String], impl_target: &str, method_name: &st
 ///
 /// If the input does not carry the `item:` prefix, it is returned
 /// unchanged — symmetric with `str::trim_start_matches` behaviour.
+///
+/// **RFC-054 caution:** this strips the PREFIX only. A bin-target id
+/// (`item:{qname}#bin:{name}`) round-trips to the *identity* string — the
+/// `#bin:{name}` suffix stays. That is correct when the result feeds an
+/// id formula (identities are what children derive from) and WRONG when
+/// it feeds a display prop (`caller_qname`, `parent_qname` — those stay
+/// bare). For display values use [`display_qname_from_node_id`].
 #[must_use]
 pub fn qname_from_node_id(node_id: &str) -> &str {
+    node_id.strip_prefix("item:").unwrap_or(node_id)
+}
+
+/// The bare DISPLAY qname for an `:Item` node id — strips the `item:`
+/// prefix AND any RFC-054 `#bin:{name}` identity suffix. This is the
+/// value that belongs in human-facing props (`caller_qname`,
+/// `parent_qname`); identities (suffix kept) belong in derived-id
+/// formulas. Keeping the two exits separate is what prevents identity
+/// plumbing from leaking into display values (RFC-054 §3.5.1).
+#[must_use]
+pub fn display_qname_from_node_id(node_id: &str) -> &str {
+    // RED stub (#557): suffix strip lands with green.
     node_id.strip_prefix("item:").unwrap_or(node_id)
 }
 
