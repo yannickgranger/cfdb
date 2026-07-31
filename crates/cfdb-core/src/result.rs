@@ -86,6 +86,12 @@ pub enum WarningKind {
     PathologicalShape,
     /// The query parsed but bound no rows.
     EmptyResult,
+    /// Two distinct nodes contended for one identity at ingest — the later
+    /// node replaced the earlier, which is the documented additive-load
+    /// behavior; the warning makes the loss loud instead of silent
+    /// (RFC-054 §3.4). Deliberately NOT a reuse of [`Self::EmptyResult`],
+    /// which already does double duty for "no rows" and "edge dropped".
+    IdentityContention,
 }
 
 /// The result of executing a query.

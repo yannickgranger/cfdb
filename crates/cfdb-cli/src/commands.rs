@@ -9,6 +9,7 @@ mod aux;
 mod classify;
 mod diff;
 mod extract;
+mod extract_rev;
 mod impact;
 mod query;
 mod rules;
