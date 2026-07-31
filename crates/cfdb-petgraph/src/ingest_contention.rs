@@ -136,6 +136,16 @@ mod tests {
         assert_eq!(classify_reingest(&a, &b), ReingestClass::Contention);
     }
 
+    #[test]
+    fn one_sided_file_reverse_direction_is_contention() {
+        // Gate-3 noted constraint: the fallback arm is direction-agnostic —
+        // pin the reverse orientation too so a future asymmetric rewrite
+        // cannot pass on the single-direction case alone.
+        let a = item_in_file("item:x::main", "x::main", "src/bin/a.rs");
+        let b = item_no_file("item:x::main", "x::main");
+        assert_eq!(classify_reingest(&a, &b), ReingestClass::Contention);
+    }
+
     // --- warning content: pinned by VARIANT, message names id + both files ---
 
     #[test]
