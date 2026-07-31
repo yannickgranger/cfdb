@@ -1,0 +1,8 @@
+[workspace]
+resolver = "2"
+members = ["kindsfixture"]
+
+# Fixture for issue #479/#515 — the extractor must emit `:Item` nodes for
+# every kind in the ItemKind vocabulary, including `static` and `union`.
+# See `tests/item_kind_vocabulary.rs`. Not a member of the repo root
+# workspace (explicit members list there).

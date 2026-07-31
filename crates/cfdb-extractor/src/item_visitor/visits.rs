@@ -381,6 +381,20 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
         );
     }
 
+    fn visit_item_union(&mut self, node: &'ast syn::ItemUnion) {
+        // #515 — `union` completes the top-level item vocabulary: recall's
+        // KEPT_ITEM_KINDS listed the wire value against rustdoc ground
+        // truth (which indexes unions) while no visitor produced it.
+        let name = node.ident.to_string();
+        self.emit_item(
+            &name,
+            "union",
+            span_line(&node.ident),
+            &node.vis,
+            &node.attrs,
+        );
+    }
+
     fn visit_item_mod(&mut self, node: &'ast syn::ItemMod) {
         let mod_name = node.ident.to_string();
         let is_test_mod = attrs_contain_cfg_test(&node.attrs);

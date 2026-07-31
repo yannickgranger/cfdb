@@ -149,6 +149,33 @@ fn schema_describe_item_deprecation_attrs_are_extractor_provenanced() {
 /// `Struct, Enum, Trait, Impl, Fn, Const, TypeAlias` — capitalized (that is the
 /// CLI vocabulary users type, per `ItemKind::as_str`) and missing `static` — so
 /// it matched no real `:Item.kind` string a consumer would query against.
+/// #479/#515 red — once `Static` and `Union` join `ItemKind`, the
+/// `kind` descriptor text must carry their wire spellings too. The
+/// generated-from-variants() description (this PR) makes divergence
+/// structurally impossible; this test is the direct witness for the
+/// two newcomers.
+#[test]
+fn schema_describe_item_kind_documents_static_and_union() {
+    let d = schema_describe();
+    let item = d
+        .nodes
+        .iter()
+        .find(|n| n.label.as_str() == Label::ITEM)
+        .expect("Item node descriptor");
+    let kind = item
+        .attributes
+        .iter()
+        .find(|a| a.name == "kind")
+        .expect("Item.kind attribute descriptor");
+    for wire in ["`static`", "`union`"] {
+        assert!(
+            kind.description.contains(wire),
+            ":Item.kind descriptor must document the {wire} wire value; got: {}",
+            kind.description
+        );
+    }
+}
+
 #[test]
 fn schema_describe_item_kind_documents_lowercase_wire_values() {
     use crate::query::ItemKind;
@@ -394,7 +421,7 @@ fn schema_describe_narrative_digest() {
     /// To update after a legitimate narrative change: set this to `"RECOMPUTE"`,
     /// run the test, copy the `actual digest:` value from the failure output.
     const FROZEN_NARRATIVE_DIGEST: &str =
-        "95fc9918b0e27fd24830fdd091e8984c4ccbe9167d14bb5e322363b60b1682a3";
+        "00c22345d398bfc8a859177d315cc10f762d6fd97eb23406b81b569860f733b6";
 
     let d = schema_describe();
 

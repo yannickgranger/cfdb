@@ -134,8 +134,22 @@ fn item_attrs_extractor_metadata() -> Vec<AttributeDescriptor> {
 /// signature, visibility, and cross-producer (PHP/TS) disambiguation facts.
 fn item_attrs_extractor_structural() -> Vec<AttributeDescriptor> {
     use Provenance::Extractor;
+    // #479/#481 — the top-level kind list is GENERATED from
+    // `ItemKind::variants()` so the descriptor can never again drift from
+    // the vocabulary the CLI parses (`method` is not an `ItemKind`: it is
+    // the impl-member kind, appended textually below).
+    let top_level_kinds = crate::query::ItemKind::variants()
+        .iter()
+        .map(|k| format!("`{}`", k.to_extractor_str()))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let kind_description = format!(
+        "Item kind, as the lowercase wire string emitted by the extractor. \
+         Top-level items: {top_level_kinds}. Impl members additionally appear \
+         with kind `method`."
+    );
     vec![
-        attr("kind", "enum", "Item kind, as the lowercase wire string emitted by the extractor. Top-level items: `struct`, `enum`, `trait`, `impl_block`, `fn`, `const`, `static`, `type_alias`. Impl members additionally appear with kind `method`.", Extractor),
+        attr("kind", "enum", &kind_description, Extractor),
         attr("line", "int", "1-based line number of the item's first token.", Extractor),
         attr("module_qpath", "string", "Fully-qualified path of the enclosing module.", Extractor),
         attr("name", "string", "Unqualified item name.", Extractor),

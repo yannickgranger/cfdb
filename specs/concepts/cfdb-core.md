@@ -85,7 +85,7 @@ A query expression used in `WITH` and `RETURN` — literal, property access, fun
 
 ## ItemKind
 
-Vocabulary for the `list-items-matching` verb. Kept in `cfdb-core` for v0.1; may move to `cfdb-query` in v0.2 per RFC-031 §3 if determined to be verb-level rather than schema-level.
+Vocabulary for the `list-items-matching` verb — the council-ratified seven (`Struct`, `Enum`, `Fn`, `Const`, `TypeAlias`, `ImplBlock`, `Trait`) plus the #479/#515 additions `Static` and `Union`, mapping 1:1 onto the extractor's lowercase wire strings via `to_extractor_str`. The `:Item.kind` schema-describe list is generated from `variants()` so CLI vocabulary and descriptor cannot drift. Kept in `cfdb-core` for v0.1; may move to `cfdb-query` in v0.2 per RFC-031 §3 if determined to be verb-level rather than schema-level.
 
 ## Keyspace
 
