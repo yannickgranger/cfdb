@@ -16,6 +16,8 @@ use std::process::Command;
 
 use assert_cmd::prelude::*;
 
+mod common;
+
 fn fixture_root(name: &str) -> PathBuf {
     let root = Path::new(env!("CARGO_TARGET_TMPDIR"))
         .join("ingest-contention-556")
@@ -27,37 +29,20 @@ fn fixture_root(name: &str) -> PathBuf {
     root
 }
 
-/// `[workspace]` table is load-bearing: the fixture lives inside cfdb's own
-/// `target/`, and without it cargo-metadata would climb to cfdb's workspace.
-fn write_two_bin_fixture() -> PathBuf {
-    let root = fixture_root("twobins");
+/// Write a one-package fixture workspace. `bins` empty ⇒ a default
+/// `src/main.rs`; otherwise one `src/bin/<name>.rs` per entry — each with an
+/// identical `fn main`, which is exactly the #542 collision shape.
+///
+/// The `[workspace]` table is load-bearing: the fixture lives inside cfdb's
+/// own `target/`, and without it cargo-metadata would climb to cfdb's
+/// workspace.
+fn write_fixture(name: &str, bins: &[&str]) -> PathBuf {
+    let root = fixture_root(name);
     fs::write(
         root.join("Cargo.toml"),
-        "[package]\nname = \"twobins\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\n",
-    )
-    .expect("write Cargo.toml");
-    let src = root.join("src");
-    fs::create_dir_all(src.join("bin")).expect("mkdir src/bin");
-    fs::write(
-        src.join("lib.rs"),
-        "pub fn shared_helper() -> u32 {\n    2\n}\n",
-    )
-    .expect("write lib.rs");
-    for bin in ["alpha", "beta"] {
-        fs::write(
-            src.join("bin").join(format!("{bin}.rs")),
-            "fn main() {\n    println!(\"{}\", twobins::shared_helper());\n}\n",
-        )
-        .expect("write bin");
-    }
-    root
-}
-
-fn write_one_bin_control() -> PathBuf {
-    let root = fixture_root("onebin");
-    fs::write(
-        root.join("Cargo.toml"),
-        "[package]\nname = \"onebin\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\n",
+        format!(
+            "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\n"
+        ),
     )
     .expect("write Cargo.toml");
     let src = root.join("src");
@@ -67,28 +52,16 @@ fn write_one_bin_control() -> PathBuf {
         "pub fn shared_helper() -> u32 {\n    1\n}\n",
     )
     .expect("write lib.rs");
-    fs::write(
-        src.join("main.rs"),
-        "fn main() {\n    println!(\"{}\", onebin::shared_helper());\n}\n",
-    )
-    .expect("write main.rs");
+    let main_body = format!("fn main() {{\n    println!(\"{{}}\", {name}::shared_helper());\n}}\n");
+    if bins.is_empty() {
+        fs::write(src.join("main.rs"), &main_body).expect("write main.rs");
+    } else {
+        fs::create_dir_all(src.join("bin")).expect("mkdir src/bin");
+        for bin in bins {
+            fs::write(src.join("bin").join(format!("{bin}.rs")), &main_body).expect("write bin");
+        }
+    }
     root
-}
-
-fn extract(workspace: &Path, db: &Path, keyspace: &str) -> std::process::Output {
-    Command::cargo_bin("cfdb")
-        .expect("cfdb binary built for integration tests")
-        .args([
-            "extract",
-            "--workspace",
-            workspace.to_str().expect("utf-8 fixture path"),
-            "--db",
-            db.to_str().expect("utf-8 db path"),
-            "--keyspace",
-            keyspace,
-        ])
-        .output()
-        .expect("spawn `cfdb extract`")
 }
 
 fn query_mains(db: &Path, keyspace: &str) -> std::process::Output {
@@ -108,12 +81,12 @@ fn query_mains(db: &Path, keyspace: &str) -> std::process::Output {
 
 #[test]
 fn two_bin_contention_warns_on_extract_stderr_and_query_output() {
-    let ws = write_two_bin_fixture();
+    let ws = write_fixture("twobins", &["alpha", "beta"]);
     let db = fixture_root("twobins-db");
 
     // Inject-bite half 1: extract exits 0 (diagnostic, not failure) and
     // surfaces the contention on stderr.
-    let out = extract(&ws, &db, "twobins");
+    let out = common::extract_output(&db, &ws, "twobins", &[]);
     assert!(
         out.status.success(),
         "extract must stay exit-0 on contention (diagnostic, not failure): {}",
@@ -138,10 +111,10 @@ fn two_bin_contention_warns_on_extract_stderr_and_query_output() {
 
 #[test]
 fn one_bin_control_extract_is_contention_silent() {
-    let ws = write_one_bin_control();
+    let ws = write_fixture("onebin", &[]);
     let db = fixture_root("onebin-db");
 
-    let out = extract(&ws, &db, "onebin");
+    let out = common::extract_output(&db, &ws, "onebin", &[]);
     assert!(
         out.status.success(),
         "control extract failed: {}",

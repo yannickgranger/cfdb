@@ -15,10 +15,42 @@ use cfdb_core::store::StoreBackend;
 
 use crate::compose;
 
-use super::extract_rev::{extract_at_rev, extract_at_url_rev, is_url_at_sha, workspace_basename};
+use super::extract_rev::{extract_at_rev, extract_at_url_rev, is_url_at_sha};
 
 pub fn keyspace_path(db: &Path, keyspace: &str) -> PathBuf {
     db.join(format!("{keyspace}.json"))
+}
+
+/// Default keyspace name when `--keyspace` is absent: the workspace
+/// directory's basename. Only the working-tree path uses it — the `--rev`
+/// paths default to the short rev instead (see `extract_rev`).
+fn workspace_basename(workspace: &Path) -> String {
+    workspace
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "workspace".to_string())
+}
+
+/// Surface ingest-time diagnostics on stderr (RFC-054 §3.4, 54-A #556).
+/// Exit stays 0 — the warning is diagnostic, not failure. Runs after every
+/// ingest (syn + optional HIR) and before save, so the stderr report matches
+/// what the keyspace persists. Lives with the command that owns the
+/// `extract:` prefix; one stderr lock for the whole batch.
+fn surface_ingest_warnings(store: &cfdb_petgraph::PetgraphStore, ks: &Keyspace) {
+    use std::io::Write;
+    let warnings = store.ingest_warnings(ks);
+    if warnings.is_empty() {
+        return;
+    }
+    let stderr = std::io::stderr();
+    let mut err = stderr.lock();
+    let _ = writeln!(err, "extract: {} ingest warning(s)", warnings.len());
+    for w in &warnings {
+        let _ = writeln!(err, "extract: warning: {}", w.message);
+        if let Some(s) = &w.suggestion {
+            let _ = writeln!(err, "extract:   suggestion: {s}");
+        }
+    }
 }
 
 pub fn extract(
@@ -122,7 +154,7 @@ pub(super) fn extract_at_path(
         extract_hir(&mut store, &ks, workspace, !no_proc_macro)?;
     }
 
-    compose::surface_ingest_warnings(&store, &ks);
+    surface_ingest_warnings(&store, &ks);
 
     let path = compose::save_store(&store, &ks, db)?;
     eprintln!("extract: saved keyspace `{ks_name}` to {}", path.display());
@@ -237,7 +269,7 @@ fn run_profiled_extract(
         None
     };
 
-    compose::surface_ingest_warnings(&store, ks);
+    surface_ingest_warnings(&store, ks);
 
     let t_save = Instant::now();
     let path = compose::save_store(&store, ks, db)?;

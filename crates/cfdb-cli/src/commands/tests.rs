@@ -1,5 +1,6 @@
-//! Unit tests for the command handlers. Split out of `commands.rs`
-//! verbatim for the drift god-file decomposition (#151).
+//! Unit tests for the `extract_rev` URL/rev/cache helpers. Split out of
+//! `commands.rs` verbatim for the drift god-file decomposition (#151);
+//! their production code now lives in `commands/extract_rev.rs` (#560).
 
 use std::path::PathBuf;
 

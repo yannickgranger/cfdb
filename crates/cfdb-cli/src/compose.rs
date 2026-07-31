@@ -53,22 +53,6 @@ pub(crate) fn empty_store() -> PetgraphStore {
     PetgraphStore::new()
 }
 
-/// Surface ingest-time diagnostics on stderr (RFC-054 §3.4, 54-A #556).
-/// Exit stays 0 — the warning is diagnostic, not failure. Extract calls this
-/// after every ingest (syn + optional HIR) so cross-producer contention is
-/// covered, and before [`save_store`] so the stderr count matches what the
-/// keyspace persists. Lives here with the other store-facing CLI glue.
-pub(crate) fn surface_ingest_warnings(store: &PetgraphStore, ks: &Keyspace) {
-    let warnings = store.ingest_warnings(ks);
-    if warnings.is_empty() {
-        return;
-    }
-    eprintln!("extract: {} ingest warning(s)", warnings.len());
-    for w in &warnings {
-        eprintln!("extract: warning: {}", w.message);
-    }
-}
-
 /// Resolve a keyspace's on-disk path under `db` and verify it exists.
 /// Returns the resolved path. Centralises the "keyspace not found" error
 /// shape so every handler sees one consistent diagnostic.

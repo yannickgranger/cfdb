@@ -96,7 +96,8 @@ fn clone_url_starting_with_double_dash_is_treated_as_path_not_option() {
 }
 
 /// Source-level assertion: the `git` invocations in
-/// `commands/extract.rs` that consume user-influenced positional values
+/// `commands/extract_rev.rs` (the `--rev`/URL/cache subsystem, split out
+/// of `extract.rs` per #560) that consume user-influenced positional values
 /// MUST include the literal token `"--"` immediately before the user
 /// argument. This is a belt-and-suspenders check on top of the
 /// behavioral test above — if a future refactor removes the separator,
@@ -109,8 +110,8 @@ fn clone_url_starting_with_double_dash_is_treated_as_path_not_option() {
 /// hex, ≥ 7 chars) guarantees the SHA cannot start with `--`, so `--`
 /// would be both unnecessary and actively harmful there.
 #[test]
-fn extract_rs_source_contains_double_dash_separator_for_user_args() {
-    let src = include_str!("../src/commands/extract.rs");
+fn extract_rev_rs_source_contains_double_dash_separator_for_user_args() {
+    let src = include_str!("../src/commands/extract_rev.rs");
 
     // git clone <url>: `--` must appear in the args literal before `url`.
     assert!(

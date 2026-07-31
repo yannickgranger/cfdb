@@ -13,7 +13,7 @@ use cfdb_core::result::{Warning, WarningKind};
 use cfdb_core::schema::{EdgeLabel, Label};
 use indexmap::IndexMap;
 
-use crate::ingest_contention::detect_contention;
+use crate::ingest_contention::{detect_contention, CONTENTION_SUGGESTION, CONTENTION_WARNING_CAP};
 use petgraph::stable_graph::{NodeIndex, StableDiGraph};
 
 use crate::index::build::{entry_value_for_node, IndexTag, IndexValue};
@@ -46,6 +46,15 @@ pub(crate) struct KeyspaceState {
     /// Surfaced on every subsequent `execute` call alongside query-time
     /// warnings so partially-ingested graphs are obvious to the caller.
     pub(crate) ingest_warnings: Vec<Warning>,
+
+    /// Identity contentions individually recorded so far (RFC-054 54-A).
+    /// Recording stops at [`CONTENTION_WARNING_CAP`]; see
+    /// [`Self::materialized_ingest_warnings`] for the summary row.
+    pub(crate) recorded_contentions: usize,
+
+    /// Identity contentions past the cap — carried as a count and
+    /// materialized into one summary warning at read time.
+    pub(crate) suppressed_contentions: usize,
 
     /// Inverted-index spec for this keyspace (RFC-035 slice 2 #181).
     /// Empty by default; populated via [`KeyspaceState::new_with_spec`]
@@ -100,6 +109,8 @@ impl KeyspaceState {
             by_label: BTreeMap::new(),
             edge_labels: BTreeSet::new(),
             ingest_warnings: Vec::new(),
+            recorded_contentions: 0,
+            suppressed_contentions: 0,
             index_spec: spec,
             by_prop: BTreeMap::new(),
             indexed_pairs,
@@ -167,15 +178,44 @@ impl KeyspaceState {
     /// is about to silently replace it — record the loss as a warning. A
     /// same-node re-ingest stays silent (additive-load contract). Pulled out
     /// of [`Self::ingest_one_node`] so the branchy detect step does not
-    /// count against that function's complexity budget.
+    /// count against that function's complexity budget. Recording caps at
+    /// [`CONTENTION_WARNING_CAP`] (collisions are systemic, #542); the
+    /// suggestion line rides only the first warning.
     fn record_contention(&mut self, idx: NodeIndex, incoming: &Node) {
-        let warning = self
+        let Some(mut w) = self
             .graph
             .node_weight(idx)
-            .and_then(|existing| detect_contention(existing, incoming));
-        if let Some(w) = warning {
-            self.ingest_warnings.push(w);
+            .and_then(|existing| detect_contention(existing, incoming))
+        else {
+            return;
+        };
+        if self.recorded_contentions >= CONTENTION_WARNING_CAP {
+            self.suppressed_contentions += 1;
+            return;
         }
+        if self.recorded_contentions == 0 {
+            w.suggestion = Some(CONTENTION_SUGGESTION.to_string());
+        }
+        self.recorded_contentions += 1;
+        self.ingest_warnings.push(w);
+    }
+
+    /// The ingest-warning set as a reader sees it: the recorded warnings
+    /// plus, when the cap fired, one summary row carrying the suppressed
+    /// count. Bounded (≤ cap + per-edge log), so callers may clone freely.
+    pub(crate) fn materialized_ingest_warnings(&self) -> Vec<Warning> {
+        let mut out = self.ingest_warnings.clone();
+        if self.suppressed_contentions > 0 {
+            out.push(Warning {
+                kind: WarningKind::IdentityContention,
+                message: format!(
+                    "and {} further identity contention(s) suppressed (cap {})",
+                    self.suppressed_contentions, CONTENTION_WARNING_CAP
+                ),
+                suggestion: None,
+            });
+        }
+        out
     }
 
     /// Collect every `(label, tag, value)` tuple that the spec says this

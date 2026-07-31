@@ -23,7 +23,7 @@ use std::fs;
 use std::path::Path;
 
 use cfdb_core::fact::{Edge, Node};
-use cfdb_core::result::Warning;
+use cfdb_core::result::{Warning, WarningKind};
 use cfdb_core::schema::{Keyspace, SchemaVersion};
 use cfdb_core::store::StoreBackend;
 use cfdb_core::store::StoreError;
@@ -42,13 +42,16 @@ pub struct KeyspaceFile {
     pub schema_version: SchemaVersion,
     pub nodes: Vec<Node>,
     pub edges: Vec<Edge>,
-    /// Extract-time ingest diagnostics (RFC-054 54-A #556) — persisted so a
-    /// later `cfdb query` process sees identity contention the extract
-    /// swallowed. `default` keeps pre-054 files loading unchanged; old
-    /// readers ignore the unknown field; `skip_serializing_if` keeps clean
-    /// keyspaces byte-identical to pre-054 output.
+    /// Identity-contention diagnostics (RFC-054 54-A #556) — persisted so a
+    /// later `cfdb query` process sees the node loss the extract observed.
+    /// Deliberately ONLY the contention kind: the per-edge unknown-endpoint
+    /// ingest log stays process-local (durability is a property of the
+    /// record, not of the shared warning buffer). `default` keeps pre-054
+    /// files loading unchanged; old readers ignore the unknown field;
+    /// `skip_serializing_if` keeps clean keyspaces byte-identical to
+    /// pre-054 output. Bounded by the recording cap + one summary row.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub ingest_warnings: Vec<Warning>,
+    pub contention_warnings: Vec<Warning>,
 }
 
 /// Write a keyspace to `path` as JSON.
@@ -71,7 +74,11 @@ pub fn save(store: &PetgraphStore, keyspace: &Keyspace, path: &Path) -> Result<(
         schema_version,
         nodes,
         edges,
-        ingest_warnings: store.ingest_warnings(keyspace),
+        contention_warnings: store
+            .ingest_warnings(keyspace)
+            .into_iter()
+            .filter(|w| w.kind == WarningKind::IdentityContention)
+            .collect(),
     };
     let bytes = serde_json::to_vec(&file)
         .map_err(|e| StoreError::Other(format!("serialize keyspace: {e}")))?;
@@ -102,10 +109,13 @@ pub fn load(store: &mut PetgraphStore, keyspace: &Keyspace, path: &Path) -> Resu
         });
     }
 
+    // Seed the persisted diagnostics BEFORE ingesting, so any load-time
+    // warnings land after them and chronological order falls out for free.
+    store
+        .keyspace_mut(keyspace)
+        .ingest_warnings
+        .extend(file.contention_warnings);
     store.ingest_nodes(keyspace, file.nodes)?;
     store.ingest_edges(keyspace, file.edges)?;
-    if !file.ingest_warnings.is_empty() {
-        store.prepend_ingest_warnings(keyspace, file.ingest_warnings);
-    }
     Ok(())
 }
