@@ -14,8 +14,18 @@
 
 use super::*;
 
-fn qnames(items: &[&str]) -> BTreeSet<String> {
-    items.iter().map(|s| s.to_string()).collect()
+fn qnames(
+    items: &[&str],
+) -> std::collections::BTreeMap<String, BTreeSet<cfdb_core::qname::TargetDiscriminator>> {
+    items
+        .iter()
+        .map(|s| {
+            (
+                s.to_string(),
+                BTreeSet::from([cfdb_core::qname::TargetDiscriminator::Lib]),
+            )
+        })
+        .collect()
 }
 
 // ---- resolve_type_string / build_last_segment_index primitives ----
@@ -87,9 +97,11 @@ fn resolve_one(
     let mut emitter = Emitter::new();
     emitter.emitted_item_qnames = qnames(item_qnames);
     emitter.emitted_enum_qnames = qnames(enum_qnames);
-    emitter
-        .deferred_match_targets
-        .push((site_id.to_string(), prefix.to_string()));
+    emitter.deferred_match_targets.push((
+        site_id.to_string(),
+        prefix.to_string(),
+        cfdb_core::qname::TargetDiscriminator::Lib,
+    ));
 
     resolve_deferred_match_targets(&mut emitter);
 

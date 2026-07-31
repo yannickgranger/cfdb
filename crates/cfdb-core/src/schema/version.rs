@@ -316,11 +316,40 @@ impl SchemaVersion {
         patch: 0,
     };
 
+    /// **V0_8_0 — RFC-054 (#557, slice 54-B): target-scoped `:Item`
+    /// identity + the `:Item.target` attribute.**
+    ///
+    /// Two schema-visible changes, one bump (council-unanimous ruling,
+    /// `council/RFC-054/RATIFIED.md` §6):
+    /// 1. New always-emitted (Rust producer) `:Item.target` attribute —
+    ///    `"lib"` / `"bin:<target-name>"`. Same additive magnitude as
+    ///    V0_6_0's `crate_tier`.
+    /// 2. Bin-target items (and every id derived from a parent qname —
+    ///    `callsite:`/`param:`/`field:`/`variant:`/`arg:`/`matchsite:`)
+    ///    gain a `#bin:{target}` identity suffix, so distinct cargo
+    ///    targets stop silently colliding on one node (#542). Lib-target
+    ///    ids are byte-stable — the overwhelming majority of every
+    ///    keyspace is unchanged.
+    ///
+    /// **Breaking within 0.x:** V0_7_0 readers refuse V0_8_0 graphs per
+    /// G4 — the intended signal that V0_8_0 graphs carry target-scoped
+    /// identities (and qname is no longer unique across targets) which
+    /// V0_7_0 consumers such as `cfdb diff` would misread as mass
+    /// delete+create churn.
+    ///
+    /// Paired lockstep `graph-specs-rust` cross-fixture bump per cfdb
+    /// CLAUDE.md §3 / RFC-033 §4 I2 — merge cfdb (#557's PR) first.
+    pub const V0_8_0: Self = Self {
+        major: 0,
+        minor: 8,
+        patch: 0,
+    };
+
     /// The schema version this build of cfdb-core writes and reads.
     /// Producers tag every keyspace persist with `CURRENT`. Consumers use
     /// `CURRENT.can_read(&file.schema_version)` to reject forward-
     /// incompatible graphs per G4.
-    pub const CURRENT: Self = Self::V0_7_0;
+    pub const CURRENT: Self = Self::V0_8_0;
 
     pub fn new(major: u16, minor: u16, patch: u16) -> Self {
         Self {

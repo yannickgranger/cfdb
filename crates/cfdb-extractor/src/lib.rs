@@ -53,6 +53,7 @@ use std::path::{Path, PathBuf};
 
 use cargo_metadata::MetadataCommand;
 use cfdb_core::fact::{Edge, Node, PropValue};
+use cfdb_core::qname::TargetDiscriminator;
 use cfdb_core::schema::{EdgeLabel, Label};
 use cfdb_core::ContextSource;
 use thiserror::Error;
@@ -462,18 +463,31 @@ fn emit_crate_and_walk_targets(
         props: BTreeMap::new(),
     });
 
-    let targets: Vec<PathBuf> = package
+    // RFC-054 §3.3 (#557): stop discarding target identity — each target
+    // root carries its TargetDiscriminator so distinct cargo targets of one
+    // package occupy distinct identity namespaces (#542).
+    let targets: Vec<(PathBuf, TargetDiscriminator)> = package
         .targets
         .iter()
         .filter(|t| t.is_lib() || t.is_bin())
-        .map(|t| t.src_path.clone().into_std_path_buf())
+        .map(|t| {
+            let disc = if t.is_bin() {
+                TargetDiscriminator::Bin {
+                    name: t.name.clone(),
+                }
+            } else {
+                TargetDiscriminator::Lib
+            };
+            (t.src_path.clone().into_std_path_buf(), disc)
+        })
         .collect();
-    for src_root in &targets {
+    for (src_root, target) in &targets {
         visit_file(
             emitter,
             &crate_id,
             &package.name,
             &bounded_context,
+            target,
             src_root,
             workspace_root,
         )?;

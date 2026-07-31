@@ -45,6 +45,7 @@ use crate::Emitter;
 pub(crate) fn walk_match_sites_with_test_flag(
     emitter: &mut Emitter,
     fn_qname: &str,
+    fn_target: &cfdb_core::qname::TargetDiscriminator,
     file_path: &str,
     crate_name: &str,
     block: &syn::Block,
@@ -53,6 +54,7 @@ pub(crate) fn walk_match_sites_with_test_flag(
     let mut visitor = MatchSiteVisitor {
         emitter,
         fn_qname,
+        fn_target,
         file_path,
         crate_name,
         counts: BTreeMap::new(),
@@ -64,6 +66,7 @@ pub(crate) fn walk_match_sites_with_test_flag(
 struct MatchSiteVisitor<'e, 'a> {
     emitter: &'e mut Emitter,
     fn_qname: &'a str,
+    fn_target: &'a cfdb_core::qname::TargetDiscriminator,
     file_path: &'a str,
     crate_name: &'a str,
     /// Count of prior occurrences of each matched-path prefix within this
@@ -120,7 +123,12 @@ impl MatchSiteVisitor<'_, '_> {
         // (RFC-032 §3 keeps site-id schemes out of core so the syn tier and
         // a future HIR tier can differ). The prefix is a mandatory id
         // component: one `match` expression can emit several sites.
-        let id = format!("matchsite:{}:{}:{}", self.fn_qname, matched_path, local_idx);
+        let id = format!(
+            "matchsite:{}:{}:{}",
+            self.fn_target.identity(self.fn_qname),
+            matched_path,
+            local_idx
+        );
 
         let mut props = BTreeMap::new();
         props.insert("arm_count".into(), PropValue::Int(i64::from(arm_count)));
@@ -147,13 +155,15 @@ impl MatchSiteVisitor<'_, '_> {
         // honest name-level-only representation. Queued in walk order so
         // the emitted edges are queue-order-independent after the final
         // sort (G1).
-        self.emitter
-            .deferred_match_targets
-            .push((id.clone(), matched_path.to_string()));
+        self.emitter.deferred_match_targets.push((
+            id.clone(),
+            matched_path.to_string(),
+            self.fn_target.clone(),
+        ));
         // MATCHES_AT: the containing fn/method Item → this MatchSite,
         // mirroring INVOKES_AT for call sites.
         self.emitter.emit_edge(Edge {
-            src: item_node_id(self.fn_qname),
+            src: item_node_id(&self.fn_target.identity(self.fn_qname)),
             dst: id,
             label: EdgeLabel::new(EdgeLabel::MATCHES_AT),
             props: BTreeMap::new(),

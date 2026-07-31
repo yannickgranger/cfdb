@@ -85,11 +85,20 @@
 //   - `a_name != b_name` → synonym-rename — either consolidate or
 //                          document the intentional divergence in
 //                          KNOWN_GAPS.md
+//
+// Tie-break (RFC-054 §3.5.4, #557): `a.qname < b.qname` alone is
+// structurally FALSE between equal strings, so same-qname cross-target
+// twins (N bins sharing one display qname, distinct target-scoped ids)
+// were invisible. Equal-qname pairs fall back to `a.file < b.file` —
+// cross-target twins always differ in file, and same-file cfg twins
+// collapse to one node id so they cannot pair at all. Develop-parity:
+// on trees whose qnames are unique the OR arm never fires and the row
+// set is byte-identical to the pre-054 rule.
 
 MATCH (a:Item), (b:Item)
 WHERE a.kind = 'fn'
   AND b.kind = 'fn'
-  AND a.qname < b.qname
+  AND (a.qname < b.qname OR (a.qname = b.qname AND a.file < b.file))
   AND a.dup_cluster_id = b.dup_cluster_id
   AND a.is_test = false
   AND b.is_test = false

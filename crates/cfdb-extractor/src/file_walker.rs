@@ -39,6 +39,7 @@ pub(crate) fn visit_file(
     crate_id: &str,
     crate_name: &str,
     bounded_context: &str,
+    target: &cfdb_core::qname::TargetDiscriminator,
     file_path: &Path,
     workspace_root: &Path,
 ) -> Result<(), ExtractError> {
@@ -47,6 +48,7 @@ pub(crate) fn visit_file(
         crate_id,
         crate_name,
         bounded_context,
+        target,
         file_path,
         workspace_root,
         vec![crate_name.replace('-', "_")],
@@ -70,6 +72,7 @@ fn visit_file_inner(
     crate_id: &str,
     crate_name: &str,
     bounded_context: &str,
+    target: &cfdb_core::qname::TargetDiscriminator,
     file_path: &Path,
     workspace_root: &Path,
     module_stack: Vec<String>,
@@ -143,6 +146,7 @@ fn visit_file_inner(
         crate_name: crate_name.to_string(),
         file_path: rel_path,
         bounded_context: bounded_context.to_string(),
+        target: target.clone(),
         module_stack: module_stack.clone(),
         pending_external_mods: Vec::new(),
         current_impl_target: None,
@@ -157,6 +161,7 @@ fn visit_file_inner(
             crate_id,
             crate_name,
             bounded_context,
+            target,
             file_path,
             workspace_root,
             &module_stack,
@@ -175,11 +180,13 @@ fn visit_file_inner(
 /// necessary (each recursive call owns its own stack) but belongs to
 /// the helper body rather than the outer loop scope.
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)] // per-target-root context threading (RFC-054), same axis as bounded_context
 fn descend_into_pending_mod(
     emitter: &mut Emitter,
     crate_id: &str,
     crate_name: &str,
     bounded_context: &str,
+    target: &cfdb_core::qname::TargetDiscriminator,
     file_path: &Path,
     workspace_root: &Path,
     module_stack: &[String],
@@ -200,6 +207,7 @@ fn descend_into_pending_mod(
         crate_id,
         crate_name,
         bounded_context,
+        target,
         &child_path,
         workspace_root,
         child_stack,

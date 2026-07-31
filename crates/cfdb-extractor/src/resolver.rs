@@ -38,9 +38,43 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use cfdb_core::fact::Edge;
+use cfdb_core::qname::{item_node_id_for_target, TargetDiscriminator};
 use cfdb_core::schema::EdgeLabel;
 
 use crate::emitter::Emitter;
+
+/// RFC-054 §3.5.2 target-claim policy: prefer the candidate in the SAME
+/// target as the source, else the lib target, never a foreign bin (mirrors
+/// rustc name resolution — a bin sees its own items and the lib, not
+/// sibling bins). `None` = only foreign bins claim the qname; the edge is
+/// dropped under the same doctrine as ambiguous last-segments ("safer than
+/// mis-attribution" — and for compiling code the case is unreachable: a
+/// foreign bin's types are not nameable from another target).
+fn choose_claim(
+    claims: &BTreeSet<TargetDiscriminator>,
+    src_target: &TargetDiscriminator,
+) -> Option<TargetDiscriminator> {
+    if claims.contains(src_target) {
+        return Some(src_target.clone());
+    }
+    if claims.contains(&TargetDiscriminator::Lib) {
+        return Some(TargetDiscriminator::Lib);
+    }
+    None
+}
+
+/// Resolve a rendered type string to a discriminated `:Item` node id under
+/// the RFC-054 claim policy. Shared tail of all three resolvers.
+fn resolve_to_target_id(
+    emitter_qnames: &BTreeMap<String, BTreeSet<TargetDiscriminator>>,
+    by_last_segment: &BTreeMap<&str, Option<&String>>,
+    type_string: &str,
+    src_target: &TargetDiscriminator,
+) -> Option<String> {
+    let qname = resolve_type_string(emitter_qnames, by_last_segment, type_string)?;
+    let chosen = choose_claim(emitter_qnames.get(&qname)?, src_target)?;
+    Some(item_node_id_for_target(&qname, &chosen))
+}
 
 /// Post-walk RETURNS resolution (RFC-037 §3.2, #216; extended for #239).
 ///
@@ -56,7 +90,8 @@ use crate::emitter::Emitter;
 /// in [`crate::extract_workspace`], so on-disk ordering is
 /// independent of queue iteration order.
 pub(crate) fn resolve_deferred_returns(emitter: &mut Emitter) {
-    let deferred: Vec<(String, String, syn::Type)> = std::mem::take(&mut emitter.deferred_returns);
+    let deferred: Vec<(String, TargetDiscriminator, String, syn::Type)> =
+        std::mem::take(&mut emitter.deferred_returns);
 
     // Build a last-segment index: `render_type_string` produces paths
     // as-written (`Foo`, `mymod::Bar`), but `emitted_item_qnames` holds
@@ -74,12 +109,15 @@ pub(crate) fn resolve_deferred_returns(emitter: &mut Emitter) {
     // keywords open a loop scope.
     let resolved: Vec<(String, String)> = deferred
         .into_iter()
-        .flat_map(|(fn_qname, return_type, return_ty)| {
+        .flat_map(|(fn_qname, src_target, return_type, return_ty)| {
             let mut targets: Vec<String> = Vec::new();
-            if let Some(target_qname) =
-                resolve_type_string(&emitter.emitted_item_qnames, &by_last_segment, &return_type)
-            {
-                targets.push(target_qname);
+            if let Some(dst_id) = resolve_to_target_id(
+                &emitter.emitted_item_qnames,
+                &by_last_segment,
+                &return_type,
+                &src_target,
+            ) {
+                targets.push(dst_id);
             } else {
                 // Third tier: wrapper unwrap on the stored `syn::Type`.
                 // Runs only on miss of tiers 1+2. `Result<T, E>` may
@@ -88,24 +126,26 @@ pub(crate) fn resolve_deferred_returns(emitter: &mut Emitter) {
                     crate::type_render::render_type_inner(&return_ty, 3)
                         .into_iter()
                         .filter_map(|candidate| {
-                            resolve_type_string(
+                            resolve_to_target_id(
                                 &emitter.emitted_item_qnames,
                                 &by_last_segment,
                                 &candidate,
+                                &src_target,
                             )
                         }),
                 );
             }
+            let src_id = item_node_id_for_target(&fn_qname, &src_target);
             targets
                 .into_iter()
-                .map(move |target| (fn_qname.clone(), target))
+                .map(move |dst_id| (src_id.clone(), dst_id))
         })
         .collect();
 
-    for (fn_qname, target_qname) in resolved {
+    for (src_id, dst_id) in resolved {
         emitter.emit_edge(Edge {
-            src: cfdb_core::qname::item_node_id(&fn_qname),
-            dst: cfdb_core::qname::item_node_id(&target_qname),
+            src: src_id,
+            dst: dst_id,
             label: EdgeLabel::new(EdgeLabel::RETURNS),
             props: BTreeMap::new(),
         });
@@ -132,7 +172,7 @@ pub(crate) fn resolve_deferred_returns(emitter: &mut Emitter) {
 /// in [`crate::extract_workspace`], so on-disk ordering is independent
 /// of queue iteration order.
 pub(crate) fn resolve_deferred_type_of(emitter: &mut Emitter) {
-    let deferred: Vec<(String, String, &'static str, syn::Type)> =
+    let deferred: Vec<(String, String, &'static str, syn::Type, TargetDiscriminator)> =
         std::mem::take(&mut emitter.deferred_type_of);
 
     let by_last_segment = build_last_segment_index(&emitter.emitted_item_qnames);
@@ -142,35 +182,39 @@ pub(crate) fn resolve_deferred_type_of(emitter: &mut Emitter) {
     // `src_id.clone()` inside a `for` loop.
     let resolved: Vec<(String, String)> = deferred
         .into_iter()
-        .flat_map(|(src_id, type_string, _label, src_ty)| {
+        .flat_map(|(src_id, type_string, _label, src_ty, src_target)| {
             let mut targets: Vec<String> = Vec::new();
-            if let Some(target_qname) =
-                resolve_type_string(&emitter.emitted_item_qnames, &by_last_segment, &type_string)
-            {
-                targets.push(target_qname);
+            if let Some(dst_id) = resolve_to_target_id(
+                &emitter.emitted_item_qnames,
+                &by_last_segment,
+                &type_string,
+                &src_target,
+            ) {
+                targets.push(dst_id);
             } else {
                 targets.extend(
                     crate::type_render::render_type_inner(&src_ty, 3)
                         .into_iter()
                         .filter_map(|candidate| {
-                            resolve_type_string(
+                            resolve_to_target_id(
                                 &emitter.emitted_item_qnames,
                                 &by_last_segment,
                                 &candidate,
+                                &src_target,
                             )
                         }),
                 );
             }
             targets
                 .into_iter()
-                .map(move |target| (src_id.clone(), target))
+                .map(move |dst_id| (src_id.clone(), dst_id))
         })
         .collect();
 
-    for (src_id, target_qname) in resolved {
+    for (src_id, dst_id) in resolved {
         emitter.emit_edge(Edge {
             src: src_id,
-            dst: cfdb_core::qname::item_node_id(&target_qname),
+            dst: dst_id,
             label: EdgeLabel::new(EdgeLabel::TYPE_OF),
             props: BTreeMap::new(),
         });
@@ -217,7 +261,8 @@ pub(crate) fn resolve_deferred_type_of(emitter: &mut Emitter) {
 /// `edges.sort_by(sort_key)` pass in [`crate::extract_workspace`], so
 /// on-disk ordering is independent of queue iteration order.
 pub(crate) fn resolve_deferred_match_targets(emitter: &mut Emitter) {
-    let deferred: Vec<(String, String)> = std::mem::take(&mut emitter.deferred_match_targets);
+    let deferred: Vec<(String, String, TargetDiscriminator)> =
+        std::mem::take(&mut emitter.deferred_match_targets);
 
     let by_last_segment = build_last_segment_index(&emitter.emitted_item_qnames);
 
@@ -228,7 +273,7 @@ pub(crate) fn resolve_deferred_match_targets(emitter: &mut Emitter) {
     // two-arm `Result`) and `site_id` moves straight into the pair.
     let resolved: Vec<(String, String)> = deferred
         .into_iter()
-        .filter_map(|(site_id, matched_path)| {
+        .filter_map(|(site_id, matched_path, src_target)| {
             resolve_type_string(
                 &emitter.emitted_item_qnames,
                 &by_last_segment,
@@ -246,15 +291,21 @@ pub(crate) fn resolve_deferred_match_targets(emitter: &mut Emitter) {
             .filter(|q| is_segment_suffix(&matched_path, q))
             // Kind filter (§3.2): resolution targets are enums only; a
             // prefix resolving to a struct / trait emits nothing.
-            .filter(|target_qname| emitter.emitted_enum_qnames.contains(target_qname))
-            .map(|target_qname| (site_id, target_qname))
+            .and_then(|target_qname| {
+                // Kind filter (§3.2): enums only — then the RFC-054 claim
+                // policy picks the target-scoped enum (same-target first,
+                // else lib, never a foreign bin).
+                let claims = emitter.emitted_enum_qnames.get(&target_qname)?;
+                let chosen = choose_claim(claims, &src_target)?;
+                Some((site_id, item_node_id_for_target(&target_qname, &chosen)))
+            })
         })
         .collect();
 
-    for (site_id, target_qname) in resolved {
+    for (site_id, dst_id) in resolved {
         emitter.emit_edge(Edge {
             src: site_id,
-            dst: cfdb_core::qname::item_node_id(&target_qname),
+            dst: dst_id,
             label: EdgeLabel::new(EdgeLabel::MATCHES_ON),
             props: BTreeMap::new(),
         });
@@ -265,10 +316,10 @@ pub(crate) fn resolve_deferred_match_targets(emitter: &mut Emitter) {
 /// Ambiguous last-segments (same short name across multiple workspace
 /// qnames) map to `None` so `resolve_type_string` drops them silently.
 fn build_last_segment_index(
-    emitted_item_qnames: &BTreeSet<String>,
+    emitted_item_qnames: &BTreeMap<String, BTreeSet<TargetDiscriminator>>,
 ) -> BTreeMap<&str, Option<&String>> {
     let mut by_last_segment: BTreeMap<&str, Option<&String>> = BTreeMap::new();
-    for qname in emitted_item_qnames {
+    for qname in emitted_item_qnames.keys() {
         let seg = cfdb_core::qname::last_segment(qname);
         by_last_segment
             .entry(seg)
@@ -283,11 +334,11 @@ fn build_last_segment_index(
 /// Returns the matched qname (owned) when a tier hits, `None` when
 /// both miss.
 fn resolve_type_string(
-    emitted_item_qnames: &BTreeSet<String>,
+    emitted_item_qnames: &BTreeMap<String, BTreeSet<TargetDiscriminator>>,
     by_last_segment: &BTreeMap<&str, Option<&String>>,
     type_string: &str,
 ) -> Option<String> {
-    if emitted_item_qnames.contains(type_string) {
+    if emitted_item_qnames.contains_key(type_string) {
         return Some(type_string.to_string());
     }
     let seg = cfdb_core::qname::last_segment(type_string);

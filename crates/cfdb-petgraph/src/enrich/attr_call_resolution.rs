@@ -105,6 +105,10 @@ pub(crate) fn mark_serde_default_callees_reachable(
 /// takes `&state`, the apply takes `&mut state`.
 fn collect_resolutions(state: &KeyspaceState) -> BTreeMap<NodeIndex, NodeIndex> {
     let callsites = state.nodes_with_label(&Label::new(Label::CALL_SITE));
+    // RFC-054 §3.5.3 (#557): the caller's target context decides which
+    // identity namespace the candidate ids live in. Built once per pass:
+    // (display qname, file) → the caller `:Item`'s `target` wire string.
+    let caller_targets = build_caller_target_index(state);
     let mut out: BTreeMap<NodeIndex, NodeIndex> = BTreeMap::new();
     for cs_idx in callsites {
         let Some(cs_node) = state.graph.node_weight(cs_idx) else {
@@ -123,9 +127,42 @@ fn collect_resolutions(state: &KeyspaceState) -> BTreeMap<NodeIndex, NodeIndex> 
         else {
             continue;
         };
-        if let Some(item_idx) = resolve_callee_to_item(state, callee_path, caller_qname) {
+        // Same-target-first suffix (RFC-054 claim policy at the enrich
+        // layer): a bin-target caller's callees live in its own identity
+        // namespace, falling back to the bare (lib) ids below.
+        let cs_file = cs_node.props.get("file").and_then(PropValue::as_str);
+        let suffix = cs_file
+            .and_then(|f| caller_targets.get(&(caller_qname.to_string(), f.to_string())))
+            .and_then(|t| t.strip_prefix("bin:"))
+            .map(|bin| format!("#bin:{bin}"))
+            .unwrap_or_default();
+        if let Some(item_idx) = resolve_callee_to_item(state, callee_path, caller_qname, &suffix) {
             out.insert(cs_idx, item_idx);
         }
+    }
+    out
+}
+
+/// One pass over `:Item` nodes → `(qname, file) → target` wire string.
+/// The (qname, file) pair is how a display-form `caller_qname` prop is
+/// joined back to its owning item without parsing node ids (ids stay
+/// write-only). Items without a `target` prop (pre-054 keyspaces,
+/// non-Rust producers) simply don't enter the map — the empty-suffix
+/// fallback covers them.
+fn build_caller_target_index(state: &KeyspaceState) -> BTreeMap<(String, String), String> {
+    let mut out = BTreeMap::new();
+    for item_idx in state.nodes_with_label(&Label::new(Label::ITEM)) {
+        let Some(n) = state.graph.node_weight(item_idx) else {
+            continue;
+        };
+        let (Some(q), Some(f), Some(t)) = (
+            n.props.get("qname").and_then(PropValue::as_str),
+            n.props.get("file").and_then(PropValue::as_str),
+            n.props.get("target").and_then(PropValue::as_str),
+        ) else {
+            continue;
+        };
+        out.insert((q.to_string(), f.to_string()), t.to_string());
     }
     out
 }
@@ -159,18 +196,30 @@ fn resolve_callee_to_item(
     state: &KeyspaceState,
     callee_path: &str,
     caller_qname: &str,
+    caller_suffix: &str,
 ) -> Option<NodeIndex> {
+    // Each strategy tries the caller's own identity namespace first
+    // (same-target policy, RFC-054 §3.5.3), then the bare (lib) id.
+    let lookup = |candidate: &str| -> Option<NodeIndex> {
+        if !caller_suffix.is_empty() {
+            // The discriminated identity is `{candidate}{suffix}`; the id
+            // wraps it via the canonical helper (qname-literal fence).
+            let discriminated = item_node_id(&format!("{candidate}{caller_suffix}"));
+            if let Some(&idx) = state.id_to_idx.get(&discriminated) {
+                return Some(idx);
+            }
+        }
+        state.id_to_idx.get(&item_node_id(candidate)).copied()
+    };
     // Strategy 1 — exact match. Author wrote the fully-qualified path
     // and the callee lives in the workspace.
-    let exact_id = item_node_id(callee_path);
-    if let Some(&idx) = state.id_to_idx.get(&exact_id) {
+    if let Some(idx) = lookup(callee_path) {
         return Some(idx);
     }
     // Strategy 2 — same-module. Strip the last `::` segment from
     // caller_qname to recover the module path, then prepend it.
     if let Some((module_path, _last)) = caller_qname.rsplit_once("::") {
-        let candidate = item_node_id(&format!("{module_path}::{callee_path}"));
-        if let Some(&idx) = state.id_to_idx.get(&candidate) {
+        if let Some(idx) = lookup(&format!("{module_path}::{callee_path}")) {
             return Some(idx);
         }
     }
@@ -178,8 +227,7 @@ fn resolve_callee_to_item(
     // the crate name (cfdb's qname convention, see
     // `cfdb-core::qname::item_qname`). Prepend it.
     if let Some((crate_name, _rest)) = caller_qname.split_once("::") {
-        let candidate = item_node_id(&format!("{crate_name}::{callee_path}"));
-        if let Some(&idx) = state.id_to_idx.get(&candidate) {
+        if let Some(idx) = lookup(&format!("{crate_name}::{callee_path}")) {
             return Some(idx);
         }
     }
@@ -214,6 +262,7 @@ mod tests {
             &state,
             "myapp::config::default_url",
             "myapp::other::config::AppConfig",
+            "",
         );
         let idx = resolved.expect("exact match must win");
         let node = state.graph.node_weight(idx).expect("node");
@@ -228,7 +277,8 @@ mod tests {
     fn resolver_falls_back_to_same_module() {
         let mut state = KeyspaceState::new();
         state.ingest_nodes(vec![make_item("myapp::config::default_url")]);
-        let resolved = resolve_callee_to_item(&state, "default_url", "myapp::config::AppConfig");
+        let resolved =
+            resolve_callee_to_item(&state, "default_url", "myapp::config::AppConfig", "");
         assert!(resolved.is_some(), "same-module resolution must succeed");
     }
 
@@ -238,7 +288,7 @@ mod tests {
         let mut state = KeyspaceState::new();
         state.ingest_nodes(vec![make_item("myapp::config::default_url")]);
         let resolved =
-            resolve_callee_to_item(&state, "config::default_url", "myapp::main::AppConfig");
+            resolve_callee_to_item(&state, "config::default_url", "myapp::main::AppConfig", "");
         assert!(resolved.is_some(), "same-crate resolution must succeed");
     }
 
@@ -246,6 +296,32 @@ mod tests {
     #[test]
     fn resolver_returns_none_for_unknown_path() {
         let state = KeyspaceState::new();
-        assert!(resolve_callee_to_item(&state, "nowhere::fn", "myapp::AppConfig").is_none());
+        assert!(resolve_callee_to_item(&state, "nowhere::fn", "myapp::AppConfig", "").is_none());
+    }
+
+    #[test]
+    fn bin_target_caller_resolves_bin_local_callee_same_target_first() {
+        // RFC-054 §3.5.3 regression (#557): a #[serde(default = "...")]
+        // callee defined in a bin target lives at a discriminated id; the
+        // caller's target context must route the candidate there, with
+        // the bare (lib) id as fallback — never a foreign bin.
+        let mut callee = make_item("tif::defaults::seed");
+        callee.id = format!("{}#bin:alpha", callee.id);
+        let mut state = KeyspaceState::new();
+        state.ingest_nodes(vec![callee]);
+        let resolved =
+            resolve_callee_to_item(&state, "tif::defaults::seed", "tif::main", "#bin:alpha");
+        assert!(
+            resolved.is_some(),
+            "bin-target callee must resolve within the caller's namespace"
+        );
+        // A foreign-bin suffix must NOT resolve to alpha's item (and there
+        // is no lib fallback here), mirroring rustc visibility.
+        let foreign =
+            resolve_callee_to_item(&state, "tif::defaults::seed", "tif::main", "#bin:beta");
+        assert!(
+            foreign.is_none(),
+            "a foreign bin's namespace must not capture the candidate"
+        );
     }
 }

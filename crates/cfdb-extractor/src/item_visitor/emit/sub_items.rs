@@ -32,7 +32,9 @@ impl ItemVisitor<'_> {
         type_normalized: &str,
         syn_type: Option<&syn::Type>,
     ) {
-        let id = param_node_id(parent_qname, index);
+        // RFC-054 §3.1: derived ids inherit the discriminated parent
+        // identity; the `parent_qname` PROP stays the bare display value.
+        let id = param_node_id(&self.target.identity(parent_qname), index);
         let mut props = BTreeMap::new();
         props.insert("index".into(), PropValue::Int(index as i64));
         props.insert("is_self".into(), PropValue::Bool(is_self));
@@ -67,11 +69,12 @@ impl ItemVisitor<'_> {
                     type_normalized.to_string(),
                     "Param",
                     ty.clone(),
+                    self.target.clone(),
                 ));
             }
         }
         self.emitter.emit_edge(Edge {
-            src: item_node_id(parent_qname),
+            src: item_node_id(&self.target.identity(parent_qname)),
             dst: id,
             label: EdgeLabel::new(EdgeLabel::HAS_PARAM),
             props: BTreeMap::new(),
@@ -95,7 +98,7 @@ impl ItemVisitor<'_> {
         type_path: &str,
         syn_type: &syn::Type,
     ) {
-        let id = field_node_id(parent_qname, name);
+        let id = field_node_id(&self.target.identity(parent_qname), name);
         let mut props = BTreeMap::new();
         props.insert("index".into(), PropValue::Int(index as i64));
         props.insert("name".into(), PropValue::Str(name.to_string()));
@@ -125,6 +128,7 @@ impl ItemVisitor<'_> {
                 type_normalized.to_string(),
                 "Field",
                 syn_type.clone(),
+                self.target.clone(),
             ));
         }
         self.emitter.emit_edge(Edge {
@@ -193,7 +197,7 @@ impl ItemVisitor<'_> {
         name: &str,
         payload_kind: &str,
     ) -> (String, String) {
-        let id = variant_node_id(enum_qname, index);
+        let id = variant_node_id(&self.target.identity(enum_qname), index);
         let variant_qname = format!("{enum_qname}::{name}");
         let mut props = BTreeMap::new();
         props.insert("index".into(), PropValue::Int(index as i64));
@@ -212,7 +216,7 @@ impl ItemVisitor<'_> {
             props,
         });
         self.emitter.emit_edge(Edge {
-            src: item_node_id(enum_qname),
+            src: item_node_id(&self.target.identity(enum_qname)),
             dst: id.clone(),
             label: EdgeLabel::new(EdgeLabel::HAS_VARIANT),
             props: BTreeMap::new(),

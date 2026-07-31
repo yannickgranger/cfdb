@@ -52,9 +52,10 @@ impl TargetDiscriminator {
     /// identity, not from the bare qname, so they separate for free.
     #[must_use]
     pub fn identity(&self, qname: &str) -> String {
-        // RED stub (#557): bin suffix lands with green.
-        let _ = self;
-        qname.to_string()
+        match self {
+            TargetDiscriminator::Lib => qname.to_string(),
+            TargetDiscriminator::Bin { name } => format!("{qname}#bin:{name}"),
+        }
     }
 
     /// Wire value for the `:Item.target` prop: `"lib"` or `"bin:{name}"`.
@@ -306,4 +307,3 @@ mod tests {
         );
     }
 }
-

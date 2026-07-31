@@ -25,7 +25,10 @@
 //! `cfdb_core::qname::field_node_id` (etc.) keep working unchanged.
 
 mod node_id;
-pub use node_id::{argument_node_id, field_node_id, item_node_id, param_node_id, variant_node_id};
+pub use node_id::{
+    argument_node_id, callsite_node_id, field_node_id, item_node_id, item_node_id_for_target,
+    param_node_id, variant_node_id, TargetDiscriminator,
+};
 
 /// Join the module stack into a `::`-delimited module qpath.
 ///
@@ -105,8 +108,13 @@ pub fn qname_from_node_id(node_id: &str) -> &str {
 /// plumbing from leaking into display values (RFC-054 §3.5.1).
 #[must_use]
 pub fn display_qname_from_node_id(node_id: &str) -> &str {
-    // RED stub (#557): suffix strip lands with green.
-    node_id.strip_prefix("item:").unwrap_or(node_id)
+    let identity = node_id.strip_prefix("item:").unwrap_or(node_id);
+    // `#` never appears in a Rust path, so the first `#bin:` is always the
+    // RFC-054 discriminator, never qname content.
+    match identity.find("#bin:") {
+        Some(i) => &identity[..i],
+        None => identity,
+    }
 }
 
 /// Canonicalise an `impl` target rendering by dropping any generic
@@ -461,5 +469,20 @@ mod qname_contract_sync {
         let node_id = item_node_id(&q);
         let bare = qname_from_node_id(&node_id);
         assert_eq!(last_segment(bare), "ItemVisitor");
+    }
+
+    #[test]
+    fn display_qname_strips_prefix_and_bin_suffix() {
+        assert_eq!(
+            display_qname_from_node_id("item:tif::main#bin:alpha"),
+            "tif::main"
+        );
+        assert_eq!(display_qname_from_node_id("item:tif::main"), "tif::main");
+        // identity round-trip (prefix-only strip) keeps the suffix — the
+        // two exits stay distinct on purpose (RFC-054 §3.5.1).
+        assert_eq!(
+            qname_from_node_id("item:tif::main#bin:alpha"),
+            "tif::main#bin:alpha"
+        );
     }
 }

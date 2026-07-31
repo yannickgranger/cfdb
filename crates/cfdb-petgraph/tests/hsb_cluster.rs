@@ -341,3 +341,36 @@ fn mixed_test_and_production_pair_excluded() {
         "prod+test pair must be excluded — is_test=false gates both sides; rows={rows:?}"
     );
 }
+
+/// RFC-054 54-B (#557): two bin targets carrying an identical helper share
+/// one display qname (distinct target-scoped ids). The pre-054 tie-break
+/// `a.qname < b.qname` is structurally FALSE between equal strings, so the
+/// pair was invisible to this rule — the amended tie-break falls back to
+/// `a.file < b.file` when qnames are equal (cross-target twins always
+/// differ in file; same-file cfg twins collapse to one node id and cannot
+/// pair at all).
+#[test]
+fn same_qname_cross_bin_pair_fires() {
+    let mut a = fn_item("tif::helper", "helper", "sig-x", Some("c9"), false);
+    a.id = format!("{}#bin:alpha", a.id);
+    a.props
+        .insert("file".into(), PropValue::Str("src/bin/alpha.rs".into()));
+    a.props
+        .insert("target".into(), PropValue::Str("bin:alpha".into()));
+    let mut b = fn_item("tif::helper", "helper", "sig-x", Some("c9"), false);
+    b.id = format!("{}#bin:beta", b.id);
+    b.props
+        .insert("file".into(), PropValue::Str("src/bin/beta.rs".into()));
+    b.props
+        .insert("target".into(), PropValue::Str("bin:beta".into()));
+
+    let ks = keyspace();
+    let mut store = PetgraphStore::new();
+    store.ingest_nodes(&ks, vec![a, b]).expect("ingest");
+    let rows = run_query(&store);
+    assert_eq!(
+        rows.len(),
+        1,
+        "the same-qname cross-target twin pair must be reported (RFC-054 §3.5.4)"
+    );
+}

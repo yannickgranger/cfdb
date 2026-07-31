@@ -64,6 +64,7 @@ pub(crate) fn emit_call_site_node_and_edge(
     emitter: &mut Emitter,
     cs_id: String,
     caller_qname: &str,
+    caller_target: &cfdb_core::qname::TargetDiscriminator,
     callee_path: &str,
     kind: &str,
     file: String,
@@ -102,7 +103,7 @@ pub(crate) fn emit_call_site_node_and_edge(
         props,
     });
     emitter.emit_edge(Edge {
-        src: item_node_id(caller_qname),
+        src: item_node_id(&caller_target.identity(caller_qname)),
         dst: cs_id,
         label: EdgeLabel::new(EdgeLabel::INVOKES_AT),
         props: BTreeMap::new(),
@@ -196,7 +197,7 @@ impl ItemVisitor<'_> {
         line: usize,
         vis: &syn::Visibility,
         attrs: &[syn::Attribute],
-    ) -> String {
+    ) -> (String, String) {
         self.emit_item_with_flags(
             name,
             kind,
@@ -243,12 +244,15 @@ impl ItemVisitor<'_> {
         attrs: &[syn::Attribute],
         signature: Option<&str>,
         impl_target: Option<&str>,
-    ) -> String {
+    ) -> (String, String) {
         let qname = match impl_target {
             Some(target) => method_qname(&self.module_stack, target, name),
             None => self.qname(name),
         };
-        let id = item_node_id(&qname);
+        // RFC-054 §3.1 (#557): the id is the target-scoped identity; the
+        // returned display qname stays bare. Callers get both — deriving
+        // one from the other is the conflation class §3.5.1 retires.
+        let id = item_node_id(&self.target.identity(&qname));
         // `{qname, name, kind, crate}` come from the shared owner; this path
         // layers the Rust-specific keys (`bounded_context`, `module_qpath`,
         // optional `impl_target`, `file`, `line`, `is_test`, `visibility`,
@@ -272,6 +276,7 @@ impl ItemVisitor<'_> {
         props.insert("file".into(), PropValue::Str(self.file_path.clone()));
         props.insert("line".into(), PropValue::Int(line as i64));
         props.insert("is_test".into(), PropValue::Bool(is_test));
+        props.insert("target".into(), PropValue::Str(self.target.as_wire_str()));
         props.insert(
             "visibility".into(),
             PropValue::Str(parse_syn_visibility(vis).to_string()),
@@ -293,13 +298,13 @@ impl ItemVisitor<'_> {
         // every emitted `:Item` qname (RFC-037 §3.2, #216). The set
         // lives on the workspace-scoped `Emitter` so the resolution
         // pass in `extract_workspace` sees items across every file.
-        self.emitter.emitted_item_qnames.insert(qname.clone());
+        self.emitter.claim_item_qname(&qname, &self.target.clone());
         // MATCHES_ON post-walk resolution additionally needs the enum
         // subset (RFC-053 §3.2: resolution targets are constrained to
         // `kind = "enum"`). This is the single `:Item` emission owner, so
         // it is the one site that classifies enums for the filter.
         if kind == "enum" {
-            self.emitter.emitted_enum_qnames.insert(qname.clone());
+            self.emitter.claim_enum_qname(&qname, &self.target.clone());
         }
         self.emitter.emit_edge(Edge {
             src: id.clone(),
@@ -310,7 +315,7 @@ impl ItemVisitor<'_> {
         // IN_MODULE membership for the deepest enclosing module (#267).
         // No-op at crate root where no `:Module` node exists.
         self.emit_in_module_edge(&id);
-        id
+        (id, qname)
     }
 
     /// Emit an `:Item { kind: "impl_block" }` node for the current `impl`
@@ -339,7 +344,7 @@ impl ItemVisitor<'_> {
         attrs: &[syn::Attribute],
     ) {
         let impl_qname = impl_block_qname(&self.module_stack, target, trait_qname);
-        let impl_id = item_node_id(&impl_qname);
+        let impl_id = item_node_id(&self.target.identity(&impl_qname));
 
         // `{qname, name, kind, crate}` from the shared owner. The impl-block
         // `name` (`"impl Foo"` / `"impl Bar for Foo"`) is passed explicitly:
@@ -372,6 +377,7 @@ impl ItemVisitor<'_> {
         // wiring §B.1.1 default).
         props.insert("visibility".into(), PropValue::Str("private".into()));
         props.insert("impl_target".into(), PropValue::Str(target.into()));
+        props.insert("target".into(), PropValue::Str(self.target.as_wire_str()));
         if let Some(t) = trait_qname {
             props.insert("impl_trait".into(), PropValue::Str(t.into()));
         }
@@ -387,7 +393,8 @@ impl ItemVisitor<'_> {
         // typically appear as return types, but we populate the set
         // consistently for every emitted `:Item` so any future fact
         // type that resolves on `:Item` qnames is accurate.
-        self.emitter.emitted_item_qnames.insert(impl_qname.clone());
+        self.emitter
+            .claim_item_qname(&impl_qname, &self.target.clone());
         self.emitter.emit_edge(Edge {
             src: impl_id.clone(),
             dst: self.crate_id.clone(),
@@ -443,13 +450,17 @@ impl ItemVisitor<'_> {
         kind: &str,
         line: usize,
     ) {
-        let cs_id = format!("callsite:{parent_qname}.{field_name}:{callee_path}:0");
+        let cs_id = format!(
+            "callsite:{}.{field_name}:{callee_path}:0",
+            self.target.identity(parent_qname)
+        );
         let mut extra = BTreeMap::new();
         extra.insert("field".into(), PropValue::Str(field_name.to_string()));
         emit_call_site_node_and_edge(
             self.emitter,
             cs_id,
             parent_qname,
+            &self.target.clone(),
             callee_path,
             kind,
             self.file_path.clone(),

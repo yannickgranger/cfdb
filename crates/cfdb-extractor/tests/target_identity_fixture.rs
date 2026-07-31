@@ -21,8 +21,7 @@ use tempfile::tempdir;
 
 fn write_fixture_file(root: &Path, rel: &str, contents: &str) {
     let p = root.join(rel);
-    std::fs::create_dir_all(p.parent().expect("fixture path has a parent"))
-        .expect("fixture mkdir");
+    std::fs::create_dir_all(p.parent().expect("fixture path has a parent")).expect("fixture mkdir");
     std::fs::write(p, contents).expect("fixture write");
 }
 
@@ -114,8 +113,7 @@ fn target_identity_shared_fixture() {
         .filter(|n| prop_str(n, "name") == Some("main"))
         .collect();
     assert_eq!(mains.len(), 2, "one :Item main per bin target");
-    let main_targets: BTreeSet<&str> =
-        mains.iter().filter_map(|n| prop_str(n, "target")).collect();
+    let main_targets: BTreeSet<&str> = mains.iter().filter_map(|n| prop_str(n, "target")).collect();
     assert_eq!(
         main_targets,
         BTreeSet::from(["bin:alpha", "bin:beta"]),
@@ -154,9 +152,17 @@ fn target_identity_shared_fixture() {
         "one `tif::shared` :CallSite per bin (pre-054 they collapse to one)"
     );
     let cs_ids: BTreeSet<&str> = call_sites.iter().map(|n| n.id.as_str()).collect();
-    assert_eq!(cs_ids.len(), 2, ":CallSite ids must be distinct across bins");
+    assert_eq!(
+        cs_ids.len(),
+        2,
+        ":CallSite ids must be distinct across bins"
+    );
     for cs in &call_sites {
-        assert!(cs.id.contains("#bin:"), "cs id embeds caller identity: {}", cs.id);
+        assert!(
+            cs.id.contains("#bin:"),
+            "cs id embeds caller identity: {}",
+            cs.id
+        );
         assert_eq!(
             prop_str(cs, "caller_qname"),
             Some("tif::use_lib"),
@@ -192,7 +198,11 @@ fn target_identity_shared_fixture() {
             "RETURNS dst must exist (no silent dangle): {}",
             e.dst
         );
-        assert!(e.dst.contains("#bin:"), "bin-local dst is discriminated: {}", e.dst);
+        assert!(
+            e.dst.contains("#bin:"),
+            "bin-local dst is discriminated: {}",
+            e.dst
+        );
         let src_suffix = e.src.rsplit("#bin:").next();
         let dst_suffix = e.dst.rsplit("#bin:").next();
         assert_eq!(
@@ -218,7 +228,11 @@ fn target_identity_shared_fixture() {
         .iter()
         .filter(|e| e.label.as_str() == EdgeLabel::MATCHES_ON)
         .collect();
-    assert_eq!(matches_on.len(), 2, "one match site per bin resolves to Pick");
+    assert_eq!(
+        matches_on.len(),
+        2,
+        "one match site per bin resolves to Pick"
+    );
     for e in &matches_on {
         assert!(
             e.dst.contains("tif::Pick") && e.dst.contains("#bin:"),
