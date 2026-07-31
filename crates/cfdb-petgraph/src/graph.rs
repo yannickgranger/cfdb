@@ -13,7 +13,7 @@ use cfdb_core::result::{Warning, WarningKind};
 use cfdb_core::schema::{EdgeLabel, Label};
 use indexmap::IndexMap;
 
-use crate::ingest_contention::{classify_reingest, contention_warning, ReingestClass};
+use crate::ingest_contention::detect_contention;
 use petgraph::stable_graph::{NodeIndex, StableDiGraph};
 
 use crate::index::build::{entry_value_for_node, IndexTag, IndexValue};
@@ -120,20 +120,7 @@ impl KeyspaceState {
     /// dispatch).
     fn ingest_one_node(&mut self, node: Node) {
         if let Some(&idx) = self.id_to_idx.get(&node.id) {
-            // RFC-054 §3.4 (54-A #556): a *different* node claiming an
-            // existing id is about to silently replace it — make the loss
-            // loud. Same-node re-ingest stays silent (additive-load contract).
-            let contention = match self.graph.node_weight(idx) {
-                Some(existing)
-                    if classify_reingest(existing, &node) == ReingestClass::Contention =>
-                {
-                    Some(contention_warning(existing, &node))
-                }
-                _ => None,
-            };
-            if let Some(w) = contention {
-                self.ingest_warnings.push(w);
-            }
+            self.record_contention(idx, &node);
             // Snapshot pre-update index entries via an immutable graph
             // borrow so we can reconcile `by_prop` after the mutation
             // without fighting the borrow-checker over `self.graph`.
@@ -173,6 +160,21 @@ impl KeyspaceState {
                     .or_default()
                     .insert(idx);
             }
+        }
+    }
+
+    /// RFC-054 §3.4 (54-A #556): a *different* node claiming an existing id
+    /// is about to silently replace it — record the loss as a warning. A
+    /// same-node re-ingest stays silent (additive-load contract). Pulled out
+    /// of [`Self::ingest_one_node`] so the branchy detect step does not
+    /// count against that function's complexity budget.
+    fn record_contention(&mut self, idx: NodeIndex, incoming: &Node) {
+        let warning = self
+            .graph
+            .node_weight(idx)
+            .and_then(|existing| detect_contention(existing, incoming));
+        if let Some(w) = warning {
+            self.ingest_warnings.push(w);
         }
     }
 

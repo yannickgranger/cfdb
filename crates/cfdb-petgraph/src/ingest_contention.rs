@@ -41,6 +41,15 @@ pub(crate) fn classify_reingest(existing: &Node, incoming: &Node) -> ReingestCla
     }
 }
 
+/// Combined detect step — `Some(warning)` iff the re-ingest is a contention.
+/// Keeps the branchy part out of `ingest_one_node` (complexity gate).
+pub(crate) fn detect_contention(existing: &Node, incoming: &Node) -> Option<Warning> {
+    match classify_reingest(existing, incoming) {
+        ReingestClass::Contention => Some(contention_warning(existing, incoming)),
+        ReingestClass::Silent => None,
+    }
+}
+
 /// Build the contention warning for a classified [`ReingestClass::Contention`].
 /// The message names the id and both `file` props so the loss is traceable
 /// without re-running the extract.
