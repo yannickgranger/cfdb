@@ -53,9 +53,11 @@
 use std::collections::BTreeMap;
 
 use cfdb_core::fact::PropValue;
-use cfdb_core::qname::item_node_id;
-use cfdb_core::schema::Label;
+use cfdb_core::qname::{item_node_id, item_node_id_for_target, TargetDiscriminator};
+use cfdb_core::schema::{EdgeLabel, Label};
 use petgraph::stable_graph::NodeIndex;
+use petgraph::visit::EdgeRef;
+use petgraph::Direction;
 
 use crate::graph::KeyspaceState;
 
@@ -105,10 +107,6 @@ pub(crate) fn mark_serde_default_callees_reachable(
 /// takes `&state`, the apply takes `&mut state`.
 fn collect_resolutions(state: &KeyspaceState) -> BTreeMap<NodeIndex, NodeIndex> {
     let callsites = state.nodes_with_label(&Label::new(Label::CALL_SITE));
-    // RFC-054 §3.5.3 (#557): the caller's target context decides which
-    // identity namespace the candidate ids live in. Built once per pass:
-    // (display qname, file) → the caller `:Item`'s `target` wire string.
-    let caller_targets = build_caller_target_index(state);
     let mut out: BTreeMap<NodeIndex, NodeIndex> = BTreeMap::new();
     for cs_idx in callsites {
         let Some(cs_node) = state.graph.node_weight(cs_idx) else {
@@ -127,44 +125,37 @@ fn collect_resolutions(state: &KeyspaceState) -> BTreeMap<NodeIndex, NodeIndex> 
         else {
             continue;
         };
-        // Same-target-first suffix (RFC-054 claim policy at the enrich
-        // layer): a bin-target caller's callees live in its own identity
-        // namespace, falling back to the bare (lib) ids below.
-        let cs_file = cs_node.props.get("file").and_then(PropValue::as_str);
-        let suffix = cs_file
-            .and_then(|f| caller_targets.get(&(caller_qname.to_string(), f.to_string())))
-            .and_then(|t| t.strip_prefix("bin:"))
-            .map(|bin| format!("#bin:{bin}"))
-            .unwrap_or_default();
-        if let Some(item_idx) = resolve_callee_to_item(state, callee_path, caller_qname, &suffix) {
+        // RFC-054 §3.5.3 (#557, council altitude ruling): the caller's
+        // target comes from the graph's own structure — the incoming
+        // INVOKES_AT edge names the exact owning `:Item` (emitted with the
+        // discriminated src), so no value-join on display props exists to
+        // be wrong, and nothing is scanned when the keyspace carries no
+        // serde-default sites. Pre-054 keyspaces / non-Rust producers have
+        // no `target` prop ⇒ `None` ⇒ bare-id candidates only.
+        let caller_target = caller_target_via_invokes_at(state, cs_idx);
+        if let Some(item_idx) =
+            resolve_callee_to_item(state, callee_path, caller_qname, caller_target.as_ref())
+        {
             out.insert(cs_idx, item_idx);
         }
     }
     out
 }
 
-/// One pass over `:Item` nodes → `(qname, file) → target` wire string.
-/// The (qname, file) pair is how a display-form `caller_qname` prop is
-/// joined back to its owning item without parsing node ids (ids stay
-/// write-only). Items without a `target` prop (pre-054 keyspaces,
-/// non-Rust producers) simply don't enter the map — the empty-suffix
-/// fallback covers them.
-fn build_caller_target_index(state: &KeyspaceState) -> BTreeMap<(String, String), String> {
-    let mut out = BTreeMap::new();
-    for item_idx in state.nodes_with_label(&Label::new(Label::ITEM)) {
-        let Some(n) = state.graph.node_weight(item_idx) else {
-            continue;
-        };
-        let (Some(q), Some(f), Some(t)) = (
-            n.props.get("qname").and_then(PropValue::as_str),
-            n.props.get("file").and_then(PropValue::as_str),
-            n.props.get("target").and_then(PropValue::as_str),
-        ) else {
-            continue;
-        };
-        out.insert((q.to_string(), f.to_string()), t.to_string());
-    }
-    out
+/// The owning `:Item`'s target discriminator, read off the incoming
+/// `INVOKES_AT` edge (same traversal idiom as `reachability.rs`). One hop,
+/// no ambiguity; wire→discriminator parsing stays in cfdb-core.
+fn caller_target_via_invokes_at(
+    state: &KeyspaceState,
+    cs_idx: NodeIndex,
+) -> Option<TargetDiscriminator> {
+    state
+        .graph
+        .edges_directed(cs_idx, Direction::Incoming)
+        .find(|e| e.weight().label.as_str() == EdgeLabel::INVOKES_AT)
+        .and_then(|e| state.graph.node_weight(e.source()))
+        .and_then(|owner| owner.props.get("target").and_then(PropValue::as_str))
+        .and_then(TargetDiscriminator::from_wire_str)
 }
 
 /// Write `<reach_attr> = true` on each resolved item. Returns the number
@@ -196,15 +187,14 @@ fn resolve_callee_to_item(
     state: &KeyspaceState,
     callee_path: &str,
     caller_qname: &str,
-    caller_suffix: &str,
+    caller_target: Option<&TargetDiscriminator>,
 ) -> Option<NodeIndex> {
     // Each strategy tries the caller's own identity namespace first
-    // (same-target policy, RFC-054 §3.5.3), then the bare (lib) id.
+    // (the RFC-054 §3.5.2 policy realized over an id index: same target,
+    // else the bare/lib id — a foreign bin's id is never constructed).
     let lookup = |candidate: &str| -> Option<NodeIndex> {
-        if !caller_suffix.is_empty() {
-            // The discriminated identity is `{candidate}{suffix}`; the id
-            // wraps it via the canonical helper (qname-literal fence).
-            let discriminated = item_node_id(&format!("{candidate}{caller_suffix}"));
+        if let Some(target) = caller_target {
+            let discriminated = item_node_id_for_target(candidate, target);
             if let Some(&idx) = state.id_to_idx.get(&discriminated) {
                 return Some(idx);
             }
@@ -262,7 +252,7 @@ mod tests {
             &state,
             "myapp::config::default_url",
             "myapp::other::config::AppConfig",
-            "",
+            None,
         );
         let idx = resolved.expect("exact match must win");
         let node = state.graph.node_weight(idx).expect("node");
@@ -278,7 +268,7 @@ mod tests {
         let mut state = KeyspaceState::new();
         state.ingest_nodes(vec![make_item("myapp::config::default_url")]);
         let resolved =
-            resolve_callee_to_item(&state, "default_url", "myapp::config::AppConfig", "");
+            resolve_callee_to_item(&state, "default_url", "myapp::config::AppConfig", None);
         assert!(resolved.is_some(), "same-module resolution must succeed");
     }
 
@@ -287,8 +277,12 @@ mod tests {
     fn resolver_falls_back_to_same_crate() {
         let mut state = KeyspaceState::new();
         state.ingest_nodes(vec![make_item("myapp::config::default_url")]);
-        let resolved =
-            resolve_callee_to_item(&state, "config::default_url", "myapp::main::AppConfig", "");
+        let resolved = resolve_callee_to_item(
+            &state,
+            "config::default_url",
+            "myapp::main::AppConfig",
+            None,
+        );
         assert!(resolved.is_some(), "same-crate resolution must succeed");
     }
 
@@ -296,7 +290,7 @@ mod tests {
     #[test]
     fn resolver_returns_none_for_unknown_path() {
         let state = KeyspaceState::new();
-        assert!(resolve_callee_to_item(&state, "nowhere::fn", "myapp::AppConfig", "").is_none());
+        assert!(resolve_callee_to_item(&state, "nowhere::fn", "myapp::AppConfig", None).is_none());
     }
 
     #[test]
@@ -309,16 +303,22 @@ mod tests {
         callee.id = format!("{}#bin:alpha", callee.id);
         let mut state = KeyspaceState::new();
         state.ingest_nodes(vec![callee]);
+        let alpha = TargetDiscriminator::Bin {
+            name: "alpha".to_string(),
+        };
         let resolved =
-            resolve_callee_to_item(&state, "tif::defaults::seed", "tif::main", "#bin:alpha");
+            resolve_callee_to_item(&state, "tif::defaults::seed", "tif::main", Some(&alpha));
         assert!(
             resolved.is_some(),
             "bin-target callee must resolve within the caller's namespace"
         );
         // A foreign-bin suffix must NOT resolve to alpha's item (and there
         // is no lib fallback here), mirroring rustc visibility.
+        let beta = TargetDiscriminator::Bin {
+            name: "beta".to_string(),
+        };
         let foreign =
-            resolve_callee_to_item(&state, "tif::defaults::seed", "tif::main", "#bin:beta");
+            resolve_callee_to_item(&state, "tif::defaults::seed", "tif::main", Some(&beta));
         assert!(
             foreign.is_none(),
             "a foreign bin's namespace must not capture the candidate"

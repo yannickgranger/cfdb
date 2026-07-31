@@ -25,7 +25,7 @@ use crate::ExtractError;
 
 /// Emit the `:Crate` node, `BELONGS_TO` edge, synthesised `:Context`
 /// entries, and walk each lib/bin target for one workspace package.
-/// Factored out of the crate-loop in [`extract_workspace`] so the
+/// Factored out of the crate-loop in [`crate::extract_workspace`] so the
 /// per-package path-string and context-name clones live in a helper
 /// rather than directly inside the outer `for` loop body.
 pub(crate) fn emit_crate_and_walk_targets(

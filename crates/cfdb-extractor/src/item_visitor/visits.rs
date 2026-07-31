@@ -106,7 +106,7 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
         walk_call_sites_with_test_flag(
             self.emitter,
             &caller_qname,
-            &self.target.clone(),
+            &self.target,
             &self.file_path,
             &node.block,
             is_test,
@@ -127,7 +127,7 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
         walk_match_sites_with_test_flag(
             self.emitter,
             &caller_qname,
-            &self.target.clone(),
+            &self.target,
             &self.file_path,
             &self.crate_name,
             &node.block,
@@ -221,7 +221,7 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
         walk_call_sites_with_test_flag(
             self.emitter,
             &qname,
-            &self.target.clone(),
+            &self.target,
             &self.file_path,
             &node.block,
             is_test,
@@ -238,7 +238,7 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
         walk_match_sites_with_test_flag(
             self.emitter,
             &qname,
-            &self.target.clone(),
+            &self.target,
             &self.file_path,
             &self.crate_name,
             &node.block,
@@ -290,14 +290,13 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
 
     fn visit_item_enum(&mut self, node: &'ast syn::ItemEnum) {
         let name = node.ident.to_string();
-        let (id, enum_qname) = self.emit_item(
+        let (_id, enum_qname) = self.emit_item(
             &name,
             "enum",
             span_line(&node.ident),
             &node.vis,
             &node.attrs,
         );
-        let _ = &id;
         // Walk every variant — emit the `:Variant` node + `HAS_VARIANT`
         // edge, then recurse into the variant's payload via
         // `emit_field_list` (shared with `visit_item_struct`). #218 /

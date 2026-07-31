@@ -32,7 +32,6 @@ mod prefix;
 use std::collections::BTreeMap;
 
 use cfdb_core::fact::{Edge, Node, PropValue};
-use cfdb_core::qname::item_node_id;
 use cfdb_core::schema::{EdgeLabel, Label};
 use syn::visit::Visit;
 
@@ -123,11 +122,10 @@ impl MatchSiteVisitor<'_, '_> {
         // (RFC-032 §3 keeps site-id schemes out of core so the syn tier and
         // a future HIR tier can differ). The prefix is a mandatory id
         // component: one `match` expression can emit several sites.
-        let id = format!(
-            "matchsite:{}:{}:{}",
-            self.fn_target.identity(self.fn_qname),
+        let id = cfdb_core::qname::matchsite_node_id(
+            &self.fn_target.identity(self.fn_qname),
             matched_path,
-            local_idx
+            local_idx,
         );
 
         let mut props = BTreeMap::new();
@@ -163,7 +161,7 @@ impl MatchSiteVisitor<'_, '_> {
         // MATCHES_AT: the containing fn/method Item → this MatchSite,
         // mirroring INVOKES_AT for call sites.
         self.emitter.emit_edge(Edge {
-            src: item_node_id(&self.fn_target.identity(self.fn_qname)),
+            src: cfdb_core::qname::item_node_id_for_target(self.fn_qname, self.fn_target),
             dst: id,
             label: EdgeLabel::new(EdgeLabel::MATCHES_AT),
             props: BTreeMap::new(),

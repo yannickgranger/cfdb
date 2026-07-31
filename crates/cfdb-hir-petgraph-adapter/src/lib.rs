@@ -39,7 +39,7 @@
 use std::collections::BTreeSet;
 
 use cfdb_core::fact::{Edge, Node};
-use cfdb_core::qname::{item_node_id, qname_from_node_id};
+use cfdb_core::qname::{display_qname_from_node_id, item_node_id};
 use cfdb_core::query::item_kind::ItemKind;
 use cfdb_core::schema::{EdgeLabel, Keyspace, Label};
 use cfdb_core::store::{StoreBackend, StoreError};
@@ -189,7 +189,9 @@ fn synthesize_callee_stubs(
 /// single-sourced (#421 boy-scout: closes the split-brain flagged by
 /// `audit-split-brain` against `cfdb-extractor::synthesize`).
 fn build_callee_stub(node_id: &str) -> Node {
-    let qname = qname_from_node_id(node_id);
+    // Display prop feed — suffix-stripping helper (RFC-054 §3.5.1);
+    // becomes load-bearing when 54-C discriminates HIR ids.
+    let qname = display_qname_from_node_id(node_id);
     let crate_name = qname
         .split_once("::")
         .map(|(c, _)| c.to_string())

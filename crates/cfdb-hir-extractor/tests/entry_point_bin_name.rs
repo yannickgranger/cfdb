@@ -177,20 +177,33 @@ fn cli_command_exposes_resolves_to_syn_item_when_bin_name_differs_from_package()
     // #517's own guarantee still holds: the QNAME half is package-name
     // keyed (a target-name dst `item:toolbin::Cli` must never come back).
     assert!(
-        exposes.contains(&hir_undiscriminated),
-        "HIR cli_command EXPOSES dst must stay package-name keyed (#517) \
-         — emitted dsts: {exposes:?}"
-    );
-    assert!(
         !exposes.iter().any(|d| d.contains("toolbin::")),
         "#517 regression — HIR keyed a dst off the bin TARGET name: {exposes:?}"
     );
-    // The documented 54-B window: the undiscriminated HIR dst is NOT a syn
-    // :Item id right now. When 54-C lands this assertion INVERTS.
+    // Tripwire on the side 54-C actually changes (council altitude
+    // ruling): the moment HIR emits a discriminated dst, the window is
+    // over — flip this file back to full join assertions per RFC-054 §7.
     assert!(
-        !syn_ids.contains(&hir_undiscriminated),
-        "54-C appears to have landed (HIR/syn bin ids join again) — flip \
-         this seam pin back to the join assertions per RFC-054 §7 54-C"
+        !exposes.iter().any(|d| d.contains("#bin:")),
+        "54-C landed (HIR emits discriminated ids) — flip this seam pin \
+         back to the join assertions per RFC-054 §7 54-C: {exposes:?}"
+    );
+    // Total no-dangle invariant with the PRECISE window exception: an
+    // EXPOSES dst may be the undiscriminated form of a syn bin-target id
+    // (its `#bin:toolbin` counterpart exists) during the 54-B window.
+    for dst in &exposes {
+        let window_counterpart = format!("{dst}#bin:toolbin");
+        assert!(
+            syn_ids.contains(dst) || syn_ids.contains(&window_counterpart),
+            "dangling HIR EXPOSES dst `{dst}` outside the documented 54-B \
+             window exception shape. syn ids: {syn_ids:?}"
+        );
+    }
+    // The window exception is actually exercised (vacuity guard).
+    assert!(
+        exposes.contains(&hir_undiscriminated),
+        "expected the documented window dst `{hir_undiscriminated}` \
+         — emitted dsts: {exposes:?}"
     );
 }
 
@@ -233,19 +246,32 @@ fn call_site_endpoints_resolve_to_syn_items_when_bin_name_differs_from_package()
     );
     // #517's guarantee holds: package-name keyed, never target-name keyed.
     assert!(
-        call_endpoints.contains(&caller) && call_endpoints.contains(&callee),
-        "HIR CALLS endpoints must stay package-name keyed (#517) \
-         — endpoints: {call_endpoints:?}"
-    );
-    assert!(
         !call_endpoints.iter().any(|d| d.contains("toolbin::")),
         "#517 regression — HIR keyed an endpoint off the bin TARGET name: {call_endpoints:?}"
     );
-    // The documented 54-B window: undiscriminated HIR endpoints do NOT
-    // join syn's discriminated bin ids. 54-C inverts this assertion.
+    // Tripwire on the side 54-C actually changes (council altitude ruling).
     assert!(
-        !syn_ids.contains(&caller),
-        "54-C appears to have landed (HIR/syn bin ids join again) — flip \
-         this seam pin back to the join assertions per RFC-054 §7 54-C"
+        !call_endpoints.iter().any(|d| d.contains("#bin:")),
+        "54-C landed (HIR emits discriminated ids) — flip this seam pin \
+         back to the join assertions per RFC-054 §7 54-C: {call_endpoints:?}"
+    );
+    // Total invariant with the PRECISE window exception (the first
+    // enumerated form missed `main` — the invariant caught it): during
+    // the 54-B window an HIR endpoint may be the undiscriminated form of
+    // a syn bin-target id, i.e. its `#bin:toolbin`-suffixed counterpart
+    // exists. Anything else dangling is a real defect.
+    for ep in &call_endpoints {
+        let window_counterpart = format!("{ep}#bin:toolbin");
+        assert!(
+            syn_ids.contains(ep) || syn_ids.contains(&window_counterpart),
+            "dangling HIR CALLS endpoint `{ep}` outside the documented \
+             54-B window exception shape. syn ids: {syn_ids:?}"
+        );
+    }
+    // The window exceptions are actually exercised (vacuity guard).
+    assert!(
+        call_endpoints.contains(&caller) && call_endpoints.contains(&callee),
+        "expected the documented window endpoints `{caller}`/`{callee}` \
+         — endpoints: {call_endpoints:?}"
     );
 }

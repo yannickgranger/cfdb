@@ -16,13 +16,13 @@ use super::*;
 
 fn qnames(
     items: &[&str],
-) -> std::collections::BTreeMap<String, BTreeSet<cfdb_core::qname::TargetDiscriminator>> {
+) -> std::collections::BTreeMap<String, Vec<cfdb_core::qname::TargetDiscriminator>> {
     items
         .iter()
         .map(|s| {
             (
                 s.to_string(),
-                BTreeSet::from([cfdb_core::qname::TargetDiscriminator::Lib]),
+                vec![cfdb_core::qname::TargetDiscriminator::Lib],
             )
         })
         .collect()

@@ -51,23 +51,68 @@ impl TargetDiscriminator {
     /// (`param:`/`field:`/`variant:`/`callsite:`/`arg:`) derive from this
     /// identity, not from the bare qname, so they separate for free.
     #[must_use]
-    pub fn identity(&self, qname: &str) -> String {
+    pub fn identity<'a>(&self, qname: &'a str) -> std::borrow::Cow<'a, str> {
         match self {
-            TargetDiscriminator::Lib => qname.to_string(),
-            TargetDiscriminator::Bin { name } => format!("{qname}#bin:{name}"),
+            // Borrowed on the dominant lib path — the whole lib-target walk
+            // derives ids allocation-free (simplify-review efficiency F3).
+            TargetDiscriminator::Lib => std::borrow::Cow::Borrowed(qname),
+            TargetDiscriminator::Bin { name } => {
+                std::borrow::Cow::Owned(format!("{qname}#bin:{name}"))
+            }
         }
     }
 
     /// Wire value for the `:Item.target` prop: `"lib"` or `"bin:{name}"`.
     /// A plain wire string, not an enum in the schema — same convention as
-    /// the `kind` and `resolver` props (RFC-054 §3.2).
+    /// the `kind` and `resolver` props (RFC-054 §3.2). Borrowed for the
+    /// constant lib arm, matching the `ContextSource::as_wire_str` sibling.
     #[must_use]
-    pub fn as_wire_str(&self) -> String {
+    pub fn as_wire_str(&self) -> std::borrow::Cow<'static, str> {
         match self {
-            TargetDiscriminator::Lib => "lib".to_string(),
-            TargetDiscriminator::Bin { name } => format!("bin:{name}"),
+            TargetDiscriminator::Lib => std::borrow::Cow::Borrowed("lib"),
+            TargetDiscriminator::Bin { name } => std::borrow::Cow::Owned(format!("bin:{name}")),
         }
     }
+
+    /// Inverse of [`Self::as_wire_str`] — parse a `:Item.target` prop value
+    /// back into the discriminator. `None` for anything that is not a
+    /// well-formed wire value (absent prop, pre-RFC-054 keyspaces,
+    /// non-Rust producers). Consumers (the enrich passes today, the HIR
+    /// producer at 54-C) MUST route through this instead of string-surgery
+    /// on the wire value — the `#bin:`/`bin:` literals stay in this file.
+    #[must_use]
+    pub fn from_wire_str(wire: &str) -> Option<Self> {
+        match wire {
+            "lib" => Some(TargetDiscriminator::Lib),
+            _ => wire
+                .strip_prefix("bin:")
+                .map(|name| TargetDiscriminator::Bin {
+                    name: name.to_string(),
+                }),
+        }
+    }
+
+    /// RFC-054 §3.5.2 claim policy, the single home (council simplify
+    /// review: the extractor resolver and the petgraph enrich pass each
+    /// re-encoded it): prefer the claim matching `src`, else the lib
+    /// claim, never a foreign bin (mirrors rustc visibility — a bin sees
+    /// its own items and the lib, not sibling bins).
+    #[must_use]
+    pub fn choose_claim<'a>(claims: &'a [Self], src: &Self) -> Option<&'a Self> {
+        claims
+            .iter()
+            .find(|c| *c == src)
+            .or_else(|| claims.iter().find(|c| **c == TargetDiscriminator::Lib))
+    }
+}
+
+/// Canonical `:MatchSite` node id (RFC-054 simplify review — the spec
+/// already lists `matchsite:` among the identity-derived formulas, so the
+/// formula lives here with its siblings rather than as an ad-hoc
+/// `format!` in the match visitor).
+#[must_use]
+pub fn matchsite_node_id(caller_identity: &str, matched_path: &str, local_idx: usize) -> String {
+    format!("matchsite:{caller_identity}:{matched_path}:{local_idx}")
 }
 
 /// Canonical `:Item` node id under a target discriminator (RFC-054 §3.1):

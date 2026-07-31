@@ -35,7 +35,7 @@
 //! Split from `lib.rs` (#239 slice) to keep the top-level module under
 //! the 500-LOC architecture threshold.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use cfdb_core::fact::Edge;
 use cfdb_core::qname::{item_node_id_for_target, TargetDiscriminator};
@@ -43,37 +43,21 @@ use cfdb_core::schema::EdgeLabel;
 
 use crate::emitter::Emitter;
 
-/// RFC-054 §3.5.2 target-claim policy: prefer the candidate in the SAME
-/// target as the source, else the lib target, never a foreign bin (mirrors
-/// rustc name resolution — a bin sees its own items and the lib, not
-/// sibling bins). `None` = only foreign bins claim the qname; the edge is
-/// dropped under the same doctrine as ambiguous last-segments ("safer than
-/// mis-attribution" — and for compiling code the case is unreachable: a
-/// foreign bin's types are not nameable from another target).
-fn choose_claim(
-    claims: &BTreeSet<TargetDiscriminator>,
-    src_target: &TargetDiscriminator,
-) -> Option<TargetDiscriminator> {
-    if claims.contains(src_target) {
-        return Some(src_target.clone());
-    }
-    if claims.contains(&TargetDiscriminator::Lib) {
-        return Some(TargetDiscriminator::Lib);
-    }
-    None
-}
-
 /// Resolve a rendered type string to a discriminated `:Item` node id under
-/// the RFC-054 claim policy. Shared tail of all three resolvers.
+/// the RFC-054 §3.5.2 claim policy — the policy itself lives with the
+/// discriminator ([`TargetDiscriminator::choose_claim`]: same target, else
+/// lib, never a foreign bin; a foreign-bin-only claim drops the edge under
+/// the same doctrine as ambiguous last-segments, and is unreachable for
+/// compiling code). Shared tail of all three resolvers.
 fn resolve_to_target_id(
-    emitter_qnames: &BTreeMap<String, BTreeSet<TargetDiscriminator>>,
+    emitter_qnames: &BTreeMap<String, Vec<TargetDiscriminator>>,
     by_last_segment: &BTreeMap<&str, Option<&String>>,
     type_string: &str,
     src_target: &TargetDiscriminator,
 ) -> Option<String> {
     let qname = resolve_type_string(emitter_qnames, by_last_segment, type_string)?;
-    let chosen = choose_claim(emitter_qnames.get(&qname)?, src_target)?;
-    Some(item_node_id_for_target(&qname, &chosen))
+    let chosen = TargetDiscriminator::choose_claim(emitter_qnames.get(&qname)?, src_target)?;
+    Some(item_node_id_for_target(&qname, chosen))
 }
 
 /// Post-walk RETURNS resolution (RFC-037 §3.2, #216; extended for #239).
@@ -296,8 +280,8 @@ pub(crate) fn resolve_deferred_match_targets(emitter: &mut Emitter) {
                 // policy picks the target-scoped enum (same-target first,
                 // else lib, never a foreign bin).
                 let claims = emitter.emitted_enum_qnames.get(&target_qname)?;
-                let chosen = choose_claim(claims, &src_target)?;
-                Some((site_id, item_node_id_for_target(&target_qname, &chosen)))
+                let chosen = TargetDiscriminator::choose_claim(claims, &src_target)?;
+                Some((site_id, item_node_id_for_target(&target_qname, chosen)))
             })
         })
         .collect();
@@ -316,7 +300,7 @@ pub(crate) fn resolve_deferred_match_targets(emitter: &mut Emitter) {
 /// Ambiguous last-segments (same short name across multiple workspace
 /// qnames) map to `None` so `resolve_type_string` drops them silently.
 fn build_last_segment_index(
-    emitted_item_qnames: &BTreeMap<String, BTreeSet<TargetDiscriminator>>,
+    emitted_item_qnames: &BTreeMap<String, Vec<TargetDiscriminator>>,
 ) -> BTreeMap<&str, Option<&String>> {
     let mut by_last_segment: BTreeMap<&str, Option<&String>> = BTreeMap::new();
     for qname in emitted_item_qnames.keys() {
@@ -334,7 +318,7 @@ fn build_last_segment_index(
 /// Returns the matched qname (owned) when a tier hits, `None` when
 /// both miss.
 fn resolve_type_string(
-    emitted_item_qnames: &BTreeMap<String, BTreeSet<TargetDiscriminator>>,
+    emitted_item_qnames: &BTreeMap<String, Vec<TargetDiscriminator>>,
     by_last_segment: &BTreeMap<&str, Option<&String>>,
     type_string: &str,
 ) -> Option<String> {

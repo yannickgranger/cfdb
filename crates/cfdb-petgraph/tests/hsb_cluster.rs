@@ -374,3 +374,47 @@ fn same_qname_cross_bin_pair_fires() {
         "the same-qname cross-target twin pair must be reported (RFC-054 §3.5.4)"
     );
 }
+
+/// Altitude-lens escape case (RFC-054 simplify review): two bin targets
+/// walking ONE shared source file (`#[path]` module shared between bins,
+/// or duplicate `[[bin]] path` entries) yield pairs with equal qname AND
+/// equal file but distinct targets/ids. The file tie-break alone is
+/// structurally false there; `target` — introduced by this same diff —
+/// is the identity key that makes the ordering total for Rust items.
+#[test]
+fn same_qname_same_file_cross_target_pair_fires() {
+    let mut a = fn_item(
+        "tif::shared_helper",
+        "shared_helper",
+        "sig-s",
+        Some("c10"),
+        false,
+    );
+    a.id = format!("{}#bin:alpha", a.id);
+    a.props
+        .insert("file".into(), PropValue::Str("src/shared.rs".into()));
+    a.props
+        .insert("target".into(), PropValue::Str("bin:alpha".into()));
+    let mut b = fn_item(
+        "tif::shared_helper",
+        "shared_helper",
+        "sig-s",
+        Some("c10"),
+        false,
+    );
+    b.id = format!("{}#bin:beta", b.id);
+    b.props
+        .insert("file".into(), PropValue::Str("src/shared.rs".into()));
+    b.props
+        .insert("target".into(), PropValue::Str("bin:beta".into()));
+
+    let ks = keyspace();
+    let mut store = PetgraphStore::new();
+    store.ingest_nodes(&ks, vec![a, b]).expect("ingest");
+    let rows = run_query(&store);
+    assert_eq!(
+        rows.len(),
+        1,
+        "equal-file cross-target twins must still pair (target tie-break)"
+    );
+}

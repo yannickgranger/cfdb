@@ -30,8 +30,9 @@ pub(crate) struct ItemVisitor<'e> {
     pub(crate) bounded_context: String,
     /// Which cargo target this file is being walked for (RFC-054 §3.1,
     /// #557). Threaded per target root from `extract_workspace` exactly
-    /// like `bounded_context`; the emit sites derive identities from it —
-    /// identity strings never travel as parameters (RFC-054 §3.5.1).
+    /// like `bounded_context`; the visitor carries the TARGET, not a
+    /// precomputed identity string — identities are derived at each
+    /// id-construction site from (display qname, target) (RFC-054 §3.5.1).
     pub(crate) target: cfdb_core::qname::TargetDiscriminator,
     /// Path of module names from crate root to current position. The first
     /// element is the crate name (dashes replaced with underscores), matching
