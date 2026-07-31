@@ -212,3 +212,28 @@ fn load_accepts_legacy_v0_2_keyspace_with_no_index_fields() {
         "canonical_dump must include the legacy item qnames"
     );
 }
+
+/// #551 — the on-disk keyspace is a machine-read artifact parsed in full
+/// on every `cfdb query` invocation; pretty-printing it is pure tax
+/// (measured: qbot-core keyspace 356MB pretty). Compact serde_json emits
+/// zero newlines, so one byte-level assertion pins the choice. Humans
+/// diff the canonical dump (G6) or `jq` the file on demand.
+#[test]
+fn saved_keyspace_is_compact_json() {
+    let ks = Keyspace::new("compact-ks");
+    let dir = tempdir().expect("tempdir");
+    let path = dir.path().join("compact-ks.json");
+
+    let mut store = PetgraphStore::new();
+    let (nodes, edges) = sample_nodes_edges();
+    store.ingest_nodes(&ks, nodes).expect("ingest nodes");
+    store.ingest_edges(&ks, edges).expect("ingest edges");
+    persist::save(&store, &ks, &path).expect("save");
+
+    let bytes = std::fs::read(&path).expect("read saved keyspace");
+    assert!(
+        !bytes.contains(&b'\n'),
+        "keyspace file is pretty-printed — expected compact JSON \
+         (single line, no indentation)"
+    );
+}
