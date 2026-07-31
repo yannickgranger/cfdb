@@ -1,14 +1,17 @@
-//! Council-ratified `ItemKind` vocabulary (RATIFIED.md §A.14).
+//! Council-ratified `ItemKind` vocabulary (RATIFIED.md §A.14, extended by
+//! #479/#515 with `Static` + `Union`).
 //!
-//! The 7 variants are the wire-form surface for the `list_items_matching`
+//! The 9 variants are the wire-form surface for the `list_items_matching`
 //! verb; they map to the cfdb syn extractor's lowercase emission strings via
 //! [`ItemKind::to_extractor_str`].
 
 use serde::{Deserialize, Serialize};
 
 /// Council-ratified kind vocabulary for the `list_items_matching` verb
-/// (RATIFIED.md §A.14). The 7 variants are the wire-form surface; they map
-/// to the extractor's emitted `:Item.kind` strings via
+/// (RATIFIED.md §A.14; `Static` + `Union` appended by #479/#515 — `static`
+/// was a wire value with no CLI spelling from the first release, `union`
+/// was recall-listed with no producer). The 9 variants are the wire-form
+/// surface; they map to the extractor's emitted `:Item.kind` strings via
 /// [`ItemKind::to_extractor_str`].
 ///
 /// Variant order matches the council enumeration — consumers that iterate
@@ -22,11 +25,14 @@ pub enum ItemKind {
     TypeAlias,
     ImplBlock,
     Trait,
+    Static,
+    Union,
 }
 
 impl ItemKind {
-    /// Canonical council-ratified list (RATIFIED.md §A.14). The order is
-    /// stable — callers can depend on it.
+    /// Canonical list — the council-ratified seven (RATIFIED.md §A.14) in
+    /// their original order, then the #479/#515 additions appended (order
+    /// is stable — callers can depend on it).
     pub fn variants() -> &'static [ItemKind] {
         &[
             ItemKind::Struct,
@@ -36,6 +42,8 @@ impl ItemKind {
             ItemKind::TypeAlias,
             ItemKind::ImplBlock,
             ItemKind::Trait,
+            ItemKind::Static,
+            ItemKind::Union,
         ]
     }
 
@@ -57,6 +65,8 @@ impl ItemKind {
             ItemKind::TypeAlias => "type_alias",
             ItemKind::Trait => "trait",
             ItemKind::ImplBlock => "impl_block",
+            ItemKind::Static => "static",
+            ItemKind::Union => "union",
         }
     }
 
@@ -71,6 +81,8 @@ impl ItemKind {
             ItemKind::TypeAlias => "TypeAlias",
             ItemKind::ImplBlock => "ImplBlock",
             ItemKind::Trait => "Trait",
+            ItemKind::Static => "Static",
+            ItemKind::Union => "Union",
         }
     }
 }
@@ -93,6 +105,8 @@ impl std::str::FromStr for ItemKind {
             "TypeAlias" => Ok(ItemKind::TypeAlias),
             "ImplBlock" => Ok(ItemKind::ImplBlock),
             "Trait" => Ok(ItemKind::Trait),
+            "Static" => Ok(ItemKind::Static),
+            "Union" => Ok(ItemKind::Union),
             other => Err(UnknownItemKind(other.to_string())),
         }
     }
@@ -125,7 +139,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn item_kind_variants_enumerates_council_seven_in_order() {
+    fn item_kind_variants_enumerates_all_nine_in_order() {
         let variants = ItemKind::variants();
         assert_eq!(
             variants,
@@ -137,8 +151,11 @@ mod tests {
                 ItemKind::TypeAlias,
                 ItemKind::ImplBlock,
                 ItemKind::Trait,
+                ItemKind::Static,
+                ItemKind::Union,
             ],
-            "variants() must expose exactly the 7 council-ratified kinds in order"
+            "variants() must expose the 7 council-ratified kinds in order, \
+             then the #479/#515 additions"
         );
     }
 
@@ -192,5 +209,7 @@ mod tests {
         assert_eq!(ItemKind::TypeAlias.to_extractor_str(), "type_alias");
         assert_eq!(ItemKind::Trait.to_extractor_str(), "trait");
         assert_eq!(ItemKind::ImplBlock.to_extractor_str(), "impl_block");
+        assert_eq!(ItemKind::Static.to_extractor_str(), "static");
+        assert_eq!(ItemKind::Union.to_extractor_str(), "union");
     }
 }
