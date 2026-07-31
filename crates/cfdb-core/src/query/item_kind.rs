@@ -161,6 +161,22 @@ mod tests {
         assert_eq!(err2.0, "NotAKind");
     }
 
+    /// #479 red — `static` has been a wire value since the first
+    /// extractor release and `union` sits in recall's KEPT_ITEM_KINDS,
+    /// yet neither could be spelled on the CLI (`--kind Static` /
+    /// `--kind Union` errored). String-level on purpose: compiles
+    /// before the variants exist, so the red is honest.
+    #[test]
+    fn item_kind_fromstr_accepts_static_and_union() {
+        use std::str::FromStr;
+        let parsed = ItemKind::from_str("Static")
+            .expect("`Static` must parse — the wire value `static` exists on every keyspace");
+        assert_eq!(parsed.to_extractor_str(), "static");
+        let parsed = ItemKind::from_str("Union")
+            .expect("`Union` must parse — recall KEPT_ITEM_KINDS names the wire value");
+        assert_eq!(parsed.to_extractor_str(), "union");
+    }
+
     #[test]
     fn item_kind_to_extractor_str_maps_every_variant() {
         // Pins the AC vocabulary → extractor vocabulary mapping table.
