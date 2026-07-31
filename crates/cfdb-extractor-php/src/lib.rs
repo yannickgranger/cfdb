@@ -99,6 +99,14 @@ impl LanguageProducer for PhpProducer {
 /// Top-level pipeline: discover `.php` files, parse each, walk the
 /// trees, accumulate nodes + edges, sort, return.
 fn produce_facts(workspace_root: &Path) -> Result<(Vec<Node>, Vec<Edge>), LanguageError> {
+    // Issue #540 (the #527 bug class): resolve the caller-spelled root
+    // (`.`, relative, symlinked, `..`-terminated) once, up front — every
+    // walked path and every workspace-relative `file` prop derives from
+    // the canonical form, and a strip mismatch below is a loud error,
+    // never a silently-shipped absolute path.
+    let workspace_root = cfdb_lang::canonical_workspace_root(workspace_root)?;
+    let workspace_root = workspace_root.as_path();
+
     let mut emitter = Emitter::new();
 
     // Emit the synthetic :Crate node once. Every :Item carries an
@@ -113,11 +121,7 @@ fn produce_facts(workspace_root: &Path) -> Result<(Vec<Node>, Vec<Edge>), Langua
     let php_files = collect_php_files(workspace_root)?;
     for path in php_files {
         // `:CallSite.file` is workspace-relative, matching the Rust producer.
-        let file = path
-            .strip_prefix(workspace_root)
-            .unwrap_or(&path)
-            .to_string_lossy()
-            .into_owned();
+        let file = cfdb_lang::workspace_relative(&path, workspace_root, PRODUCER_NAME)?;
         walk_file(&path, &file, &mut emitter)?;
     }
 
