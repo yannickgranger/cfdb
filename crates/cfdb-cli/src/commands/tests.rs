@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use super::extract::{
+use super::extract_rev::{
     cache_base_dir, cache_dir_for, is_url_at_sha, parse_url_at_sha, short_rev, url_hash_hex16,
 };
 
