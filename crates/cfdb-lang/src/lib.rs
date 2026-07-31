@@ -30,7 +30,7 @@
 //!   widen the schema by side effect — Published Language
 //!   invariant per RFC-041 §4.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use cfdb_core::fact::{Edge, Node};
 
@@ -128,6 +128,68 @@ pub enum LanguageError {
         producer: &'static str,
         message: String,
     },
+
+    /// A walked file fell outside the canonical workspace root
+    /// (issue #540, the #527 dead-fence class). Every `file` prop on
+    /// an emitted fact is contractually workspace-relative; a
+    /// `strip_prefix` miss therefore surfaces loudly instead of
+    /// silently shipping an absolute path that no file-scoped fence
+    /// anchored on a relative path can ever match.
+    #[error(
+        "producer `{producer}`: file `{file}` is outside the canonical \
+         workspace root `{workspace_root}` — refusing to emit a \
+         non-workspace-relative `file` prop"
+    )]
+    PathNotInWorkspace {
+        producer: &'static str,
+        file: PathBuf,
+        workspace_root: PathBuf,
+    },
+}
+
+/// Canonicalize a workspace root once at `produce()` entry.
+///
+/// The single canonical resolver for the #527 / #540 workspace-root bug
+/// class: producers MUST resolve the caller-spelled root (`.`, a
+/// relative path, a path through a symlink, a `..`-terminated form)
+/// through this before deriving any fact from it — directory-name-based
+/// crate names and workspace-relative `file` props both silently corrupt
+/// on non-canonical roots otherwise.
+///
+/// # Errors
+///
+/// `LanguageError::Io` when the root does not exist or cannot be
+/// resolved.
+pub fn canonical_workspace_root(workspace_root: &Path) -> Result<PathBuf, LanguageError> {
+    Ok(workspace_root.canonicalize()?)
+}
+
+/// Compute the workspace-relative form of `file_path`, loudly.
+///
+/// `canonical_root` MUST come from [`canonical_workspace_root`]. A
+/// mismatch is an error, never a silent absolute-path fallback — the
+/// #527 lesson: a fact whose `file` prop violates the
+/// "always workspace-relative" contract turns every file-scoped fence
+/// anchored on a relative path into a silently dead rule.
+///
+/// # Errors
+///
+/// [`LanguageError::PathNotInWorkspace`] when `file_path` does not live
+/// under `canonical_root`.
+pub fn workspace_relative(
+    file_path: &Path,
+    canonical_root: &Path,
+    producer: &'static str,
+) -> Result<String, LanguageError> {
+    Ok(file_path
+        .strip_prefix(canonical_root)
+        .map_err(|_| LanguageError::PathNotInWorkspace {
+            producer,
+            file: file_path.to_path_buf(),
+            workspace_root: canonical_root.to_path_buf(),
+        })?
+        .to_string_lossy()
+        .into_owned())
 }
 
 #[cfg(test)]
@@ -154,5 +216,34 @@ mod tests {
             Box<dyn LanguageProducer>: Send,
         {
         }
+    }
+
+    #[test]
+    fn workspace_relative_strips_the_canonical_root() {
+        let root = Path::new("/ws/project");
+        let rel = workspace_relative(Path::new("/ws/project/src/a.php"), root, "php")
+            .expect("in-workspace path must resolve");
+        assert_eq!(rel, "src/a.php");
+    }
+
+    #[test]
+    fn workspace_relative_refuses_paths_outside_the_root() {
+        let root = Path::new("/ws/project");
+        let err = workspace_relative(Path::new("/elsewhere/b.ts"), root, "typescript")
+            .expect_err("out-of-workspace path must be a loud error, never a silent absolute");
+        assert!(matches!(
+            err,
+            LanguageError::PathNotInWorkspace {
+                producer: "typescript",
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn canonical_workspace_root_refuses_missing_roots() {
+        let err = canonical_workspace_root(Path::new("definitely/not/a/dir"))
+            .expect_err("missing root must error");
+        assert!(matches!(err, LanguageError::Io(_)));
     }
 }
