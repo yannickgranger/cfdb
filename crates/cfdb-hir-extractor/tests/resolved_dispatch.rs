@@ -88,11 +88,11 @@ pub fn dispatch() -> &'static str {
 "#,
     );
 
-    let (db, vfs, _pm_client) =
+    let (db, vfs, _pm_client, targets) =
         build_hir_database(root, false).expect("build_hir_database on hirfixture workspace");
 
-    let (nodes, edges) =
-        extract_call_sites(&db, &vfs).expect("extract_call_sites succeeds on hirfixture");
+    let (nodes, edges) = extract_call_sites(&db, &vfs, root, &targets)
+        .expect("extract_call_sites succeeds on hirfixture");
 
     // (1) At least one :CallSite with HIR discriminator props.
     let hir_call_sites: Vec<_> = nodes
@@ -244,9 +244,10 @@ pub fn use_en() -> &'static str {
 "#,
     );
 
-    let (db, vfs, _pm_client) =
+    let (db, vfs, _pm_client, targets) =
         build_hir_database(root, false).expect("build_hir_database on traitfixture");
-    let (nodes, edges) = extract_call_sites(&db, &vfs).expect("extract_call_sites on traitfixture");
+    let (nodes, edges) =
+        extract_call_sites(&db, &vfs, root, &targets).expect("extract_call_sites on traitfixture");
 
     // HIR should resolve g.greet() in `dispatch<G>` to the trait
     // method `Greet::greet`. The callee_path ends in `Greet::greet`.
@@ -370,10 +371,10 @@ pub fn caller() -> i32 {
 "#,
     );
 
-    let (db, vfs, _pm_client) =
+    let (db, vfs, _pm_client, targets) =
         build_hir_database(root, false).expect("build_hir_database on pathcallfixture");
-    let (nodes, edges) =
-        extract_call_sites(&db, &vfs).expect("extract_call_sites on pathcallfixture");
+    let (nodes, edges) = extract_call_sites(&db, &vfs, root, &targets)
+        .expect("extract_call_sites on pathcallfixture");
 
     let hir_call_sites: Vec<_> = nodes
         .iter()

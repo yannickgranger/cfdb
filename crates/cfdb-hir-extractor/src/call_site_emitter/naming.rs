@@ -12,15 +12,16 @@ use ra_ap_syntax::ast::{self, AstNode};
 use ra_ap_syntax::SyntaxNode;
 
 /// Walk the syntax-tree ancestors of `node` looking for the
-/// enclosing `fn` (top-level or associated method). Returns its
-/// qname if found.
-pub(super) fn enclosing_fn_qname<DB>(sema: &Semantics<'_, DB>, node: &SyntaxNode) -> Option<String>
+/// enclosing `fn` (top-level or associated method). Returns the
+/// resolved `hir::Function` — callers derive both the qname (via
+/// [`function_qname`]) and the RFC-054 target discriminator (via the
+/// function's crate) from it.
+pub(super) fn enclosing_fn<DB>(sema: &Semantics<'_, DB>, node: &SyntaxNode) -> Option<Function>
 where
     DB: HirDatabase + Sized,
 {
     let fn_ast = node.ancestors().find_map(ast::Fn::cast)?;
-    let fn_def = sema.to_def(&fn_ast)?;
-    Some(function_qname(sema, fn_def))
+    sema.to_def(&fn_ast)
 }
 
 /// Derive an `item:<qname>`-compatible qname for a `hir::Function`

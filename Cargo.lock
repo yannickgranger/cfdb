@@ -373,6 +373,7 @@ version = "0.6.0"
 dependencies = [
  "cfdb-core",
  "cfdb-extractor",
+ "cfdb-lang",
  "quote",
  "ra-ap-rustc_type_ir 0.161.0",
  "ra_ap_base_db",
@@ -398,10 +399,12 @@ name = "cfdb-hir-petgraph-adapter"
 version = "0.6.0"
 dependencies = [
  "cfdb-core",
+ "cfdb-extractor",
  "cfdb-hir-extractor",
  "cfdb-petgraph",
  "quote",
  "syn",
+ "tempfile",
  "toml 0.8.23",
 ]
 

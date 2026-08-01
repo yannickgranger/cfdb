@@ -46,9 +46,9 @@ fn file_of(n: &Node) -> Option<&str> {
 /// and bench targets.
 fn entry_points_in_fixture() -> BTreeMap<(String, String), String> {
     let root = fixture_root();
-    let (db, vfs, _pm_client) = build_hir_database(&root, false)
+    let (db, vfs, _pm_client, targets) = build_hir_database(&root, false)
         .unwrap_or_else(|e| panic!("build_hir_database({}) failed: {e}", root.display()));
-    let (nodes, _edges) = extract_entry_points(&db, &vfs, &root)
+    let (nodes, _edges) = extract_entry_points(&db, &vfs, &root, &targets)
         .unwrap_or_else(|e| panic!("extract_entry_points on fixture failed: {e}"));
 
     nodes

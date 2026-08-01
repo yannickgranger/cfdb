@@ -42,7 +42,7 @@ pub fn extract_and_ingest_hir(
     // it before the VFS walk completes terminates the subprocess and
     // breaks lazy macro expansion. The leading `_` silences the unused
     // binding warning without freeing the handle.
-    let (db, vfs, _proc_macro_client) =
+    let (db, vfs, _proc_macro_client, targets) =
         build_hir_database(workspace_root, proc_macros).map_err(HirExtractError::Hir)?;
     eprintln!(
         "extract --hir: proc-macros {}",
@@ -52,13 +52,18 @@ pub fn extract_and_ingest_hir(
             (false, _) => "disabled (--no-proc-macro)",
         }
     );
+    eprintln!(
+        "extract --hir: {} lib/bin target roots correlated (RFC-054 54-C)",
+        targets.len()
+    );
 
     eprintln!("extract --hir: resolving call sites");
-    let (mut nodes, mut edges) = extract_call_sites(&db, &vfs).map_err(HirExtractError::Hir)?;
+    let (mut nodes, mut edges) =
+        extract_call_sites(&db, &vfs, workspace_root, &targets).map_err(HirExtractError::Hir)?;
 
     eprintln!("extract --hir: scanning entry points");
     let (mut ep_nodes, mut ep_edges) =
-        extract_entry_points(&db, &vfs, workspace_root).map_err(HirExtractError::Hir)?;
+        extract_entry_points(&db, &vfs, workspace_root, &targets).map_err(HirExtractError::Hir)?;
 
     // Combine the two fact batches so the adapter sees one ingest.
     // Stable ordering is already guaranteed by each extractor's

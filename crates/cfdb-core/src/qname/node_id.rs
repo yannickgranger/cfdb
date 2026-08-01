@@ -135,6 +135,18 @@ pub fn callsite_node_id(caller_identity: &str, callee_path: &str, local_idx: usi
     format!("callsite:{caller_identity}:{callee_path}:{local_idx}")
 }
 
+/// Canonical `:EntryPoint` node id (RFC-054 §7 54-C — centralized here
+/// with its `callsite:`/`matchsite:` siblings when the HIR producer
+/// learned target discrimination; previously an ad-hoc `format!` in
+/// `cfdb-hir-extractor`). `handler_identity` is the discriminated
+/// identity from [`TargetDiscriminator::identity`], NOT the bare display
+/// qname — two same-qname clap commands in sibling bins are distinct
+/// entry points and must not collapse onto one id.
+#[must_use]
+pub fn entrypoint_node_id(kind: &str, handler_identity: &str) -> String {
+    format!("entrypoint:{kind}:{handler_identity}")
+}
+
 /// Canonical `:Param` node-id form (#209, RFC-036 §3.1 CP1).
 ///
 /// Parameters of the same fn are disambiguated by positional index,
@@ -329,6 +341,27 @@ mod tests {
         assert_eq!(
             callsite_node_id(&TargetDiscriminator::Lib.identity("m::f"), "g", 1),
             "callsite:m::f:g:1"
+        );
+    }
+
+    #[test]
+    fn entrypoint_node_id_formula_embeds_the_handler_identity() {
+        // Lib handlers stay byte-stable vs the pre-54-C ad-hoc format.
+        assert_eq!(
+            entrypoint_node_id(
+                "cli_command",
+                &TargetDiscriminator::Lib.identity("app::Cli")
+            ),
+            "entrypoint:cli_command:app::Cli"
+        );
+        // Bin handlers carry the discriminator — same-qname commands in
+        // sibling bins stay distinct entry points.
+        let bin = TargetDiscriminator::Bin {
+            name: "alpha".to_string(),
+        };
+        assert_eq!(
+            entrypoint_node_id("cli_command", &bin.identity("twobins::Cli")),
+            "entrypoint:cli_command:twobins::Cli#bin:alpha"
         );
     }
 

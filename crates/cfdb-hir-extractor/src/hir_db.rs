@@ -20,21 +20,29 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use ra_ap_ide_db::RootDatabase;
-use ra_ap_load_cargo::{load_workspace_at, LoadCargoConfig, ProcMacroServerChoice};
+use ra_ap_load_cargo::{load_workspace, LoadCargoConfig, ProcMacroServerChoice};
 use ra_ap_proc_macro_api::ProcMacroClient;
-use ra_ap_project_model::{CargoConfig, RustLibSource};
-use ra_ap_vfs::Vfs;
+use ra_ap_project_model::{
+    CargoConfig, CargoWorkspace, ProjectManifest, ProjectWorkspace, ProjectWorkspaceKind,
+    RustLibSource, TargetKind,
+};
+use ra_ap_vfs::{AbsPathBuf, Vfs};
+
+use cfdb_core::qname::TargetDiscriminator;
 
 use crate::error::HirError;
+use crate::target_map::TargetRootMap;
 
 /// Load a Cargo workspace into a ready-to-query
-/// `(RootDatabase, Vfs, Option<ProcMacroClient>)` triple. The `Vfs` is
-/// required for file enumeration during extraction (see
-/// [`crate::call_site_emitter::extract_call_sites`]). The
-/// `Option<ProcMacroClient>` owns the proc-macro subprocess; it is `Some`
-/// when proc-macro expansion is active and `None` otherwise. Callers MUST
-/// hold the client alongside the database for the duration of extraction
-/// (RFC-043 §4 I7).
+/// `(RootDatabase, Vfs, Option<ProcMacroClient>, TargetRootMap)`
+/// quadruple. The `Vfs` is required for file enumeration during
+/// extraction (see [`crate::call_site_emitter::extract_call_sites`]).
+/// The `Option<ProcMacroClient>` owns the proc-macro subprocess; it is
+/// `Some` when proc-macro expansion is active and `None` otherwise.
+/// Callers MUST hold the client alongside the database for the duration
+/// of extraction (RFC-043 §4 I7). The [`TargetRootMap`] is the RFC-054
+/// 54-C target-root correlation map — callers pass it to the emitters
+/// so ids route through the discriminated identity formulas.
 ///
 /// `proc_macros` selects the loader policy:
 /// - `true` (default in production) — RFC-043 §3.1: enable
@@ -66,11 +74,11 @@ use crate::error::HirError;
 pub fn build_hir_database(
     workspace_root: &Path,
     proc_macros: bool,
-) -> Result<(RootDatabase, Vfs, Option<ProcMacroClient>), HirError> {
+) -> Result<(RootDatabase, Vfs, Option<ProcMacroClient>, TargetRootMap), HirError> {
     let mut cargo_config = CargoConfig::default();
     if proc_macros {
         // `ws.find_sysroot_proc_macro_srv()` (called inside
-        // `load_workspace_at`) returns None unless the workspace's
+        // `load_workspace`) returns None unless the workspace's
         // sysroot has been discovered. `RustLibSource::Discover` tells
         // ra_ap_project_model to auto-detect via `rustc --print sysroot`
         // at workspace load. Without this, requesting
@@ -81,15 +89,101 @@ pub fn build_hir_database(
     }
     let load_config = build_load_config(proc_macros);
 
+    // Canonicalize the caller-spelled root before discovery (#561 /
+    // #527 discipline via the single cfdb-lang resolver) so every
+    // downstream path — cargo metadata target roots, VFS file paths —
+    // is anchored on one canonical spelling and the emitters'
+    // workspace-relative `file` props strip cleanly.
+    let canonical_root = cfdb_lang::canonical_workspace_root(workspace_root).map_err(|e| {
+        HirError::WorkspaceDiscovery {
+            root: PathBuf::from(workspace_root),
+            message: e.to_string(),
+        }
+    })?;
+
+    // RFC-054 54-C: the one-shot `load_workspace_at` is split into its
+    // two public steps so the `CargoWorkspace` (discarded by the
+    // one-shot form) can be retained long enough to build the
+    // target-root correlation map — ra_ap keeps no target kind on the
+    // crate graph itself (`TargetData.kind` collapses into
+    // `is_proc_macro`; see `crate::target_map` module docs).
+    let manifest =
+        ProjectManifest::discover_single(&AbsPathBuf::assert_utf8(canonical_root.clone()))
+            .map_err(|e| HirError::WorkspaceDiscovery {
+                root: canonical_root.clone(),
+                message: e.to_string(),
+            })?;
+    let workspace = ProjectWorkspace::load(manifest, &cargo_config, &|_| {}).map_err(|e| {
+        HirError::LoadWorkspace {
+            root: canonical_root.clone(),
+            message: e.to_string(),
+        }
+    })?;
+
+    let targets = match &workspace.kind {
+        ProjectWorkspaceKind::Cargo { cargo, .. } => build_target_root_map(cargo),
+        // Non-cargo project layouts (rust-project.json, detached files)
+        // have no cargo targets — every crate resolves to Lib.
+        _ => TargetRootMap::default(),
+    };
+
     let (db, vfs, proc_macro_client) =
-        load_workspace_at(workspace_root, &cargo_config, &load_config, &|_| {}).map_err(|e| {
+        load_workspace(workspace, &cargo_config.extra_env, &load_config).map_err(|e| {
             HirError::LoadWorkspace {
-                root: PathBuf::from(workspace_root),
+                root: canonical_root.clone(),
                 message: e.to_string(),
             }
         })?;
 
-    Ok((db, vfs, proc_macro_client))
+    Ok((db, vfs, proc_macro_client, targets))
+}
+
+/// Record every workspace member's `[lib]` / `[[bin]]` target root.
+/// Test / example / bench / build-script targets and non-member
+/// packages are deliberately absent — they resolve to
+/// [`TargetDiscriminator::Lib`] via the map's miss policy (RFC-054
+/// discriminates lib vs bin only; everything else keeps byte-stable
+/// undiscriminated ids).
+fn build_target_root_map(cargo: &CargoWorkspace) -> TargetRootMap {
+    let mut entries: Vec<(PathBuf, TargetDiscriminator)> = Vec::new();
+    for pkg in cargo.packages() {
+        let pkg_data = &cargo[pkg];
+        if !pkg_data.is_member {
+            continue;
+        }
+        for &tgt in &pkg_data.targets {
+            let target = &cargo[tgt];
+            let discriminator = match target.kind {
+                TargetKind::Bin => TargetDiscriminator::Bin {
+                    name: target.name.clone(),
+                },
+                TargetKind::Lib { .. } => TargetDiscriminator::Lib,
+                TargetKind::Example
+                | TargetKind::Test
+                | TargetKind::Bench
+                | TargetKind::BuildScript
+                | TargetKind::Other => continue,
+            };
+            let root = PathBuf::from(target.root.as_str());
+            // Hardening (adversarial finding 2): ra_ap never resolves
+            // symlinks (`AbsPathBuf::canonicalize` is a forbidden
+            // stub), and only the TOP-LEVEL root is canonicalized
+            // before discovery. A member behind an in-tree symlink can
+            // make cargo-metadata's spelling and the VFS spelling of
+            // one physical root diverge. Recording BOTH spellings (one
+            // extra syscall per target) closes the map-side half; a
+            // VFS spelling matching NEITHER remains a documented
+            // residual that degrades that crate to Lib (see
+            // target_map.rs module docs).
+            if let Ok(canonical) = root.canonicalize() {
+                if canonical != root {
+                    entries.push((canonical, discriminator.clone()));
+                }
+            }
+            entries.push((root, discriminator));
+        }
+    }
+    TargetRootMap::from_entries(entries)
 }
 
 /// Construct the `LoadCargoConfig` for the requested policy. Production

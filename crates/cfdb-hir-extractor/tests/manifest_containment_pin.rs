@@ -114,10 +114,10 @@ pub fn run() -> Cli {
     );
     write(root, "clap/src/lib.rs", "");
 
-    let (db, vfs, _proc_macro) =
+    let (db, vfs, _proc_macro, targets) =
         build_hir_database(root, false).expect("build_hir_database on containment fixture");
-    let (nodes, _edges) =
-        extract_entry_points(&db, &vfs, root).expect("extract_entry_points on containment fixture");
+    let (nodes, _edges) = extract_entry_points(&db, &vfs, root, &targets)
+        .expect("extract_entry_points on containment fixture");
 
     let cli_eps: Vec<_> = entry_points(&nodes)
         .into_iter()
@@ -184,10 +184,10 @@ pub fn run() -> Cli {
     );
     write(root, "vendored/src/lib.rs", "");
 
-    let (db, vfs, _proc_macro) =
+    let (db, vfs, _proc_macro, targets) =
         build_hir_database(root, false).expect("build_hir_database on control fixture");
-    let (nodes, _edges) =
-        extract_entry_points(&db, &vfs, root).expect("extract_entry_points on control fixture");
+    let (nodes, _edges) = extract_entry_points(&db, &vfs, root, &targets)
+        .expect("extract_entry_points on control fixture");
 
     let cli_eps: Vec<_> = entry_points(&nodes)
         .into_iter()
