@@ -1,6 +1,6 @@
 # RFC-055 — Correlated `NOT EXISTS`: outer-scope bindings in subqueries (query-subset v0.2)
 
-- Status: R2 — RATIFIED by rust-systems, solid-architect, ddd-specialist; clean-arch final confirmation pending on the §4 WarningKind disclosure + `run_seeded` visibility tightening (both folded)
+- Status: **RATIFIED 4/4** (2026-08-01, R2) — clean-arch · ddd-specialist · solid-architect · rust-systems. Verdict record: `council/RFC-055/RATIFIED.md`
 - Refs: #546 (W2.3 in ledger #547) · upstream refile of graph-specs-rust#94 · RFC-034 §6 non-goals · `docs/query-dsl.md` §"Grammar constraints"
 - Downstream demand: agentry#897 / #900 / #909 (zero-dead invariant, audit queue), graph-specs-rust per-context dead-rules, cfdb's own pattern-B rule tightening
 
@@ -96,7 +96,7 @@ Anti-join rules commonly pair with `count()` sentinels; #564 (`count()` over emp
 
 ## 4. Invariants
 
-- **No wire-format change. No `SchemaVersion` bump. No graph-specs lockstep.** Evaluator (`cfdb-petgraph`) **plus one additive, non-breaking `WarningKind` variant in `cfdb-core`** for the §3.1.7 notice (clean-arch R2 disclosure: no existing variant fits, `result.rs:76-95`; runtime-only — the only persisted warning class is 54-A's contention set, so no schema surface). Zero Cargo.toml edits — the parser↔evaluator separation is mechanically enforced (`tests/architecture_dep_rule.rs` + `.cfdb/workspace-dep-rules.toml`; cfdb-query is dev-only in cfdb-petgraph).
+- **No wire-format change. No `SchemaVersion` bump. No graph-specs lockstep.** Evaluator (`cfdb-petgraph`) **plus one additive, non-breaking `WarningKind` variant in `cfdb-core`** for the §3.1.7 notice (clean-arch R2 disclosure: no existing variant fits, `result.rs:76-95`; non-breaking is compiler-enforced — the enum is `#[non_exhaustive]`, `result.rs:75` (solid R2); runtime-only — the only persisted warning class is 54-A's contention set, so the new variant never reaches disk and the wire-format claim stands literally). Zero Cargo.toml edits — the parser↔evaluator separation is mechanically enforced (`tests/architecture_dep_rule.rs` + `.cfdb/workspace-dep-rules.toml`; cfdb-query is dev-only in cfdb-petgraph).
 - **Determinism**: `cfdb extract` untouched; `ci/determinism-check.sh` byte-stable trivially. Query evaluation stays deterministic (BTreeMap bindings, ordered streams).
 - **Recall**: N/A — no extractor change; `cfdb-recall` corpus untouched.
 - **Shipped-rule stability**: every `.cfdb/queries/*.cypher` row count unchanged on cfdb-self except the documented pattern-B example tightening. Cross-dogfood 0 findings at the pinned companion SHA.
@@ -104,7 +104,7 @@ Anti-join rules commonly pair with `count()` sentinels; #564 (`count()` over emp
 
 ## 5. Architect lenses (R1 verdicts; R2 = confirmation of the folds)
 
-### 5.1 Clean architecture (`clean-arch`) — R1: REQUEST CHANGES → folds applied; R2 finding folded, final confirmation pending
+### 5.1 Clean architecture (`clean-arch`) — R1: REQUEST CHANGES → R2 finding folded → final: RATIFY
 
 Dependency Rule, port purity, composition root, use-case isolation all confirmed clean; mechanics verified at source; dependency direction "structurally impossible to violate" given the enforced dev-only boundary. R1 blocker folded: §1's evidence list mis-cited 3 of 8 files (`vsb-multi-resolver` = positive-EXISTS gap; `raid-completeness` = stale Compare-only claim, removed at `e1a58e9`; `self-enrich-metrics` = prose mention) → §1.2 narrowed, miscited files moved to §2's clause-level truth pass, §6 corrected. R2 finding folded: the §3.1.7 notice requires an additive cfdb-core `WarningKind` variant (no existing variant fits, `result.rs:76-95`) → §4's single-crate claim amended to disclose it; `run_seeded` tightened from `pub(crate)` to eval-module-private (only consumer is a descendant module).
 
@@ -135,7 +135,7 @@ Foundation claim CONFIRMED at source (seed row `mod.rs:196`; bound-var reuse+re-
 One vertical slice (grammar exists; capability + visibility + docs + rule tightening share one reason-to-change — solid R1 CCP ruling):
 
 **55-A — correlated `NOT EXISTS` end-to-end** (re-scopes #546):
-seeded sub-evaluation (`run_seeded`, `pub(crate)`), correlation notice (§3.1.7), `resolve_endpoint` FROM-endpoint symmetry fix (§3.2), docs truth pass (§2 table, clause-level; raid-completeness staleness as its own boy-scout commit), pattern-B example rule tightened + pinned test flipped 2 → 0.
+seeded sub-evaluation (`run_seeded`, eval-module-private), correlation notice (§3.1.7), `resolve_endpoint` FROM-endpoint symmetry fix (§3.2 — its own commit within the PR: a precondition fix independently reachable via ordinary multi-clause MATCH, kept legible apart from the "ship correlation" commit, rust+solid R2), docs truth pass (§2 table, clause-level; raid-completeness staleness as its own boy-scout commit), pattern-B example rule tightened + pinned test flipped 2 → 0.
 
 ```
 Tests:
