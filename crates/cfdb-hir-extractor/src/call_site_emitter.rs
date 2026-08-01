@@ -39,7 +39,7 @@
 //! `:Item` nodes emitted by the syn extractor.
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use cfdb_core::fact::{Edge, Node};
 use ra_ap_hir::db::HirDatabase;
@@ -49,6 +49,7 @@ use ra_ap_ide_db::line_index::LineIndex;
 use ra_ap_vfs::{Vfs, VfsPath};
 
 use crate::error::HirError;
+use crate::target_map::{EmitCtx, TargetRootMap};
 
 mod facts;
 mod naming;
@@ -84,7 +85,24 @@ use walk::walk_file;
 /// Output nodes and edges are sorted by ID before return, so two
 /// invocations on the same workspace produce byte-identical vecs
 /// regardless of the VFS iteration order chosen by `ra_ap_vfs`.
-pub fn extract_call_sites<DB>(db: &DB, vfs: &Vfs) -> Result<(Vec<Node>, Vec<Edge>), HirError>
+///
+/// # Walk scope + `file` props (#561)
+///
+/// Only files under `workspace_root` are walked; dependency and
+/// sysroot sources in the VFS are skipped. Their call sites were pure
+/// noise: a dependency cannot statically call back into the workspace
+/// (HIR resolves generic calls at the definition site), so dep-internal
+/// edges never join the workspace graph — they only dangled into
+/// synthesized stubs. Scoping the walk also makes the workspace-relative
+/// `file`-prop contract total: every emitted path strips against the
+/// canonical root by construction, no silent absolute fallback possible
+/// (the #527 discipline).
+pub fn extract_call_sites<DB>(
+    db: &DB,
+    vfs: &Vfs,
+    workspace_root: &Path,
+    targets: &TargetRootMap,
+) -> Result<(Vec<Node>, Vec<Edge>), HirError>
 where
     DB: HirDatabase + Sized,
 {
@@ -93,32 +111,26 @@ where
     // attach, any HIR query that dispatches through the solver panics
     // "Try to use attached db, but not db is attached". The closure
     // returns owned Vecs so the attach scope ends before we return.
-    attach_db(db, || extract_call_sites_attached(db, vfs))
+    attach_db(db, || {
+        extract_call_sites_attached(db, vfs, workspace_root, targets)
+    })
 }
 
-fn extract_call_sites_attached<DB>(db: &DB, vfs: &Vfs) -> Result<(Vec<Node>, Vec<Edge>), HirError>
+fn extract_call_sites_attached<DB>(
+    db: &DB,
+    vfs: &Vfs,
+    workspace_root: &Path,
+    targets: &TargetRootMap,
+) -> Result<(Vec<Node>, Vec<Edge>), HirError>
 where
     DB: HirDatabase + Sized,
 {
     let sema = Semantics::new(db);
+    let ctx = EmitCtx { vfs, targets };
     let mut nodes: Vec<Node> = Vec::new();
     let mut edges: Vec<Edge> = Vec::new();
 
-    // Collect files and sort by path for deterministic traversal.
-    // The VFS iteration order is an implementation detail of salsa's
-    // hash-set internals; sorting by path restores G1 byte-stability.
-    let mut files: Vec<(ra_ap_vfs::FileId, PathBuf)> = vfs
-        .iter()
-        .filter_map(|(file_id, vfs_path)| {
-            let p = vfs_path_to_pathbuf(vfs_path)?;
-            if p.extension().and_then(|e| e.to_str()) == Some("rs") {
-                Some((file_id, p))
-            } else {
-                None
-            }
-        })
-        .collect();
-    files.sort_by(|a, b| a.1.cmp(&b.1));
+    let files = workspace_rs_files(vfs, workspace_root)?;
 
     for (file_id, file_path) in files {
         let source_file = sema.parse_guess_edition(file_id);
@@ -134,10 +146,19 @@ where
         let file_text: &str = file_text_handle.text(db);
         let line_index = LineIndex::new(file_text);
         // Per-call-site deduplication counter keyed by
-        // `(caller_qname, callee_path)`.
+        // `(caller_identity, callee_path)`. NOTE the known limitation:
+        // each FileId is walked once and `sema.to_def` resolves a
+        // syntax node to ONE crate — ra_ap's source_to_def documents
+        // "no injective mapping ... return the first answer that
+        // works" — so a file shared across two targets (`#[path]`)
+        // attributes its calls to a SINGLE target; the other target's
+        // copies are not captured (pre-existing HIR recall gap, unlike
+        // the syn side which walks per target). Identity-keying the
+        // counter is still correct for the target that wins.
         let mut counts: BTreeMap<(String, String), usize> = BTreeMap::new();
         walk_file(
             &sema,
+            &ctx,
             &source_file,
             &file_path,
             &line_index,
@@ -164,4 +185,38 @@ where
 /// VFS paths (e.g. macro-expanded virtual files) return None.
 fn vfs_path_to_pathbuf(p: &VfsPath) -> Option<PathBuf> {
     p.as_path().map(|abs| PathBuf::from(abs.as_str()))
+}
+
+/// Enumerate the workspace's own `.rs` files from the VFS, sorted by
+/// path for G1 byte-stability, each paired with its WORKSPACE-RELATIVE
+/// path (#561 — the `file`-prop contract is workspace-relative; see
+/// [`extract_call_sites`] walk-scope docs). Files outside the canonical
+/// root (dependency and sysroot sources) are skipped. Shared with
+/// [`crate::entry_point_emitter`].
+pub(crate) fn workspace_rs_files(
+    vfs: &Vfs,
+    workspace_root: &Path,
+) -> Result<Vec<(ra_ap_vfs::FileId, PathBuf)>, HirError> {
+    let canonical_root = cfdb_lang::canonical_workspace_root(workspace_root).map_err(|e| {
+        HirError::WorkspaceDiscovery {
+            root: PathBuf::from(workspace_root),
+            message: e.to_string(),
+        }
+    })?;
+    let mut files: Vec<(ra_ap_vfs::FileId, PathBuf)> = vfs
+        .iter()
+        .filter_map(|(file_id, vfs_path)| {
+            let p = vfs_path_to_pathbuf(vfs_path)?;
+            if p.extension().and_then(|e| e.to_str()) != Some("rs") {
+                return None;
+            }
+            // Workspace scope + relative form in one step. The strip
+            // cannot silently mis-emit: a path that does not live under
+            // the canonical root is not walked at all.
+            let rel = p.strip_prefix(&canonical_root).ok()?;
+            Some((file_id, rel.to_path_buf()))
+        })
+        .collect();
+    files.sort_by(|a, b| a.1.cmp(&b.1));
+    Ok(files)
 }

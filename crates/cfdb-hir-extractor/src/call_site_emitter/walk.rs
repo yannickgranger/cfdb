@@ -14,6 +14,7 @@ use ra_ap_syntax::ast::{self, AstNode, HasArgList};
 use ra_ap_syntax::{SyntaxKind, TextSize};
 
 use super::facts::{emit_argument_facts, emit_positional_args, emit_resolved_call};
+use crate::target_map::EmitCtx;
 
 /// Walk every method-call AND resolvable path-call expression in
 /// `source_file`, resolve it, and emit facts if resolution succeeds.
@@ -25,8 +26,10 @@ use super::facts::{emit_argument_facts, emit_positional_args, emit_resolved_call
 /// via `Semantics::resolve_method_call`; the path shape resolves
 /// via `Semantics::resolve_path` after extracting the `PathExpr`
 /// function expression from the `CallExpr`.
+#[allow(clippy::too_many_arguments)] // walker plumbing — same sink shape as emit_resolved_call
 pub(super) fn walk_file<DB>(
     sema: &Semantics<'_, DB>,
+    ctx: &EmitCtx<'_>,
     source_file: &ast::SourceFile,
     file_path: &Path,
     line_index: &LineIndex,
@@ -47,6 +50,7 @@ pub(super) fn walk_file<DB>(
                 if let Some(method_call) = ast::MethodCallExpr::cast(descendant) {
                     emit_method_call(
                         sema,
+                        ctx,
                         &method_call,
                         file_path,
                         line_index,
@@ -59,7 +63,7 @@ pub(super) fn walk_file<DB>(
             SyntaxKind::CALL_EXPR => {
                 if let Some(call_expr) = ast::CallExpr::cast(descendant) {
                     emit_path_call(
-                        sema, &call_expr, file_path, line_index, counts, nodes, edges,
+                        sema, ctx, &call_expr, file_path, line_index, counts, nodes, edges,
                     );
                 }
             }
@@ -71,8 +75,10 @@ pub(super) fn walk_file<DB>(
 /// Resolve and emit one `receiver.method(args)` call — the
 /// [`SyntaxKind::METHOD_CALL_EXPR`] arm of [`walk_file`], extracted so the
 /// walker stays flat (the inline form scored cognitive-58 / nesting-7).
+#[allow(clippy::too_many_arguments)] // walker plumbing — same sink shape as emit_resolved_call
 fn emit_method_call<DB>(
     sema: &Semantics<'_, DB>,
+    ctx: &EmitCtx<'_>,
     method_call: &ast::MethodCallExpr,
     file_path: &Path,
     line_index: &LineIndex,
@@ -92,6 +98,7 @@ fn emit_method_call<DB>(
     let line = line_index.line_col(offset).line as usize + 1;
     let Some(cs_id) = emit_resolved_call(
         sema,
+        ctx,
         method_call.syntax(),
         callee_fn,
         "method",
@@ -114,8 +121,10 @@ fn emit_method_call<DB>(
 
 /// Resolve and emit one `path(args)` call — the [`SyntaxKind::CALL_EXPR`]
 /// arm of [`walk_file`].
+#[allow(clippy::too_many_arguments)] // walker plumbing — same sink shape as emit_resolved_call
 fn emit_path_call<DB>(
     sema: &Semantics<'_, DB>,
+    ctx: &EmitCtx<'_>,
     call_expr: &ast::CallExpr,
     file_path: &Path,
     line_index: &LineIndex,
@@ -134,6 +143,7 @@ fn emit_path_call<DB>(
     let line = line_index.line_col(offset).line as usize + 1;
     let Some(cs_id) = emit_resolved_call(
         sema,
+        ctx,
         call_expr.syntax(),
         callee_fn,
         "fn",

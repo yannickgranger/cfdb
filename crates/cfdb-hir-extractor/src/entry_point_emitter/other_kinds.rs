@@ -10,7 +10,8 @@ use ra_ap_hir::db::HirDatabase;
 use ra_ap_hir::Semantics;
 use ra_ap_syntax::ast::{self, AstNode, HasArgList};
 
-use super::{emit, enclosing_fn_name_and_qname, resolve_handler_arg, HandlerTarget};
+use super::{emit, enclosing_fn_handler, resolve_handler_arg};
+use crate::target_map::EmitCtx;
 
 /// If `call` matches the `Job::new_async(<cron>, <closure>)` or
 /// `Job::new(<cron>, <closure>)` shape, emit a `cron_job`
@@ -18,6 +19,7 @@ use super::{emit, enclosing_fn_name_and_qname, resolve_handler_arg, HandlerTarge
 /// the enclosing fn qname cannot be resolved.
 pub(super) fn try_emit_cron_job<DB>(
     sema: &Semantics<'_, DB>,
+    ctx: &EmitCtx<'_>,
     call: &ast::CallExpr,
     file_path: &Path,
     nodes: &mut Vec<Node>,
@@ -61,20 +63,12 @@ pub(super) fn try_emit_cron_job<DB>(
         return;
     };
 
-    let Some((name, qname)) = enclosing_fn_name_and_qname(sema, call.syntax()) else {
+    let Some(handler) = enclosing_fn_handler(sema, ctx, call.syntax()) else {
         return;
     };
     let mut extra = BTreeMap::new();
     extra.insert("cron_expr".into(), PropValue::Str(cron_expr));
-    emit(
-        nodes,
-        edges,
-        &qname,
-        &name,
-        "cron_job",
-        file_path,
-        Some(extra),
-    );
+    emit(nodes, edges, &handler, "cron_job", file_path, Some(extra));
 }
 
 /// If `method_call` matches `<receiver>.on_upgrade(<handler>)`, emit
@@ -84,6 +78,7 @@ pub(super) fn try_emit_cron_job<DB>(
 /// back to the enclosing fn.
 pub(super) fn try_emit_websocket<DB>(
     sema: &Semantics<'_, DB>,
+    ctx: &EmitCtx<'_>,
     method_call: &ast::MethodCallExpr,
     file_path: &Path,
     nodes: &mut Vec<Node>,
@@ -104,15 +99,13 @@ pub(super) fn try_emit_websocket<DB>(
         return;
     };
 
-    let handler = resolve_handler_arg(sema, &first_arg).or_else(|| {
-        enclosing_fn_name_and_qname(sema, method_call.syntax())
-            .map(|(name, qname)| HandlerTarget { name, qname })
-    });
-    let Some(HandlerTarget { name, qname }) = handler else {
+    let handler = resolve_handler_arg(sema, ctx, &first_arg)
+        .or_else(|| enclosing_fn_handler(sema, ctx, method_call.syntax()));
+    let Some(handler) = handler else {
         return;
     };
 
-    emit(nodes, edges, &qname, &name, "websocket", file_path, None);
+    emit(nodes, edges, &handler, "websocket", file_path, None);
 }
 
 /// Return `(qualifier_last_segment, last_segment)` of a path with at

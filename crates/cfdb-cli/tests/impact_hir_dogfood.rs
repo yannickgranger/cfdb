@@ -67,9 +67,10 @@ fn resolved_calls_keyspace() -> (PetgraphStore, Keyspace) {
     // `cfdb extract --hir` does. The syn-only path (`false`) takes a different
     // inference route that hits an upstream `ra_ap_hir_ty` cast ICE on cfdb's
     // tree — so matching production here is load-bearing, not cosmetic.
-    let (db, vfs, _proc_macro_client) =
+    let (db, vfs, _proc_macro_client, targets) =
         build_hir_database(&root, true).expect("build HIR database for cfdb-self");
-    let (nodes, edges) = extract_call_sites(&db, &vfs).expect("resolve cfdb-self call sites");
+    let (nodes, edges) =
+        extract_call_sites(&db, &vfs, &root, &targets).expect("resolve cfdb-self call sites");
 
     let keyspace = Keyspace::new("impact-hir-dogfood");
     let mut store = PetgraphStore::new();

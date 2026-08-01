@@ -26,8 +26,9 @@
 
 mod node_id;
 pub use node_id::{
-    argument_node_id, callsite_node_id, field_node_id, item_node_id, item_node_id_for_target,
-    matchsite_node_id, param_node_id, variant_node_id, TargetDiscriminator,
+    argument_node_id, callsite_node_id, entrypoint_node_id, field_node_id, item_node_id,
+    item_node_id_for_target, matchsite_node_id, param_node_id, variant_node_id,
+    TargetDiscriminator,
 };
 
 /// Join the module stack into a `::`-delimited module qpath.
@@ -106,7 +107,11 @@ pub fn qname_from_node_id(node_id: &str) -> &str {
 }
 
 /// The bare DISPLAY qname for an `:Item` node id — strips the `item:`
-/// prefix AND any RFC-054 `#bin:{name}` identity suffix. This is the
+/// prefix AND any RFC-054 `#bin:{name}` identity suffix. `:Item`-id
+/// scoped: `entrypoint:` ids embed the identity mid-string (http_route
+/// appends `:{path}` after it), so routing them through this helper
+/// would truncate the route path along with the discriminator — never
+/// apply it outside `item:` ids. This is the
 /// value that belongs in human-facing props (`caller_qname`,
 /// `parent_qname`); identities (suffix kept) belong in derived-id
 /// formulas. Keeping the two exits separate is what prevents identity

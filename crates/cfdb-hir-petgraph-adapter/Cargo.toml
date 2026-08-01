@@ -31,3 +31,8 @@ cfdb-petgraph = { path = "../cfdb-petgraph" }
 syn.workspace = true
 quote.workspace = true
 toml.workspace = true
+# #561 — `tests/syn_hir_overlay_silent.rs` runs BOTH producers on one
+# fixture and asserts a converging :CallSite overlays silently (54-A
+# classifier: same workspace-relative `file` string). Dev-dep only.
+cfdb-extractor = { path = "../cfdb-extractor" }
+tempfile.workspace = true

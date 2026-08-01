@@ -144,10 +144,10 @@ pub fn unrelated_fn() {}
 "#,
     );
 
-    let (db, vfs, _pm_client) =
+    let (db, vfs, _pm_client, targets) =
         build_hir_database(root, false).expect("build_hir_database on epfixture");
     let (nodes, edges) =
-        extract_entry_points(&db, &vfs, root).expect("extract_entry_points on epfixture");
+        extract_entry_points(&db, &vfs, root, &targets).expect("extract_entry_points on epfixture");
 
     // Filter :EntryPoint nodes.
     let eps = entry_points(&nodes);
@@ -232,10 +232,10 @@ pub fn register_jobs() {
 "#,
     );
 
-    let (db, vfs, _pm_client) =
+    let (db, vfs, _pm_client, targets) =
         build_hir_database(root, false).expect("build_hir_database on cronfix");
     let (nodes, edges) =
-        extract_entry_points(&db, &vfs, root).expect("extract_entry_points on cronfix");
+        extract_entry_points(&db, &vfs, root, &targets).expect("extract_entry_points on cronfix");
 
     let eps: Vec<_> = entry_points(&nodes)
         .into_iter()
@@ -294,10 +294,10 @@ pub fn install_daily() {
 "#,
     );
 
-    let (db, vfs, _pm_client) =
+    let (db, vfs, _pm_client, targets) =
         build_hir_database(root, false).expect("build_hir_database on cronsync");
     let (nodes, _edges) =
-        extract_entry_points(&db, &vfs, root).expect("extract_entry_points on cronsync");
+        extract_entry_points(&db, &vfs, root, &targets).expect("extract_entry_points on cronsync");
 
     let eps: Vec<_> = entry_points(&nodes)
         .into_iter()
@@ -339,10 +339,10 @@ pub fn boot() {
 "#,
     );
 
-    let (db, vfs, _pm_client) =
+    let (db, vfs, _pm_client, targets) =
         build_hir_database(root, false).expect("build_hir_database on cronsched");
     let (nodes, edges) =
-        extract_entry_points(&db, &vfs, root).expect("extract_entry_points on cronsched");
+        extract_entry_points(&db, &vfs, root, &targets).expect("extract_entry_points on cronsched");
 
     let eps: Vec<_> = entry_points(&nodes)
         .into_iter()
@@ -399,10 +399,10 @@ pub fn mount_ws(upgrade: WebSocketUpgrade) -> Response {
 "#,
     );
 
-    let (db, vfs, _pm_client) =
+    let (db, vfs, _pm_client, targets) =
         build_hir_database(root, false).expect("build_hir_database on wsnamed");
     let (nodes, edges) =
-        extract_entry_points(&db, &vfs, root).expect("extract_entry_points on wsnamed");
+        extract_entry_points(&db, &vfs, root, &targets).expect("extract_entry_points on wsnamed");
 
     let eps: Vec<_> = entry_points(&nodes)
         .into_iter()
@@ -460,10 +460,10 @@ pub fn mount_ws_inline(upgrade: WebSocketUpgrade) -> Response {
 "#,
     );
 
-    let (db, vfs, _pm_client) =
+    let (db, vfs, _pm_client, targets) =
         build_hir_database(root, false).expect("build_hir_database on wsclosure");
     let (nodes, edges) =
-        extract_entry_points(&db, &vfs, root).expect("extract_entry_points on wsclosure");
+        extract_entry_points(&db, &vfs, root, &targets).expect("extract_entry_points on wsclosure");
 
     let eps: Vec<_> = entry_points(&nodes)
         .into_iter()
@@ -549,10 +549,10 @@ pub struct Cli {
 "#,
     );
 
-    let (db, vfs, _pm_client) =
+    let (db, vfs, _pm_client, targets) =
         build_hir_database(root, false).expect("build_hir_database on clapargs");
     let (_nodes, edges) =
-        extract_entry_points(&db, &vfs, root).expect("extract_entry_points on clapargs");
+        extract_entry_points(&db, &vfs, root, &targets).expect("extract_entry_points on clapargs");
 
     let struct_qname = "clapargs::Cli";
     let entry_point_id = format!("entrypoint:cli_command:{struct_qname}");
@@ -620,10 +620,10 @@ pub enum Command {
 "#,
     );
 
-    let (db, vfs, _pm_client) =
+    let (db, vfs, _pm_client, targets) =
         build_hir_database(root, false).expect("build_hir_database on subcmd");
     let (_nodes, edges) =
-        extract_entry_points(&db, &vfs, root).expect("extract_entry_points on subcmd");
+        extract_entry_points(&db, &vfs, root, &targets).expect("extract_entry_points on subcmd");
 
     let enum_qname = "subcmd::Command";
     let entry_point_id = format!("entrypoint:cli_command:{enum_qname}");
@@ -688,10 +688,10 @@ pub struct Cli {
 "#,
     );
 
-    let (db, vfs, _pm_client) =
+    let (db, vfs, _pm_client, targets) =
         build_hir_database(root, false).expect("build_hir_database on noargs");
     let (nodes, edges) =
-        extract_entry_points(&db, &vfs, root).expect("extract_entry_points on noargs");
+        extract_entry_points(&db, &vfs, root, &targets).expect("extract_entry_points on noargs");
 
     // Sanity: the :EntryPoint still emits.
     let eps = entry_points(&nodes);
@@ -749,10 +749,10 @@ pub enum Command {
 "#,
     );
 
-    let (db, vfs, _pm_client) =
+    let (db, vfs, _pm_client, targets) =
         build_hir_database(root, false).expect("build_hir_database on nodep");
     let (nodes, _edges) =
-        extract_entry_points(&db, &vfs, root).expect("extract_entry_points on nodep");
+        extract_entry_points(&db, &vfs, root, &targets).expect("extract_entry_points on nodep");
 
     let cli: Vec<_> = entry_points(&nodes)
         .into_iter()
@@ -816,10 +816,10 @@ pub struct Cli {
     write(base, "clap/src/lib.rs", "");
 
     let ws_root = base.join("ws");
-    let (db, vfs, _pm_client) =
+    let (db, vfs, _pm_client, targets) =
         build_hir_database(&ws_root, false).expect("build_hir_database on transitive-clap");
-    let (nodes, _edges) =
-        extract_entry_points(&db, &vfs, &ws_root).expect("extract_entry_points on transitive-clap");
+    let (nodes, _edges) = extract_entry_points(&db, &vfs, &ws_root, &targets)
+        .expect("extract_entry_points on transitive-clap");
 
     let cli: Vec<_> = entry_points(&nodes)
         .into_iter()
@@ -884,10 +884,10 @@ impl Tools {
 "#,
     );
 
-    let (db, vfs, _pm_client) =
+    let (db, vfs, _pm_client, targets) =
         build_hir_database(root, false).expect("build_hir_database on impltools");
     let (nodes, edges) =
-        extract_entry_points(&db, &vfs, root).expect("extract_entry_points on impltools");
+        extract_entry_points(&db, &vfs, root, &targets).expect("extract_entry_points on impltools");
 
     // The canonical qname is derived via the canonical helper — if
     // the qname formula ever changes shape, this assertion updates
