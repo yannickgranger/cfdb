@@ -50,7 +50,7 @@ use std::collections::BTreeMap;
 
 use cfdb_concepts::{compute_bounded_context, ConceptOverrides};
 use cfdb_core::fact::{Node, Props};
-use cfdb_core::qname::{item_node_id, qname_from_node_id};
+use cfdb_core::qname::{display_qname_from_node_id, item_node_id};
 use cfdb_core::query::item_kind::ItemKind;
 use cfdb_core::schema::{EdgeLabel, Label};
 
@@ -83,8 +83,8 @@ pub(crate) fn synthesize_referenced_items(emitter: &mut Emitter, overrides: &Con
             EdgeLabel::TYPE_OF => EdgeLabel::TYPE_OF,
             _ => continue,
         };
-        let dst_qname = qname_from_node_id(&edge.dst);
-        if emitter.emitted_item_qnames.contains(dst_qname) {
+        let dst_qname = display_qname_from_node_id(&edge.dst);
+        if emitter.emitted_item_qnames.contains_key(dst_qname) {
             continue;
         }
         match synth.get(dst_qname) {
@@ -129,7 +129,11 @@ pub(crate) fn synthesize_referenced_items(emitter: &mut Emitter, overrides: &Con
             label: Label::new(Label::ITEM),
             props,
         });
-        emitter.emitted_item_qnames.insert(qname);
+        // Synthetic stubs stand in for items outside every workspace
+        // target (foreign crates), so they claim the Lib slot — the
+        // RFC-054 resolver's lib fallback routes cross-target references
+        // to them exactly as it does for real lib items.
+        emitter.claim_item_qname(&qname, &cfdb_core::qname::TargetDiscriminator::Lib);
     }
 }
 

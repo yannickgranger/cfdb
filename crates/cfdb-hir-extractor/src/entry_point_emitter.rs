@@ -38,7 +38,9 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use cfdb_core::fact::{Edge, Node, PropValue};
-use cfdb_core::qname::{item_node_id, item_qname};
+use cfdb_core::qname::{
+    entrypoint_node_id, item_node_id_for_target, item_qname, TargetDiscriminator,
+};
 use cfdb_core::schema::{EdgeLabel, Label};
 use ra_ap_edition::Edition;
 use ra_ap_hir::db::HirDatabase;
@@ -48,7 +50,9 @@ use ra_ap_syntax::ast::{self, AstNode, HasName};
 use ra_ap_syntax::{SyntaxKind, SyntaxNode};
 use ra_ap_vfs::{Vfs, VfsPath};
 
+use crate::call_site_emitter::workspace_rs_files;
 use crate::error::HirError;
+use crate::target_map::{EmitCtx, TargetRootMap};
 
 mod framework;
 mod http_route;
@@ -90,12 +94,13 @@ pub fn extract_entry_points<DB>(
     db: &DB,
     vfs: &Vfs,
     workspace_root: &Path,
+    targets: &TargetRootMap,
 ) -> Result<(Vec<Node>, Vec<Edge>), HirError>
 where
     DB: HirDatabase + Sized,
 {
     attach_db(db, || {
-        extract_entry_points_attached(db, vfs, workspace_root)
+        extract_entry_points_attached(db, vfs, workspace_root, targets)
     })
 }
 
@@ -103,26 +108,19 @@ fn extract_entry_points_attached<DB>(
     db: &DB,
     vfs: &Vfs,
     workspace_root: &Path,
+    targets: &TargetRootMap,
 ) -> Result<(Vec<Node>, Vec<Edge>), HirError>
 where
     DB: HirDatabase + Sized,
 {
     let sema = Semantics::new(db);
+    let ctx = EmitCtx { vfs, targets };
     let mut nodes: Vec<Node> = Vec::new();
     let mut edges: Vec<Edge> = Vec::new();
 
-    let mut files: Vec<(ra_ap_vfs::FileId, PathBuf)> = vfs
-        .iter()
-        .filter_map(|(file_id, vfs_path)| {
-            let p = vfs_path_to_pathbuf(vfs_path)?;
-            if p.extension().and_then(|e| e.to_str()) == Some("rs") {
-                Some((file_id, p))
-            } else {
-                None
-            }
-        })
-        .collect();
-    files.sort_by(|a, b| a.1.cmp(&b.1));
+    // Workspace-scoped, workspace-relative enumeration shared with the
+    // call-site emitter (#561 — see its walk-scope docs).
+    let files = workspace_rs_files(vfs, workspace_root)?;
 
     let registry = FrameworkRegistry::<DB>::rust_default();
     // RFC-049 §3.1: populate the manifest from the workspace members'
@@ -134,13 +132,20 @@ where
     for (file_id, file_path) in files {
         let source_file = sema.parse_guess_edition(file_id);
         let (mut framework_nodes, mut framework_edges) =
-            registry.detect_file(&manifest, &sema, &source_file, &file_path);
+            registry.detect_file(&manifest, &sema, &ctx, &source_file, &file_path);
         nodes.append(&mut framework_nodes);
         edges.append(&mut framework_edges);
         // Test/bench entry points are not a manifest-gated framework, so
         // they are classified in a dedicated pass that honours the
         // `#[tool]` precedence (RFC-042 §3.1).
-        scan_test_bench_fns(&sema, &source_file, &file_path, &mut nodes, &mut edges);
+        scan_test_bench_fns(
+            &sema,
+            &ctx,
+            &source_file,
+            &file_path,
+            &mut nodes,
+            &mut edges,
+        );
     }
 
     nodes.sort_by(|a, b| a.id.cmp(&b.id));
@@ -168,6 +173,7 @@ where
 /// (no-duplicate invariant, RFC-042 §4).
 fn scan_test_bench_fns<DB>(
     sema: &Semantics<'_, DB>,
+    ctx: &EmitCtx<'_>,
     source_file: &ast::SourceFile,
     file_path: &Path,
     nodes: &mut Vec<Node>,
@@ -186,8 +192,8 @@ fn scan_test_bench_fns<DB>(
             continue;
         }
         if let Some(kind) = test_bench_kind(&fn_ast, file_path) {
-            if let Some((name, qname)) = fn_name_and_qname(sema, &fn_ast) {
-                emit(nodes, edges, &qname, &name, kind, file_path, None);
+            if let Some(handler) = fn_handler(sema, ctx, &fn_ast) {
+                emit(nodes, edges, &handler, kind, file_path, None);
             }
         }
     }
@@ -210,27 +216,44 @@ fn test_bench_kind(fn_ast: &ast::Fn, file_path: &Path) -> Option<&'static str> {
     }
 }
 
-fn struct_name_and_qname<DB>(
+fn struct_handler<DB>(
     sema: &Semantics<'_, DB>,
+    ctx: &EmitCtx<'_>,
     strukt: &ast::Struct,
-) -> Option<(String, String)>
+) -> Option<Handler>
 where
     DB: HirDatabase + Sized,
 {
     let name = strukt.name()?.text().to_string();
     let def = sema.to_def(strukt)?;
-    let qname = build_item_qname(sema, def.module(sema.db), def.krate(sema.db), &name);
-    Some((name, qname))
+    let krate = def.krate(sema.db);
+    let qname = build_item_qname(sema, def.module(sema.db), krate, &name);
+    let target = ctx.discriminator(sema.db, krate);
+    Some(Handler {
+        name,
+        qname,
+        target,
+    })
 }
 
-fn enum_name_and_qname<DB>(sema: &Semantics<'_, DB>, enum_: &ast::Enum) -> Option<(String, String)>
+fn enum_handler<DB>(
+    sema: &Semantics<'_, DB>,
+    ctx: &EmitCtx<'_>,
+    enum_: &ast::Enum,
+) -> Option<Handler>
 where
     DB: HirDatabase + Sized,
 {
     let name = enum_.name()?.text().to_string();
     let def = sema.to_def(enum_)?;
-    let qname = build_item_qname(sema, def.module(sema.db), def.krate(sema.db), &name);
-    Some((name, qname))
+    let krate = def.krate(sema.db);
+    let qname = build_item_qname(sema, def.module(sema.db), krate, &name);
+    let target = ctx.discriminator(sema.db, krate);
+    Some(Handler {
+        name,
+        qname,
+        target,
+    })
 }
 
 /// Resolve an `ast::Fn`'s qname via the canonical HIR fn-qname formula
@@ -240,26 +263,47 @@ where
 /// fns get `<module>::bar`. Routing through the canonical builder
 /// keeps cross-producer :Param / REGISTERS_PARAM keys bit-identical
 /// with the syn-side emitter (RFC-037 §3.1 / #227).
-fn fn_name_and_qname<DB>(sema: &Semantics<'_, DB>, fn_ast: &ast::Fn) -> Option<(String, String)>
+fn fn_handler<DB>(sema: &Semantics<'_, DB>, ctx: &EmitCtx<'_>, fn_ast: &ast::Fn) -> Option<Handler>
 where
     DB: HirDatabase + Sized,
 {
     let name = fn_ast.name()?.text().to_string();
     let def = sema.to_def(fn_ast)?;
     let qname = crate::call_site_emitter::function_qname(sema, def);
-    Some((name, qname))
+    let target = ctx.discriminator(sema.db, def.krate(sema.db));
+    Some(Handler {
+        name,
+        qname,
+        target,
+    })
 }
 
-struct HandlerTarget {
+/// A resolved entry-point handler: display name, bare display qname,
+/// and the RFC-054 target discriminator of the crate that owns it.
+/// Ids derive from [`Handler::identity`]; the `handler_qname` prop
+/// stays the bare qname (display props never carry the identity
+/// suffix — RFC-054 §3.5.1).
+struct Handler {
     name: String,
     qname: String,
+    target: TargetDiscriminator,
 }
 
-/// Resolve an argument expression to its `HandlerTarget` (name +
-/// qname) when it is a path to a named fn. Closures, blocks, and
-/// unresolved paths return `None` so the caller can fall back to the
-/// enclosing-fn policy.
-fn resolve_handler_arg<DB>(sema: &Semantics<'_, DB>, arg: &ast::Expr) -> Option<HandlerTarget>
+impl Handler {
+    /// The discriminated identity string ids derive from.
+    fn identity(&self) -> std::borrow::Cow<'_, str> {
+        self.target.identity(&self.qname)
+    }
+}
+
+/// Resolve an argument expression to its [`Handler`] when it is a path
+/// to a named fn. Closures, blocks, and unresolved paths return `None`
+/// so the caller can fall back to the enclosing-fn policy.
+fn resolve_handler_arg<DB>(
+    sema: &Semantics<'_, DB>,
+    ctx: &EmitCtx<'_>,
+    arg: &ast::Expr,
+) -> Option<Handler>
 where
     DB: HirDatabase + Sized,
 {
@@ -275,23 +319,30 @@ where
         .name(sema.db)
         .display_no_db(Edition::Edition2021)
         .to_string();
-    let qname = build_item_qname(sema, func.module(sema.db), func.krate(sema.db), &name);
-    Some(HandlerTarget { name, qname })
+    let krate = func.krate(sema.db);
+    let qname = build_item_qname(sema, func.module(sema.db), krate, &name);
+    let target = ctx.discriminator(sema.db, krate);
+    Some(Handler {
+        name,
+        qname,
+        target,
+    })
 }
 
 /// Walk the syntax-tree ancestors of `node` looking for the
-/// enclosing `fn` and return its `(name, qname)`. Used when the
+/// enclosing `fn` and return its [`Handler`]. Used when the
 /// registration call's handler argument has no own path-level qname
 /// (closure) or when a cron schedule lives directly inside a fn.
-fn enclosing_fn_name_and_qname<DB>(
+fn enclosing_fn_handler<DB>(
     sema: &Semantics<'_, DB>,
+    ctx: &EmitCtx<'_>,
     node: &SyntaxNode,
-) -> Option<(String, String)>
+) -> Option<Handler>
 where
     DB: HirDatabase + Sized,
 {
     let fn_ast = node.ancestors().find_map(ast::Fn::cast)?;
-    fn_name_and_qname(sema, &fn_ast)
+    fn_handler(sema, ctx, &fn_ast)
 }
 
 /// Build `<crate>::<module_path>::<item_name>` via
@@ -336,26 +387,28 @@ where
 
 /// Emit the `:EntryPoint` node and its `EXPOSES` edge. The optional
 /// `extra_props` map is merged into the node props (e.g. `cron_expr`
-/// for `cron_job`).
-#[allow(clippy::too_many_arguments)] // nodes/edges are sinks; qname/name/kind/path/extra are the :EntryPoint shape
+/// for `cron_job`). Ids derive from the handler's discriminated
+/// identity (RFC-054 54-C): two same-qname handlers in sibling bins
+/// are distinct entry points, and the `EXPOSES` dst joins the syn
+/// side's discriminated `:Item`. The `handler_qname` prop stays the
+/// bare display qname (RFC-054 §3.5.1).
 fn emit(
     nodes: &mut Vec<Node>,
     edges: &mut Vec<Edge>,
-    handler_qname: &str,
-    display_name: &str,
+    handler: &Handler,
     kind: &str,
     file_path: &Path,
     extra_props: Option<BTreeMap<String, PropValue>>,
 ) {
-    let ep_id = format!("entrypoint:{kind}:{handler_qname}");
+    let ep_id = entrypoint_node_id(kind, &handler.identity());
     let file_str = file_path.to_string_lossy().into_owned();
 
     let mut props = BTreeMap::new();
-    props.insert("name".into(), PropValue::Str(display_name.to_string()));
+    props.insert("name".into(), PropValue::Str(handler.name.clone()));
     props.insert("kind".into(), PropValue::Str(kind.to_string()));
     props.insert(
         "handler_qname".into(),
-        PropValue::Str(handler_qname.to_string()),
+        PropValue::Str(handler.qname.clone()),
     );
     props.insert("file".into(), PropValue::Str(file_str));
     // Parameter JSON is reserved for follow-up enrichment (extracting
@@ -376,7 +429,7 @@ fn emit(
 
     edges.push(Edge {
         src: ep_id,
-        dst: item_node_id(handler_qname),
+        dst: item_node_id_for_target(&handler.qname, &handler.target),
         label: EdgeLabel::new(EdgeLabel::EXPOSES),
         props: BTreeMap::new(),
     });

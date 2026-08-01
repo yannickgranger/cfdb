@@ -85,7 +85,7 @@ A query expression used in `WITH` and `RETURN` — literal, property access, fun
 
 ## ItemKind
 
-Vocabulary for the `list-items-matching` verb. Kept in `cfdb-core` for v0.1; may move to `cfdb-query` in v0.2 per RFC-031 §3 if determined to be verb-level rather than schema-level.
+Vocabulary for the `list-items-matching` verb — the council-ratified seven (`Struct`, `Enum`, `Fn`, `Const`, `TypeAlias`, `ImplBlock`, `Trait`) plus the #479/#515 additions `Static` and `Union`, mapping 1:1 onto the extractor's lowercase wire strings via `to_extractor_str`. The `:Item.kind` schema-describe list is generated from `variants()` so CLI vocabulary and descriptor cannot drift. Kept in `cfdb-core` for v0.1; may move to `cfdb-query` in v0.2 per RFC-031 §3 if determined to be verb-level rather than schema-level.
 
 ## Keyspace
 
@@ -116,7 +116,7 @@ The descriptor at `crates/cfdb-core/src/schema/describe/nodes.rs` is authoritati
 
 ## Node
 
-A labelled, property-carrying graph node. Carries a stable id (qname), one or more labels, and a property map.
+A labelled, property-carrying graph node. Carries a stable id, one or more labels, and a property map. Homonym note (RFC-054 council DDD lens): the id and the `qname` property are related but distinct — for `:Item`s the id is the target-scoped IDENTITY (`item:<qname>` for lib-target items, `item:<qname>#bin:<target>` for bin-target items) while `qname` stays the bare display name, deliberately non-unique across cargo targets (N bins' `fn main` = N nodes sharing one qname). Pre-RFC-054 the two coincided; conflating them is the split-brain class RFC-054 §3.5 retires.
 
 ## NodeLabelDescriptor
 
@@ -221,6 +221,10 @@ The verb surface is **closed at seven** under the 11-verb API (RFC-036 §3 + RFC
 
 Error type produced by backend operations — `UnknownKeyspace`, `SchemaMismatch`, `Eval`, `Ingest`, `Io`, `Other`.
 
+## TargetDiscriminator
+
+Which cargo build target an item was walked from (RFC-054 §3.1) — `Lib` or `Bin { name }`. A plain domain enum in `cfdb_core::qname`, deliberately not a re-export of `cargo_metadata`/`ra_ap` types (producers convert at their boundary). Owns the identity formula: `identity(qname)` yields the bare qname for lib targets and `qname#bin:{name}` for bin targets — the string every derived node id (`callsite:`, `param:`, `field:`, `variant:`, `matchsite:`, `arg:`) builds from. `as_wire_str()` renders the `:Item.target` attribute value (`lib` / `bin:{name}`).
+
 ## UnknownItemKind
 
 Error type for unrecognised `ItemKind` string values during deserialisation.
@@ -231,11 +235,11 @@ Rust item visibility captured on `:Item` facts: `Public` (`pub`), `CrateLocal` (
 
 ## Warning
 
-Non-fatal diagnostic produced during query evaluation — a `WarningKind` plus a human-readable message.
+Non-fatal diagnostic produced during query evaluation or keyspace ingest — a `WarningKind` plus a human-readable message. Ingest-time warnings persist with the keyspace and are prepended to every subsequent query result.
 
 ## WarningKind
 
-Categories of warning — undocumented label, undocumented edge, undocumented attribute, unresolved parameter.
+Categories of warning — undocumented label, undocumented edge, undocumented attribute, pathological query shape, empty result, and identity contention at ingest (two distinct nodes claiming one id, RFC-054 §3.4).
 
 ## WithClause
 

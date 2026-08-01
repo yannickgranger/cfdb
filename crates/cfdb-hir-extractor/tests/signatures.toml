@@ -2,9 +2,13 @@
 # Each value is the deterministic `quote::quote!(#sig).to_string()` rendering of
 # the named fn's `syn::Signature`. Captured by running tests/signatures.rs — do
 # NOT hand-edit. Intentional signature change ⇒ update this file in the same commit.
-build_hir_database = "fn build_hir_database (workspace_root : & Path , proc_macros : bool ,) -> Result < (RootDatabase , Vfs , Option < ProcMacroClient >) , HirError >"
-extract_call_sites = "fn extract_call_sites < DB > (db : & DB , vfs : & Vfs) -> Result < (Vec < Node > , Vec < Edge >) , HirError > where DB : HirDatabase + Sized ,"
+# Seam change (RFC-054 54-C / #558): returns the TargetRootMap correlated from
+# the retained CargoWorkspace; emitters take it plus the workspace root (#561
+# workspace-relative file props). The freeze caught the intentional change;
+# registry updated in the same commit.
+build_hir_database = "fn build_hir_database (workspace_root : & Path , proc_macros : bool ,) -> Result < (RootDatabase , Vfs , Option < ProcMacroClient > , TargetRootMap) , HirError >"
+extract_call_sites = "fn extract_call_sites < DB > (db : & DB , vfs : & Vfs , workspace_root : & Path , targets : & TargetRootMap ,) -> Result < (Vec < Node > , Vec < Edge >) , HirError > where DB : HirDatabase + Sized ,"
 # Seam change (49-A / #494): +`workspace_root: &Path` scopes the RFC-049 §3.1
 # manifest gate to the workspace's own member crates (path containment). The
 # freeze caught the intentional change; registry updated in the same commit.
-extract_entry_points = "fn extract_entry_points < DB > (db : & DB , vfs : & Vfs , workspace_root : & Path ,) -> Result < (Vec < Node > , Vec < Edge >) , HirError > where DB : HirDatabase + Sized ,"
+extract_entry_points = "fn extract_entry_points < DB > (db : & DB , vfs : & Vfs , workspace_root : & Path , targets : & TargetRootMap ,) -> Result < (Vec < Node > , Vec < Edge >) , HirError > where DB : HirDatabase + Sized ,"

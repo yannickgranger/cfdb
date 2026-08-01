@@ -23,6 +23,7 @@ fn walk_with_test_flag(block_src: &str, is_test: bool) -> (Vec<Node>, Vec<Edge>)
     walk_match_sites_with_test_flag(
         &mut emitter,
         "m::f",
+        &cfdb_core::qname::TargetDiscriminator::Lib,
         "crates/x/src/lib.rs",
         "x",
         &block,

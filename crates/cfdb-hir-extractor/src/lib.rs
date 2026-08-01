@@ -91,10 +91,15 @@ mod crate_name;
 // Slice 4 (Issue #86) — :EntryPoint catalog.
 pub mod entry_point_emitter;
 
+// RFC-054 54-C (#558) — target-root correlation map; the join between
+// `hir::Crate` and its cargo target that ra_ap itself discards.
+pub mod target_map;
+
 pub use call_site_emitter::extract_call_sites;
 pub use entry_point_emitter::extract_entry_points;
 pub use error::HirError;
 pub use hir_db::build_hir_database;
+pub use target_map::TargetRootMap;
 // Re-export the upstream proc-macro client so callers can hold the
 // subprocess handle alongside the database without depending on
 // `ra_ap_proc_macro_api` directly (RFC-043 §4 I7).

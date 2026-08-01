@@ -111,9 +111,15 @@ pub fn cached_db(label: &str, build: impl FnOnce(&Path)) -> PathBuf {
     }
 }
 
-/// `cfdb extract` `workspace` into `db_dir/<keyspace>.json`. `extra_args`
-/// appends flags such as `--hir` / `--no-proc-macro`.
-pub fn extract(db_dir: &Path, workspace: &Path, keyspace: &str, extra_args: &[&str]) {
+/// `cfdb extract` returning the raw `Output` for callers that assert on
+/// stderr/exit (RFC-054 54-A dogfood). Same argv construction as
+/// [`extract`], which delegates here.
+pub fn extract_output(
+    db_dir: &Path,
+    workspace: &Path,
+    keyspace: &str,
+    extra_args: &[&str],
+) -> std::process::Output {
     let mut args = vec![
         "extract",
         "--workspace",
@@ -127,6 +133,18 @@ pub fn extract(db_dir: &Path, workspace: &Path, keyspace: &str, extra_args: &[&s
     Command::cargo_bin("cfdb")
         .expect("cfdb binary built")
         .args(&args)
-        .assert()
-        .success();
+        .output()
+        .expect("spawn `cfdb extract`")
+}
+
+/// `cfdb extract` `workspace` into `db_dir/<keyspace>.json`. `extra_args`
+/// appends flags such as `--hir` / `--no-proc-macro`. Panics on failure;
+/// use [`extract_output`] to assert on stderr/exit yourself.
+pub fn extract(db_dir: &Path, workspace: &Path, keyspace: &str, extra_args: &[&str]) {
+    let out = extract_output(db_dir, workspace, keyspace, extra_args);
+    assert!(
+        out.status.success(),
+        "extract failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 }

@@ -2,6 +2,67 @@
 
 All notable changes to cfdb will be documented in this file.
 
+## [0.7.0] - 2026-08-01
+
+### ⚠️ Breaking changes & migration (for consumers)
+
+This release ships **`SchemaVersion` V0_8_0** (RFC-054 target-scoped identity). It is breaking within 0.x by design: **V0_7_0 readers refuse V0_8_0 keyspaces** (the G4 gate), so a stale pin fails loudly instead of misreading target-scoped graphs.
+
+If you vendor cfdb (graph-specs-rust, agentry) or read its keyspaces:
+
+1. **Bump your cfdb pin and rebuild before touching re-extracted keyspaces.** Old binaries refuse new keyspaces; new binaries still read old (V0_7_0-and-earlier) keyspaces.
+2. **Re-extract stored keyspaces.** Node ids changed shape for bin targets: items compiled into a `[[bin]]` target — and everything derived from them (`param:`/`field:`/`variant:`/`arg:`/`callsite:`/`matchsite:`/`entrypoint:` ids) — now carry a `#bin:{name}` identity suffix (`{qname}#bin:{name}`). Lib-target ids are byte-stable. Anything that parses, stores, or joins on node ids must handle the suffix; anything that only reads display props (`qname`, `caller_qname`, `handler_qname`) is unaffected — display qnames stay bare (RFC-054 §3.5.1).
+3. **New prop `:Item.target`** — `"lib"` or `"bin:{name}"` — is the queryable form of the same fact.
+4. **`file` props are now workspace-relative on every producer.** The Rust syn extractor (#527), PHP/TS extractors (#540), and the HIR emitters' `:CallSite`/`:EntryPoint`/`:Argument` (#561) all emit paths relative to the canonical workspace root, and fail loudly rather than silently falling back to absolute. Joins or filters written against absolute paths must be updated.
+5. **HIR extracts no longer walk dependency/sysroot sources.** Dep-internal call sites only ever dangled into synthesized stubs (a dep cannot statically call back into your workspace); they were the bulk of HIR row counts. Do not assert absolute `:CallSite`/CALLS counts across this release — workspace-scoped facts are unchanged.
+6. **Keyspaces are written as compact JSON** (#551, ~20–25% smaller). Parsing is unaffected (readers are whitespace-insensitive, old pretty files still load); anything diffing raw keyspace files will see a one-time rewrite.
+7. **New diagnostic surface:** same-id/different-payload ingest now emits `IdentityContention` warnings (persisted per keyspace, shown by the CLI) instead of silently last-write-wins (#556). Legitimate homonyms (cfg-twins) still ingest; you just see them now.
+
+**Known issue for rule authors:** `count()` over an empty `MATCH` returns zero rows instead of one row with `0` (#564) — count-then-compare sentinels are not armed when the count is zero. Fix is filed; until it lands, guard the empty case explicitly.
+
+### 🚀 Features
+
+- *(cfdb-petgraph [#556](https://github.com/yannickgranger/cfdb/issues/556))* RFC-054 54-A — identity contention warns instead of silently dropping nodes
+- *(cfdb [#557](https://github.com/yannickgranger/cfdb/issues/557))* RFC-054 54-B — target-scoped :Item identity, syn producer + core formulas + resolver threading (V0_8_0)
+- *(cfdb-hir-extractor RFC-054 54-C [#558](https://github.com/yannickgranger/cfdb/issues/558) + [#561](https://github.com/yannickgranger/cfdb/issues/561))* HIR target discriminator via CargoWorkspace root-file correlation; workspace-relative file props
+
+### 🐛 Bug Fixes
+
+- *(extractor [#527](https://github.com/yannickgranger/cfdb/issues/527))* File props are genuinely workspace-relative — canonical root, no silent absolute fallback
+- *(cfdb-core [#538](https://github.com/yannickgranger/cfdb/issues/538))* :Item describe-doc tells the truth — any visibility, not pub/pub(crate)-only
+- *(cfdb-core [#479](https://github.com/yannickgranger/cfdb/issues/479) [#515](https://github.com/yannickgranger/cfdb/issues/515))* Static+Union join ItemKind; :Item.kind describe list generated from variants(); extractor emits union
+- *(cfdb-lang [#540](https://github.com/yannickgranger/cfdb/issues/540))* Canonical workspace-root resolver — loud workspace_relative, no silent absolute fallback
+- *(boy-scout [#526](https://github.com/yannickgranger/cfdb/issues/526)-class)* Predicate dogfood tempdirs move to target/tmp — CI tmp cleaner pruned a live tempdir mid-test
+- *(ci [#553](https://github.com/yannickgranger/cfdb/issues/553))* Mirror auth — oauth2:<token>, not token-as-username (graph-specs [#178](https://github.com/yannickgranger/cfdb/issues/178) class) + workflow_dispatch
+- *(boy-scout [#556](https://github.com/yannickgranger/cfdb/issues/556))* Crossbeam-epoch 0.9.18 -> 0.9.20 — RUSTSEC-2026-0204
+- *(dogfood-enrich [#563](https://github.com/yannickgranger/cfdb/issues/563))* Honest self-enrich-deprecation ground truth — lexical strip + :File-set scoping + [#564](https://github.com/yannickgranger/cfdb/issues/564) zero-guard
+
+### 🚜 Refactor
+
+- *(cfdb-petgraph [#556](https://github.com/yannickgranger/cfdb/issues/556))* Hoist contention detect out of ingest_one_node — complexity 18 -> 15 (gate baseline)
+- *(cfdb-cli [#556](https://github.com/yannickgranger/cfdb/issues/556))* Surface_ingest_warnings moves to compose — extract.rs stays at its develop line count
+- *(cfdb-cli [#560](https://github.com/yannickgranger/cfdb/issues/560))* Split the --rev/URL/cache subsystem out of extract.rs — 664 -> 304 lines, god-file gate green
+- *(cfdb-petgraph/cli [#556](https://github.com/yannickgranger/cfdb/issues/556))* Fold the 4-lens simplify council findings — cap, durability filter, honest rendering, right homes
+- *(cfdb-extractor [#560](https://github.com/yannickgranger/cfdb/issues/560))* Split workspace-node emission out of lib.rs — 566 -> 396 lines, god-file gate green
+- *(cfdb [#557](https://github.com/yannickgranger/cfdb/issues/557))* Fold the 4-lens simplify review — policy single-home, edge-join enrich, total tie-break, live seam pins
+
+### 📚 Documentation
+
+- *(rfc-054)* Target-scoped :Item identity + ingest-contention diagnostics — council-ratified 4/4
+
+### ⚡ Performance
+
+- *(cfdb-petgraph [#551](https://github.com/yannickgranger/cfdb/issues/551))* Compact keyspace JSON — to_vec_pretty was pure tax on a machine-read artifact
+
+### 🧪 Testing
+
+- *(cfdb-hir-extractor [#531](https://github.com/yannickgranger/cfdb/issues/531))* Pin the nested-but-excluded-crate containment approximation + vacuity control
+- *(cfdb [#479](https://github.com/yannickgranger/cfdb/issues/479) [#515](https://github.com/yannickgranger/cfdb/issues/515))* RED — Static/Union unparseable, :Item.kind descriptor and extractor blind to union
+- *(cfdb-petgraph [#551](https://github.com/yannickgranger/cfdb/issues/551))* RED — saved keyspace must be compact JSON, not pretty-printed
+- *(cfdb [#540](https://github.com/yannickgranger/cfdb/issues/540))* RED — TS silent ts_workspace crate-name fallback + workspace-relative file-prop contract on both tree-sitter producers
+- *(cfdb-petgraph [#556](https://github.com/yannickgranger/cfdb/issues/556))* Pin the reverse orientation of the missing-file fallback (gate-3 noted constraint)
+- *(cfdb [#557](https://github.com/yannickgranger/cfdb/issues/557))* RED — RFC-054 54-B target-scoped identity formulas + the ONE shared bin-target fixture
+
 ## [0.6.0] - 2026-07-15
 
 ### 🚀 Features
@@ -69,6 +130,7 @@ All notable changes to cfdb will be documented in this file.
 
 ### ⚡ Performance
 
+- *(cfdb)* Index RandomScattering fork join via ConversionPrefix computed key ([#534](https://github.com/yannickgranger/cfdb/issues/534))
 - *(ci [#448](https://github.com/yannickgranger/cfdb/issues/448))* Run tests via cargo-nextest (parallel across binaries)
 - *(test [#451](https://github.com/yannickgranger/cfdb/issues/451))* Share one cached fixture extract across self-dogfood tests
 

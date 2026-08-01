@@ -95,7 +95,7 @@ pub(in crate::schema::describe) fn item_node_descriptor() -> NodeLabelDescriptor
     attributes.sort_by(|a, b| a.name.cmp(&b.name));
     NodeLabelDescriptor {
         label: Label::new(Label::ITEM),
-        description: "A top-level `pub`/`pub(crate)` item — struct, enum, trait, impl, fn, const, static, or type alias.".into(),
+        description: "A top-level item of any visibility (`pub`, `pub(crate)`, `pub(super)`, private, or `pub(in <path>)`, per the `visibility` attribute) — struct, enum, trait, impl, fn, const, static, or type alias.".into(),
         attributes,
     }
 }
@@ -134,16 +134,31 @@ fn item_attrs_extractor_metadata() -> Vec<AttributeDescriptor> {
 /// signature, visibility, and cross-producer (PHP/TS) disambiguation facts.
 fn item_attrs_extractor_structural() -> Vec<AttributeDescriptor> {
     use Provenance::Extractor;
+    // #479/#481 — the top-level kind list is GENERATED from
+    // `ItemKind::variants()` so the descriptor can never again drift from
+    // the vocabulary the CLI parses (`method` is not an `ItemKind`: it is
+    // the impl-member kind, appended textually below).
+    let top_level_kinds = crate::query::ItemKind::variants()
+        .iter()
+        .map(|k| format!("`{}`", k.to_extractor_str()))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let kind_description = format!(
+        "Item kind, as the lowercase wire string emitted by the extractor. \
+         Top-level items: {top_level_kinds}. Impl members additionally appear \
+         with kind `method`."
+    );
     vec![
-        attr("kind", "enum", "Item kind, as the lowercase wire string emitted by the extractor. Top-level items: `struct`, `enum`, `trait`, `impl_block`, `fn`, `const`, `static`, `type_alias`. Impl members additionally appear with kind `method`.", Extractor),
+        attr("kind", "enum", &kind_description, Extractor),
         attr("line", "int", "1-based line number of the item's first token.", Extractor),
         attr("module_qpath", "string", "Fully-qualified path of the enclosing module.", Extractor),
         attr("name", "string", "Unqualified item name.", Extractor),
         attr("php_construct", "string?", "Tree-sitter AST node kind for `:Item`s emitted by the PHP producer (`cfdb-extractor-php`, RFC-041 / RFC-045): `class_declaration`, `interface_declaration`, or `trait_declaration` (all three squash to `kind:\"trait\"`), `method_declaration`, or `function_definition`. The disambiguation seam for cypher queries that must distinguish a PHP class (an `IMPLEMENTS` source) from an interface (its target) — both carry `kind:\"trait\"`. Absent on `:Item`s from the Rust producer (and from the TS producer, which uses `ts_construct`). Emitted since the PHP MVP (#264) but documented from RFC-045 45-A onward.", Extractor),
         attr("ts_construct", "string?", "Tree-sitter AST node kind for `:Item`s emitted by the TypeScript producer (`cfdb-extractor-ts`, RFC-045 45-B): `class_declaration`, `abstract_class_declaration` (both → `kind:\"struct\"`), or `interface_declaration` (→ `kind:\"trait\"`). The disambiguation seam for cypher queries that must distinguish a TS class (an `IMPLEMENTS` source) from an interface (its target). Absent on `:Item`s from the Rust producer (and from the PHP producer, which uses `php_construct`). Emitted only on class/interface declarations.", Extractor),
-        attr("qname", "string", "Fully-qualified name (`crate::module::Item`).", Extractor),
+        attr("qname", "string", "Fully-qualified name (`crate::module::Item`). Homonym note (RFC-054): the DISPLAY name, deliberately NOT unique across cargo targets — N bin targets each carrying `fn main` yield N distinct `:Item` nodes sharing one qname, disambiguated by the `target` attribute and by their target-scoped node ids. Queries filtering on qname must expect multiple rows in multi-target packages.", Extractor),
         attr("signature", "string?", "Canonical fn / method signature string of shape `[const ][async ][unsafe ]fn(<param-types>) -> <return-type>` — parameter NAMES omitted, only types contribute. Emitted on fn / method kinds only (absent on struct / enum / trait / const / impl_block / type_alias / static). Produced by `cfdb-extractor::type_render::render_fn_signature`. Load-bearing input for the `signature_divergent(a, b)` UDF (issue #47, RFC-029 §A1.5 gate v0.2-8) that discriminates Shared Kernel (same signature across bounded contexts) from Context Homonym (divergent signatures). Additive and non-breaking — V0_2_3 readers loading a keyspace that emits the prop ignore the extra attribute.", Extractor),
         attr("signature_hash", "string", "Stable hash of the item's normalized signature.", Extractor),
+        attr("target", "string?", "Which cargo build target the item was walked from (RFC-054 §3.2): `lib` or `bin:<target-name>`. Cargo's own term — unrelated to the edge-endpoint sense of \"target\" and to `impl_target`. Absent ⇒ pre-RFC-054 extract OR a non-Rust producer (PHP/TS items never carry it).", Extractor),
         attr("visibility", "enum", "Rust visibility: `pub`, `pub(crate)`, `pub(super)`, `private`, or `pub(in <path>)`. SchemaVersion v0.1.1+ only — legacy V0_1_0 graphs do not carry this attribute.", Extractor),
     ]
 }

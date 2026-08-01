@@ -25,7 +25,11 @@
 //! `cfdb_core::qname::field_node_id` (etc.) keep working unchanged.
 
 mod node_id;
-pub use node_id::{argument_node_id, field_node_id, item_node_id, param_node_id, variant_node_id};
+pub use node_id::{
+    argument_node_id, callsite_node_id, entrypoint_node_id, field_node_id, item_node_id,
+    item_node_id_for_target, matchsite_node_id, param_node_id, variant_node_id,
+    TargetDiscriminator,
+};
 
 /// Join the module stack into a `::`-delimited module qpath.
 ///
@@ -85,9 +89,43 @@ pub fn method_qname(module_stack: &[String], impl_target: &str, method_name: &st
 ///
 /// If the input does not carry the `item:` prefix, it is returned
 /// unchanged — symmetric with `str::trim_start_matches` behaviour.
+///
+/// **Deprecated (RFC-054, council altitude ruling):** the prefix-only
+/// strip keeps the `#bin:{name}` identity suffix, which is a display-prop
+/// leak waiting to happen — the guard is compiler-enforced rather than
+/// prose. Zero production callers remain; tests pinning the identity
+/// round-trip carry `#[allow(deprecated)]`.
 #[must_use]
+#[deprecated(
+    since = "0.8.0",
+    note = "prefix-only strip keeps the RFC-054 #bin identity suffix — use \
+            display_qname_from_node_id for prop values; identities should be \
+            derived from (qname, TargetDiscriminator), never reconstructed"
+)]
 pub fn qname_from_node_id(node_id: &str) -> &str {
     node_id.strip_prefix("item:").unwrap_or(node_id)
+}
+
+/// The bare DISPLAY qname for an `:Item` node id — strips the `item:`
+/// prefix AND any RFC-054 `#bin:{name}` identity suffix. `:Item`-id
+/// scoped: `entrypoint:` ids embed the identity mid-string (http_route
+/// appends `:{path}` after it), so routing them through this helper
+/// would truncate the route path along with the discriminator — never
+/// apply it outside `item:` ids. This is the
+/// value that belongs in human-facing props (`caller_qname`,
+/// `parent_qname`); identities (suffix kept) belong in derived-id
+/// formulas. Keeping the two exits separate is what prevents identity
+/// plumbing from leaking into display values (RFC-054 §3.5.1).
+#[must_use]
+pub fn display_qname_from_node_id(node_id: &str) -> &str {
+    let identity = node_id.strip_prefix("item:").unwrap_or(node_id);
+    // `#` never appears in a Rust path, so the first `#` is always the
+    // RFC-054 discriminator boundary, never qname content (memchr-backed
+    // char search per the simplify review).
+    match identity.find('#') {
+        Some(i) => &identity[..i],
+        None => identity,
+    }
 }
 
 /// Canonicalise an `impl` target rendering by dropping any generic
@@ -282,6 +320,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)] // the pins legitimately test the deprecated identity round-trip
     fn qname_from_node_id_strips_item_prefix() {
         assert_eq!(
             qname_from_node_id("item:cfdb_core::schema::Label"),
@@ -290,11 +329,13 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)] // the pins legitimately test the deprecated identity round-trip
     fn qname_from_node_id_returns_input_unchanged_when_no_prefix() {
         assert_eq!(qname_from_node_id("no_prefix_here"), "no_prefix_here");
     }
 
     #[test]
+    #[allow(deprecated)] // the pins legitimately test the deprecated identity round-trip
     fn qname_from_node_id_round_trip_via_item_node_id() {
         let q = "cfdb_extractor::item_visitor::ItemVisitor::emit_item";
         assert_eq!(qname_from_node_id(&item_node_id(q)), q);
@@ -433,6 +474,7 @@ mod qname_contract_sync {
     }
 
     #[test]
+    #[allow(deprecated)] // the pins legitimately test the deprecated identity round-trip
     fn last_segment_recovers_trailing_token_after_node_id_strip() {
         // Round-trip: build a node id, strip the prefix, then ask for
         // the last segment — the stripping is independent of the
@@ -442,5 +484,21 @@ mod qname_contract_sync {
         let node_id = item_node_id(&q);
         let bare = qname_from_node_id(&node_id);
         assert_eq!(last_segment(bare), "ItemVisitor");
+    }
+
+    #[test]
+    #[allow(deprecated)] // the pins legitimately test the deprecated identity round-trip
+    fn display_qname_strips_prefix_and_bin_suffix() {
+        assert_eq!(
+            display_qname_from_node_id("item:tif::main#bin:alpha"),
+            "tif::main"
+        );
+        assert_eq!(display_qname_from_node_id("item:tif::main"), "tif::main");
+        // identity round-trip (prefix-only strip) keeps the suffix — the
+        // two exits stay distinct on purpose (RFC-054 §3.5.1).
+        assert_eq!(
+            qname_from_node_id("item:tif::main#bin:alpha"),
+            "tif::main#bin:alpha"
+        );
     }
 }

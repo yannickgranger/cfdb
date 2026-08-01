@@ -34,6 +34,7 @@ use crate::Emitter;
 pub(crate) fn walk_call_sites_with_test_flag(
     emitter: &mut Emitter,
     caller_qname: &str,
+    caller_target: &cfdb_core::qname::TargetDiscriminator,
     file_path: &str,
     block: &syn::Block,
     is_test: bool,
@@ -41,6 +42,7 @@ pub(crate) fn walk_call_sites_with_test_flag(
     let mut visitor = CallSiteVisitor {
         emitter,
         caller_qname,
+        caller_target,
         file_path,
         counts: BTreeMap::new(),
         is_test,
@@ -51,6 +53,9 @@ pub(crate) fn walk_call_sites_with_test_flag(
 struct CallSiteVisitor<'e, 'a> {
     emitter: &'e mut Emitter,
     caller_qname: &'a str,
+    /// RFC-054 §3.1 (#557): cs ids derive from the caller's discriminated
+    /// identity so same-spelling calls in sibling bins stay distinct.
+    caller_target: &'a cfdb_core::qname::TargetDiscriminator,
     file_path: &'a str,
     /// Count of prior occurrences of each `callee_path` within this fn body.
     /// Used to build collision-free CallSite ids — even with real line
@@ -143,14 +148,16 @@ impl CallSiteVisitor<'_, '_> {
             *counter += 1;
             idx
         };
-        let cs_id = format!(
-            "callsite:{}:{}:{}",
-            self.caller_qname, callee_path, local_idx
+        let cs_id = cfdb_core::qname::callsite_node_id(
+            &self.caller_target.identity(self.caller_qname),
+            callee_path,
+            local_idx,
         );
         emit_call_site_node_and_edge(
             self.emitter,
             cs_id.clone(),
             self.caller_qname,
+            self.caller_target,
             callee_path,
             kind,
             self.file_path.to_string(),

@@ -62,7 +62,10 @@ fn crate_from_qname_degenerate_single_segment() {
 #[test]
 fn promotion_implements_for_then_implements() {
     let mut emitter = Emitter::new();
-    emitter.emitted_item_qnames.insert("crate_a::Source".into());
+    emitter.claim_item_qname(
+        "crate_a::Source",
+        &cfdb_core::qname::TargetDiscriminator::Lib,
+    );
     emitter.emit_edge(edge(
         &item_node_id("crate_a::Source"),
         "std::fmt::Display",
@@ -93,7 +96,10 @@ fn promotion_implements_then_implements_for() {
     // Insertion order reversed — IMPLEMENTS first, IMPLEMENTS_FOR
     // after. Trait evidence MUST be sticky.
     let mut emitter = Emitter::new();
-    emitter.emitted_item_qnames.insert("crate_a::Source".into());
+    emitter.claim_item_qname(
+        "crate_a::Source",
+        &cfdb_core::qname::TargetDiscriminator::Lib,
+    );
     emitter.emit_edge(edge(
         &item_node_id("crate_a::Source"),
         "std::fmt::Display",
@@ -124,8 +130,8 @@ fn dedup_two_implements_for_yields_single_node() {
     // Same qname referenced twice as IMPLEMENTS_FOR — must produce
     // exactly one synthesised :Item node, not two.
     let mut emitter = Emitter::new();
-    emitter.emitted_item_qnames.insert("crate_a::A".into());
-    emitter.emitted_item_qnames.insert("crate_a::B".into());
+    emitter.claim_item_qname("crate_a::A", &cfdb_core::qname::TargetDiscriminator::Lib);
+    emitter.claim_item_qname("crate_a::B", &cfdb_core::qname::TargetDiscriminator::Lib);
     emitter.emit_edge(edge(
         &item_node_id("crate_a::A"),
         "ext::Foo",
@@ -150,7 +156,10 @@ fn dedup_two_implements_for_yields_single_node() {
 #[test]
 fn synthesises_one_node_with_minimal_props() {
     let mut emitter = Emitter::new();
-    emitter.emitted_item_qnames.insert("crate_a::MyType".into());
+    emitter.claim_item_qname(
+        "crate_a::MyType",
+        &cfdb_core::qname::TargetDiscriminator::Lib,
+    );
     emitter.emit_edge(edge(
         &item_node_id("crate_a::MyType"),
         "std::fmt::Display",
@@ -214,7 +223,7 @@ fn synthesises_one_node_with_minimal_props() {
 #[test]
 fn idempotent_on_re_run() {
     let mut emitter = Emitter::new();
-    emitter.emitted_item_qnames.insert("crate_a::A".into());
+    emitter.claim_item_qname("crate_a::A", &cfdb_core::qname::TargetDiscriminator::Lib);
     emitter.emit_edge(edge(
         &item_node_id("crate_a::A"),
         "ext::Foo",
@@ -237,10 +246,11 @@ fn skips_walked_qnames() {
     // A workspace-internal qname is in emitted_item_qnames; the
     // synthesis pass must NOT add a second :Item for it.
     let mut emitter = Emitter::new();
-    emitter.emitted_item_qnames.insert("crate_a::A".to_string());
-    emitter
-        .emitted_item_qnames
-        .insert("cfdb_extractor::Foo".to_string());
+    emitter.claim_item_qname("crate_a::A", &cfdb_core::qname::TargetDiscriminator::Lib);
+    emitter.claim_item_qname(
+        "cfdb_extractor::Foo",
+        &cfdb_core::qname::TargetDiscriminator::Lib,
+    );
     emitter.emit_edge(edge(
         &item_node_id("crate_a::A"),
         "cfdb_extractor::Foo",
@@ -263,9 +273,10 @@ fn covers_all_four_edge_labels() {
     // distinct foreign qnames. Each must produce a synthesised
     // :Item with the correct kind.
     let mut emitter = Emitter::new();
-    emitter
-        .emitted_item_qnames
-        .insert("crate_a::Source".to_string());
+    emitter.claim_item_qname(
+        "crate_a::Source",
+        &cfdb_core::qname::TargetDiscriminator::Lib,
+    );
     for (dst_qname, label) in [
         ("ext::TraitImpl", EdgeLabel::IMPLEMENTS),
         ("ext::ImplFor", EdgeLabel::IMPLEMENTS_FOR),
@@ -305,9 +316,10 @@ fn ignores_unrelated_edge_labels() {
     // TYPE_OF} must not trigger synthesis even if dst qname is
     // unwalked.
     let mut emitter = Emitter::new();
-    emitter
-        .emitted_item_qnames
-        .insert("crate_a::Source".to_string());
+    emitter.claim_item_qname(
+        "crate_a::Source",
+        &cfdb_core::qname::TargetDiscriminator::Lib,
+    );
     emitter.emit_edge(edge(
         &item_node_id("crate_a::Source"),
         "ext::Foo",

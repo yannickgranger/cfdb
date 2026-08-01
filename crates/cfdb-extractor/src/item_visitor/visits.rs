@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 
 use cfdb_core::fact::{Edge, Node, PropValue};
-use cfdb_core::qname::{normalize_impl_target, qname_from_node_id};
+use cfdb_core::qname::normalize_impl_target;
 use cfdb_core::schema::{EdgeLabel, Label};
 use syn::visit::Visit;
 
@@ -59,7 +59,7 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
         let name = node.sig.ident.to_string();
         let is_test = self.fn_is_test(&node.attrs);
         let signature = render_fn_signature(&node.sig);
-        let id = self.emit_item_with_flags(
+        let (_id, caller_qname) = self.emit_item_with_flags(
             &name,
             "fn",
             span_line(&node.sig.ident),
@@ -69,7 +69,6 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
             Some(&signature),
             None,
         );
-        let caller_qname = qname_from_node_id(&id).to_string();
         // RETURNS post-walk queue (RFC-037 §3.2, #216). Defer
         // resolution to `extract_workspace`'s post-walk pass — the
         // return type may name an item declared later in this file or
@@ -79,9 +78,12 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
             // Store the original `syn::Type` alongside the rendered
             // string so `resolve_deferred_returns` can fall back to
             // `render_type_inner` on wrapper unwrap (#239).
-            self.emitter
-                .deferred_returns
-                .push((caller_qname.clone(), return_type, (**ty).clone()));
+            self.emitter.deferred_returns.push((
+                caller_qname.clone(),
+                self.target.clone(),
+                return_type,
+                (**ty).clone(),
+            ));
         }
         for (index, arg) in node.sig.inputs.iter().enumerate() {
             let (name, is_self, type_path, type_normalized, syn_type) = param_info(arg);
@@ -104,6 +106,7 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
         walk_call_sites_with_test_flag(
             self.emitter,
             &caller_qname,
+            &self.target,
             &self.file_path,
             &node.block,
             is_test,
@@ -124,6 +127,7 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
         walk_match_sites_with_test_flag(
             self.emitter,
             &caller_qname,
+            &self.target,
             &self.file_path,
             &self.crate_name,
             &node.block,
@@ -176,7 +180,7 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
         // emitted_item_qnames, deprecation, cfg_gate, signature, and
         // visibility are all owned by the helper (audit 2026-W17 / EPIC
         // #273 / Pattern 3 F-002 — eliminates ~95 lines of triplication).
-        let id = self.emit_item_with_flags(
+        let (_id, qname) = self.emit_item_with_flags(
             &method,
             "method",
             span_line(&node.sig.ident),
@@ -186,7 +190,6 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
             Some(&signature),
             Some(&target),
         );
-        let qname = qname_from_node_id(&id).to_string();
         // RETURNS post-walk queue (RFC-037 §3.2, #216). Mirrors the
         // free-fn path in `visit_item_fn`. The deferred entry uses the
         // method's full qname (`module::Foo::bar`) so the post-walk
@@ -196,9 +199,12 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
             // Store the original `syn::Type` alongside the rendered
             // string so `resolve_deferred_returns` can fall back to
             // `render_type_inner` on wrapper unwrap (#239).
-            self.emitter
-                .deferred_returns
-                .push((qname.clone(), return_type, (**ty).clone()));
+            self.emitter.deferred_returns.push((
+                qname.clone(),
+                self.target.clone(),
+                return_type,
+                (**ty).clone(),
+            ));
         }
         for (index, arg) in node.sig.inputs.iter().enumerate() {
             let (name, is_self, type_path, type_normalized, syn_type) = param_info(arg);
@@ -212,7 +218,14 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
                 syn_type.as_ref(),
             );
         }
-        walk_call_sites_with_test_flag(self.emitter, &qname, &self.file_path, &node.block, is_test);
+        walk_call_sites_with_test_flag(
+            self.emitter,
+            &qname,
+            &self.target,
+            &self.file_path,
+            &node.block,
+            is_test,
+        );
         // RFC-041 slice 041-B (#370): impl-method body literals.
         walk_literals_in_block(
             self.emitter,
@@ -225,6 +238,7 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
         walk_match_sites_with_test_flag(
             self.emitter,
             &qname,
+            &self.target,
             &self.file_path,
             &self.crate_name,
             &node.block,
@@ -234,14 +248,13 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
 
     fn visit_item_struct(&mut self, node: &'ast syn::ItemStruct) {
         let name = node.ident.to_string();
-        let id = self.emit_item(
+        let (id, parent_qname) = self.emit_item(
             &name,
             "struct",
             span_line(&node.ident),
             &node.vis,
             &node.attrs,
         );
-        let parent_qname = qname_from_node_id(&id).to_string();
         // Walk the struct's fields uniformly — `emit_field_list` handles
         // both `Fields::Named` (record struct) and `Fields::Unnamed`
         // (tuple struct). `Fields::Unit` is a no-op. #218 / RFC-037 §3.3
@@ -277,14 +290,13 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
 
     fn visit_item_enum(&mut self, node: &'ast syn::ItemEnum) {
         let name = node.ident.to_string();
-        let id = self.emit_item(
+        let (_id, enum_qname) = self.emit_item(
             &name,
             "enum",
             span_line(&node.ident),
             &node.vis,
             &node.attrs,
         );
-        let enum_qname = qname_from_node_id(&id).to_string();
         // Walk every variant — emit the `:Variant` node + `HAS_VARIANT`
         // edge, then recurse into the variant's payload via
         // `emit_field_list` (shared with `visit_item_struct`). #218 /
@@ -331,7 +343,7 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
 
     fn visit_item_const(&mut self, node: &'ast syn::ItemConst) {
         let name = node.ident.to_string();
-        let item_id = self.emit_item(
+        let (item_id, _qname) = self.emit_item(
             &name,
             "const",
             span_line(&node.ident),
@@ -378,6 +390,20 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
             &self.crate_name,
             &node.expr,
             self.is_in_test_mod(),
+        );
+    }
+
+    fn visit_item_union(&mut self, node: &'ast syn::ItemUnion) {
+        // #515 — `union` completes the top-level item vocabulary: recall's
+        // KEPT_ITEM_KINDS listed the wire value against rustdoc ground
+        // truth (which indexes unions) while no visitor produced it.
+        let name = node.ident.to_string();
+        self.emit_item(
+            &name,
+            "union",
+            span_line(&node.ident),
+            &node.vis,
+            &node.attrs,
         );
     }
 

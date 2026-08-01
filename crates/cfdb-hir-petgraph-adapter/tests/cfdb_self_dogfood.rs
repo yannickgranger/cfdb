@@ -84,11 +84,11 @@ fn cfdb_workspace_root() -> PathBuf {
 fn cfdb_self_dogfood_emits_at_least_one_resolved_call_site() {
     let root = cfdb_workspace_root();
 
-    let (db, vfs, _pm_client) =
+    let (db, vfs, _pm_client, targets) =
         build_hir_database(&root, false).expect("build_hir_database on cfdb's own workspace root");
 
-    let (nodes, edges) =
-        extract_call_sites(&db, &vfs).expect("extract_call_sites on cfdb's own workspace");
+    let (nodes, edges) = extract_call_sites(&db, &vfs, &root, &targets)
+        .expect("extract_call_sites on cfdb's own workspace");
 
     let mut store = PetgraphStore::new();
     let mut adapter = PetgraphAdapter::new(&mut store, Keyspace::new("cfdb-hir"));

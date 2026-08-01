@@ -56,6 +56,7 @@ use super::registers_param::{
     emit_clap_enum_registers_param, emit_clap_struct_registers_param, emit_mcp_registers_param,
     has_clap_derive, has_tool_attr,
 };
+use crate::target_map::EmitCtx;
 
 /// The workspace-member `[dependencies]` view a
 /// [`FrameworkDetector::present`] gate consults (RFC-049 §3.1 — the
@@ -177,6 +178,7 @@ pub(crate) trait FrameworkDetector<DB: HirDatabase> {
     fn detect(
         &self,
         sema: &Semantics<'_, DB>,
+        ctx: &EmitCtx<'_>,
         source_file: &ast::SourceFile,
         file_path: &Path,
     ) -> (Vec<Node>, Vec<Edge>);
@@ -228,6 +230,7 @@ impl<DB: HirDatabase> FrameworkRegistry<DB> {
         &self,
         manifest: &Manifest,
         sema: &Semantics<'_, DB>,
+        ctx: &EmitCtx<'_>,
         source_file: &ast::SourceFile,
         file_path: &Path,
     ) -> (Vec<Node>, Vec<Edge>) {
@@ -238,7 +241,7 @@ impl<DB: HirDatabase> FrameworkRegistry<DB> {
                 continue;
             }
             let (mut detector_nodes, mut detector_edges) =
-                detector.detect(sema, source_file, file_path);
+                detector.detect(sema, ctx, source_file, file_path);
             nodes.append(&mut detector_nodes);
             edges.append(&mut detector_edges);
         }
@@ -260,6 +263,7 @@ impl<DB: HirDatabase> FrameworkDetector<DB> for ClapDetector {
     fn detect(
         &self,
         sema: &Semantics<'_, DB>,
+        ctx: &EmitCtx<'_>,
         source_file: &ast::SourceFile,
         file_path: &Path,
     ) -> (Vec<Node>, Vec<Edge>) {
@@ -270,18 +274,20 @@ impl<DB: HirDatabase> FrameworkDetector<DB> for ClapDetector {
                 SyntaxKind::STRUCT => {
                     if let Some(strukt) = ast::Struct::cast(descendant) {
                         if has_clap_derive(&strukt) {
-                            if let Some((name, qname)) = super::struct_name_and_qname(sema, &strukt)
-                            {
+                            if let Some(handler) = super::struct_handler(sema, ctx, &strukt) {
                                 super::emit(
                                     &mut nodes,
                                     &mut edges,
-                                    &qname,
-                                    &name,
+                                    &handler,
                                     "cli_command",
                                     file_path,
                                     None,
                                 );
-                                emit_clap_struct_registers_param(&qname, &strukt, &mut edges);
+                                emit_clap_struct_registers_param(
+                                    &handler.identity(),
+                                    &strukt,
+                                    &mut edges,
+                                );
                             }
                         }
                     }
@@ -289,17 +295,20 @@ impl<DB: HirDatabase> FrameworkDetector<DB> for ClapDetector {
                 SyntaxKind::ENUM => {
                     if let Some(enum_) = ast::Enum::cast(descendant) {
                         if has_clap_derive(&enum_) {
-                            if let Some((name, qname)) = super::enum_name_and_qname(sema, &enum_) {
+                            if let Some(handler) = super::enum_handler(sema, ctx, &enum_) {
                                 super::emit(
                                     &mut nodes,
                                     &mut edges,
-                                    &qname,
-                                    &name,
+                                    &handler,
                                     "cli_command",
                                     file_path,
                                     None,
                                 );
-                                emit_clap_enum_registers_param(&qname, &enum_, &mut edges);
+                                emit_clap_enum_registers_param(
+                                    &handler.identity(),
+                                    &enum_,
+                                    &mut edges,
+                                );
                             }
                         }
                     }
@@ -326,6 +335,7 @@ impl<DB: HirDatabase> FrameworkDetector<DB> for McpDetector {
     fn detect(
         &self,
         sema: &Semantics<'_, DB>,
+        ctx: &EmitCtx<'_>,
         source_file: &ast::SourceFile,
         file_path: &Path,
     ) -> (Vec<Node>, Vec<Edge>) {
@@ -341,11 +351,11 @@ impl<DB: HirDatabase> FrameworkDetector<DB> for McpDetector {
             if !has_tool_attr(&fn_ast) {
                 continue;
             }
-            if let Some((name, qname)) = super::fn_name_and_qname(sema, &fn_ast) {
+            if let Some(handler) = super::fn_handler(sema, ctx, &fn_ast) {
                 super::emit(
-                    &mut nodes, &mut edges, &qname, &name, "mcp_tool", file_path, None,
+                    &mut nodes, &mut edges, &handler, "mcp_tool", file_path, None,
                 );
-                emit_mcp_registers_param(&qname, &fn_ast, &mut edges);
+                emit_mcp_registers_param(&handler.identity(), &fn_ast, &mut edges);
             }
         }
         (nodes, edges)
@@ -368,6 +378,7 @@ impl<DB: HirDatabase> FrameworkDetector<DB> for HttpRouteDetector {
     fn detect(
         &self,
         sema: &Semantics<'_, DB>,
+        ctx: &EmitCtx<'_>,
         source_file: &ast::SourceFile,
         file_path: &Path,
     ) -> (Vec<Node>, Vec<Edge>) {
@@ -380,6 +391,7 @@ impl<DB: HirDatabase> FrameworkDetector<DB> for HttpRouteDetector {
             if let Some(method_call) = ast::MethodCallExpr::cast(descendant) {
                 super::http_route::classify_http_route_method_call(
                     sema,
+                    ctx,
                     &method_call,
                     file_path,
                     &mut nodes,
@@ -405,6 +417,7 @@ impl<DB: HirDatabase> FrameworkDetector<DB> for CronDetector {
     fn detect(
         &self,
         sema: &Semantics<'_, DB>,
+        ctx: &EmitCtx<'_>,
         source_file: &ast::SourceFile,
         file_path: &Path,
     ) -> (Vec<Node>, Vec<Edge>) {
@@ -416,7 +429,7 @@ impl<DB: HirDatabase> FrameworkDetector<DB> for CronDetector {
             }
             if let Some(call) = ast::CallExpr::cast(descendant) {
                 super::other_kinds::try_emit_cron_job(
-                    sema, &call, file_path, &mut nodes, &mut edges,
+                    sema, ctx, &call, file_path, &mut nodes, &mut edges,
                 );
             }
         }
@@ -437,6 +450,7 @@ impl<DB: HirDatabase> FrameworkDetector<DB> for WebsocketDetector {
     fn detect(
         &self,
         sema: &Semantics<'_, DB>,
+        ctx: &EmitCtx<'_>,
         source_file: &ast::SourceFile,
         file_path: &Path,
     ) -> (Vec<Node>, Vec<Edge>) {
@@ -449,6 +463,7 @@ impl<DB: HirDatabase> FrameworkDetector<DB> for WebsocketDetector {
             if let Some(method_call) = ast::MethodCallExpr::cast(descendant) {
                 super::other_kinds::try_emit_websocket(
                     sema,
+                    ctx,
                     &method_call,
                     file_path,
                     &mut nodes,
@@ -474,7 +489,9 @@ mod tests {
     use ra_ap_syntax::ast;
     use ra_ap_syntax::{Edition, SourceFile};
 
-    use super::{FrameworkDetector, FrameworkRegistry, Manifest};
+    use super::{EmitCtx, FrameworkDetector, FrameworkRegistry, Manifest};
+    use crate::target_map::TargetRootMap;
+    use ra_ap_vfs::Vfs;
 
     /// A test double reporting a fixed `present` verdict and recording
     /// whether `detect` was invoked. Lets the dispatch test observe that
@@ -492,6 +509,7 @@ mod tests {
         fn detect(
             &self,
             _sema: &Semantics<'_, DB>,
+            _ctx: &EmitCtx<'_>,
             _source_file: &ast::SourceFile,
             _file_path: &Path,
         ) -> (Vec<Node>, Vec<Edge>) {
@@ -532,8 +550,14 @@ mod tests {
         let manifest = Manifest {
             dependency_names: BTreeSet::new(),
         };
+        let vfs = Vfs::default();
+        let targets = TargetRootMap::default();
+        let ctx = EmitCtx {
+            vfs: &vfs,
+            targets: &targets,
+        };
         let (nodes, edges) =
-            registry.detect_file(&manifest, &sema, &source_file, Path::new("lib.rs"));
+            registry.detect_file(&manifest, &sema, &ctx, &source_file, Path::new("lib.rs"));
 
         assert!(
             present_invoked.load(Ordering::SeqCst),

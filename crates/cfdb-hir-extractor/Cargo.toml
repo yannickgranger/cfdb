@@ -20,6 +20,9 @@ publish.workspace = true
 
 [dependencies]
 cfdb-core = { path = "../cfdb-core" }
+# Canonical workspace-root resolver + loud workspace-relative `file`
+# props (#561 — the #527/#540 discipline applied to the HIR producer).
+cfdb-lang = { path = "../cfdb-lang" }
 thiserror.workspace = true
 
 # ra-analyzer HIR slice (=0.0.328 bundle — per workspace deps comment).

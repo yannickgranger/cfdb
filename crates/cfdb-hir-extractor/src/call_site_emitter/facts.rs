@@ -6,15 +6,16 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use cfdb_core::fact::{Edge, Node, PropValue};
-use cfdb_core::qname::{argument_node_id, item_node_id};
+use cfdb_core::qname::{argument_node_id, callsite_node_id, item_node_id_for_target};
 use cfdb_core::schema::{EdgeLabel, Label};
 use ra_ap_hir::db::HirDatabase;
-use ra_ap_hir::{Function, Semantics};
+use ra_ap_hir::{Function, HasCrate, Semantics};
 use ra_ap_ide_db::line_index::LineIndex;
 use ra_ap_syntax::ast::{self, AstNode};
 use ra_ap_syntax::SyntaxNode;
 
-use super::naming::{enclosing_fn_qname, function_qname};
+use super::naming::{enclosing_fn, function_qname};
+use crate::target_map::{krate_discriminator, EmitCtx};
 
 /// Emit positional `:Argument` facts for an explicit arg list, numbering
 /// from `base` (1 for method calls — the receiver occupies position 0 —
@@ -64,9 +65,10 @@ pub(super) fn emit_positional_args(
 /// span that produces no meaningful line should pass `0` (the
 /// caller — `walk_file` — handles real source spans only, so today
 /// every call here passes a real `line >= 1`).
-#[allow(clippy::too_many_arguments)] // 9 args — :CallSite shape carries caller_qname, file, line, and kind as separate plumbed values per the syn extractor's emission signature; tying them into a struct would just shift the surface.
+#[allow(clippy::too_many_arguments)] // 10 args — :CallSite shape carries caller_qname, file, line, and kind as separate plumbed values per the syn extractor's emission signature; tying them into a struct would just shift the surface.
 pub(super) fn emit_resolved_call<DB>(
     sema: &Semantics<'_, DB>,
+    ctx: &EmitCtx<'_>,
     call_syntax: &SyntaxNode,
     callee: Function,
     kind: &str,
@@ -80,7 +82,8 @@ where
     DB: HirDatabase + Sized,
 {
     // Find the caller — the enclosing `fn` or method definition.
-    let caller_qname = enclosing_fn_qname(sema, call_syntax)?;
+    let caller_fn = enclosing_fn(sema, call_syntax)?;
+    let caller_qname = function_qname(sema, caller_fn);
     let callee_qname = function_qname(sema, callee);
     let callee_last_segment = callee_qname
         .rsplit("::")
@@ -88,14 +91,25 @@ where
         .unwrap_or(&callee_qname)
         .to_string();
 
-    let key = (caller_qname.clone(), callee_qname.clone());
+    // RFC-054 54-C: derive each side's target discriminator from its
+    // OWN crate — a bin-target caller can resolve a lib-target callee
+    // and the two ids discriminate independently.
+    let db = sema.db;
+    let caller_target = krate_discriminator(db, ctx.vfs, ctx.targets, caller_fn.krate(db));
+    let callee_target = krate_discriminator(db, ctx.vfs, ctx.targets, callee.krate(db));
+    let caller_identity = caller_target.identity(&caller_qname);
+
+    // One owned key per call is unavoidable (the counter owns it);
+    // the identity itself stays a Cow so the dominant lib path keeps
+    // the borrow (node_id.rs efficiency F3).
+    let key = (caller_identity.to_string(), callee_qname.clone());
     let idx = {
         let c = counts.entry(key).or_insert(0);
         let v = *c;
         *c += 1;
         v
     };
-    let cs_id = format!("callsite:{caller_qname}:{callee_qname}:{idx}");
+    let cs_id = callsite_node_id(&caller_identity, &callee_qname, idx);
     let file_str = file_path.to_string_lossy().into_owned();
 
     let mut props = BTreeMap::new();
@@ -118,19 +132,21 @@ where
         props,
     });
 
-    // CALLS (resolved): caller Item → callee Item.
+    // CALLS (resolved): caller Item → callee Item, each endpoint under
+    // its own target's discriminated id (RFC-054 54-C) so the edge
+    // joins the syn side's :Items instead of dangling (#517/#542).
     let mut calls_props = BTreeMap::new();
     calls_props.insert("resolved".into(), PropValue::Bool(true));
     edges.push(Edge {
-        src: item_node_id(&caller_qname),
-        dst: item_node_id(&callee_qname),
+        src: item_node_id_for_target(&caller_qname, &caller_target),
+        dst: item_node_id_for_target(&callee_qname, &callee_target),
         label: EdgeLabel::new(EdgeLabel::CALLS),
         props: calls_props,
     });
 
     // INVOKES_AT: caller Item → :CallSite.
     edges.push(Edge {
-        src: item_node_id(&caller_qname),
+        src: item_node_id_for_target(&caller_qname, &caller_target),
         dst: cs_id.clone(),
         label: EdgeLabel::new(EdgeLabel::INVOKES_AT),
         props: BTreeMap::new(),

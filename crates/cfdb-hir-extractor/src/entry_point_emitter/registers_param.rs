@@ -9,7 +9,7 @@
 use std::collections::BTreeMap;
 
 use cfdb_core::fact::Edge;
-use cfdb_core::qname::{field_node_id, param_node_id, variant_node_id};
+use cfdb_core::qname::{entrypoint_node_id, field_node_id, param_node_id, variant_node_id};
 use cfdb_core::schema::EdgeLabel;
 
 use ra_ap_syntax::ast::{self, AstNode, HasAttrs, HasName};
@@ -80,7 +80,7 @@ pub(super) fn has_tool_attr(fn_ast: &ast::Fn) -> bool {
 /// the syn-side producer (RFC-037 §3.1 B9 — single-producer discipline
 /// per structural node kind).
 pub(super) fn emit_clap_struct_registers_param(
-    struct_qname: &str,
+    struct_identity: &str,
     strukt: &ast::Struct,
     edges: &mut Vec<Edge>,
 ) {
@@ -90,7 +90,7 @@ pub(super) fn emit_clap_struct_registers_param(
         // fields to register.
         return;
     };
-    let entry_point_id = format!("entrypoint:cli_command:{struct_qname}");
+    let entry_point_id = entrypoint_node_id("cli_command", struct_identity);
     // Iterator chain form avoids `.clone()` inside a `for` body (the
     // regex-based quality-metrics rule flags literal loop-body clones
     // but not clones inside `.map` closures).
@@ -101,7 +101,7 @@ pub(super) fn emit_clap_struct_registers_param(
             .filter_map(|field| field.name().map(|n| n.text().to_string()))
             .map(|field_name| Edge {
                 src: entry_point_id.clone(),
-                dst: field_node_id(struct_qname, &field_name),
+                dst: field_node_id(struct_identity, &field_name),
                 label: EdgeLabel::new(EdgeLabel::REGISTERS_PARAM),
                 props: BTreeMap::new(),
             }),
@@ -119,21 +119,21 @@ pub(super) fn emit_clap_struct_registers_param(
 /// Variant index is the declaration order, matching `variant_node_id`'s
 /// indexing policy.
 pub(super) fn emit_clap_enum_registers_param(
-    enum_qname: &str,
+    enum_identity: &str,
     enum_: &ast::Enum,
     edges: &mut Vec<Edge>,
 ) {
     let Some(variant_list) = enum_.variant_list() else {
         return;
     };
-    let entry_point_id = format!("entrypoint:cli_command:{enum_qname}");
+    let entry_point_id = entrypoint_node_id("cli_command", enum_identity);
     edges.extend(
         variant_list
             .variants()
             .enumerate()
             .map(|(index, _variant)| Edge {
                 src: entry_point_id.clone(),
-                dst: variant_node_id(enum_qname, index),
+                dst: variant_node_id(enum_identity, index),
                 label: EdgeLabel::new(EdgeLabel::REGISTERS_PARAM),
                 props: BTreeMap::new(),
             }),
@@ -148,11 +148,11 @@ pub(super) fn emit_clap_enum_registers_param(
 /// when the fn has a `self` / `&self` / `&mut self` receiver, the syn
 /// walker still calls `emit_param` for it with `index=0`, so we offset
 /// the typed-param index by 1 to match.
-pub(super) fn emit_mcp_registers_param(fn_qname: &str, fn_ast: &ast::Fn, edges: &mut Vec<Edge>) {
+pub(super) fn emit_mcp_registers_param(fn_identity: &str, fn_ast: &ast::Fn, edges: &mut Vec<Edge>) {
     let Some(param_list) = fn_ast.param_list() else {
         return;
     };
-    let entry_point_id = format!("entrypoint:mcp_tool:{fn_qname}");
+    let entry_point_id = entrypoint_node_id("mcp_tool", fn_identity);
     let has_receiver = param_list.self_param().is_some();
     edges.extend(
         param_list
@@ -166,7 +166,7 @@ pub(super) fn emit_mcp_registers_param(fn_qname: &str, fn_ast: &ast::Fn, edges: 
                 };
                 Edge {
                     src: entry_point_id.clone(),
-                    dst: param_node_id(fn_qname, syn_index),
+                    dst: param_node_id(fn_identity, syn_index),
                     label: EdgeLabel::new(EdgeLabel::REGISTERS_PARAM),
                     props: BTreeMap::new(),
                 }

@@ -116,6 +116,16 @@ impl LanguageProducer for TypeScriptProducer {
             });
         }
 
+        // Issue #540 (the #527 bug class): resolve the caller-spelled
+        // root (`.` — CI's literal `--workspace .` shape — relative,
+        // symlinked, `..`-terminated) once, up front. Before this,
+        // `derive_crate_name` silently fell back to `"ts_workspace"` on
+        // any root `Path::file_name()` cannot digest, mislabeling the
+        // `:Crate` node and every qname in the keyspace; and a
+        // `strip_prefix` miss shipped an absolute `file` prop silently.
+        let workspace_root = cfdb_lang::canonical_workspace_root(workspace_root)?;
+        let workspace_root = workspace_root.as_path();
+
         let crate_name = derive_crate_name(workspace_root);
         let crate_id = format!("crate:{crate_name}");
 
@@ -261,11 +271,7 @@ fn walk_file(
         message: format!("tree-sitter returned None for {}", file_path.display()),
     })?;
 
-    let rel_path = file_path
-        .strip_prefix(workspace_root)
-        .unwrap_or(file_path)
-        .to_string_lossy()
-        .to_string();
+    let rel_path = cfdb_lang::workspace_relative(file_path, workspace_root, PRODUCER_NAME)?;
     // Module qpath: dotted form of the relative path with `.ts`
     // stripped, mirroring how Rust modules become `crate::foo::bar`
     // in cfdb's qname grammar. `src/user.ts` → `src.user`.

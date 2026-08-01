@@ -39,6 +39,7 @@ pub(crate) fn visit_file(
     crate_id: &str,
     crate_name: &str,
     bounded_context: &str,
+    target: &cfdb_core::qname::TargetDiscriminator,
     file_path: &Path,
     workspace_root: &Path,
 ) -> Result<(), ExtractError> {
@@ -47,6 +48,7 @@ pub(crate) fn visit_file(
         crate_id,
         crate_name,
         bounded_context,
+        target,
         file_path,
         workspace_root,
         vec![crate_name.replace('-', "_")],
@@ -70,6 +72,7 @@ fn visit_file_inner(
     crate_id: &str,
     crate_name: &str,
     bounded_context: &str,
+    target: &cfdb_core::qname::TargetDiscriminator,
     file_path: &Path,
     workspace_root: &Path,
     module_stack: Vec<String>,
@@ -84,9 +87,20 @@ fn visit_file_inner(
         message: e.to_string(),
     })?;
 
+    // Issue #527: a `strip_prefix` mismatch here used to fall back to the
+    // absolute `file_path` silently, making every file-scoped fence anchored
+    // on a relative path a silently dead rule (zero rows forever). The
+    // workspace root is canonicalized once at extraction entry
+    // (`extract_workspace_profiled`), so a mismatch now means `file_path`
+    // genuinely lies outside it — surface that loudly instead of shipping
+    // a fact that violates the "every :File.path is workspace-relative"
+    // contract.
     let rel_path = file_path
         .strip_prefix(workspace_root)
-        .unwrap_or(file_path)
+        .map_err(|_| ExtractError::PathNotInWorkspace {
+            file: file_path.to_path_buf(),
+            workspace_root: workspace_root.to_path_buf(),
+        })?
         .to_string_lossy()
         .into_owned();
 
@@ -132,6 +146,7 @@ fn visit_file_inner(
         crate_name: crate_name.to_string(),
         file_path: rel_path,
         bounded_context: bounded_context.to_string(),
+        target: target.clone(),
         module_stack: module_stack.clone(),
         pending_external_mods: Vec::new(),
         current_impl_target: None,
@@ -146,6 +161,7 @@ fn visit_file_inner(
             crate_id,
             crate_name,
             bounded_context,
+            target,
             file_path,
             workspace_root,
             &module_stack,
@@ -163,12 +179,13 @@ fn visit_file_inner(
 /// count against the `clones-in-loops` quality gate — the clone is
 /// necessary (each recursive call owns its own stack) but belongs to
 /// the helper body rather than the outer loop scope.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)] // 10 args: per-target-root context threading (RFC-054) joins the pre-existing walk state
 fn descend_into_pending_mod(
     emitter: &mut Emitter,
     crate_id: &str,
     crate_name: &str,
     bounded_context: &str,
+    target: &cfdb_core::qname::TargetDiscriminator,
     file_path: &Path,
     workspace_root: &Path,
     module_stack: &[String],
@@ -189,6 +206,7 @@ fn descend_into_pending_mod(
         crate_id,
         crate_name,
         bounded_context,
+        target,
         &child_path,
         workspace_root,
         child_stack,

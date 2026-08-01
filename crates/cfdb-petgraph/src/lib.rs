@@ -30,6 +30,7 @@ mod eval;
 pub mod explain;
 mod graph;
 pub mod index;
+mod ingest_contention;
 pub mod persist;
 
 #[cfg(test)]
@@ -42,7 +43,7 @@ use std::path::{Path, PathBuf};
 
 use cfdb_core::fact::{Edge, Node};
 use cfdb_core::query::Query;
-use cfdb_core::result::QueryResult;
+use cfdb_core::result::{QueryResult, Warning};
 use cfdb_core::schema::{Keyspace, SchemaVersion};
 use cfdb_core::store::{StoreBackend, StoreError};
 use petgraph::visit::IntoEdgeReferences;
@@ -204,10 +205,22 @@ impl PetgraphStore {
             .ok_or_else(|| StoreError::UnknownKeyspace(keyspace.clone()))?;
         let (mut result, explain) =
             Evaluator::new_with_explain(state, &query.params).run_explained(query);
-        let mut prepended = state.ingest_warnings.clone();
+        let mut prepended = state.materialized_ingest_warnings();
         prepended.append(&mut result.warnings);
         result.warnings = prepended;
         Ok((result, explain))
+    }
+
+    /// Ingest-time diagnostics for one keyspace (RFC-054 §3.4, 54-A #556) —
+    /// recorded warnings plus the over-cap summary row. Deliberately an
+    /// inherent method, NOT on [`StoreBackend`] (RFC-035 §4
+    /// `execute_explained` precedent); an unknown keyspace yields empty.
+    #[must_use]
+    pub fn ingest_warnings(&self, keyspace: &Keyspace) -> Vec<Warning> {
+        self.keyspaces
+            .get(keyspace)
+            .map(|s| s.materialized_ingest_warnings())
+            .unwrap_or_default()
     }
 }
 
@@ -228,7 +241,7 @@ impl StoreBackend for PetgraphStore {
             .get(keyspace)
             .ok_or_else(|| StoreError::UnknownKeyspace(keyspace.clone()))?;
         let mut result = Evaluator::new(state, &query.params).run(query);
-        let mut prepended = state.ingest_warnings.clone();
+        let mut prepended = state.materialized_ingest_warnings();
         prepended.append(&mut result.warnings);
         result.warnings = prepended;
         Ok(result)

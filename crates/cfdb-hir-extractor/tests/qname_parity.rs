@@ -155,10 +155,10 @@ fn syn_item_ids(root: &Path) -> BTreeSet<String> {
 /// own (see `tests/exclusion.rs`); its qnames surface only as edge
 /// endpoints, so the CALLS src/dst ids are the parity surface.
 fn hir_item_ids(root: &Path) -> BTreeSet<String> {
-    let (_db, vfs, _pm_client) =
+    let (_db, vfs, _pm_client, targets) =
         build_hir_database(root, false).expect("build_hir_database on parityfixture");
-    let (_nodes, edges) =
-        extract_call_sites(&_db, &vfs).expect("extract_call_sites on parityfixture");
+    let (_nodes, edges) = extract_call_sites(&_db, &vfs, root, &targets)
+        .expect("extract_call_sites on parityfixture");
     edges
         .iter()
         .filter(|e| e.label.as_str() == EdgeLabel::CALLS)

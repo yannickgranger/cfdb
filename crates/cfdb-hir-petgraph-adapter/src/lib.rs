@@ -39,7 +39,7 @@
 use std::collections::BTreeSet;
 
 use cfdb_core::fact::{Edge, Node};
-use cfdb_core::qname::{item_node_id, qname_from_node_id};
+use cfdb_core::qname::display_qname_from_node_id;
 use cfdb_core::query::item_kind::ItemKind;
 use cfdb_core::schema::{EdgeLabel, Keyspace, Label};
 use cfdb_core::store::{StoreBackend, StoreError};
@@ -181,15 +181,21 @@ fn synthesize_callee_stubs(
 }
 
 /// Build a stub `:Item` node from a node id of the form
-/// `item:<qname>`. Mirrors the prop shape produced by
+/// `item:<qname>[#bin:<name>]`. Mirrors the prop shape produced by
 /// `cfdb-extractor::synthesize::synthesize_referenced_items` for
 /// the IMPLEMENTS/RETURNS/TYPE_OF family, with `kind = "fn"`
 /// (the most general callable value in `ItemKind`). Routes through
 /// `cfdb_core::fact::build_item_props` so the prop vocabulary is
 /// single-sourced (#421 boy-scout: closes the split-brain flagged by
 /// `audit-split-brain` against `cfdb-extractor::synthesize`).
+///
+/// RFC-054 54-C: the stub's node id is the edge dst VERBATIM — a
+/// discriminated dst (`item:x::y#bin:z`) must not be re-wrapped from
+/// its stripped display qname, or the stub lands under a DIFFERENT id
+/// and the CALLS edge it exists to anchor still dangles. The stripped
+/// qname feeds the display props only (RFC-054 §3.5.1).
 fn build_callee_stub(node_id: &str) -> Node {
-    let qname = qname_from_node_id(node_id);
+    let qname = display_qname_from_node_id(node_id);
     let crate_name = qname
         .split_once("::")
         .map(|(c, _)| c.to_string())
@@ -203,7 +209,7 @@ fn build_callee_stub(node_id: &str) -> Node {
     );
 
     Node {
-        id: item_node_id(qname),
+        id: node_id.to_string(),
         label: Label::new(Label::ITEM),
         props,
     }
@@ -213,6 +219,7 @@ fn build_callee_stub(node_id: &str) -> Node {
 mod tests {
     use super::*;
     use cfdb_core::fact::PropValue;
+    use cfdb_core::qname::item_node_id;
     use std::collections::BTreeMap;
 
     /// Helper: minimal `:CallSite` node fixture with the v0.1.3
@@ -418,6 +425,53 @@ mod tests {
             Some("src/lib.rs"),
             "pre-existing :Item's body-shaped `file` prop must NOT be \
              clobbered by stub synthesis (#388 idempotency invariant)",
+        );
+    }
+
+    /// RFC-054 54-C: a DISCRIMINATED CALLS dst (`item:x#bin:y`) with no
+    /// pre-existing :Item must get a stub whose node id is the dst id
+    /// VERBATIM — re-wrapping the stripped display qname would land the
+    /// stub under `item:x` and the edge would still dangle. Display
+    /// props stay bare (RFC-054 §3.5.1).
+    #[test]
+    fn ingest_synthesizes_stub_under_discriminated_dst_id_verbatim() {
+        let mut store = PetgraphStore::new();
+        store
+            .ingest_nodes(&keyspace(), vec![item_node("a::foo", "a")])
+            .expect("caller ingest succeeds");
+        let mut adapter = PetgraphAdapter::new(&mut store, keyspace());
+
+        let nodes = vec![hir_call_site(
+            "callsite:a::foo:b::helper:0",
+            "a::foo",
+            "b::helper",
+        )];
+        let edges = vec![
+            edge("item:a::foo", "item:b::helper#bin:tool", EdgeLabel::CALLS),
+            edge(
+                "item:a::foo",
+                "callsite:a::foo:b::helper:0",
+                EdgeLabel::INVOKES_AT,
+            ),
+        ];
+        adapter
+            .ingest_resolved_call_sites(nodes, edges)
+            .expect("ingest with discriminated dst succeeds");
+
+        assert!(
+            store.has_node(&keyspace(), "item:b::helper#bin:tool"),
+            "stub must land under the discriminated dst id VERBATIM, \
+             or the CALLS edge it anchors still dangles (54-C)"
+        );
+        let (nodes_after, _) = store.export(&keyspace()).expect("export");
+        let stub = nodes_after
+            .iter()
+            .find(|n| n.id == "item:b::helper#bin:tool")
+            .expect("discriminated stub present");
+        assert_eq!(
+            stub.props.get("qname").and_then(PropValue::as_str),
+            Some("b::helper"),
+            "stub display qname must be the BARE qname (suffix stripped)"
         );
     }
 

@@ -138,7 +138,9 @@ fn seed_cases_cover_every_shipped_predicate() {
 #[test]
 fn every_seed_predicate_runs_against_cfdb_keyspace() {
     let workspace_root = cfdb_workspace_root();
-    let tmp = tempfile::tempdir().expect("tempdir");
+    // #526-class: CI routes TMPDIR to /cache (#453), whose runner-side
+    // cleanup can prune a live tempdir mid-test; target/tmp survives it.
+    let tmp = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).expect("tempdir");
     let db_dir = tmp.path().join("db");
     seed_keyspace(&workspace_root, &db_dir, "cfdb");
 
@@ -175,7 +177,9 @@ fn every_seed_predicate_runs_against_cfdb_keyspace() {
 #[test]
 fn every_seed_predicate_is_deterministic_across_two_calls() {
     let workspace_root = cfdb_workspace_root();
-    let tmp = tempfile::tempdir().expect("tempdir");
+    // #526-class: CI routes TMPDIR to /cache (#453), whose runner-side
+    // cleanup can prune a live tempdir mid-test; target/tmp survives it.
+    let tmp = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).expect("tempdir");
     let db_dir = tmp.path().join("db");
     seed_keyspace(&workspace_root, &db_dir, "cfdb");
 

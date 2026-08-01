@@ -85,11 +85,23 @@
 //   - `a_name != b_name` → synonym-rename — either consolidate or
 //                          document the intentional divergence in
 //                          KNOWN_GAPS.md
+//
+// Tie-break (RFC-054 §3.5.4, #557): `a.qname < b.qname` alone is
+// structurally FALSE between equal strings, so same-qname cross-target
+// twins (N bins sharing one display qname, distinct target-scoped ids)
+// were invisible. Equal-qname pairs order by `target` first — the
+// identity key: equal (qname, target) implies one node id, so the
+// ordering is total for Rust items even when two bins walk ONE shared
+// source file (`#[path]` module / duplicate `[[bin]] path`, where the
+// file tie-break alone is false). `file` stays as the final fallback
+// for producers that emit no `target`. Develop-parity: on trees whose
+// qnames are unique neither OR arm fires and the row set is
+// byte-identical to the pre-054 rule.
 
 MATCH (a:Item), (b:Item)
 WHERE a.kind = 'fn'
   AND b.kind = 'fn'
-  AND a.qname < b.qname
+  AND (a.qname < b.qname OR (a.qname = b.qname AND (a.target < b.target OR (a.target = b.target AND a.file < b.file))))
   AND a.dup_cluster_id = b.dup_cluster_id
   AND a.is_test = false
   AND b.is_test = false

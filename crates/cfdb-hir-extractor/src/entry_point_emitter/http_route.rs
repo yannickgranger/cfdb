@@ -5,14 +5,15 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use cfdb_core::fact::{Edge, Node, PropValue};
-use cfdb_core::qname::item_node_id;
+use cfdb_core::qname::{entrypoint_node_id, item_node_id_for_target, TargetDiscriminator};
 use cfdb_core::schema::{EdgeLabel, Label};
 use ra_ap_hir::db::HirDatabase;
-use ra_ap_hir::{ModuleDef, PathResolution, Semantics};
+use ra_ap_hir::{HasCrate, ModuleDef, PathResolution, Semantics};
 use ra_ap_syntax::ast::{self, HasArgList, LiteralKind};
 
 use super::HTTP_ROUTE_METHOD_NAMES;
 use crate::call_site_emitter::function_qname;
+use crate::target_map::EmitCtx;
 
 /// Recognize `axum` / `actix-web` route-registration method calls and
 /// emit one `:EntryPoint { kind: "http_route" }` per `(literal path,
@@ -34,6 +35,7 @@ use crate::call_site_emitter::function_qname;
 /// path-resolved handlers, not raw closure expressions.
 pub(super) fn classify_http_route_method_call<DB>(
     sema: &Semantics<'_, DB>,
+    ctx: &EmitCtx<'_>,
     method_call: &ast::MethodCallExpr,
     file_path: &Path,
     nodes: &mut Vec<Node>,
@@ -59,11 +61,19 @@ pub(super) fn classify_http_route_method_call<DB>(
         return;
     };
 
-    let Some(handler_qname) = resolve_handler_qname(sema, &handler_expr) else {
+    let Some((handler_qname, handler_target)) = resolve_handler_qname(sema, ctx, &handler_expr)
+    else {
         return;
     };
 
-    emit_http_route(nodes, edges, &handler_qname, &path_literal, file_path);
+    emit_http_route(
+        nodes,
+        edges,
+        &handler_qname,
+        &handler_target,
+        &path_literal,
+        file_path,
+    );
 }
 
 /// Return `(literal_path, handler_expr)` for a recognized shape, or
@@ -188,17 +198,18 @@ fn string_literal_value(expr: &ast::Expr) -> Option<String> {
 /// `:EntryPoint` per AC-5.
 pub(super) fn resolve_handler_qname<DB>(
     sema: &Semantics<'_, DB>,
+    ctx: &EmitCtx<'_>,
     expr: &ast::Expr,
-) -> Option<String>
+) -> Option<(String, TargetDiscriminator)>
 where
     DB: HirDatabase + Sized,
 {
     match expr {
-        ast::Expr::PathExpr(path_expr) => resolve_path_to_fn_qname(sema, path_expr),
+        ast::Expr::PathExpr(path_expr) => resolve_path_to_fn_qname(sema, ctx, path_expr),
         ast::Expr::CallExpr(call) => {
             // `api_router()` — the callee is the path we care about.
             match call.expr()? {
-                ast::Expr::PathExpr(path_expr) => resolve_path_to_fn_qname(sema, &path_expr),
+                ast::Expr::PathExpr(path_expr) => resolve_path_to_fn_qname(sema, ctx, &path_expr),
                 _ => None,
             }
         }
@@ -206,7 +217,7 @@ where
             // Actix pattern: `web::get().to(handler)`. Walk down
             // method chains looking for a `.to(handler)` call with a
             // single path argument.
-            resolve_handler_from_method_chain(sema, inner)
+            resolve_handler_from_method_chain(sema, ctx, inner)
         }
         _ => None,
     }
@@ -218,8 +229,9 @@ where
 /// `web::get().to(handler)` place the handler as the `to()` argument.
 fn resolve_handler_from_method_chain<DB>(
     sema: &Semantics<'_, DB>,
+    ctx: &EmitCtx<'_>,
     method_call: &ast::MethodCallExpr,
-) -> Option<String>
+) -> Option<(String, TargetDiscriminator)>
 where
     DB: HirDatabase + Sized,
 {
@@ -228,14 +240,14 @@ where
     if method_name == "to" {
         let arg_list = method_call.arg_list()?;
         if let Some(ast::Expr::PathExpr(path_expr)) = arg_list.args().next() {
-            if let Some(q) = resolve_path_to_fn_qname(sema, &path_expr) {
+            if let Some(q) = resolve_path_to_fn_qname(sema, ctx, &path_expr) {
                 return Some(q);
             }
         }
     }
     // Otherwise walk up the receiver chain.
     match method_call.receiver()? {
-        ast::Expr::MethodCallExpr(inner) => resolve_handler_from_method_chain(sema, &inner),
+        ast::Expr::MethodCallExpr(inner) => resolve_handler_from_method_chain(sema, ctx, &inner),
         _ => None,
     }
 }
@@ -244,14 +256,18 @@ where
 /// via the canonical formula shared with `call_site_emitter`.
 fn resolve_path_to_fn_qname<DB>(
     sema: &Semantics<'_, DB>,
+    ctx: &EmitCtx<'_>,
     path_expr: &ast::PathExpr,
-) -> Option<String>
+) -> Option<(String, TargetDiscriminator)>
 where
     DB: HirDatabase + Sized,
 {
     let path = path_expr.path()?;
     match sema.resolve_path(&path)? {
-        PathResolution::Def(ModuleDef::Function(func)) => Some(function_qname(sema, func)),
+        PathResolution::Def(ModuleDef::Function(func)) => Some((
+            function_qname(sema, func),
+            ctx.discriminator(sema.db, func.krate(sema.db)),
+        )),
         _ => None,
     }
 }
@@ -264,10 +280,17 @@ pub(super) fn emit_http_route(
     nodes: &mut Vec<Node>,
     edges: &mut Vec<Edge>,
     handler_qname: &str,
+    handler_target: &TargetDiscriminator,
     path_literal: &str,
     file_path: &Path,
 ) {
-    let ep_id = format!("entrypoint:http_route:{handler_qname}:{path_literal}");
+    // Discriminated identity in the id (RFC-054 54-C), literal path
+    // appended so multiple routes sharing a handler stay distinct rows.
+    let handler_identity = handler_target.identity(handler_qname);
+    let ep_id = format!(
+        "{}:{path_literal}",
+        entrypoint_node_id("http_route", &handler_identity)
+    );
     let file_str = file_path.to_string_lossy().into_owned();
 
     let mut props = BTreeMap::new();
@@ -291,7 +314,7 @@ pub(super) fn emit_http_route(
 
     edges.push(Edge {
         src: ep_id,
-        dst: item_node_id(handler_qname),
+        dst: item_node_id_for_target(handler_qname, handler_target),
         label: EdgeLabel::new(EdgeLabel::EXPOSES),
         props: BTreeMap::new(),
     });

@@ -13,6 +13,7 @@ on:
   push:
     branches: [main, develop]
     tags: ['v*']
+  workflow_dispatch: {}
 
 env:
   GIT_SSL_NO_VERIFY: true
@@ -44,7 +45,9 @@ jobs:
           git fetch --tags origin
 
           # Configure GitHub remote with PAT auth (inline in URL — token never persists on disk)
-          git remote add github "https://${GH_PAT}@github.com/${GH_REPO}.git"
+          # oauth2:<token> — token-as-username makes git prompt for a password,
+          # which fatals in a TTY-less runner (graph-specs #178, same class).
+          git remote add github "https://oauth2:${GH_PAT}@github.com/${GH_REPO}.git"
 
           # Scoped push: develop + main + tags only. Uses --force to accept Gitea as canonical.
           git push github --force refs/heads/develop:refs/heads/develop
