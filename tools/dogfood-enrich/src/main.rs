@@ -16,8 +16,8 @@ use std::process::ExitCode;
 
 use clap::Parser;
 use dogfood_enrich::{
-    count_items, feature_guard, grep_deprecated, grep_rfc_docs, passes, runner, scan_concepts,
-    thresholds, EXIT_OK, EXIT_RUNTIME_ERROR, EXIT_VIOLATIONS,
+    count_items, extracted_files, feature_guard, grep_deprecated, grep_rfc_docs, passes, runner,
+    scan_concepts, thresholds, EXIT_OK, EXIT_RUNTIME_ERROR, EXIT_VIOLATIONS,
 };
 
 #[derive(Debug, Parser)]
@@ -83,6 +83,38 @@ fn run(cli: Cli) -> Result<i32, String> {
         &cli.db,
         &cli.keyspace,
     )?;
+    // Zero-extracted blindspot guard (issue #564): the sentinel template
+    // is shaped `MATCH … WITH count(i) AS extracted_count WHERE
+    // extracted_count < N` — but the evaluator yields NO rows for
+    // count() over an empty MATCH, so the template physically cannot
+    // fire when the extractor drops EVERY #[deprecated] item. That
+    // total-loss regression is this gate's primary reason to exist, so
+    // the harness closes the hole: source truth ≥ 1 with a keyspace-side
+    // count of 0 is a violation in its own right.
+    if pass.name == "enrich-deprecation" {
+        if let Some((_, truth)) = extra_owned.iter().find(|(k, _)| k == "ground_truth_count") {
+            let truth: usize = truth
+                .parse()
+                .map_err(|e| format!("internal: ground_truth_count {truth:?} not a usize: {e}"))?;
+            if truth >= 1 {
+                let extracted = count_items::count_deprecated_items_in_keyspace(
+                    &cli.cfdb_bin,
+                    &cli.db,
+                    &cli.keyspace,
+                )
+                .map_err(|e| format!("{e}"))?;
+                if extracted == 0 {
+                    eprintln!(
+                        "self-enrich-deprecation: keyspace has 0 :Item.is_deprecated but the \
+                         source-side ground truth is {truth} — invariant FAILED (zero-extracted \
+                         guard; the count() sentinel cannot fire on an empty MATCH, see #564)"
+                    );
+                    return Ok(EXIT_VIOLATIONS);
+                }
+            }
+        }
+    }
+
     let extra_borrows: Vec<(&str, &str)> = extra_owned
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))
@@ -117,8 +149,9 @@ fn run(cli: Cli) -> Result<i32, String> {
 /// Most passes return an empty map (their templates use only the
 /// `{{ threshold }}` placeholder). `enrich-deprecation` is the
 /// exception: its sentinel compares the extracted-graph count against
-/// a source-side ground truth, computed by walking `--workspace` and
-/// counting `#[deprecated]` attribute occurrences.
+/// a source-side ground truth — attribute-position `#[deprecated]`
+/// occurrences (comments/strings stripped) counted over the keyspace's
+/// `:File` set, read from disk under `--workspace`.
 ///
 /// Errors propagate to `EXIT_RUNTIME_ERROR` (1) — a missing workspace
 /// or unreadable source file is a configuration problem, not a
@@ -137,8 +170,19 @@ fn compute_extra_substitutions(
                  #[deprecated] ground truth"
                     .to_string()
             })?;
-            let count = grep_deprecated::count_deprecated_in_workspace(root).map_err(|e| {
-                format!("failed to grep #[deprecated] under {}: {e}", root.display())
+            // Ground truth = attribute-position #[deprecated] occurrences
+            // (comments/strings lexically stripped) counted over exactly
+            // the files the extractor walked (the keyspace's :File set) —
+            // never a raw-text grep of the whole checkout, which counts
+            // doc comments, test string literals, and fixture crates the
+            // extractor never sees (73 raw vs 1 genuine at PR #563).
+            let files = extracted_files::file_paths_in_keyspace(cfdb_bin, db, keyspace)
+                .map_err(|e| format!("failed to read :File set from keyspace: {e}"))?;
+            let count = grep_deprecated::count_deprecated_in_files(root, &files).map_err(|e| {
+                format!(
+                    "failed to count #[deprecated] under {}: {e}",
+                    root.display()
+                )
             })?;
             Ok(vec![("ground_truth_count".to_string(), count.to_string())])
         }

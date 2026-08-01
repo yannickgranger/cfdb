@@ -9,9 +9,12 @@
 //! exercises the sentinel-pattern contract end-to-end through the
 //! pure helpers:
 //!
-//!  1. The helper [`grep_deprecated::count_deprecated_in_workspace`]
+//!  1. The helper [`grep_deprecated::count_deprecated_in_files`]
 //!     produces the source-side ground truth from a synthetic
-//!     workspace tree on disk.
+//!     workspace tree on disk, scoped to a simulated extractor-walked
+//!     `:File` set (the PR #563 contract — the ground truth counts
+//!     attribute-position occurrences in walked files only, never a
+//!     raw-text grep of the whole checkout).
 //!  2. The runner [`substitute_named`] substitutes that count into
 //!     the actual `.cfdb/queries/self-enrich-deprecation.cypher`
 //!     template.
@@ -28,6 +31,11 @@
 //! `cfdb violations` evaluation is exercised end-to-end at the CI
 //! step in `.gitea/workflows/ci.yml`, which runs the harness against
 //! real `cfdb extract` output on cfdb-self (AC-1).
+//!
+//! The total-loss direction (`extracted_count = 0`) is NOT covered by
+//! the template — the evaluator emits no rows for count() over an
+//! empty MATCH (issue #564) — so the harness's zero-extracted guard in
+//! `main.rs` owns that case, exercised in CI by AC-1.
 
 use std::fs;
 
@@ -38,9 +46,9 @@ use dogfood_enrich::{grep_deprecated, runner};
 const TEMPLATE_REL_PATH: &str = "../../.cfdb/queries/self-enrich-deprecation.cypher";
 
 /// Synthetic workspace with three `#[deprecated]` annotations across
-/// two `.rs` files. Mirrors the helper's existing unit-test fixture
-/// shape, but is reused here so the integration assertion has a
-/// concrete ground-truth count.
+/// two walked `.rs` files, one decoy file with comment/string-only
+/// mentions, and one unwalked file with a real annotation. Only the
+/// walked files' genuine annotations may count.
 fn build_known_workspace() -> tempfile::TempDir {
     let dir = tempfile::tempdir().expect("tempdir");
     let root = dir.path();
@@ -56,8 +64,28 @@ fn build_known_workspace() -> tempfile::TempDir {
         "#[deprecated(since = \"1.0\")]\nfn c() {}\n",
     )
     .expect("write nested/b.rs");
+    // Walked decoy: mentions only in a doc comment and a string
+    // literal — the lexical stripper must zero these out.
+    fs::write(
+        root.join("decoy.rs"),
+        "//! `#[deprecated]` in docs\nfn d() { let s = \"#[deprecated]\"; }\n",
+    )
+    .expect("write decoy.rs");
+    // Unwalked file with a REAL annotation — absent from the :File
+    // set, so invisible to the ground truth (extractor-scope mirror).
+    fs::write(root.join("unwalked.rs"), "#[deprecated]\nfn e() {}\n").expect("write unwalked.rs");
 
     dir
+}
+
+/// The simulated extractor-walked `:File` set — everything except
+/// `unwalked.rs`.
+fn walked_set() -> Vec<String> {
+    vec![
+        "a.rs".to_string(),
+        "decoy.rs".to_string(),
+        "nested/b.rs".to_string(),
+    ]
 }
 
 /// Drives the helper + template + substitution end-to-end and asserts
@@ -66,12 +94,13 @@ fn build_known_workspace() -> tempfile::TempDir {
 #[test]
 fn broken_extractor_simulation_satisfies_sentinel_predicate() {
     let dir = build_known_workspace();
-    let source_count =
-        grep_deprecated::count_deprecated_in_workspace(dir.path()).expect("walk succeeds");
+    let source_count = grep_deprecated::count_deprecated_in_files(dir.path(), &walked_set())
+        .expect("reads succeed");
     assert_eq!(
         source_count, 3,
-        "fixture must produce a deterministic ground truth of 3 \
-         #[deprecated] occurrences (cf. grep_deprecated::tests)"
+        "fixture must produce a deterministic ground truth of 3 genuine \
+         attribute-position occurrences: a.rs (2) + nested/b.rs (1); \
+         decoy.rs comment/string mentions and unwalked.rs must not count"
     );
 
     // Read the actual shipped Cypher template — this anchors the
@@ -132,17 +161,41 @@ fn broken_extractor_simulation_satisfies_sentinel_predicate() {
 }
 
 /// Healthy-extractor counterpart: when the extracted count equals the
-/// ground truth, the WHERE predicate is FALSE, no row is emitted, and
-/// the harness exits 0 (AC-1 shape).
+/// ground truth, the WHERE predicate must be FALSE, no row is emitted,
+/// and the harness exits 0 (AC-1 shape). The predicate's operator
+/// SENSE is the thing under test: the materialized comparison must be
+/// STRICT less-than — a drift to `<=` would wrongly emit a row on the
+/// healthy equality case. (Rewritten per PR #563 adversarial review
+/// finding E1: the previous version asserted `x >= x`, a tautology.)
 #[test]
 fn healthy_extractor_simulation_passes_sentinel_predicate() {
     let dir = build_known_workspace();
-    let source_count =
-        grep_deprecated::count_deprecated_in_workspace(dir.path()).expect("walk succeeds");
-    let healthy_extracted = source_count;
+    let source_count = grep_deprecated::count_deprecated_in_files(dir.path(), &walked_set())
+        .expect("reads succeed");
+
+    let template = fs::read_to_string(TEMPLATE_REL_PATH).unwrap_or_else(|e| {
+        panic!("expected to read shipped template at {TEMPLATE_REL_PATH}: {e}")
+    });
+    let count_str = source_count.to_string();
+    let materialized =
+        runner::substitute_named(&template, &[("ground_truth_count", count_str.as_str())]);
+
+    // Strip the comment header — the operator assertion must bind to
+    // the executable Cypher, not to prose that happens to quote it.
+    let executable: String = materialized
+        .lines()
+        .filter(|l| !l.trim_start().starts_with("//"))
+        .collect::<Vec<_>>()
+        .join("\n");
+
     assert!(
-        healthy_extracted >= source_count,
-        "healthy-extractor simulation: extracted={healthy_extracted} == source={source_count}. \
-         WHERE `extracted_count < {source_count}` is false; sentinel emits 0 rows."
+        executable.contains(&format!("extracted_count < {source_count}")),
+        "materialized sentinel must compare with STRICT less-than \
+         (`extracted_count < {source_count}`). Executable Cypher:\n{executable}"
+    );
+    assert!(
+        !executable.contains("extracted_count <="),
+        "a `<=` comparison would emit a violation row on the healthy \
+         extracted == source case. Executable Cypher:\n{executable}"
     );
 }

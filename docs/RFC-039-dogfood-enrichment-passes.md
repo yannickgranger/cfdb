@@ -56,7 +56,7 @@ The cfdb / graph-specs duo (RFC-033) makes this gap costlier than usual: graph-s
 
 | Pass | Invariant | Cypher shape (rows = violations) | Default vs nightly |
 |---|---|---|---|
-| `enrich-deprecation` | Every `#[deprecated]` symbol grep'd from source has `:Item.is_deprecated = true` | `MATCH (i:Item) WHERE i.qname IN $deprecated_qnames AND i.is_deprecated = false RETURN i.qname` | Default |
+| `enrich-deprecation` | Every attribute-position `#[deprecated]` in an extractor-walked file (keyspace `:File` set, comments/strings stripped) is reflected in `count(:Item.is_deprecated = true)` | Count-threshold sentinel (as shipped; the `$deprecated_qnames` per-qname shape was never built): `MATCH (i:Item) WHERE i.is_deprecated = true WITH count(i) AS extracted_count WHERE extracted_count < {{ ground_truth_count }} RETURN …` + harness-side zero-extracted guard (#564) | Default |
 | `enrich-rfc-docs` | (a) `count(:RfcDoc) >= count(docs/RFC-*.md)` AND (b) `count(:Item)-[:REFERENCED_BY]->(:RfcDoc) > 0` | Two-row sentinel pattern: row 1 if `count(:RfcDoc)` < ground truth; row 2 if zero edges | Default |
 | `enrich-bounded-context` | **Combined-pipeline invariant** (see §3.1.1): ≥`MIN_BC_COVERAGE_PCT` (initial: 95) of `:Item` have non-null `bounded_context` after extract+enrich. Denominator: `count(:Item)`. | Sentinel on `nulls(:Item.bounded_context) / count(:Item)` ratio | Default |
 | `enrich-concepts` | (a) `count(:Concept) == count(distinct context names across all .cfdb/concepts/*.toml)` AND (b) `count(:LABELED_AS) > 0` AND (c) **conditional**: IF `$declared_canonical_crate_count > 0` THEN `count(:CANONICAL_FOR) > 0`. (See §3.1.2.) | Three-sentinel pattern, one row per failing condition; sentinel (c) bound by `$declared_canonical_crate_count` parameter | Default |
@@ -157,7 +157,7 @@ dogfood-enrich --pass <name> --db <dir> --keyspace <ks>
 
 **I1 — Determinism.** Each `self-enrich-*.cypher` produces byte-identical row sets across two consecutive runs on the same keyspace. Enforced by **a new `ci/dogfood-determinism.sh`** (not an extension of `predicate-determinism.sh` — see §3.4).
 
-**I2 — Recall (ground-truth alignment).** For passes whose invariant compares against an external ground truth (e.g. `enrich-deprecation` greps `#[deprecated]` from the workspace; `enrich-concepts` counts distinct TOML names), the ground truth and cfdb's extracted view are computed from the **same** workspace tree, in the **same** CI step, with **same** filesystem state. No tree drift.
+**I2 — Recall (ground-truth alignment).** For passes whose invariant compares against an external ground truth (e.g. `enrich-deprecation` counts attribute-position `#[deprecated]` occurrences — comments/string literals lexically stripped — over the keyspace's `:File` set, i.e. exactly the files the extractor walked [corrected by PR #563; the original whole-workspace raw-text grep counted doc comments, test string literals, and never-walked fixture crates]; `enrich-concepts` counts distinct TOML names), the ground truth and cfdb's extracted view are computed from the **same** workspace tree, in the **same** CI step, with **same** filesystem state. No tree drift.
 
 **I3 — No-ratchet.** Threshold values are `const` declarations in `tools/dogfood-enrich/src/thresholds.rs`. Tightening is a separate reviewed PR. **A PR that adds a `.dogfood-baseline.toml`, `.dogfood-allowlist.toml`, or any file whose purpose is to record "current violation count = N, fail if > N" is rejected on sight.**
 

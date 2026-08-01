@@ -11,6 +11,7 @@
 //! through [`crate::extract_workspace`].
 
 use cfdb_core::fact::{Edge, Node};
+use cfdb_core::qname::TargetDiscriminator;
 
 /// Shared node/edge sink. Every submodule that walks the AST holds a
 /// `&mut Emitter` and pushes into these vectors; the outer
@@ -23,7 +24,7 @@ use cfdb_core::fact::{Edge, Node};
 /// emitted (populated by
 /// [`crate::item_visitor::ItemVisitor::emit_item_with_flags`] and the
 /// impl-method emission path); `deferred_returns` records
-/// `(fn_qname, rendered_return_type_string, original_return_syn_type)`
+/// `(fn_qname, target, rendered_return_type_string, original_return_syn_type)`
 /// tuples queued by `visit_item_fn` / `visit_impl_item_fn`; and
 /// `deferred_type_of` records the same shape for `:Field` / `:Param`
 /// TYPE_OF edges. Once the workspace walk is complete,
@@ -39,12 +40,14 @@ use cfdb_core::fact::{Edge, Node};
 pub(crate) struct Emitter {
     nodes: Vec<Node>,
     edges: Vec<Edge>,
-    /// Qnames of every `:Item` emitted so far — used for RETURNS /
+    /// Display qname → claiming targets, for every `:Item` emitted so
+    /// far (RFC-054 §3.5.2: a set cannot represent N target claims) —
+    /// used for RETURNS /
     /// TYPE_OF post-walk resolution. Populated by
     /// [`crate::item_visitor::ItemVisitor::emit_item_with_flags`] and
     /// by the impl-method emission path in
     /// [`crate::item_visitor::ItemVisitor::visit_impl_item_fn`].
-    pub(crate) emitted_item_qnames: std::collections::BTreeSet<String>,
+    pub(crate) emitted_item_qnames: std::collections::BTreeMap<String, Vec<TargetDiscriminator>>,
     /// Deferred RETURNS edges — `(fn_item_qname,
     /// rendered_return_type_string, original_return_syn_type)`.
     /// Walked after all items are emitted. The rendered string is
@@ -52,9 +55,9 @@ pub(crate) struct Emitter {
     /// stored `syn::Type` powers the third-tier wrapper unwrap via
     /// [`crate::type_render::render_type_inner`] (#239), which runs
     /// only when the rendered-string tiers miss.
-    pub(crate) deferred_returns: Vec<(String, String, syn::Type)>,
+    pub(crate) deferred_returns: Vec<(String, TargetDiscriminator, String, syn::Type)>,
     /// Deferred TYPE_OF edges — `(source_node_id, rendered_type_string,
-    /// source_label, original_syn_type)` where `source_label` is
+    /// source_label, original_syn_type, source_target)` where `source_label` is
     /// `"Field"` or `"Param"`. Walked in [`crate::extract_workspace`]'s
     /// Step 4 post-walk pass; emits a `TYPE_OF` edge from the source
     /// `:Field` / `:Param` node to the `:Item` whose qname matches the
@@ -64,8 +67,10 @@ pub(crate) struct Emitter {
     /// a variant's payload is walked into separate `:Field` nodes
     /// which queue their own TYPE_OF entries. Variant-level TYPE_OF
     /// is a documented follow-up (RFC-037 §3.4 / #220 non-goals).
-    pub(crate) deferred_type_of: Vec<(String, String, &'static str, syn::Type)>,
-    /// Deferred MATCHES_ON edges — `(matchsite_id, matched_path_prefix)`
+    pub(crate) deferred_type_of:
+        Vec<(String, String, &'static str, syn::Type, TargetDiscriminator)>,
+    /// Deferred MATCHES_ON edges — `(matchsite_id, matched_path_prefix,
+    /// site_target)`
     /// (RFC-053 §3.2, slice 53-B). Queued walk-time by
     /// [`crate::match_visitor`] for every `:MatchSite` it emits;
     /// [`crate::resolver::resolve_deferred_match_targets`] drains it after
@@ -78,8 +83,8 @@ pub(crate) struct Emitter {
     /// prefix, not a wrapped type). A third deferred queue is a natural
     /// extension of the single deferred-resolution responsibility — no
     /// `DeferredResolution` trait (RFC-053 §3.3, YAGNI).
-    pub(crate) deferred_match_targets: Vec<(String, String)>,
-    /// Qnames of every emitted `:Item` whose `kind` is `"enum"` — the
+    pub(crate) deferred_match_targets: Vec<(String, String, TargetDiscriminator)>,
+    /// Display qname → claiming targets for every emitted enum `:Item` — the
     /// `MATCHES_ON` kind filter (RFC-053 §3.2: resolution targets are
     /// constrained to `kind = "enum"`; a prefix resolving to a
     /// struct/trait emits nothing). A subset of
@@ -88,7 +93,7 @@ pub(crate) struct Emitter {
     /// ([`crate::item_visitor::ItemVisitor::emit_item_with_flags`]). Held
     /// on the workspace-scoped `Emitter` so the post-walk resolver sees
     /// every enum across every file regardless of walk order.
-    pub(crate) emitted_enum_qnames: std::collections::BTreeSet<String>,
+    pub(crate) emitted_enum_qnames: std::collections::BTreeMap<String, Vec<TargetDiscriminator>>,
 }
 
 impl Emitter {
@@ -96,11 +101,39 @@ impl Emitter {
         Self {
             nodes: Vec::new(),
             edges: Vec::new(),
-            emitted_item_qnames: std::collections::BTreeSet::new(),
+            emitted_item_qnames: std::collections::BTreeMap::new(),
             deferred_returns: Vec::new(),
             deferred_type_of: Vec::new(),
             deferred_match_targets: Vec::new(),
-            emitted_enum_qnames: std::collections::BTreeSet::new(),
+            emitted_enum_qnames: std::collections::BTreeMap::new(),
+        }
+    }
+
+    /// Record that `qname` is claimed by `target` (RFC-054 §3.5.2). The
+    /// resolver's same-target → lib → never-a-foreign-bin policy reads
+    /// these claims; a `BTreeSet<String>` cannot represent "claimed by N
+    /// targets", which is why this is a map.
+    pub(crate) fn claim_item_qname(&mut self, qname: &str, target: &TargetDiscriminator) {
+        let claims = self
+            .emitted_item_qnames
+            .entry(qname.to_string())
+            .or_default();
+        // Claims are 1 element in the overwhelming case and bounded by the
+        // package's target count — a Vec with a linear guard beats a
+        // BTreeSet leaf allocation per qname (simplify review F5).
+        if !claims.contains(target) {
+            claims.push(target.clone());
+        }
+    }
+
+    /// Enum subset of [`Self::claim_item_qname`] (MATCHES_ON kind filter).
+    pub(crate) fn claim_enum_qname(&mut self, qname: &str, target: &TargetDiscriminator) {
+        let claims = self
+            .emitted_enum_qnames
+            .entry(qname.to_string())
+            .or_default();
+        if !claims.contains(target) {
+            claims.push(target.clone());
         }
     }
 

@@ -151,35 +151,60 @@ fn cli_command_exposes_resolves_to_syn_item_when_bin_name_differs_from_package()
 
     // The cli_command handler is `Cli`, defined in the bin target's
     // main.rs. syn keys its :Item off the PACKAGE name (`bin-dash-pkg` →
-    // `bin_dash_pkg`); the HIR emitter MUST agree or the edge dangles.
-    let expected = item_node_id("bin_dash_pkg::Cli");
+    // `bin_dash_pkg`); #517 made the HIR emitter agree on the package-name
+    // QNAME. RFC-054 54-B (#557) then gave syn's bin-target items a
+    // `#bin:{target}` identity suffix.
+    //
+    // ===== SEAM PIN (54-B → 54-C, #558) =====
+    // Until 54-C teaches the HIR emitters the target discriminator (via
+    // the CargoWorkspace root-file correlation — ra_ap exposes no crate
+    // target kind), HIR endpoints keep the UNDISCRIMINATED package-name
+    // id and therefore DANGLE against syn's discriminated bin ids. This
+    // pin documents the window explicitly; 54-C flips these assertions
+    // back to join-form ("extended, not replaced" per RFC-054 §7 54-C).
+    let syn_discriminated = item_node_id("bin_dash_pkg::Cli#bin:toolbin");
+    let hir_undiscriminated = item_node_id("bin_dash_pkg::Cli");
 
     assert!(
-        syn_ids.contains(&expected),
-        "fixture/syn broken — syn did not emit the package-name :Item `{expected}`. \
+        syn_ids.contains(&syn_discriminated),
+        "syn must emit the discriminated bin-target :Item `{syn_discriminated}`. \
          syn :Item ids: {syn_ids:?}"
     );
     assert!(
         !exposes.is_empty(),
         "HIR emitted no EXPOSES edge for the cli_command"
     );
-
-    // The defect (RED before #517): HIR keys the crate segment off the bin
-    // TARGET name (`toolbin`) → `item:toolbin::Cli`, absent from the syn
-    // :Item set. After the fix it uses the package name and resolves.
+    // #517's own guarantee still holds: the QNAME half is package-name
+    // keyed (a target-name dst `item:toolbin::Cli` must never come back).
     assert!(
-        exposes.contains(&expected),
-        "HIR cli_command EXPOSES dst does not use the package-name qname `{expected}` \
-         — emitted dsts: {exposes:?}"
+        !exposes.iter().any(|d| d.contains("toolbin::")),
+        "#517 regression — HIR keyed a dst off the bin TARGET name: {exposes:?}"
     );
-
-    // No EXPOSES endpoint may dangle: every dst is a real syn :Item.
+    // Tripwire on the side 54-C actually changes (council altitude
+    // ruling): the moment HIR emits a discriminated dst, the window is
+    // over — flip this file back to full join assertions per RFC-054 §7.
+    assert!(
+        !exposes.iter().any(|d| d.contains("#bin:")),
+        "54-C landed (HIR emits discriminated ids) — flip this seam pin \
+         back to the join assertions per RFC-054 §7 54-C: {exposes:?}"
+    );
+    // Total no-dangle invariant with the PRECISE window exception: an
+    // EXPOSES dst may be the undiscriminated form of a syn bin-target id
+    // (its `#bin:toolbin` counterpart exists) during the 54-B window.
     for dst in &exposes {
+        let window_counterpart = format!("{dst}#bin:toolbin");
         assert!(
-            syn_ids.contains(dst),
-            "dangling HIR EXPOSES dst `{dst}` — not a syn :Item. syn :Item ids: {syn_ids:?}"
+            syn_ids.contains(dst) || syn_ids.contains(&window_counterpart),
+            "dangling HIR EXPOSES dst `{dst}` outside the documented 54-B \
+             window exception shape. syn ids: {syn_ids:?}"
         );
     }
+    // The window exception is actually exercised (vacuity guard).
+    assert!(
+        exposes.contains(&hir_undiscriminated),
+        "expected the documented window dst `{hir_undiscriminated}` \
+         — emitted dsts: {exposes:?}"
+    );
 }
 
 #[test]
@@ -200,33 +225,53 @@ fn call_site_endpoints_resolve_to_syn_items_when_bin_name_differs_from_package()
         .filter(|id| id.starts_with("item:"))
         .collect();
 
-    // `run` calls `helper`, both free fns in the bin target's main.rs. The
-    // shared crate-name resolver keys their qnames off the PACKAGE name so
-    // the resolved CALLS edge lands on the syn `:Item`s.
+    // `run` calls `helper`, both free fns in the bin target's main.rs.
+    // #517 keys their HIR qnames off the PACKAGE name; RFC-054 54-B gives
+    // syn's bin items a `#bin:{target}` suffix.
+    //
+    // ===== SEAM PIN (54-B → 54-C, #558) — see the EXPOSES twin above =====
     let caller = item_node_id("bin_dash_pkg::run");
     let callee = item_node_id("bin_dash_pkg::helper");
+    let caller_disc = item_node_id("bin_dash_pkg::run#bin:toolbin");
+    let callee_disc = item_node_id("bin_dash_pkg::helper#bin:toolbin");
 
     assert!(
-        syn_ids.contains(&caller) && syn_ids.contains(&callee),
-        "fixture/syn broken — expected package-name :Items for run/helper. \
+        syn_ids.contains(&caller_disc) && syn_ids.contains(&callee_disc),
+        "syn must emit discriminated bin-target :Items for run/helper. \
          syn :Item ids: {syn_ids:?}"
     );
     assert!(
         !call_endpoints.is_empty(),
         "HIR emitted no CALLS endpoints — fixture or extractor broken. syn :Item ids: {syn_ids:?}"
     );
-
-    // The defect (RED before #517): HIR keys off the bin TARGET name
-    // (`toolbin`), so the endpoints are `item:toolbin::{run,helper}` and
-    // dangle. After the fix they use the package name and resolve.
+    // #517's guarantee holds: package-name keyed, never target-name keyed.
     assert!(
-        call_endpoints.contains(&caller),
-        "HIR CALLS caller endpoint is not the package-name qname `{caller}` \
-         — endpoints: {call_endpoints:?}"
+        !call_endpoints.iter().any(|d| d.contains("toolbin::")),
+        "#517 regression — HIR keyed an endpoint off the bin TARGET name: {call_endpoints:?}"
     );
+    // Tripwire on the side 54-C actually changes (council altitude ruling).
     assert!(
-        call_endpoints.contains(&callee),
-        "HIR CALLS callee endpoint is not the package-name qname `{callee}` \
+        !call_endpoints.iter().any(|d| d.contains("#bin:")),
+        "54-C landed (HIR emits discriminated ids) — flip this seam pin \
+         back to the join assertions per RFC-054 §7 54-C: {call_endpoints:?}"
+    );
+    // Total invariant with the PRECISE window exception (the first
+    // enumerated form missed `main` — the invariant caught it): during
+    // the 54-B window an HIR endpoint may be the undiscriminated form of
+    // a syn bin-target id, i.e. its `#bin:toolbin`-suffixed counterpart
+    // exists. Anything else dangling is a real defect.
+    for ep in &call_endpoints {
+        let window_counterpart = format!("{ep}#bin:toolbin");
+        assert!(
+            syn_ids.contains(ep) || syn_ids.contains(&window_counterpart),
+            "dangling HIR CALLS endpoint `{ep}` outside the documented \
+             54-B window exception shape. syn ids: {syn_ids:?}"
+        );
+    }
+    // The window exceptions are actually exercised (vacuity guard).
+    assert!(
+        call_endpoints.contains(&caller) && call_endpoints.contains(&callee),
+        "expected the documented window endpoints `{caller}`/`{callee}` \
          — endpoints: {call_endpoints:?}"
     );
 }

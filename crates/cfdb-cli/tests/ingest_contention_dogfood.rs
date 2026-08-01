@@ -1,11 +1,14 @@
 //! RFC-054 54-A (#556) inject-bite — prove `cfdb extract` makes identity
 //! contention loud instead of silently dropping nodes (#542).
 //!
-//! Planted drift: a synthetic workspace with TWO `src/bin/*.rs` targets.
-//! Both `fn main`s render into the package namespace (pre-54-B behavior),
-//! collide on one `item:` id, and the loser is silently replaced — 54-A
-//! makes that replace warn. The 1-bin control fixture proves the warning
-//! is not vacuously firing on every extract.
+//! Planted drift (updated with RFC-054 54-B, #557): cross-TARGET collisions
+//! are retired by target-scoped identity, so the fixture plants the
+//! collision class that legitimately persists — cfg-gated fn twins in ONE
+//! file. syn walks both cfg branches; the twin `:Item`s share a file
+//! (silent per the ratified rule) but their `:Param` children carry
+//! differing `type_path` props with no `file` prop, so the full-equality
+//! fallback flags them — the exact class behind cfdb-self's 18 findings.
+//! The control fixture proves the warning is not vacuously firing.
 //!
 //! Fixture directories live under `CARGO_TARGET_TMPDIR` (never `/tmp` or
 //! a `/cache`-routed TMPDIR) per the #526-class runner-tmp-cleaner fix.
@@ -29,20 +32,46 @@ fn fixture_root(name: &str) -> PathBuf {
     root
 }
 
-/// Write a one-package fixture workspace. `bins` empty ⇒ a default
-/// `src/main.rs`; otherwise one `src/bin/<name>.rs` per entry — each with an
-/// identical `fn main`, which is exactly the #542 collision shape.
+/// One lib file with cfg-gated same-name fns whose params differ — the
+/// post-54-B contention shape (cfg twins share qname, file, and target,
+/// so their `:Param` children contend on the full-equality fallback).
 ///
-/// The `[workspace]` table is load-bearing: the fixture lives inside cfdb's
-/// own `target/`, and without it cargo-metadata would climb to cfdb's
-/// workspace.
-fn write_fixture(name: &str, bins: &[&str]) -> PathBuf {
-    let root = fixture_root(name);
+/// The `[workspace]` table is load-bearing: the fixture lives inside
+/// cfdb's own `target/`, and without it cargo-metadata would climb to
+/// cfdb's workspace.
+fn write_cfg_twin_fixture() -> PathBuf {
+    let root = fixture_root("cfgtwins");
     fs::write(
         root.join("Cargo.toml"),
-        format!(
-            "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\n"
-        ),
+        "[package]\nname = \"cfgtwins\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\n",
+    )
+    .expect("write Cargo.toml");
+    let src = root.join("src");
+    fs::create_dir_all(&src).expect("mkdir src");
+    fs::write(
+        src.join("lib.rs"),
+        r##"#[cfg(feature = "alt")]
+pub fn dispatch(x: u32) -> u32 {
+    x
+}
+
+#[cfg(not(feature = "alt"))]
+pub fn dispatch(x: &str) -> u32 {
+    x.len() as u32
+}
+"##,
+    )
+    .expect("write lib.rs");
+    root
+}
+
+/// Control: one lib + one default bin, no homonyms anywhere — extraction
+/// must stay contention-silent.
+fn write_one_bin_control() -> PathBuf {
+    let root = fixture_root("onebin");
+    fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"onebin\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\n",
     )
     .expect("write Cargo.toml");
     let src = root.join("src");
@@ -52,19 +81,15 @@ fn write_fixture(name: &str, bins: &[&str]) -> PathBuf {
         "pub fn shared_helper() -> u32 {\n    1\n}\n",
     )
     .expect("write lib.rs");
-    let main_body = format!("fn main() {{\n    println!(\"{{}}\", {name}::shared_helper());\n}}\n");
-    if bins.is_empty() {
-        fs::write(src.join("main.rs"), &main_body).expect("write main.rs");
-    } else {
-        fs::create_dir_all(src.join("bin")).expect("mkdir src/bin");
-        for bin in bins {
-            fs::write(src.join("bin").join(format!("{bin}.rs")), &main_body).expect("write bin");
-        }
-    }
+    fs::write(
+        src.join("main.rs"),
+        "fn main() {\n    println!(\"{}\", onebin::shared_helper());\n}\n",
+    )
+    .expect("write main.rs");
     root
 }
 
-fn query_mains(db: &Path, keyspace: &str) -> std::process::Output {
+fn query_by_name(db: &Path, keyspace: &str, name: &str) -> std::process::Output {
     Command::cargo_bin("cfdb")
         .expect("cfdb binary built for integration tests")
         .args([
@@ -73,20 +98,20 @@ fn query_mains(db: &Path, keyspace: &str) -> std::process::Output {
             db.to_str().expect("utf-8 db path"),
             "--keyspace",
             keyspace,
-            "MATCH (i:Item) WHERE i.name = 'main' RETURN i.qname",
+            &format!("MATCH (i:Item) WHERE i.name = '{name}' RETURN i.qname"),
         ])
         .output()
         .expect("spawn `cfdb query`")
 }
 
 #[test]
-fn two_bin_contention_warns_on_extract_stderr_and_query_output() {
-    let ws = write_fixture("twobins", &["alpha", "beta"]);
-    let db = fixture_root("twobins-db");
+fn cfg_twin_contention_warns_on_extract_stderr_and_query_output() {
+    let ws = write_cfg_twin_fixture();
+    let db = fixture_root("cfgtwins-db");
 
     // Inject-bite half 1: extract exits 0 (diagnostic, not failure) and
     // surfaces the contention on stderr.
-    let out = common::extract_output(&db, &ws, "twobins", &[]);
+    let out = common::extract_output(&db, &ws, "cfgtwins", &[]);
     assert!(
         out.status.success(),
         "extract must stay exit-0 on contention (diagnostic, not failure): {}",
@@ -95,12 +120,12 @@ fn two_bin_contention_warns_on_extract_stderr_and_query_output() {
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
         stderr.contains("identity contention"),
-        "extract stderr must surface the contention, got:\n{stderr}"
+        "extract stderr must surface the cfg-twin param contention, got:\n{stderr}"
     );
 
     // Inject-bite half 2: a LATER `cfdb query` process (fresh load from the
     // persisted keyspace) still carries the warning in its result JSON.
-    let q = query_mains(&db, "twobins");
+    let q = query_by_name(&db, "cfgtwins", "dispatch");
     assert!(q.status.success());
     let stdout = String::from_utf8_lossy(&q.stdout);
     assert!(
@@ -111,7 +136,7 @@ fn two_bin_contention_warns_on_extract_stderr_and_query_output() {
 
 #[test]
 fn one_bin_control_extract_is_contention_silent() {
-    let ws = write_fixture("onebin", &[]);
+    let ws = write_one_bin_control();
     let db = fixture_root("onebin-db");
 
     let out = common::extract_output(&db, &ws, "onebin", &[]);
@@ -126,7 +151,7 @@ fn one_bin_control_extract_is_contention_silent() {
         "vacuity guard: control fixture must not warn, got:\n{stderr}"
     );
 
-    let q = query_mains(&db, "onebin");
+    let q = query_by_name(&db, "onebin", "main");
     assert!(q.status.success());
     let stdout = String::from_utf8_lossy(&q.stdout);
     assert!(

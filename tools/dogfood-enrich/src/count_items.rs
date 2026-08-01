@@ -82,6 +82,68 @@ pub fn count_items_with_kind(
     })
 }
 
+/// Subprocess-invoke `cfdb query` and return the count of `:Item`
+/// nodes with `is_deprecated = true` — the keyspace side of the
+/// `enrich-deprecation` sentinel, used by the harness's zero-extracted
+/// blindspot guard.
+///
+/// Unlike [`count_items_in_keyspace`], an **empty `rows` array maps to
+/// `Ok(0)`**: the cfdb-query evaluator returns zero rows for `count()`
+/// over an empty MATCH instead of one row with `0` (issue #564). For
+/// the denominator counts above, zero items is a catastrophic upstream
+/// regression and erroring is right; here, zero deprecated items is
+/// exactly the value the guard exists to observe.
+pub fn count_deprecated_items_in_keyspace(
+    cfdb_bin: &Path,
+    db: &Path,
+    keyspace: &str,
+) -> io::Result<usize> {
+    let cypher = "MATCH (i:Item) WHERE i.is_deprecated = true WITH count(i) AS n RETURN n";
+    let output = Command::new(cfdb_bin)
+        .arg("query")
+        .arg("--db")
+        .arg(db)
+        .arg("--keyspace")
+        .arg(keyspace)
+        .arg(cypher)
+        .output()?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(io::Error::other(format!(
+            "cfdb query exited {}: {stderr}",
+            output.status
+        )));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    parse_count_or_zero(&stdout).map_err(|reason| {
+        io::Error::other(format!(
+            "failed to parse cfdb query stdout: {reason}\nstdout: {stdout}"
+        ))
+    })
+}
+
+/// Pure JSON parser variant for [`count_deprecated_items_in_keyspace`]:
+/// empty `rows` is `Ok(0)` (the #564 empty-aggregation shape), all
+/// other malformations still error.
+fn parse_count_or_zero(stdout: &str) -> Result<usize, String> {
+    let value: serde_json::Value =
+        serde_json::from_str(stdout).map_err(|e| format!("invalid JSON: {e}"))?;
+    let rows = value
+        .get("rows")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| "no `rows` array in JSON".to_string())?;
+    let Some(first) = rows.first() else {
+        return Ok(0);
+    };
+    let n = first
+        .get("n")
+        .and_then(|v| v.as_u64())
+        .ok_or_else(|| "first row missing integer `n` column".to_string())?;
+    Ok(n as usize)
+}
+
 /// Pure JSON parser. Extracts the integer value of the first row's `n`
 /// column. Split out for unit testing.
 fn parse_count(stdout: &str) -> Result<usize, String> {
@@ -121,6 +183,25 @@ mod tests {
   ]
 }"#;
         assert_eq!(parse_count(stdout).unwrap(), 42);
+    }
+
+    #[test]
+    fn parse_count_or_zero_maps_empty_rows_to_zero() {
+        // The #564 shape: count() over an empty MATCH yields no rows.
+        let stdout = r#"{"rows":[],"warnings":[]}"#;
+        assert_eq!(parse_count_or_zero(stdout).unwrap(), 0);
+    }
+
+    #[test]
+    fn parse_count_or_zero_extracts_first_row_n() {
+        let stdout = r#"{"rows":[{"n":1}],"warnings":[]}"#;
+        assert_eq!(parse_count_or_zero(stdout).unwrap(), 1);
+    }
+
+    #[test]
+    fn parse_count_or_zero_still_rejects_missing_n() {
+        let err = parse_count_or_zero(r#"{"rows":[{"total":3}]}"#).unwrap_err();
+        assert!(err.contains("`n` column"), "unexpected error: {err}");
     }
 
     #[test]
