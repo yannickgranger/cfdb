@@ -1,10 +1,10 @@
 //! `EnrichBackend` implementation for `PetgraphStore`.
 //!
-//! RFC-031 §2 — enrichment is a sibling trait. PetgraphStore inherits the
-//! seven Phase A stubs (`EnrichReport::not_implemented`); concrete enrichment
-//! passes override individual methods as #43 slices land.
+//! Enrichment is a sibling trait. PetgraphStore inherits the
+//! seven stubs (`EnrichReport::not_implemented`); concrete enrichment
+//! passes override individual methods.
 //!
-//! `enrich_deprecation` overridden in slice 43-C (#106) to report the real
+//! `enrich_deprecation` overridden to report the real
 //! source as the extractor rather than deflecting to `not_implemented`. The
 //! deprecation facts (`is_deprecated`, `deprecation_since`) are populated at
 //! extraction time by `cfdb-extractor` via `extract_deprecated_attr`, so the
@@ -23,8 +23,6 @@ use crate::PetgraphStore;
 impl PetgraphStore {
     /// Guard #1 — keyspace existence. Returns `Err(UnknownKeyspace)` if the
     /// caller's target keyspace is not known to the store; otherwise `Ok(())`.
-    /// Audit 2026-W17 / EPIC #273 / Pattern 3 (cfdb-petgraph F-002): this
-    /// guard was duplicated across 7 enrich verbs.
     fn require_keyspace(&self, keyspace: &cfdb_core::schema::Keyspace) -> Result<(), StoreError> {
         if !self.keyspaces.contains_key(keyspace) {
             return Err(StoreError::UnknownKeyspace(keyspace.clone()));
@@ -36,10 +34,8 @@ impl PetgraphStore {
     /// store has a workspace_root attached, otherwise `Err(degraded report)`
     /// so the caller can early-return the degraded report unchanged.
     /// `purpose_suffix` is the per-verb explanation of what the pass would
-    /// do with the workspace root (e.g. "scan docs/ for RFC references")
-    /// and is preserved verbatim from the previous inline strings — these
-    /// are user-facing diagnostics that vary meaningfully per verb.
-    /// Audit 2026-W17 / EPIC #273 / Pattern 3 (cfdb-petgraph F-002).
+    /// do with the workspace root (e.g. "scan docs/ for RFC references") —
+    /// these are user-facing diagnostics that vary meaningfully per verb.
     fn require_workspace(
         &self,
         verb: &'static str,
@@ -66,9 +62,6 @@ impl EnrichBackend for PetgraphStore {
         &mut self,
         keyspace: &cfdb_core::schema::Keyspace,
     ) -> Result<cfdb_core::enrich::EnrichReport, StoreError> {
-        // Keyspace existence check mirrors other enrichment verbs — a
-        // caller targeting an unknown keyspace gets the same error shape
-        // as `schema_version`/`drop_keyspace`.
         self.require_keyspace(keyspace)?;
         Ok(cfdb_core::enrich::EnrichReport {
             verb: "enrich_deprecation".into(),
@@ -159,11 +152,11 @@ impl EnrichBackend for PetgraphStore {
             .keyspaces
             .get_mut(keyspace)
             .expect("keyspace presence checked above");
-        // RFC-042 §3.2: two passes — first the All-kinds BFS that writes
+        // Two passes — first the All-kinds BFS that writes
         // `reachable_from_entry`, then the ProductionOnly BFS that excludes
         // `kind ∈ {test, bench}` and writes `reachable_from_production_entry`.
-        // The trait surface stays single-call (council R1 Position B); the
-        // dual-pass orchestration is encapsulated here.
+        // The trait surface stays single-call; the dual-pass orchestration
+        // is encapsulated here.
         use crate::enrich::reachability::ReachabilityFilter;
         let pass_all = crate::enrich::reachability::run(state, ReachabilityFilter::All);
         if !pass_all.ran {
@@ -195,8 +188,7 @@ impl EnrichBackend for PetgraphStore {
 
 /// Feature-off path — `quality-metrics` gates syn (+ sha2) out of default
 /// builds. Without the feature the verb still exists and dispatches here,
-/// returning a `ran: false` report whose warning names the feature flag
-/// (RFC-036 §3.3 / issue #203).
+/// returning a `ran: false` report whose warning names the feature flag.
 #[cfg(not(feature = "quality-metrics"))]
 fn enrich_metrics_dispatch(
     _store: &mut PetgraphStore,
@@ -218,7 +210,7 @@ fn enrich_metrics_dispatch(
 /// Feature-on path — requires a `workspace_root` on the store so syn can
 /// re-parse source files referenced by `:Item{kind:"Fn"}.file`. If the
 /// store was built without one, return a `ran: false` degraded report
-/// naming the configuration gap (mirrors `enrich_git_history_dispatch`).
+/// naming the configuration gap.
 #[cfg(feature = "quality-metrics")]
 fn enrich_metrics_dispatch(
     store: &mut PetgraphStore,
@@ -238,10 +230,10 @@ fn enrich_metrics_dispatch(
     crate::enrich::metrics::run(state, &root, &crate::enrich::metrics::Config::default())
 }
 
-/// Feature-off path — the real pass is gated on `git-enrich` to keep libgit2
-/// out of default builds (rust-systems Q1 / Q6). Without the feature the verb
-/// still exists and dispatches here, returning a `ran: false` report whose
-/// warning names the feature flag (AC-1 / issue #105).
+/// Feature-off path — the real pass is gated on `git-enrich` to keep
+/// libgit2 out of default builds. Without the feature the verb still
+/// exists and dispatches here, returning a `ran: false` report whose
+/// warning names the feature flag.
 #[cfg(not(feature = "git-enrich"))]
 fn enrich_git_history_dispatch(
     _store: &mut PetgraphStore,

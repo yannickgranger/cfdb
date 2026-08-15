@@ -22,9 +22,8 @@
 //!
 //! ## Why subprocess, not direct keyspace read
 //!
-//! Same discipline as [`crate::count_items`] (RFC-039 §3.5.1) — the
-//! harness never links `cfdb-cli`; it invokes `cfdb` exactly as the
-//! violations sentinel will.
+//! Same discipline as [`crate::count_items`] — the harness never links
+//! `cfdb-cli`; it invokes `cfdb` exactly as the violations sentinel will.
 
 use std::io;
 use std::path::Path;

@@ -1,63 +1,23 @@
 //! Source-side ground truth for the `enrich-deprecation` dogfood.
 //!
-//! Counts occurrences of the bare single-segment `#[deprecated]`
-//! attribute (in any of its three accepted forms — bare path,
-//! `note = "..."`, `since = "X.Y.Z"`) at **attribute position in real
-//! code**: comments and string/char literals are lexically stripped
-//! before the regex runs, and only files the extractor actually walked
-//! (the keyspace's `:File` node set, supplied by the caller) are
-//! counted. Multi-segment paths like `#[serde(deprecated = "true")]`
-//! are deliberately not counted, mirroring the discipline in
-//! [`cfdb_extractor::attrs::extract_deprecated_attr`] (per RFC-039
-//! §3.1 `enrich-deprecation` row).
+//! Counts occurrences of the bare single-segment `#[deprecated]` attribute
+//! at attribute position in real code. Comments and string/char literals
+//! are lexically stripped before the regex runs, and only files the
+//! extractor actually walked are counted.
 //!
-//! The harness substitutes the count into the
-//! `.cfdb/queries/self-enrich-deprecation.cypher` template's
-//! `{{ ground_truth_count }}` placeholder. The Cypher sentinel then
-//! compares it against `count(:Item WHERE is_deprecated = true)`. A
-//! drop in the extracted count surfaces as a violation row.
+//! The harness substitutes the count into the `.cfdb/queries/self-enrich-deprecation.cypher`
+//! template's `{{ ground_truth_count }}` placeholder. The Cypher sentinel then
+//! compares it against `count(:Item WHERE is_deprecated = true)`.
 //!
-//! ## Why comment/string stripping is load-bearing
+//! The sentinel asserts that within the files the extractor claims to have
+//! walked, every attribute-position `#[deprecated]` is reflected in the
+//! graph. A file the extractor wrongly skips entirely shrinks both sides of
+//! the comparison in lockstep and is invisible here — an accepted residual
+//! risk.
 //!
-//! The original helper (issue #343) ran the regex over raw file text
-//! across a full workspace walk. That overcounted massively: at the
-//! PR #563 diagnosis, raw-text matches on cfdb-self stood at 73 while
-//! genuine attribute-position occurrences in extractor-walked files
-//! stood at exactly 1 — the other 72 lived in doc comments, string
-//! literals (this very file's tests), and fixture crates the extractor
-//! never walks (`examples/queries/fixtures/`, `crates/*/tests/`
-//! integration-test targets). The mismatch was masked by the
-//! count()-over-empty-match evaluator bug (#564) until cfdb-self
-//! gained its first real `#[deprecated]` item.
-//!
-//! ## Scoping contract (extractor-walked files only)
-//!
-//! The caller passes the workspace-relative file list from the
-//! keyspace's `:File` nodes ([`crate::extracted_files`]). The sentinel
-//! therefore asserts: *within the files the extractor claims to have
-//! walked, every attribute-position `#[deprecated]` is reflected in
-//! the graph*. A file the extractor wrongly skips entirely shrinks
-//! both sides of the comparison in lockstep and is invisible here —
-//! accepted residual risk: the only current net for that class is the
-//! nightly `cfdb-recall` ratio check (threshold-based and not yet a
-//! PR-blocking required context), and re-deriving the walk in this
-//! harness would duplicate exactly the resolution logic under test.
-//!
-//! Second known granularity gap (#565): `#[deprecated]` on a struct
-//! field or enum variant is counted here (attribute position in a
-//! walked file) but the extractor only emits `is_deprecated` on
-//! `:Item` — `:Field`/`:Variant` cannot carry it. The first such
-//! attribute added to a walked tree turns this gate RED with no
-//! extractor regression (fails closed). Resolution is RFC-gated
-//! schema work tracked in #565.
-//!
-//! ## Why text-lex, not syn-parse
-//!
-//! RFC-039 §3.5.1 keeps `dogfood-enrich` a small leaf — no `syn` dep.
-//! The stripper is a ~100-line lexical scanner (line/block comments,
-//! plain/raw/byte strings, char literals vs lifetimes) — enough to
-//! kill every comment/literal false positive without a full parser.
-//! Known residual false positive: `#[deprecated]` inside a macro token
+//! The stripper is a lexical scanner (line/block comments, plain/raw/byte
+//! strings, char literals) — enough to kill comment/literal false positives
+//! without a full parser. Known residual false positive: `#[deprecated]` inside a macro token
 //! tree (e.g. `quote! { #[deprecated] fn x() {} }`) would still count
 //! while the extractor emits nothing. cfdb-self has zero such
 //! occurrences; if one appears, the sentinel fails closed (RED), which

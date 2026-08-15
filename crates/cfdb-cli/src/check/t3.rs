@@ -78,7 +78,7 @@ fn project_t3_row(row: &Row, canonical_crates: &BTreeSet<String>) -> Option<T3Ro
     let is_cross_context = n_contexts > 1;
     // Pick the first crate in this row's `crates[]` list that is
     // declared as some `:Context.canonical_crate` — this is the
-    // "canonical candidate" in the T3 row shape per issue AC-4.
+    // "canonical candidate" in the T3 row shape.
     // `BTreeSet::contains` is O(log n); `crates[]` is small in
     // practice (workspace-scale, not ecosystem-scale).
     let canonical_candidate = crates

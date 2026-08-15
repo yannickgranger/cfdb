@@ -3,8 +3,7 @@
 //! Fires when a changed path sits under any prefix declared in
 //! `financial-precision-crates.toml` (top-level `financial_precision_prefixes`
 //! array). These are crates where `rust_decimal::Decimal` is mandatory; any
-//! touch is a lower-bound signal that the agent must inspect for f64 escapes
-//! (per RFC-034 §4.2 lower-bound semantic).
+//! touch is a signal that the agent must inspect for f64 escapes.
 
 use serde_json::json;
 use std::path::Path;

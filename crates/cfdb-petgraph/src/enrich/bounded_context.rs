@@ -1,6 +1,6 @@
 //! `enrich_bounded_context` — re-read `.cfdb/concepts/*.toml` and patch
 //! `:Item.bounded_context` on crates whose TOML mapping changed between
-//! extractions (slice 43-E / issue #108).
+//! extractions.
 //!
 //! # Scope — this is a re-enrichment pass
 //!

@@ -1,8 +1,7 @@
-//! Method-level `:Item` emission for `cfdb-extractor-ts` (RFC-045 45-D0).
+//! Method-level `:Item` emission for `cfdb-extractor-ts`.
 //!
-//! The MVP emitted one `:Item` per class and no methods, so the call slice
-//! (45-D) had no `caller_qname` / `INVOKES_AT` anchor. This module descends a
-//! `class_body` and emits a method `:Item{kind:"fn"}` per:
+//! This module descends a `class_body` and emits a method `:Item{kind:"fn"}`
+//! for each method-bearing member:
 //!
 //! - `method_definition` — regular methods, getters (`get x()`), setters
 //!   (`set x(v)`), `async`, generators (`*g()`), and `static` methods all
@@ -69,7 +68,7 @@ pub(crate) fn emit_class_methods(
                 nodes,
                 edges,
             );
-            // Call sites in the method body (RFC-045 45-D) — caller is this method.
+            // Call sites in the method body — caller is this method.
             crate::call_walker::walk_call_sites(member, source, &qname, rel_path, nodes, edges);
             // Record after use so the owned `qname` moves into the set — no
             // per-iteration clone (it is borrowed by the two emit calls above).

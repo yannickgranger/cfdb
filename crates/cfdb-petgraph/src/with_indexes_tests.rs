@@ -1,5 +1,4 @@
-//! Slice-7 (#186) — `PetgraphStore::with_indexes` builder + `keyspace_mut`
-//! spec propagation.
+//! `PetgraphStore::with_indexes` builder + `keyspace_mut` spec propagation.
 //!
 //! The slice closes the spec-flow gap between `cfdb-cli::compose::load_store*`
 //! and per-keyspace `by_prop` posting lists: a store constructed via

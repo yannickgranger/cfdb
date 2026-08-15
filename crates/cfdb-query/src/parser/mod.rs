@@ -1,17 +1,17 @@
 //! Cypher-subset parser built on chumsky 0.10.
 //!
-//! Scope: the v0.1 subset locked by study 001 §8.4 — MATCH / OPTIONAL MATCH /
-//! WHERE / WITH / UNWIND / RETURN, with property access, regex, IN, NOT EXISTS,
-//! aggregation, variable-length paths, and `$param` bindings.
+//! Scope: the v0.1 subset — MATCH / OPTIONAL MATCH / WHERE / WITH / UNWIND /
+//! RETURN, with property access, regex, IN, NOT EXISTS, aggregation,
+//! variable-length paths, and `$param` bindings.
 //!
 //! Out of scope: CREATE / MERGE / DELETE / SET / REMOVE / CALL / list
 //! comprehensions / multi-statement scripts. These are rejected up-front
 //! with a clear message.
 //!
-//! The public entry point is [`parse`]. Errors produced by chumsky are mapped
-//! to a crate-local [`ParseError`] so chumsky types do not leak across the
-//! crate boundary — this keeps RFC §14's "actionable error messages" concern
-//! in one place.
+//! The public entry point is [`parse`]. Errors produced by chumsky are
+//! mapped to a crate-local [`ParseError`] so chumsky types do not leak
+//! across the crate boundary — this keeps error messages actionable in one
+//! place.
 
 use std::collections::BTreeMap;
 

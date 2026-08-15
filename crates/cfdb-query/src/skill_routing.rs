@@ -1,10 +1,9 @@
-//! `SkillRoutingTable` — external DebtClass → skill mapping (§A2.3).
+//! `SkillRoutingTable` — external DebtClass → skill mapping.
 //!
 //! The classifier emits `:Finding` rows carrying only the abstract
 //! `DebtClass`. Skill routing — the mapping from class to concrete
 //! Claude skill — is a policy concern that lives OUTSIDE the graph
-//! schema per council BLOCK-1 + solid-architect verdicts (RFC-cfdb-v0.2-
-//! addendum-draft.md §A2.3).
+//! schema.
 //!
 //! This module loads `.cfdb/skill-routing.toml` (or an equivalent TOML
 //! buffer) into a strongly-typed table exposing one lookup: `route(class)

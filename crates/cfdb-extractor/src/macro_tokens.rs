@@ -6,19 +6,12 @@
 //! `tracing::info!(...)`, and any other expression-carrying macro
 //! *invocation* become visible.
 //!
-//! Factored out of the functionally byte-for-byte duplicate that
-//! previously lived in both [`crate::call_visitor`] and
-//! [`crate::literal_visitor`] (RFC-053 §3.3 in-slice boy-scout, rule of
-//! three) — [`crate::match_visitor`] is the third caller, which is why
-//! `match` expressions inside re-parseable macro invocation bodies ARE
-//! extracted, consistent with call sites and literals.
-//!
 //! Unparseable bodies (format strings without trailing exprs, DSL macros
 //! like `quote!`, `macro_rules!` *definitions*) fall through silently:
 //! this is best-effort by design. `macro_rules!` definition bodies are a
 //! hard boundary — `syn::visit::Visit` never recurses into an `ItemMacro`
-//! token tree (RFC-053 §3.6 documented evasion path). The goal is to catch
-//! the common expression-carrying macros, not to expand every macro.
+//! token tree. The goal is to catch the common expression-carrying macros,
+//! not to expand every macro.
 
 use syn::visit::Visit;
 
@@ -63,10 +56,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    //! First unit coverage of the previously-duplicated, untested
-    //! macro-token re-parse logic (RFC-053 §3.3 boy-scout). A minimal
-    //! recording visitor proves the helper re-parses a macro body and
-    //! drives the visitor through the expressions it carries.
+    //! Unit tests for macro-token re-parse logic. A minimal recording
+    //! visitor proves the helper re-parses a macro body and drives the
+    //! visitor through the expressions it carries.
 
     use super::*;
     use syn::visit::Visit;

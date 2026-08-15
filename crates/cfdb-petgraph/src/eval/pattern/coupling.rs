@@ -1,8 +1,7 @@
 //! Coupling-analysis and pattern-evaluation helpers extracted from
-//! `pattern.rs` to keep the parent under the 500-line god-file
-//! threshold (#421 boy-scout, RFC-044 §3.7 quality-all god-file gate).
-//! These helpers are private to the `pattern` module — kept `pub(super)`
-//! so the `impl Evaluator` block in `pattern.rs` can reach them.
+//! `pattern.rs` to keep the parent under the 500-line god-file threshold.
+//! These helpers are private to the `pattern` module — kept `pub(super)` so
+//! the `impl Evaluator` block in `pattern.rs` can reach them.
 
 use cfdb_core::query::{EdgePattern, NodePattern, Pattern, Predicate};
 use cfdb_core::result::RowValue;
@@ -29,10 +28,10 @@ pub(super) fn unwind_row(
     });
 }
 
-/// Static analysis for issue #409 — return `true` iff the candidate
-/// set produced by [`Evaluator::candidate_nodes`] is provably the same
-/// for every incoming binding row. The cached fast path in
-/// [`Evaluator::apply_node_pattern`] is only safe under this predicate.
+/// Static analysis — return `true` iff the candidate set produced by
+/// [`Evaluator::candidate_nodes`] is provably the same for every incoming
+/// binding row. The cached fast path in [`Evaluator::apply_node_pattern`] is
+/// only safe under this predicate.
 ///
 /// The candidate set is independent iff every LEAF predicate inside the
 /// top-level WHERE is either:
@@ -50,15 +49,14 @@ pub(super) fn unwind_row(
 ///    lookup falls back to `nodes_with_label`, which IS
 ///    binding-independent. Cache is safe.
 ///
-/// **Why this matters empirically (#409 closeout)**: on cfdb-self the
-/// `hsb-cluster.cypher` rule joins on `dup_cluster_id`, a prop only
-/// populated when ≥2 fns share a `signature_hash`. cfdb has no such
-/// duplicates so the prop is null on every `:Item`. The original
-/// (keyspace-blind) check classified the predicate as narrowing-coupling
-/// and forced per-row iteration over 25k × 25k = 625M pairs, taking
-/// ~4 minutes to produce zero rows. With the keyspace-aware check the
-/// empty bucket triggers the cache fast path, collapsing the cost to
-/// a single label scan.
+/// **Why this matters empirically**: on cfdb-self the `hsb-cluster.cypher`
+/// rule joins on `dup_cluster_id`, a prop only populated when ≥2 fns share
+/// a `signature_hash`. cfdb has no such duplicates so the prop is null on
+/// every `:Item`. The original (keyspace-blind) check classified the
+/// predicate as narrowing-coupling and forced per-row iteration over 25k ×
+/// 25k = 625M pairs, taking ~4 minutes to produce zero rows. With the
+/// keyspace-aware check the empty bucket triggers the cache fast path,
+/// collapsing the cost to a single label scan.
 ///
 /// `Or` / `Not` / `NotExists` are treated conservatively as coupling
 /// (no keyspace probe; per-row safety preserved). These shapes are

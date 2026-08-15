@@ -1,11 +1,10 @@
 //! `impact_query` — the canonical `cfdb impact` reverse-reachability query
-//! composer (RFC-047 §3.2, slice 47-A / #489).
+//! composer.
 //!
 //! Given a list of changed-item seed qnames, composes the parameterised
 //! `Query` AST that collects every transitive *caller* of those seeds — the
 //! blast radius of a change. The traversal is the open variable-length form
-//! `(seed)<-[:CALLS*1..]-(affected)` that slice 47-0 (#488) made expressible
-//! and un-truncated (RFC-047a B1 + B2): `*1..` is `Some((1, u32::MAX))` and the
+//! `(seed)<-[:CALLS*1..]-(affected)`: `*1..` is `Some((1, u32::MAX))` and the
 //! evaluator walks it unbounded via its visited-set.
 //!
 //! Like the sibling [`crate::list_items::list_items_matching`] composer, it
@@ -24,21 +23,20 @@ use cfdb_core::query::{
 };
 use cfdb_core::schema::{EdgeLabel, Label};
 
-/// The canonical `cfdb impact` reverse-reachability query (RFC-047 §3.2), in
+/// The canonical `cfdb impact` reverse-reachability query, in
 /// the v0.1 Cypher subset. [`impact_query`] builds this exact shape as a
 /// `Query` AST — the string is the human-readable source of truth, pinned to
 /// the built AST by the `impact_query_matches_canonical_cypher` test.
 ///
 /// `$seeds` binds a `ParamBinding::List` of seed qnames; the open form
 /// `<-[:CALLS*1..]-` collects every transitive caller of the bound seeds,
-/// unbounded (RFC-047a B2). `DISTINCT` dedups items reachable via more than one
-/// call path. Reduced to the single `affected.qname` column this slice asserts
-/// on — the production-reachability ranking is slice 47-C.
+/// unbounded. `DISTINCT` dedups items reachable via more than one
+/// call path.
 pub const IMPACT_QUERY: &str = "MATCH (seed:Item)<-[:CALLS*1..]-(affected:Item) \
      WHERE seed.qname IN $seeds \
      RETURN DISTINCT affected.qname AS qname";
 
-/// Compose the canonical `cfdb impact` query (RFC-047 §3.2) for a list of
+/// Compose the canonical `cfdb impact` query for a list of
 /// changed-item seed qnames.
 ///
 /// Returns a [`Query`] AST value with `$seeds` already bound to a
@@ -49,7 +47,7 @@ pub const IMPACT_QUERY: &str = "MATCH (seed:Item)<-[:CALLS*1..]-(affected:Item) 
 /// `max_depth` bounds the traversal: `None` is the open form `<-[:CALLS*1..]-`
 /// (unbounded, the canonical default — [`IMPACT_QUERY`]); `Some(n)` is
 /// `<-[:CALLS*1..n]-` (callers within `n` hops). This is the `*1..N` form the
-/// `cfdb impact --max-depth` flag maps to (RFC-047a §6 / slice 47-B).
+/// `cfdb impact --max-depth` flag maps to.
 pub fn impact_query<S: AsRef<str>>(seeds: &[S], max_depth: Option<u32>) -> Query {
     // `(var:Item)` endpoint — the seed and affected nodes share this shape.
     let item_endpoint = |var: &str| NodePattern {
@@ -112,8 +110,8 @@ pub fn impact_query<S: AsRef<str>>(seeds: &[S], max_depth: Option<u32>) -> Query
     }
 }
 
-/// Compose the projection that feeds `cfdb impact --since` SEED RESOLUTION
-/// (RFC-047 §3.3): `(qname, file)` for every `:Item`.
+/// Compose the projection that feeds `cfdb impact --since` SEED RESOLUTION:
+/// `(qname, file)` for every `:Item`.
 ///
 /// The caller matches each row's `file` against the `git diff` changed-file set
 /// (repo-relative) and seeds [`impact_query`] with the matching qnames. The
@@ -205,7 +203,7 @@ mod tests {
 
     #[test]
     fn impact_query_max_depth_bounds_the_traversal() {
-        // `--max-depth N` maps to the bounded form `*1..N` (RFC-047a §6 / 47-B).
+        // `--max-depth N` maps to the bounded form `*1..N`.
         let q = impact_query(&["x"], Some(3));
         let Pattern::Path(PathPattern { edge, .. }) = &q.match_clauses[0] else {
             unreachable!("the canonical impact match is a single Path pattern");

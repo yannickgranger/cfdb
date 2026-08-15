@@ -92,7 +92,7 @@ fn get_item_props(store: &PetgraphStore, keyspace: &Keyspace, qname: &str) -> Pr
 }
 
 // ------------------------------------------------------------------
-// AC-2: two-commit fixture — counts + last-ts + last-author correct.
+// Two-commit fixture — counts + last-ts + last-author correct.
 // ------------------------------------------------------------------
 
 #[test]

@@ -1,46 +1,17 @@
-//! The `FrameworkDetector` registry seam (RFC-049 §3.1 / §3.2, slice
-//! 49-0). The pre-existing HIR entry-point detection was a single
-//! `match`-on-`SyntaxKind` dispatch inlined into the file scan; this
-//! module lifts each framework's recogniser behind a registered
-//! [`FrameworkDetector`] so that *adding* a framework becomes a
-//! registration, not a new `match` arm (the OCP extension point the
-//! RFC calls for).
+//! The `FrameworkDetector` registry seam. Each framework's recogniser is
+//! behind a registered [`FrameworkDetector`] so that adding a framework
+//! becomes a registration, not a new `match` arm.
 //!
-//! **Recall-neutral (49-0 invariant).** This slice is a behaviour-
-//! preserving refactor: every detector reuses the parent module's
-//! existing recogniser helpers verbatim, and [`extract_entry_points`]'s
-//! final sort makes the per-detector pass order irrelevant to the
-//! emitted bytes. cfdb's own `:EntryPoint` / `EXPOSES` /
-//! `REGISTERS_PARAM` set is identical before and after.
+//! This is a behaviour-preserving refactor: every detector reuses existing
+//! recogniser helpers verbatim, and the final sort makes the per-detector
+//! pass order irrelevant to the emitted bytes.
 //!
-//! [`extract_entry_points`]: super::extract_entry_points
+//! Each framework detector is gated on its framework's presence in the
+//! workspace crate graph, so a detector never runs on a workspace that
+//! does not depend on its framework.
 //!
-//! **Manifest gating (RFC-049 §3.1).** Each framework detector is gated
-//! on its framework's presence in the workspace crate graph
-//! (`present(manifest)`), so a detector never runs on a workspace that
-//! does not depend on its framework — the §4 "no false positives
-//! off-framework" invariant. The [`Manifest`] is populated from the
-//! loaded crate graph ([`Manifest::from_crate_graph`]) and carries the
-//! workspace members' own direct dependency names. Slice 49-A (#494)
-//! gates the clap
-//! (`cli_command`) detector on the `clap` dependency; slice 49-B (#495)
-//! gates the axum/actix (`http_route`) detector on `axum`/`actix_web`.
-//! The MCP, cron and websocket detectors remain unconditionally present
-//! — narrowing them is not in the 49-A/B scope.
-//!
-//! **Recall-neutral on cfdb-self.** cfdb depends on `clap` (the clap
-//! detector fires identically before and after the gate) and on neither
-//! axum nor actix-web (the http_route detector is inert, and cfdb's own
-//! sources carry no route idiom, so its `:EntryPoint` set is unchanged).
-//! A recall fixture that declares an idiom carries a stub dependency of
-//! the framework's crate name so the gate observes it; a fixture with
-//! the idiom but no framework dependency proves the detector inert (§4).
-//!
-//! **Language scoping (RFC-049 §3.1 Q4).** This registry is the *Rust*
-//! detector set; its `detect` is parameterised by the Rust HIR AST. The
-//! PHP / TypeScript detectors (49-C / 49-D) live in their own extractor
-//! crates over their own (tree-sitter) ASTs and never share this trait
-//! — a detector never reaches across a language-extractor boundary.
+//! This registry is the *Rust* detector set; its `detect` is parameterised
+//! by the Rust HIR AST.
 
 use std::collections::BTreeSet;
 use std::path::Path;

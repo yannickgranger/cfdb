@@ -1,7 +1,6 @@
-//! Slice-7 (#186) — stable rendering of a `NodePattern` into the
-//! `(<var>:<Label>)` string used by `cfdb scope --explain`. Lives in a
-//! sibling module so `eval/pattern.rs` stays under the 500 LoC god-file
-//! ceiling. Dogfood tests grep on the bracket shape — do not change
+//! Stable rendering of a `NodePattern` into the
+//! `(<var>:<Label>)` string used by `cfdb scope --explain`.
+//! Dogfood tests grep on the bracket shape — do not change
 //! the format without matching updates to their assertions.
 
 use cfdb_core::query::NodePattern;

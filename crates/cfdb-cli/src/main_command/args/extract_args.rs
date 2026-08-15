@@ -1,10 +1,6 @@
-//! `cfdb extract` argument struct. Lifted out of the parent `args.rs`
-//! in a second #248 slice because `args.rs` alone crossed the 500-LoC
-//! god-file threshold after agent C's initial move. Subcommand-enum
-//! flattening via `#[derive(clap::Args)]` preserves the exact CLI UX
-//! (`cfdb extract --workspace ... --db ...`) — only the internal Rust
-//! data shape changes: `Command::Extract(ExtractArgs)` instead of
-//! `Command::Extract { workspace, db, ... }`.
+//! `cfdb extract` argument struct. Subcommand-enum flattening via
+//! `#[derive(clap::Args)]` preserves the exact CLI UX (`cfdb extract --workspace ... --db ...`)
+//! — only the internal Rust data shape changes to `Command::Extract(ExtractArgs)`.
 
 use std::path::PathBuf;
 
@@ -29,19 +25,14 @@ pub(crate) struct ExtractArgs {
     pub keyspace: Option<String>,
     /// Run the HIR-based extractor after syn to add resolved
     /// `:CallSite`, `CALLS`, `INVOKES_AT`, `:EntryPoint`, and
-    /// `EXPOSES` facts. Requires the `hir` Cargo feature —
-    /// rebuild with `cargo build -p cfdb-cli --features hir`
-    /// to opt in (Issue #86 / slice 4).
+    /// `EXPOSES` facts. Requires the `hir` Cargo feature.
     #[arg(long)]
     pub hir: bool,
     /// Disable the proc-macro server during HIR extraction. By default
     /// (`--hir` without this flag) cfdb passes `ProcMacroServerChoice::Sysroot`
     /// to `ra_ap_load_cargo`, raising receiver-type-resolution recall on
     /// `#[async_trait]` / `#[derive(Builder)]` / `#[tokio::test]` /
-    /// cucumber-step chains (RFC-043). Pass this flag to restore the
-    /// pre-RFC-043 syn-only resolution if a determinism break or
-    /// wall-clock budget overrun warrants the escape (RFC-043 §3.5).
-    /// Only meaningful with `--hir`.
+    /// cucumber-step chains. Only meaningful with `--hir`.
     #[arg(long)]
     pub no_proc_macro: bool,
     /// Extract against a specific git revision. Accepts two forms:
@@ -49,24 +40,20 @@ pub(crate) struct ExtractArgs {
     ///   1. `<sha|tag|branch>` — same-repo: requires `--workspace`
     ///      to point at a git repository root; shells out to
     ///      `git worktree add --detach <tmp> <rev>` and extracts
-    ///      from the tmp tree. (Issue #37 / RFC-032 §A1.6.)
+    ///      from the tmp tree.
     ///
     ///   2. `<url>@<sha>` — remote: clones `<url>` into a persistent
     ///      cache at `$CFDB_CACHE_DIR` (or `$XDG_CACHE_HOME/cfdb/extract`
     ///      or `$HOME/.cache/cfdb/extract`), checks out `<sha>`, and
     ///      extracts. Auth inherits ambient git credentials. Accepted
     ///      URL schemes: `http://`, `https://`, `ssh://`, `file://`.
-    ///      (Issue #96 / RFC-cfdb.md Addendum B §A1.7, Option W
-    ///      bilateral drift-lock.)
     #[arg(long)]
     pub rev: Option<String>,
     /// Emit a per-phase wall-clock breakdown of the extract to stderr
     /// after it completes — `{cargo-metadata, syn-walk, deferred-resolve,
-    /// ingest, hir-load (if --hir), save}` (RFC-048 §3.1, slice 48-A).
-    /// Diagnostic only: the timings go to stderr, never into the keyspace
-    /// or its determinism hash, so the extracted graph is byte-identical
-    /// with or without this flag. Requires the `lang-rust` feature (the
-    /// profiled phases are the Rust extract pipeline's).
+    /// ingest, hir-load (if --hir), save}`. Diagnostic only: the timings
+    /// go to stderr, never into the keyspace or its determinism hash, so
+    /// the extracted graph is byte-identical with or without this flag.
     #[arg(long)]
     pub profile: bool,
 }

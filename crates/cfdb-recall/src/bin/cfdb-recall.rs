@@ -60,8 +60,8 @@ struct Cli {
     /// `cfdb_recall::thresholds` (defaults to
     /// `RECALL_THRESHOLD_PER_CRATE`). Raising the floor requires editing
     /// the constant in `crates/cfdb-recall/src/thresholds.rs` and a
-    /// reviewed PR. The PR-time slim build still uses
-    /// `DEFAULT_THRESHOLD` (RFC-029 §13 Item 2 = 0.95).
+    /// reviewed PR. The PR-time slim build still uses `DEFAULT_THRESHOLD`
+    /// (default: 0.95).
     #[arg(long)]
     threshold: Option<f64>,
 
@@ -70,11 +70,11 @@ struct Cli {
     #[arg(long)]
     gaps_file: Option<PathBuf>,
 
-    /// Where to write the machine-readable per-crate + aggregate report
-    /// as JSON. Consumed by the nightly Gitea status workflow (#340) to
-    /// drive per-crate `recall/<crate>` and aggregate `recall/total`
-    /// commit statuses, and uploaded as the `recall-ratios.json`
-    /// workflow artifact (AC-2). If omitted, no file is written.
+    /// Where to write the machine-readable per-crate + aggregate report as
+    /// JSON. Consumed by the nightly Gitea status workflow to drive
+    /// per-crate `recall/<crate>` and aggregate `recall/total` commit
+    /// statuses, and uploaded as the `recall-ratios.json` workflow artifact.
+    /// If omitted, no file is written.
     ///
     /// Schema:
     /// ```json

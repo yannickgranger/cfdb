@@ -29,10 +29,9 @@ use crate::target_map::EmitCtx;
 ///   The path comes from the `web::resource` receiver; the handler
 ///   from the innermost `.to()` call.
 ///
-/// Handlers that do not resolve to a concrete
-/// `ModuleDef::Function` (closures, unresolved paths, trait methods
-/// without a known impl) are skipped — AC-5 from issue #124 mandates
-/// path-resolved handlers, not raw closure expressions.
+/// Handlers that do not resolve to a concrete `ModuleDef::Function`
+/// (closures, unresolved paths, trait methods without a known impl) are
+/// skipped — handlers must be path-resolved, not raw closure expressions.
 pub(super) fn classify_http_route_method_call<DB>(
     sema: &Semantics<'_, DB>,
     ctx: &EmitCtx<'_>,

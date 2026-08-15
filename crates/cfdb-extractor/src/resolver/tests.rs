@@ -1,8 +1,7 @@
 //! Unit tests for the post-walk resolvers — the MATCHES_ON resolution
-//! pass (RFC-053 §3.2, slice 53-B) plus the first direct coverage of the
-//! shared `resolve_type_string` / `build_last_segment_index` primitives
-//! (prescribed 53-B byproduct). Extracted to a sibling file to keep
-//! `resolver.rs` under the architecture god-file ceiling.
+//! pass plus the first direct coverage of the shared `resolve_type_string`
+//! / `build_last_segment_index` primitives. Extracted to a sibling file to
+//! keep `resolver.rs` under the architecture god-file ceiling.
 //!
 //! The parent `resolver.rs` declares this module via
 //! `#[cfg(test)] mod tests;`, so this file does NOT carry its own
@@ -10,7 +9,7 @@
 //! violation (rust-1.93 `clippy::duplicated_attributes`). `use super::*`
 //! sees the private `resolve_type_string` / `build_last_segment_index` /
 //! `is_segment_suffix` siblings, so the primitive tests need no
-//! visibility widening (RFC-053 §3.2).
+//! visibility widening.
 
 use super::*;
 

@@ -1,19 +1,18 @@
 //! Shared helpers for syn-based argument classification.
 //!
-//! RFC-043 Slice A (clean-arch §5.1 finding 2): `syn` types cannot enter
-//! `cfdb-core` (RFC-032 §3 boundary precedent), so the shared `kind`
-//! classifier lives here. Both `cfdb-extractor` and `cfdb-hir-extractor`
-//! depend on this crate.
+//! `syn` types cannot enter `cfdb-core`, so the shared `kind` classifier
+//! lives here. Both `cfdb-extractor` and `cfdb-hir-extractor` depend on
+//! this crate.
 
 /// Coarse syntactic classification of a `syn::Expr` into the closed-set
-/// `kind` string used on `:Argument` nodes (RFC-043 §3.1 / §3.2).
+/// `kind` string used on `:Argument` nodes.
 ///
 /// Returns one of: `"path"`, `"method_call"`, `"call"`, `"ref"`,
 /// `"literal"`, `"other"`.
 ///
 /// Cypher ban-rules MUST NOT filter on `kind="other"` — it signals honest
 /// extractor ignorance (an `Expr` variant the classifier does not model),
-/// not a domain concept (RFC-043 §4 Invariant 10 / DDD §5.2 finding 2).
+/// not a domain concept.
 #[must_use]
 pub fn classify_arg_kind(expr: &syn::Expr) -> &'static str {
     match expr {

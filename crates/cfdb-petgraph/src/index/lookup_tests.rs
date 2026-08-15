@@ -1,12 +1,9 @@
-//! Unit tests for [`crate::index::lookup`] (RFC-035 slices 5 #184 + 6 #185).
+//! Unit tests for [`crate::index::lookup`].
 //!
-//! Lives in a sibling `#[cfg(test)] mod` declared from
-//! `index/mod.rs` so `lookup.rs` stays under the workspace god-file
-//! ceiling (500 LoC). Tests reach `pub(crate)` `candidates_from_index`
-//! via `use super::lookup::*` — the helpers it exercises (private
-//! `collect_pattern_hints`, `collect_where_hints`, …) are tested
-//! transitively through the public entry point; direct-private-fn
-//! tests added no coverage the entry-point path didn't already cover.
+//! Tests reach `pub(crate)` `candidates_from_index` via `use super::lookup::*`.
+//! The helpers it exercises (private `collect_pattern_hints`, `collect_where_hints`, …)
+//! are tested transitively through the public entry point; direct-private-fn tests
+//! added no coverage the entry-point path didn't already cover.
 
 use std::collections::BTreeMap;
 

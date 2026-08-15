@@ -1,9 +1,8 @@
-//! RFC-038 §3.3 aggregation rule — four explicit cases prescribed in
-//! issue #302. The rule: when multiple crates resolve to the same
-//! bounded-context name, the emitted `:Context` node's `source` is
-//! `Declared` if ANY contributing crate declared it via override, else
-//! `Heuristic`. Pre-seeding declared contexts first + `or_insert_with`
-//! for heuristic crates implements this implicitly.
+//! Aggregation rule for bounded contexts — when multiple crates resolve
+//! to the same bounded-context name, the emitted `:Context` node's `source`
+//! is `Declared` if ANY contributing crate declared it via override, else
+//! `Heuristic`. Pre-seeding declared contexts first + `or_insert_with` for
+//! heuristic crates implements this implicitly.
 
 use super::workspace_nodes::{accumulate_heuristic_context, seed_declared_contexts};
 use cfdb_concepts::{compute_bounded_context, ConceptOverrides, ContextMeta};
@@ -15,7 +14,7 @@ use tempfile::TempDir;
 /// Synthesise a `ConceptOverrides` by writing a single
 /// `.cfdb/concepts/<context>.toml` file inside a tempdir and feeding it
 /// through the real `cfdb_concepts::load_concept_overrides` loader.
-/// Real-infra preferred over hand-built struct (CLAUDE.md §2.5).
+/// Real-infra preferred over hand-built struct.
 fn overrides_with_one_context(context_name: &str, crates: &[&str]) -> (TempDir, ConceptOverrides) {
     let tmp = TempDir::new().expect("tempdir");
     let dir: PathBuf = tmp.path().join(".cfdb").join("concepts");

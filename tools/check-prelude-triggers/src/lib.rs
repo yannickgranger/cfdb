@@ -1,4 +1,4 @@
-//! `check-prelude-triggers` — Tier-1 mechanical C-trigger binary per RFC-034 v3.3 §4.2.
+//! `check-prelude-triggers` — Tier-1 mechanical C-trigger binary.
 //!
 //! Fires 5 deterministic triggers against a workspace diff:
 //!
@@ -13,9 +13,9 @@
 //! The binary is stateless: it reads argv-supplied paths and emits a versioned
 //! JSON envelope on stdout. See [`report::PreludeTriggerReport`] for the shape.
 //!
-//! Homonym note: the `C*` IDs here are RFC-034 mechanical pre-council triggers
-//! and are distinct from cfdb's internal Cypher-query triggers `T1`/`T3`
-//! (cfdb issues #100/#101). This binary does NOT implement T-triggers.
+//! Homonym note: the `C*` IDs here are mechanical pre-council triggers and
+//! are distinct from cfdb's internal Cypher-query triggers `T1`/`T3`. This
+//! binary does NOT implement T-triggers.
 
 pub mod report;
 pub mod toml_io;

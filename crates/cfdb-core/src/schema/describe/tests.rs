@@ -8,15 +8,6 @@ use super::*;
 fn schema_describe_covers_all_node_labels() {
     let d = schema_describe();
     let labels: Vec<&str> = d.nodes.iter().map(|n| n.label.as_str()).collect();
-    // Order follows RFC §6.1 / PLAN-v1 §6.1 table order; `Context` appended
-    // per council-cfdb-wiring §B.1.3 (v0.1 minor schema bump, #3727);
-    // `RfcDoc` appended per #43-A council round 1 synthesis (reservation
-    // only — first emissions land in slice 43-D); `ConstTable` appended
-    // per RFC-040 slice 1/5 (issue #323 reservation; first emissions land
-    // in slice 3/5, issue #325); `Literal` appended per RFC-041 slice
-    // 041-A (issue #369 reservation; first emissions land in slice 041-B,
-    // issue #370); `MatchSite` appended per RFC-053 slice 53-A (first
-    // emissions land in the same slice via `cfdb-extractor::match_visitor`).
     assert_eq!(
         labels,
         vec![

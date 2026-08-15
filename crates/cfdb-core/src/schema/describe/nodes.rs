@@ -1,9 +1,7 @@
 //! Node-label descriptors for `schema_describe()`.
 //!
-//! Grouped into cohesive submodules (#467) so each file stays under the
-//! 500-line architecture threshold. The split is purely structural:
-//! `schema_describe()` aggregates the same descriptor content regardless of
-//! source-file layout, so the `FROZEN_NARRATIVE_DIGEST` pin is unchanged.
+//! Grouped into cohesive submodules so each file stays under the
+//! 500-line architecture threshold.
 
 mod call_graph;
 mod overlay;

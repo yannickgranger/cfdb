@@ -1,21 +1,15 @@
-//! Council-ratified `ItemKind` vocabulary (RATIFIED.md §A.14, extended by
-//! #479/#515 with `Static` + `Union`).
-//!
-//! The 9 variants are the wire-form surface for the `list_items_matching`
-//! verb; they map to the cfdb syn extractor's lowercase emission strings via
-//! [`ItemKind::to_extractor_str`].
+//! `ItemKind` vocabulary — wire-form surface for the `list_items_matching`
+//! verb. The variants map to the cfdb syn extractor's lowercase emission
+//! strings via [`ItemKind::to_extractor_str`].
 
 use serde::{Deserialize, Serialize};
 
-/// Council-ratified kind vocabulary for the `list_items_matching` verb
-/// (RATIFIED.md §A.14; `Static` + `Union` appended by #479/#515 — `static`
-/// was a wire value with no CLI spelling from the first release, `union`
-/// was recall-listed with no producer). The 9 variants are the wire-form
-/// surface; they map to the extractor's emitted `:Item.kind` strings via
-/// [`ItemKind::to_extractor_str`].
+/// Kind vocabulary for the `list_items_matching` verb. The variants are
+/// the wire-form surface; they map to the extractor's emitted `:Item.kind`
+/// strings via [`ItemKind::to_extractor_str`].
 ///
-/// Variant order matches the council enumeration — consumers that iterate
-/// [`ItemKind::variants`] get the canonical order.
+/// Variant order is canonical — consumers that iterate [`ItemKind::variants`]
+/// get a stable order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ItemKind {
     Struct,
@@ -30,9 +24,7 @@ pub enum ItemKind {
 }
 
 impl ItemKind {
-    /// Canonical list — the council-ratified seven (RATIFIED.md §A.14) in
-    /// their original order, then the #479/#515 additions appended (order
-    /// is stable — callers can depend on it).
+    /// Canonical list of all variants in stable order (callers can depend on it).
     pub fn variants() -> &'static [ItemKind] {
         &[
             ItemKind::Struct,
@@ -47,15 +39,12 @@ impl ItemKind {
         ]
     }
 
-    /// Map a council-named kind to the string the cfdb syn extractor emits
-    /// as `:Item.kind`. The extractor's vocabulary is lowercase and diverges
-    /// from the council names in two spots: `TypeAlias → "type_alias"` and
-    /// `ImplBlock → "impl_block"` (issue #42 / SchemaVersion V0_2_2).
-    /// `cfdb-extractor` now emits one `:Item { kind: "impl_block" }` per
-    /// `impl ... {}` block alongside `IMPLEMENTS` + `IMPLEMENTS_FOR` edges.
-    /// Pre-V0_2_2 keyspaces have zero `impl_block` items — consumers
-    /// that query across schema versions should treat absence as
-    /// "the keyspace is older than #42", not as "the code has no impls".
+    /// Map a kind to the string the cfdb syn extractor emits as `:Item.kind`.
+    /// The extractor's vocabulary is lowercase and diverges from the kind names
+    /// in two spots: `TypeAlias → "type_alias"` and `ImplBlock → "impl_block"`.
+    /// The extractor emits one `:Item { kind: "impl_block" }` per `impl ... {}`
+    /// block alongside `IMPLEMENTS` + `IMPLEMENTS_FOR` edges. Older keyspaces
+    /// may have zero `impl_block` items.
     pub fn to_extractor_str(self) -> &'static str {
         match self {
             ItemKind::Struct => "struct",

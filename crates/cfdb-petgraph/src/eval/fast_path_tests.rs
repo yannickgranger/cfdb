@@ -1,7 +1,6 @@
-//! Prescribed-test surface for RFC-035 slice 5 (#184) — asserts
-//! `candidate_nodes` returns the same `BTreeSet<NodeIndex>` with the
-//! index fast paths enabled and with a bare `IndexSpec` (fallback to
-//! the full `by_label` scan).
+//! Prescribed-test surface — asserts `candidate_nodes` returns the same
+//! `BTreeSet<NodeIndex>` with the index fast paths enabled and with a bare
+//! `IndexSpec` (fallback to the full `by_label` scan).
 //!
 //! Three shapes are covered per the issue body:
 //!

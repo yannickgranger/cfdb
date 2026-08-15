@@ -147,11 +147,11 @@ fn emit_top_level_declaration(
 
     // IMPLEMENTS (pass 1): buffer `(this class, each implemented interface text)`.
     // Only `class_heritage -> implements_clause` is walked; `extends_clause`
-    // (inheritance) is excluded (RFC-045 §3.3 D3-a). Resolved name-wise to
+    // (inheritance) is excluded. Resolved name-wise to
     // in-workspace `:Item`s in pass 2 (`resolve_implements`).
     if let "class_declaration" | "abstract_class_declaration" = decl.kind() {
         buffer_implements_targets(decl, source, &id, pending_implements);
-        // Method-level `:Item`s (RFC-045 45-D0) — the call-site anchor for 45-D.
+        // Method-level `:Item`s — the call-site anchor.
         crate::methods::emit_class_methods(
             decl,
             source,
@@ -166,7 +166,7 @@ fn emit_top_level_declaration(
         );
     }
 
-    // Call sites in a top-level function body (RFC-045 45-D) — caller is the fn.
+    // Call sites in a top-level function body — caller is the fn.
     // (Method-body call sites are walked inside `emit_class_methods` above.)
     if decl.kind() == "function_declaration" {
         let caller_qname = id.strip_prefix("item:").unwrap_or(&id);
@@ -238,7 +238,7 @@ fn emit_item_node(
     // `{qname, name, kind, crate}` from the shared owner; the TS path layers
     // `module_qpath`, `file`, `line`, `is_test`, `visibility`, `language`,
     // and (on class/interface decls) `ts_construct` — and deliberately emits
-    // NO `bounded_context` (#478).
+    // NO `bounded_context`.
     let mut props = build_item_props_common(&qname, name, kind, crate_name);
     props.insert(
         "module_qpath".into(),
@@ -252,8 +252,7 @@ fn emit_item_node(
     // `ts_construct` disambiguates a class (an IMPLEMENTS source) from an
     // interface (its target) — both squash to closed-set `:Item.kind`s
     // (struct / trait). Only emitted on class/interface declarations; the
-    // value is the tree-sitter node kind (RFC-045 45-B, analogue of PHP's
-    // `php_construct`).
+    // value is the tree-sitter node kind.
     if let "class_declaration" | "abstract_class_declaration" | "interface_declaration" =
         decl.kind()
     {
@@ -298,9 +297,9 @@ fn named_child_text(node: TsNode<'_>, field: &str, source: &[u8]) -> Option<Stri
 /// `implements_clause` is a type reference; its whole byte-range text is the
 /// reference text, which uniformly covers all shapes —
 /// `type_identifier` (`I1`), `nested_type_identifier` (`ns.I2`),
-/// `generic_type` (`Generic<T>` — type arguments NOT stripped, §6),
+/// `generic_type` (`Generic<T>` — type arguments NOT stripped),
 /// `intersection_type`/`union_type`/etc. (raw text). The sibling
-/// `extends_clause` is never entered (inheritance is deferred, §3.3 D3-a).
+/// `extends_clause` is never entered (inheritance is deferred).
 fn buffer_implements_targets(
     class_decl: TsNode<'_>,
     source: &[u8],
@@ -348,7 +347,7 @@ fn buffer_clause_targets(
 /// across the workspace. A simple identifier (`I1`) resolves to the uniquely
 /// named interface; a generic/qualified/composite reference (`Generic<T>`,
 /// `ns.I2`, `A & B`) matches no bare name and is dropped (closed-world — no
-/// synthetic node, no dangling edge, §4 I4). An ambiguous name (the same
+/// synthetic node, no dangling edge). An ambiguous name (the same
 /// identifier declared in two modules) is also dropped — a documented
 /// limitation pending import-aware resolution. Every emitted edge carries
 /// `resolver = "tree-sitter-typescript"`.
@@ -364,7 +363,7 @@ pub(crate) fn resolve_implements(
         }
         // Only interfaces (`trait`) and classes (`struct`) are valid
         // `implements` targets. Restricting the name map to type-kind items
-        // keeps method `:Item`s (`kind:"fn"`, RFC-045 45-D0) and free
+        // keeps method `:Item`s (`kind:"fn"`) and free
         // functions/consts from shadowing an interface name (which would make
         // resolution ambiguous and silently drop the edge).
         if !matches!(

@@ -1,4 +1,4 @@
-//! Recognizer + canonicalization helpers for `:ConstTable` (RFC-040).
+//! Recognizer + canonicalization helpers for `:ConstTable`.
 //!
 //! The recognizer ([`recognize_const_table`]) is a pure values-in / values-out
 //! function over [`syn::ItemConst`]; canonicalization helpers
@@ -11,9 +11,9 @@
 //! A const is a recognized candidate iff BOTH:
 //!
 //! 1. `node.ty` is a literal slice/array of supported element type
-//!    (RFC §3.3 — `&[T]`, `&'static [T]`, `[T; N]`, `&[T; N]`,
-//!    `&'static [T; N]`). Reference lifetime is ignored — both `&[T]` and
-//!    `&'static [T]` are accepted (R2 carried rust-systems N1).
+//!    (`&[T]`, `&'static [T]`, `[T; N]`, `&[T; N]`, `&'static [T; N]`).
+//!    Reference lifetime is ignored — both `&[T]` and `&'static [T]` are
+//!    accepted.
 //! 2. `node.expr` is a literal array expression with every element parsing
 //!    as a literal of the matching element type.
 //!
@@ -23,8 +23,8 @@
 //! arrays, non-literal expressions) is non-recognized — only the parent
 //! `:Item` will be emitted by the visitor.
 //!
-//! **Module split (#350).** Production code is partitioned into two
-//! sibling modules to keep each file under the 500-LOC budget:
+//! **Module split.** Production code is partitioned into two sibling
+//! modules to keep each file under the 500-LOC budget:
 //!
 //! - [`recognize`] — types ([`ElementType`], [`EntryValue`],
 //!   [`RecognizedConstTable`]) and the [`recognize_const_table`] entry

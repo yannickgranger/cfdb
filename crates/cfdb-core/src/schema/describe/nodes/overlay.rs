@@ -1,6 +1,6 @@
 //! Overlay and recognized-literal node-label descriptors: concept,
 //! context, const-table, literal, and RFC-doc nodes. Split out of
-//! `nodes.rs` (#467).
+//! `nodes.rs`.
 
 use crate::schema::descriptors::{attr, NodeLabelDescriptor, Provenance};
 use crate::schema::labels::Label;

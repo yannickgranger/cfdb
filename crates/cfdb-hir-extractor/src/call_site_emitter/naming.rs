@@ -1,6 +1,5 @@
 //! Qname derivation — map `hir::Function` and call sites to the
-//! canonical `item:<qname>` form shared with the syn extractor. Split
-//! out of `call_site_emitter.rs` (#467).
+//! canonical `item:<qname>` form shared with the syn extractor.
 
 use cfdb_core::qname::{item_qname, method_qname, normalize_impl_target};
 use ra_ap_edition::Edition;
@@ -14,7 +13,7 @@ use ra_ap_syntax::SyntaxNode;
 /// Walk the syntax-tree ancestors of `node` looking for the
 /// enclosing `fn` (top-level or associated method). Returns the
 /// resolved `hir::Function` — callers derive both the qname (via
-/// [`function_qname`]) and the RFC-054 target discriminator (via the
+/// [`function_qname`]) and the target discriminator (via the
 /// function's crate) from it.
 pub(super) fn enclosing_fn<DB>(sema: &Semantics<'_, DB>, node: &SyntaxNode) -> Option<Function>
 where
@@ -27,13 +26,12 @@ where
 /// Derive an `item:<qname>`-compatible qname for a `hir::Function`
 /// using the canonical `cfdb_core::qname` formula. Both the syn and
 /// HIR extractors share this formula so cross-extractor edges land
-/// on the same Item node (DDD HIGH finding in #40 decomposition).
+/// on the same Item node.
 ///
 /// `pub(crate)` so [`crate::entry_point_emitter`] can reuse the same
-/// formula when resolving `http_route` handler paths (Issue #124,
-/// `ddd-specialist` gate: cross-kind ID stability — a handler fn
+/// formula when resolving `http_route` handler paths — a handler fn
 /// reached via `Semantics::resolve_path` must produce the same qname
-/// as the same fn reached via `Semantics::resolve_method_call`).
+/// as the same fn reached via `Semantics::resolve_method_call`.
 pub(crate) fn function_qname<DB>(sema: &Semantics<'_, DB>, func: Function) -> String
 where
     DB: HirDatabase + Sized,

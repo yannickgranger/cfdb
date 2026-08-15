@@ -1,8 +1,8 @@
-//! `check-prelude-triggers` — Tier-1 binary entry point per RFC-034 v3.3 §4.2.
+//! `check-prelude-triggers` — Tier-1 binary entry point.
 //!
 //! Each subcommand runs exactly one C-trigger. The binary is stateless: it
 //! reads argv-supplied TOML + diff files, emits a versioned JSON envelope on
-//! stdout, and exits with a code per RFC-034 §4.2 rust-systems Amendment 1:
+//! stdout, and exits with a code:
 //!
 //! - `0` success (envelope always emitted — empty `triggers_fired` is valid)
 //! - `1` usage / argument error (clap parse failure)

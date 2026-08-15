@@ -1,30 +1,16 @@
-//! Enrichment port and report — split from [`crate::store::StoreBackend`] per
-//! RFC-031 §2.
+//! Enrichment port and report.
 //!
 //! The `enrich_*` verbs live on [`EnrichBackend`], a sibling of
-//! `StoreBackend`. Both are implemented by the same concrete backend
-//! ([`cfdb_petgraph::PetgraphStore`] in v0.1), but consumers that only query
-//! the graph depend on `StoreBackend` alone and do not pick up the enrichment
-//! surface.
+//! `StoreBackend`. Both are implemented by the same concrete backend,
+//! but consumers that only query the graph depend on `StoreBackend` alone.
 //!
-//! # Pass vocabulary (post-#43 council round 1 — RFC addendum §A2.2)
+//! The trait surface defines seven methods: `enrich_git_history`, `enrich_rfc_docs`,
+//! `enrich_deprecation`, `enrich_bounded_context`, `enrich_concepts`,
+//! `enrich_reachability`, and `enrich_metrics`.
 //!
-//! The trait surface defines **7 methods**:
-//!
-//! | Method | Pass | Scope |
-//! |---|---|---|
-//! | [`enrich_git_history`][EnrichBackend::enrich_git_history] | §A2.2 row 1 | commit age, author, churn per `:Item` |
-//! | [`enrich_rfc_docs`][EnrichBackend::enrich_rfc_docs] | §A2.2 row 2 | `(:Item)-[:REFERENCED_BY]->(:RfcDoc)` edges |
-//! | [`enrich_deprecation`][EnrichBackend::enrich_deprecation] | §A2.2 row 3 | `:Item.is_deprecated` + `deprecation_since` (extractor-time per RFC amendment) |
-//! | [`enrich_bounded_context`][EnrichBackend::enrich_bounded_context] | §A2.2 row 4 | re-enrichment of `:Item.bounded_context` after TOML changes |
-//! | [`enrich_concepts`][EnrichBackend::enrich_concepts] | §A2.2 row 6 | `:Concept` node materialization from `.cfdb/concepts/*.toml` |
-//! | [`enrich_reachability`][EnrichBackend::enrich_reachability] | §A2.2 row 5 | BFS from `:EntryPoint` over `CALLS*` |
-//! | [`enrich_metrics`][EnrichBackend::enrich_metrics] | deferred | orthogonal quality signals; Phase A stub retained out of #43 scope |
-//!
-//! In v0.1 (Phase A) every implementor inherits the default stubs returning
-//! [`EnrichReport::not_implemented`]. Real implementations ship in v0.2 /
-//! Phase D per RFC-032 §4 and #43 slices 43-B through 43-G. Backends override
-//! each method as the enrichment passes land.
+//! In v0.1 every implementor inherits default stubs returning
+//! [`EnrichReport::not_implemented`]. Real implementations ship as enrichment
+//! passes land.
 
 use serde::{Deserialize, Serialize};
 

@@ -1,12 +1,11 @@
-//! `enrich_git_history` — git-history facts per `:Item` (slice 43-B / issue #105).
+//! `enrich_git_history` — git-history facts per `:Item`.
 //!
 //! Walks the workspace's git repository, collects per-file `(last_commit_unix_ts,
 //! last_author, commit_count)` from HEAD's history, and writes the three facts
 //! onto every `:Item` node's property bag:
 //!
 //! - `git_last_commit_unix_ts: PropValue::Int(i64)` — epoch seconds of the most
-//!   recent commit touching the file (RFC addendum §A2.2 row 1; clean-arch B2
-//!   determinism fix: epoch not days-since-now).
+//!   recent commit touching the file (determinism fix: epoch not days-since-now).
 //! - `git_last_author: PropValue::Str(String)` — committer email of the most
 //!   recent commit touching the file. `""` when the commit has no author email.
 //! - `git_commit_count: PropValue::Int(i64)` — number of commits in HEAD's
@@ -14,7 +13,6 @@
 //!   `git rev-list HEAD --full-history -- <file>` semantics (no history
 //!   simplification), which is deliberately broader than `git log -- <file>`
 //!   default — the churn signal used by the downstream classifier
-//!   (`docs/RFC-cfdb.md` §A2.1 class 5 / §A2.2 row 1)
 //!   should count every commit that touched the file, including those on
 //!   branches later squashed out of mainline.
 //!
@@ -32,7 +30,7 @@
 //! - "Most recent" per file = first commit seen during the reverse-chronological
 //!   walk (first-insert wins; subsequent hits only bump `commit_count`).
 //!
-//! Two runs on an unchanged tree produce byte-identical canonical dumps (AC-6).
+//! Two runs on an unchanged tree produce byte-identical canonical dumps.
 //!
 //! # Gate
 //! This module only compiles with the `git-enrich` feature; the feature-off
@@ -66,7 +64,7 @@ struct GitInfo {
 /// function assumes both a valid keyspace state and a usable workspace path.
 /// Git-level failures (directory not a repo, malformed history) are folded
 /// into warnings so the pass can still record `ran: true` with Null attrs
-/// for every item — clean-arch B3 degraded-path analogue.
+/// for every item — this is a degraded-path approach.
 pub(crate) fn run(state: &mut KeyspaceState, workspace_root: &Path) -> EnrichReport {
     let mut warnings: Vec<String> = Vec::new();
     let item_indices = state.nodes_with_label(&Label::new(Label::ITEM));

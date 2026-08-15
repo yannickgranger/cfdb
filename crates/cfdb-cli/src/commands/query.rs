@@ -1,7 +1,6 @@
 //! Query command handlers — `cfdb query` and the typed `list-callers`
-//! convenience verb. Split out of `commands.rs` for the drift god-file
-//! decomposition (#151). Move-only; public paths preserved via
-//! `pub use` in `commands.rs`.
+//! convenience verb. Public paths are preserved via `pub use` in
+//! `commands.rs`.
 
 use std::path::PathBuf;
 

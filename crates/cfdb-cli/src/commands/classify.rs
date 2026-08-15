@@ -6,10 +6,9 @@
 //! filters the resulting `findings_by_class` buckets to only items
 //! whose `qname` appears in the diff, and emits a `ClassifyEnvelope`.
 //!
-//! Architecture: per RFC-cfdb.md §A2.2, the classifier is a query over
-//! an enriched graph — `--db` + `--keyspace` are mandatory. Per §A2.3
-//! + line 919, routing hints live external to `:Finding` rows; this
-//!   handler emits only the structural `DebtClass` label.
+//! The classifier is a query over an enriched graph — `--db` + `--keyspace`
+//! are mandatory. Routing hints live external to `:Finding` rows; this
+//! handler emits only the structural `DebtClass` label.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -44,8 +43,8 @@ pub fn classify(
     workspace: Option<PathBuf>,
     format: String,
 ) -> Result<(), crate::CfdbCliError> {
-    // `cfdb classify` accepts `json` (default pretty-printed envelope, #213)
-    // and `sorted-jsonl` (one line per finding, #212). Other `OutputFormat`
+    // `cfdb classify` accepts `json` (default pretty-printed envelope)
+    // and `sorted-jsonl` (one line per finding). Other `OutputFormat`
     // variants are filtered out by the allowlist.
     let format = OutputFormat::from_str(&format)?
         .require_one_of(&[OutputFormat::Json, OutputFormat::SortedJsonl], "classify")?;

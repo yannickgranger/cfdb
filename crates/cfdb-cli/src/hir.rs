@@ -1,9 +1,9 @@
 //! `cfdb extract --hir` HIR pipeline wiring — only compiled when
-//! the `hir` feature is enabled (Issue #86 / slice 4).
+//! the `hir` feature is enabled.
 //!
 //! Default `cargo build -p cfdb-cli` does NOT include this module,
 //! keeping the 90-150s `ra-ap-*` cold compile cost out of every
-//! CLI build per RFC-032 §3 lines 221-227. Enable with:
+//! CLI build. Enable with:
 //!
 //! ```text
 //! cargo build -p cfdb-cli --features hir
@@ -22,10 +22,10 @@ use cfdb_petgraph::PetgraphStore;
 /// `:CallSite` / `CALLS` / `INVOKES_AT` / `:EntryPoint` / `EXPOSES`
 /// facts into `store` under `keyspace`.
 ///
-/// `proc_macros` selects the loader policy (RFC-043): `true` enables
+/// `proc_macros` selects the loader policy: `true` enables
 /// `ProcMacroServerChoice::Sysroot` with a startup probe and silent
 /// fallback when the sysroot binary is missing; `false` restores the
-/// pre-RFC-043 syn-only behaviour.
+/// syn-only behaviour.
 pub fn extract_and_ingest_hir(
     store: &mut PetgraphStore,
     keyspace: &Keyspace,
@@ -36,7 +36,7 @@ pub fn extract_and_ingest_hir(
         "extract --hir: loading HIR database for {}",
         workspace_root.display()
     );
-    // RFC-043 §4 I7: `_proc_macro_client` owns the proc-macro
+    // `_proc_macro_client` owns the proc-macro
     // subprocess. It MUST outlive the salsa `db` because salsa keeps
     // live references to expanders that the subprocess hosts. Dropping
     // it before the VFS walk completes terminates the subprocess and

@@ -1,8 +1,6 @@
 //! Cypher-rule command handlers — `cfdb violations` + the shared
 //! `run_cypher_rule` / `parse_and_execute` plumbing consumed by
-//! `crate::check` and `crate::check_predicate`. Split out of
-//! `commands.rs` for the drift god-file decomposition (#151). Move-only;
-//! visibility preserved (`pub(crate)` is load-bearing).
+//! `crate::check` and `crate::check_predicate`.
 
 use std::path::{Path, PathBuf};
 
@@ -22,10 +20,8 @@ use crate::output;
 /// Prints to stdout:
 /// - Default: pretty-printed JSON of the full `QueryResult` (rows +
 ///   warnings) so callers can parse it programmatically.
-/// - When `count_only` is set: the integer row count on its own line,
-///   suitable for capture by `rows=$(cfdb violations ... --count-only)`
-///   in CI scripts like `ci/cross-dogfood.sh` (RFC-033 §3.2). The
-///   JSON payload is suppressed in this mode — the caller already
+/// - When `count_only` is set: the integer row count on its own line.
+///   The JSON payload is suppressed in this mode — the caller already
 ///   knows the rule file path and wants only the terse count.
 pub fn violations(
     db: PathBuf,
@@ -39,10 +35,9 @@ pub fn violations(
     run_cypher_rule(&db, &keyspace, &cypher, &rule_tag, count_only)
 }
 
-/// Shared cypher-rule plumbing — parse, shape-lint, execute, and print
-/// rows. Used by both the file-based `violations` verb and the embedded-
-/// rule `check --trigger` verb so the `parse → execute → print → rows` pipeline
-/// lives in exactly one place (EXTEND decision per `.prescriptions/101.md`).
+/// Shared cypher-rule plumbing — parse, shape-lint, execute, and print rows.
+/// Used by both the file-based `violations` verb and the embedded-rule
+/// `check --trigger` verb so the pipeline lives in exactly one place.
 ///
 /// `rule_tag` appears in the stderr summary line: for file-based rules
 /// callers pass the file path; for embedded-rule triggers callers pass

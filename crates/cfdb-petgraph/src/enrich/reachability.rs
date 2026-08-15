@@ -1,8 +1,8 @@
 //! `enrich_reachability` — BFS from every `:EntryPoint` over `CALLS*` edges,
 //! writing `:Item.reachable_from_entry` (bool) + `:Item.reachable_entry_count`
-//! (i64) per item (slice 43-G / issue #110).
+//! (i64) per item.
 //!
-//! # Algorithm (rust-systems Q4)
+//! # Algorithm
 //!
 //! 1. **Seed set** — every `(:EntryPoint)-[:EXPOSES]->(:Item)` target is a
 //!    handler item. Seeds are sorted by `NodeIndex` wrapped in a `BTreeSet`
@@ -23,7 +23,7 @@
 //!    `count == 0` are explicitly marked `reachable_from_entry = false,
 //!    reachable_entry_count = 0` — never silently left null.
 //!
-//! # Degraded path (clean-arch B3)
+//! # Degraded path
 //!
 //! If the keyspace carries zero `:EntryPoint` nodes, the pass returns
 //! `ran: false` with a clear warning naming `cfdb extract --features hir`.
@@ -32,7 +32,7 @@
 //! factually wrong (it just means the HIR pass that populates entry
 //! points didn't run).
 //!
-//! # Determinism (AC-6)
+//! # Determinism
 //!
 //! - Seed collection uses `BTreeSet<NodeIndex>` sorted by index.
 //! - Per-seed BFS visits via `BTreeSet<NodeIndex>`; iteration at
@@ -43,7 +43,7 @@
 //!
 //! Two runs on the same graph produce byte-identical canonical dumps.
 //!
-//! # Cycle safety (AC-5)
+//! # Cycle safety
 //!
 //! BFS terminates because each visited node is recorded in the `BTreeSet`
 //! before its outgoing edges are walked. A cycle `A → B → A` visits A
@@ -53,9 +53,8 @@
 //! # Accuracy caveat
 //!
 //! `reachable_from_entry = false` is only as accurate as the `CALLS`
-//! edges populated by `cfdb-hir-extractor` (RFC v0.2-4 targets ≥80%
-//! recall). The classifier (#48) applies confidence gating on the
-//! "Unwired" class accordingly.
+//! edges populated by `cfdb-hir-extractor`. The classifier applies
+//! confidence gating on the "Unwired" class accordingly.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
@@ -76,7 +75,7 @@ const ATTR_COUNT: &str = "reachable_entry_count";
 const ATTR_REACHABLE_PROD: &str = "reachable_from_production_entry";
 const ATTR_COUNT_PROD: &str = "reachable_production_entry_count";
 
-/// Selects which `:EntryPoint` kinds participate as BFS seeds (RFC-042 §3.2).
+/// Selects which `:EntryPoint` kinds participate as BFS seeds.
 ///
 /// - `All` — every entry point seeds the BFS (legacy behavior; writes
 ///   `reachable_from_entry` + `reachable_entry_count`).
@@ -142,10 +141,9 @@ pub(crate) fn run(state: &mut KeyspaceState, filter: ReachabilityFilter) -> Enri
     let reach_count = accumulate_reach_counts(state, &seeds);
     let bfs_attrs = write_item_attrs(state, &reach_count, filter);
 
-    // #396 — serde_default callee post-pass. Closes the recall gap where
-    // fns referenced by `#[serde(default = "fn")]` are flagged unwired
-    // because cfdb cannot trace through proc-macro-expanded derive impls
-    // (see super::attr_call_resolution module doc + #398).
+    // Serde default callee post-pass. Marks functions referenced by
+    // `#[serde(default = "fn")]` as reachable, since cfdb cannot trace through
+    // proc-macro-expanded derive impls (see super::attr_call_resolution module).
     //
     // The post-pass writes to whichever reach attr the current filter
     // selected: `reachable_from_entry` for `All`, or

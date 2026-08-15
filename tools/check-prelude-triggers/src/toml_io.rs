@@ -1,7 +1,4 @@
 //! TOML-file loading helpers.
-//!
-//! Pattern shape cloned from `cfdb-concepts/src/lib.rs:165-220` (REUSE-of-shape
-//! per prescription D3; NO `cfdb-concepts` dependency per Forbidden move #8).
 
 use std::fs;
 use std::path::{Path, PathBuf};

@@ -1,16 +1,14 @@
 //! StoreBackend trait — storage, query evaluation, and lifecycle surface.
 //!
-//! Every storage layer (cfdb-petgraph for v0.1, future alternatives) implements
-//! this trait. The cfdb-query parser/builder constructs `Query` AST values;
-//! consumers then call `backend.execute(&query)`. The trait is deliberately
-//! small (7 methods) and hides all backend-specific state behind `&self`.
+//! Every storage layer implements this trait. The cfdb-query parser/builder
+//! constructs `Query` AST values; consumers then call `backend.execute(&query)`.
+//! The trait is deliberately small (7 methods) and hides all backend-specific
+//! state behind `&self`.
 //!
 //! Enrichment (docs / metrics / history / concepts) was previously bolted on
-//! as four default-stub methods here; it is now a sibling trait
-//! [`crate::enrich::EnrichBackend`]. See RFC-031 §2 for the split rationale
-//! (ISP — library consumers that only query should not pull the enrichment
-//! surface; correctness — silent no-op stubs across five real adapters in v0.2
-//! would be a drift factory).
+//! as default-stub methods here; it is now a sibling trait
+//! [`crate::enrich::EnrichBackend`]. Library consumers that only query should
+//! not pull the enrichment surface.
 
 use thiserror::Error;
 
@@ -48,7 +46,7 @@ pub enum StoreError {
 
 /// The storage and query evaluation surface.
 ///
-/// # Determinism (RFC §6)
+/// # Determinism guarantees
 ///
 /// Implementors MUST uphold:
 /// - **G1**: same input facts + same schema version → byte-identical canonical

@@ -1,7 +1,6 @@
 //! Phase A stubs and snapshot/schema verbs.
 //!
-//! Split out of `lib.rs` for the god-file decomposition (#3751). Public
-//! surface preserved: every item here is re-exported from the crate root.
+//! Public surface: every item here is re-exported from the crate root.
 
 use std::path::{Path, PathBuf};
 
@@ -48,10 +47,10 @@ pub fn typed_stub(
     output::emit_json(&report)
 }
 
-/// `cfdb list-items-matching` — the 16th cfdb verb (council-cfdb-wiring
-/// RATIFIED §A.14). Composes a `Query` via `cfdb_core::query::list_items_matching`,
-/// executes against the petgraph store loaded from disk, and prints the
-/// full `QueryResult` (rows + warnings) as pretty JSON on stdout.
+/// `cfdb list-items-matching` — composes a `Query` via
+/// `cfdb_core::query::list_items_matching`, executes against the petgraph store
+/// loaded from disk, and prints the full `QueryResult` (rows + warnings) as
+/// pretty JSON on stdout.
 ///
 /// Unlike the Phase A `typed_stub` handlers, this verb is a REAL composer —
 /// rows reflect the extractor's `:Item` nodes matching the supplied filters.
@@ -72,10 +71,10 @@ pub fn list_items_matching(
     let query = compose_list_items_matching(name_pattern, kinds, group_by_context);
     let mut result = store.execute(&ks, &query)?;
 
-    // Council §A.14 subsumption contract: `ImplBlock` is an accepted council
-    // kind but v0.1's syn extractor does not emit `:Item` nodes for impl
-    // blocks. Surface a warning so LLM/human consumers know why the filter
-    // matches nothing rather than silently returning an empty set.
+    // `ImplBlock` is an accepted kind but v0.1's syn extractor does not emit
+    // `:Item` nodes for impl blocks. Surface a warning so LLM/human consumers
+    // know why the filter matches nothing rather than silently returning an
+    // empty set.
     if let Some(ks) = kinds {
         if ks.iter().any(|k| matches!(k, ItemKind::ImplBlock)) {
             result.warn(Warning {

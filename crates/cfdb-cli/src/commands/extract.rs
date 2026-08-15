@@ -1,10 +1,8 @@
 //! Extraction command handlers — the `cfdb extract` entry and the
-//! working-tree extract path. Split out of `commands.rs` for the drift
-//! god-file decomposition (#151); the `--rev`/URL/cache subsystem moved
-//! on to `extract_rev.rs` (#560 decomposition, boy-scouted in #556).
+//! working-tree extract path.
 
 use std::path::{Path, PathBuf};
-// RFC-048 §3.1 (slice 48-A): the composition root owns the profiling clock —
+// The composition root owns the profiling clock —
 // the extractor emits pure phase markers and this crate does every wall-clock
 // read. Gated on `lang-rust` because only the Rust profiled path uses it.
 #[cfg(feature = "lang-rust")]
@@ -31,7 +29,7 @@ fn workspace_basename(workspace: &Path) -> String {
         .unwrap_or_else(|| "workspace".to_string())
 }
 
-/// Surface ingest-time diagnostics on stderr (RFC-054 §3.4, 54-A #556).
+/// Surface ingest-time diagnostics on stderr.
 /// Exit stays 0 — the warning is diagnostic, not failure. Runs after every
 /// ingest (syn + optional HIR) and before save, so the stderr report matches
 /// what the keyspace persists. Lives with the command that owns the
@@ -64,8 +62,7 @@ pub fn extract(
 ) -> Result<(), crate::CfdbCliError> {
     // The `Some(rev) if is_url_at_sha(rev)` guard is the SINGLE resolution
     // point for URL-vs-SHA discrimination. Do not duplicate this check
-    // inside `extract_at_rev` or `extract_at_url_rev` — see the Wiring
-    // Assertion in `.prescriptions/96.md`.
+    // inside `extract_at_rev` or `extract_at_url_rev`.
     match rev.as_deref() {
         None => extract_at_path(&workspace, &db, keyspace, hir, no_proc_macro, profile),
         Some(rev) if is_url_at_sha(rev) => {
@@ -91,9 +88,9 @@ pub(super) fn extract_at_path(
 
     eprintln!("extract: walking {}", workspace.display());
 
-    // RFC-048 §3.1 (slice 48-A) — the profiled path attributes wall-clock
+    // The profiled path attributes wall-clock
     // across the extract's phases and prints the breakdown to stderr. It is
-    // Rust-specific (the phases are the Rust extract pipeline's, RFC-048 §1),
+    // Rust-specific (the phases are the Rust extract pipeline's),
     // so it runs the Rust extractor directly rather than the polyglot
     // producer registry below. Timings never touch the keyspace, so a
     // profiled extract's graph is byte-identical to a plain one (RFC-048 §4).
@@ -101,7 +98,7 @@ pub(super) fn extract_at_path(
         return run_profiled_extract(workspace, db, &ks, &ks_name, hir, no_proc_macro);
     }
 
-    // RFC-041 Phase 1 / Slice 41-C dispatcher — replaces the direct
+    // Replaces the direct
     // `cfdb_extractor::extract_workspace` call with a producer-trait
     // lookup. The composition root lives in `crate::lang`; this is
     // the only call site that touches the registry. Slim builds
@@ -161,9 +158,9 @@ pub(super) fn extract_at_path(
     Ok(())
 }
 
-/// Composition-root clock for RFC-048 profiling (slice 48-A). The extractor
+/// Composition-root clock for profiling. The extractor
 /// emits pure [`cfdb_extractor::ExtractPhaseMarker`] boundaries — it reads no
-/// clock (RFC-029 §12.1 G1) — and this observer timestamps each. All
+/// clock — and this observer timestamps each. All
 /// wall-clock reads for the extract-internal phases live here, never in the
 /// extractor.
 #[cfg(feature = "lang-rust")]
@@ -208,14 +205,13 @@ impl PhaseClock {
     }
 }
 
-/// RFC-048 §3.1 (slice 48-A) profiled extract. Runs the Rust extractor's
+/// Profiled extract. Runs the Rust extractor's
 /// profiled entry point with a [`PhaseClock`] observer that times the three
 /// `extract`-internal phases (cargo-metadata, syn-walk, deferred-resolve),
 /// times the CLI-owned ingest / `--hir` load / save phases around their
 /// existing calls, and renders the [`crate::ExtractProfile`] breakdown to
 /// stderr. The keyspace bytes are identical to a non-profiled extract — every
-/// clock read is here (RFC-029 §12.1 G1 keeps them out of the extractor) and
-/// none enters the graph (RFC-048 §4).
+/// clock read is here and keeps them out of the extractor.
 ///
 /// Rust-only: the profiled phase vocabulary is the Rust pipeline's, so this
 /// runs `cfdb_extractor` directly instead of the polyglot producer registry.
@@ -289,7 +285,7 @@ fn run_profiled_extract(
     Ok(())
 }
 
-/// Slim-build stub — `--profile` is a Rust-pipeline diagnostic (RFC-048 §1),
+/// Slim-build stub — `--profile` is a Rust-pipeline diagnostic,
 /// so a build with no `lang-rust` feature cannot honour it. Mirrors the
 /// [`extract_hir`] `#[cfg(not(...))]` stub: a clear error, never a silent
 /// no-op.

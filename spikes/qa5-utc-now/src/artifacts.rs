@@ -1,9 +1,4 @@
 //! Artifact writers — TSV (per-file) and Markdown (classification report).
-//!
-//! Separated from `main.rs` because the Markdown template is a large
-//! string literal that dominated the orchestration logic. Keeping it
-//! here lets `main.rs` read as "steps 1-8 of the spike", and this file
-//! read as "this is the exact shape of the committed artifact".
 
 use std::collections::BTreeMap;
 use std::fs;

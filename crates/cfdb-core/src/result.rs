@@ -1,13 +1,11 @@
 //! Query result shape — `{rows, warnings}`.
 //!
-//! Two design notes from the LLM specialist finding (RFC §14 [LLM-Q1]):
-//! - Returning `{rows, warnings}` instead of plain `rows` fixes the #1
-//!   LLM-consumer failure mode: silent-empty vs schema-mismatch look identical
-//!   to an agent. A warning on "label `Ietm` not present in schema — did you
-//!   mean `Item`?" is the difference between a self-correcting loop and a
-//!   confidently-wrong answer.
-//! - Rows are ordered `BTreeMap<column_name, PropValue>` so iteration is
-//!   deterministic (G1).
+//! Returning `{rows, warnings}` instead of plain `rows` fixes the LLM-consumer
+//! failure mode: silent-empty vs schema-mismatch look identical to an agent.
+//! A warning on "label `Ietm` not present in schema — did you mean `Item`?"
+//! is the difference between a self-correcting loop and a confidently-wrong
+//! answer. Rows are ordered `BTreeMap<column_name, PropValue>` so iteration
+//! is deterministic.
 
 use std::collections::BTreeMap;
 
@@ -80,17 +78,16 @@ pub enum WarningKind {
     UnknownEdgeLabel,
     /// A property key accessed in the query is not known for the bound label.
     UnknownProperty,
-    /// The query shape is a known performance footgun (e.g. F1a Cartesian +
-    /// function-equality from study 001 §4.2). The evaluator refuses to run it
-    /// and the warning names the aggregation rewrite.
+    /// The query shape is a known performance footgun. The evaluator refuses
+    /// to run it and the warning names the aggregation rewrite.
     PathologicalShape,
     /// The query parsed but bound no rows.
     EmptyResult,
     /// Two distinct nodes contended for one identity at ingest — the later
     /// node replaced the earlier, which is the documented additive-load
-    /// behavior; the warning makes the loss loud instead of silent
-    /// (RFC-054 §3.4). Deliberately NOT a reuse of [`Self::EmptyResult`],
-    /// which already does double duty for "no rows" and "edge dropped".
+    /// behavior; the warning makes the loss loud instead of silent.
+    /// Deliberately NOT a reuse of [`Self::EmptyResult`], which already does
+    /// double duty for "no rows" and "edge dropped".
     IdentityContention,
 }
 

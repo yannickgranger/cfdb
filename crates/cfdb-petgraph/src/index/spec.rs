@@ -1,22 +1,10 @@
-//! `IndexSpec` — parsed `.cfdb/indexes.toml` (RFC-035 §3.2, slice 1 #180).
+//! `IndexSpec` — parsed `.cfdb/indexes.toml`.
 //!
 //! The spec names which `(Label, prop)` pairs are indexed at ingest time.
-//! Each entry carries a required `notes` string documenting the
-//! rationale — who consumes the index, why it is indexed. Pattern-match
-//! on `.cfdb/skill-routing.toml` where every row carries the same kind
-//! of rationale (R1 R2 resolution — DDD lens).
+//! Each entry carries a required `notes` string documenting the rationale.
 //!
-//! The loader mirrors `cfdb_query::SkillRoutingTable`:
-//! [`IndexSpec::from_path`] does I/O, [`IndexSpec::from_toml_str`] is a
-//! pure parser usable from unit tests without touching the filesystem.
-//!
-//! # v0.1 scope
-//!
-//! Slice 1 ships only the spec + TOML loader. The build pass,
-//! evaluator fast paths, and composition-root wiring land in later
-//! slices (2, 5, 6, 7). `ComputedKey::LastSegment` is parseable here
-//! but has no `evaluate` method until slice 3 wires the
-//! `cfdb_core::qname::last_segment` helper (RFC-035 §3.3).
+//! The loader: [`IndexSpec::from_path`] does I/O, [`IndexSpec::from_toml_str`]
+//! is a pure parser usable from unit tests without touching the filesystem.
 //!
 //! # File shape
 //!
@@ -42,13 +30,10 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 
 /// Parsed `.cfdb/indexes.toml` content. Owns a `Vec<IndexEntry>` in
-/// TOML document order — the build pass (slice 2) iterates the vector,
-/// so order is stable across runs on identical inputs.
+/// TOML document order so order is stable across runs on identical inputs.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IndexSpec {
     /// One `[[index]]` array entry per indexed `(Label, key)` pair.
-    /// Renamed to `index` in the TOML surface to match the `[[index]]`
-    /// array-of-tables convention from RFC-035 §3.2.
     #[serde(rename = "index", default, skip_serializing_if = "Vec::is_empty")]
     pub entries: Vec<IndexEntry>,
 }

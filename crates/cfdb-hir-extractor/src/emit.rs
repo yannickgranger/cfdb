@@ -3,7 +3,7 @@
 //!
 //! ## Why this trait lives HERE (not in `cfdb-core`, not in a store crate)
 //!
-//! RFC-032 §3 lines 229–242: `cfdb-hir-extractor` defines its own
+//! `cfdb-hir-extractor` defines its own
 //! extraction traits; store-adapter crates (e.g.,
 //! `cfdb-hir-petgraph-adapter`) implement them. Placing the trait in
 //! this crate keeps the orphan rule satisfied without requiring
@@ -17,7 +17,7 @@
 //! The trait signature takes `(Vec<Node>, Vec<Edge>)` — pre-extracted
 //! facts — not a `HirDatabase` handle. This is deliberate:
 //!
-//! - The HIR extraction (slice 3c, Issue #85c) consumes a
+//! - The HIR extraction consumes a
 //!   `ra_ap_hir::db::HirDatabase` monomorphically and produces
 //!   `(Vec<Node>, Vec<Edge>)` via a free function
 //!   (`extract_call_sites::<DB>`). That function will be the sole
@@ -25,27 +25,26 @@
 //!
 //! - The `CallSiteEmitter` trait then routes those pre-extracted
 //!   facts into a store. Since it never sees `ra-ap-*` types, every
-//!   store crate can implement it without pulling the 90–150s
-//!   compile cost (RFC-032 §3 lines 221–227).
+//!   store crate can implement it without pulling heavy compile costs.
 //!
 //! - ISP: `StoreBackend` (in `cfdb-core`) exposes many concerns
 //!   (ingest, execute, canonical-dump, enrich). `CallSiteEmitter`
 //!   narrows the surface to exactly the HIR-emission concern — the
 //!   only one adapter callers need.
 //!
-//! ## Slice status
+//! ## Status
 //!
-//! Trait and `EmitStats` shipped in slice 3b (Issue #92). The first
+//! Trait and `EmitStats` are available. The first
 //! adapter impl lives in `cfdb-hir-petgraph-adapter`. The HIR
 //! extraction function `extract_call_sites` that produces the inputs
-//! is deferred to slice 3c (Issue #85c).
+//! is available.
 
 use cfdb_core::fact::{Edge, Node};
 
 /// Ingest pre-extracted HIR-resolved call-site facts into a store.
 ///
 /// Implementors accept the `(nodes, edges)` tuple produced by the
-/// (slice 3c) `extract_call_sites` function and route it into
+/// `extract_call_sites` function and route it into
 /// whatever backing store they wrap. The trait reports a structured
 /// `EmitStats` — the number of `:CallSite` nodes, `CALLS` edges, and
 /// `INVOKES_AT` edges ingested — so callers can assert on the count
@@ -74,12 +73,11 @@ pub trait CallSiteEmitter {
 /// input batch — NOT the cumulative store state. Callers that need
 /// cumulative totals must aggregate across successive calls.
 ///
-/// The struct is intentionally NOT marked `#[non_exhaustive]` for
-/// slice 4 (MVP): the adapter crate still lives in the same
+/// The struct is intentionally NOT marked `#[non_exhaustive]`:
+/// the adapter crate still lives in the same
 /// workspace and uses struct-literal construction. When the struct
 /// becomes part of a published-API surface, the marker should be
-/// added (rust-systems Q7 from #92 review — tracked as non-blocking
-/// follow-up).
+/// added as a non-blocking follow-up.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct EmitStats {
     /// Count of nodes with `label == Label::CALL_SITE` in the input.

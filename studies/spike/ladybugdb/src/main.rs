@@ -1,6 +1,6 @@
 //! Gate 3 spike — LadybugDB (`lbug`).
 //!
-//! Loads the shared fixture, declares the 4-node × 3-edge schema per methodology §6.1.T2,
+//! Loads the shared fixture, declares the 4-node × 3-edge schema,
 //! bulk-inserts, runs F1/F2/F3, measures latency, does a canonical-dump sha256
 //! determinism check.
 //!

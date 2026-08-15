@@ -1,4 +1,4 @@
-//! Self-documenting schema descriptor types (RFC §6A.1, SOLID-5).
+//! Self-documenting schema descriptor types (SOLID-5).
 //!
 //! These types form the shape of the document returned by
 //! [`super::schema_describe`]: a runtime-readable contract covering every
@@ -27,48 +27,34 @@ pub enum Provenance {
     /// Structural fact walked directly from the `syn` AST or `cargo_metadata`
     /// during `extract()`. Available immediately after extract — no enrichment
     /// pass required. `is_deprecated` + `deprecation_since` are extractor-time
-    /// facts (slice 43-C — the `#[deprecated]` attribute is syntactic and
-    /// the AST walker already visits attributes).
+    /// facts — the `#[deprecated]` attribute is syntactic and the AST walker
+    /// already visits attributes.
     Extractor,
-    /// Pulled by `enrich_rfc_docs()` (RFC addendum §A2.2 row 2) — scans
-    /// `docs/rfc/*.md` and `.concept-graph/*.md` for concept-name matches
-    /// and emits `:RfcDoc` nodes + `(:Item)-[:REFERENCED_BY]->(:RfcDoc)`
-    /// edges. Renamed from `EnrichDocs` in #43-A (RFC amendment narrowed
-    /// scope to RFC-file matching only; rustdoc rendering is a non-goal
-    /// for v0.2).
+    /// Pulled by `enrich_rfc_docs()` — scans `docs/rfc/*.md` and
+    /// `.concept-graph/*.md` for concept-name matches and emits `:RfcDoc`
+    /// nodes + `(:Item)-[:REFERENCED_BY]->(:RfcDoc)` edges.
     EnrichRfcDocs,
     /// Computed by quality tools during `enrich_metrics()` —
-    /// `unwrap_count`, `test_coverage`, `cyclomatic`, `dup_cluster_id`
-    /// (Layer 2, RFC PLAN-v1 §6.1 quality signals). Deferred out of #43
-    /// scope per RFC addendum §A2.2 — retained so a future RFC can
-    /// resuscitate the pass without a breaking provenance rename.
+    /// `unwrap_count`, `test_coverage`, `cyclomatic`, `dup_cluster_id`.
+    /// Deferred — retained so a future implementation can resuscitate the
+    /// pass without a breaking provenance rename.
     EnrichMetrics,
-    /// Pulled from `git log` by `enrich_git_history()` (RFC addendum §A2.2
-    /// row 1) — `git_last_commit_unix_ts`, `git_last_author`,
-    /// `git_commit_count`. Renamed from `EnrichHistory` in #43-A to match
-    /// the `git_`-qualified pass vocabulary.
+    /// Pulled from `git log` by `enrich_git_history()` —
+    /// `git_last_commit_unix_ts`, `git_last_author`, `git_commit_count`.
     EnrichGitHistory,
-    /// Assigned by concept rules during `enrich_concepts()` (RFC addendum
-    /// §A2.2 row 6) — `:Concept` node materialization from
-    /// `.cfdb/concepts/*.toml` declarations, plus `LABELED_AS` and
-    /// `CANONICAL_FOR` edges. Scope narrowed in #43-A (DDD Q4 finding):
-    /// `bounded_context` attribution was never this pass's responsibility
-    /// — `cfdb-extractor` owns it at extraction time.
+    /// Assigned by concept rules during `enrich_concepts()` — `:Concept`
+    /// node materialization from `.cfdb/concepts/*.toml` declarations, plus
+    /// `LABELED_AS` and `CANONICAL_FOR` edges.
     EnrichConcepts,
-    /// Written by `enrich_reachability()` (RFC addendum §A2.2 row 5) —
-    /// `:Item.reachable_from_entry`, `:Item.reachable_entry_count` from
-    /// BFS over `CALLS*` starting at `:EntryPoint` nodes. Added in #43-A
-    /// as a new provenance tag for slice 43-G's attribute additions.
+    /// Written by `enrich_reachability()` — `:Item.reachable_from_entry`,
+    /// `:Item.reachable_entry_count` from BFS over `CALLS*` starting at
+    /// `:EntryPoint` nodes.
     EnrichReachability,
-    /// No producer in v0.x — reserved for a future implementation. Emitted by
-    /// the schema describer to mark labels (and, in future, attributes) that
-    /// are declared in the vocabulary but not yet wired to any extractor or
-    /// enrich pass. Suppresses the RFC-037 §3.7 edge-liveness "dormant label"
-    /// failure mode for labels whose absence is by design rather than by
-    /// drift. First user: `:Concept -[EQUIVALENT_TO]-> :Concept` (issue
-    /// #307). Distinct from the producer variants — if any of those changes
-    /// its semantics, `Reserved` does NOT change too: it represents a
-    /// fundamentally different relationship (no producer at all, by design).
+    /// Reserved for future implementation. Emitted by the schema describer to
+    /// mark labels (and, in future, attributes) that are declared in the
+    /// vocabulary but not yet wired to any extractor or enrich pass. Distinct
+    /// from the producer variants — it represents a fundamentally different
+    /// relationship (no producer at all, by design).
     Reserved,
 }
 

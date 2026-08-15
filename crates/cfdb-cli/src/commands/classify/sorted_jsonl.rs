@@ -1,6 +1,5 @@
 //! Sorted-JSONL rendering for `cfdb classify --format sorted-jsonl`.
 //!
-//! Extracted from `commands/classify.rs` (epic #248 — god-file split).
 //! The `Command::Classify` dispatch and all non-sorted-jsonl logic remain
 //! in the parent module.
 
@@ -12,8 +11,7 @@ use serde_json::Value;
 /// Build the `{"op":"header", ...}` first line of a sorted-jsonl dump.
 /// Carries the envelope's scalar metadata (schema_version, inventory
 /// context + keyspace_sha, diff_source triple). Alphabetical key order
-/// is provided by `Value::Object`'s `BTreeMap` backing (RFC-cfdb.md
-/// §12.1 G1 — no `HashMap`, no wall-clock).
+/// is provided by `Value::Object`'s `BTreeMap` backing.
 pub(super) fn build_sorted_jsonl_header(envelope: &ClassifyEnvelope) -> Value {
     serde_json::json!({
         "op": "header",
@@ -70,11 +68,9 @@ pub(super) fn render_sorted_jsonl(
 /// header first, then per-finding lines ordered by `(DebtClass::Ord,
 /// Finding::Ord)`, then per-warning lines in envelope order.
 ///
-/// Mirrors `cfdb diff --format sorted-jsonl` (`commands/diff.rs:85-110`)
-/// — the cfdb-wide convention for sorted-JSONL output carrying envelope
-/// scalars is a `{"op":"header",…}` first line, per-row `op: finding|
-/// warning` discriminators. See `.prescriptions/236.md` CREATE-1 for the
-/// exact per-line shapes.
+/// Mirrors `cfdb diff --format sorted-jsonl` — the cfdb-wide convention for
+/// sorted-JSONL output carrying envelope scalars is a `{"op":"header",…}`
+/// first line, per-row `op: finding|warning` discriminators.
 pub(super) fn emit_sorted_jsonl(
     envelope: &ClassifyEnvelope,
     output: Option<&Path>,

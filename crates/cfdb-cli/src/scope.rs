@@ -227,11 +227,10 @@ pub(crate) fn retain_findings_by_qname(
 /// note. Split out of [`build_scope_inventory`] to keep the assembly
 /// body flat.
 ///
-/// Issue #48: classes that produced at least one finding do NOT get a
-/// warning — the bucket itself is the signal. Empty buckets carry a
-/// warning naming the likely cause (missing enrichment, no signal in
-/// this context, etc.) so consumers can distinguish "zero bypass bugs"
-/// from "reachability enrichment was not run".
+/// Classes that produced at least one finding do NOT get a warning — the
+/// bucket itself is the signal. Empty buckets carry a warning naming the
+/// likely cause (missing enrichment, no signal in this context, etc.) so
+/// consumers can distinguish different scenarios.
 pub(crate) fn attach_scope_warnings(inventory: &mut ScopeInventory) {
     DebtClass::variants()
         .iter()
@@ -327,11 +326,6 @@ pub(crate) fn resolve_keyspace_name(
 /// syn-only extract (`DuplicatedFeature`, `UnfinishedRefactor`), the
 /// message reports the empty result as "no finding in this context"
 /// rather than a dependency gap.
-///
-/// Issue #48 replaces the v0.1-style "classifier unavailable" note
-/// with per-class degradation semantics now that each classifier
-/// rule ships. The class name still appears in every message so
-/// consumers can grep for a specific class.
 pub(crate) fn class_empty_bucket_note(class: DebtClass) -> Option<String> {
     let reason = match class {
         DebtClass::DuplicatedFeature => {

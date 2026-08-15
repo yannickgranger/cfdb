@@ -1,26 +1,22 @@
-//! RFC-054 §3.4 (54-A, #556) — ingest-time identity-contention detection.
+//! Ingest-time identity-contention detection.
 //!
 //! `ingest_one_node` replaces an existing node in place when an incoming id
 //! is already in the graph (documented additive-load behavior). When the two
 //! nodes are *different* — distinct source constructs colliding on one
-//! identity (#542) — the replace silently drops a real node; this module
+//! identity — the replace silently drops a real node; this module
 //! decides when that deserves a warning and how the warning reads.
 
 use cfdb_core::fact::Node;
 use cfdb_core::result::{Warning, WarningKind};
 
 /// Cap on individually-recorded contention warnings per keyspace. Collisions
-/// are systemic by construction (#542: every duplicated qname across cargo
-/// targets), so an uncapped record would scale heap, keyspace bytes, and
-/// per-query clone cost with the tree; past the cap a single summary row
-/// carries the count (`KeyspaceState::materialized_ingest_warnings`).
-/// Const in tool source per the no-ratchet rule.
+/// are systemic by construction; an uncapped record would scale heap,
+/// keyspace bytes, and per-query clone cost with the tree. Past the cap a
+/// single summary row carries the count (`KeyspaceState::materialized_ingest_warnings`).
 pub(crate) const CONTENTION_WARNING_CAP: usize = 50;
 
-/// Producer-neutral remedy line, attached to the FIRST recorded contention
-/// only (the rest would repeat it verbatim). Deliberately free of producer
-/// or roadmap specifics: this text persists in keyspace files that outlive
-/// any given slice of RFC-054.
+/// Remedy line attached to the FIRST recorded contention only; the rest
+/// would repeat it verbatim.
 pub(crate) const CONTENTION_SUGGESTION: &str = "distinct source constructs are contending for one \
      node identity; the earlier one is absent from this graph (RFC-054)";
 
@@ -30,17 +26,17 @@ enum ReingestClass {
     /// additive-load behavior, e.g. enrich passes re-saving a keyspace).
     Silent,
     /// A different node is claiming an existing identity; the replace
-    /// would silently drop the earlier node (RFC-054 §3.4 / #542).
+    /// would silently drop the earlier node.
     Contention,
 }
 
 /// Pure classifier (values in → values out, zero I/O).
 ///
-/// Ratified rule (RFC-054 §3.4): same `file` prop ⇒ the same logical node
-/// being updated (silent, whatever the other props do — enrich passes
-/// legitimately re-save with added attrs); both have `file` and it differs
-/// ⇒ contention; either side lacks `file` ⇒ full node equality decides
-/// (the caller guarantees id equality, so this is `existing == incoming`).
+/// Same `file` prop ⇒ the same logical node being updated (silent, whatever
+/// the other props do — enrich passes legitimately re-save with added attrs);
+/// both have `file` and it differs ⇒ contention; either side lacks `file` ⇒
+/// full node equality decides (the caller guarantees id equality, so this is
+/// `existing == incoming`).
 fn classify_reingest(existing: &Node, incoming: &Node) -> ReingestClass {
     match (existing.props.get("file"), incoming.props.get("file")) {
         (Some(a), Some(b)) if a == b => ReingestClass::Silent,
@@ -108,7 +104,7 @@ mod tests {
         Node::new(id, Label::new(Label::ITEM)).with_prop("qname", qname)
     }
 
-    // --- classifier (pure fn, ratified rule RFC-054 §3.4) ---
+    // --- classifier (pure fn) ---
 
     #[test]
     fn identical_node_reingest_is_silent() {
@@ -154,7 +150,7 @@ mod tests {
     fn one_sided_file_reverse_direction_is_contention() {
         // The fallback arm is direction-agnostic — pin the reverse
         // orientation too so a future asymmetric rewrite cannot pass on
-        // the single-direction case alone (gate-3 noted constraint).
+        // the single-direction case alone.
         let a = item_in_file("item:x::main", "x::main", "src/bin/a.rs");
         let b = item_no_file("item:x::main", "x::main");
         assert_eq!(classify_reingest(&a, &b), ReingestClass::Contention);
@@ -194,10 +190,10 @@ mod tests {
 
     #[test]
     fn classifier_keys_on_the_schema_declared_file_attribute() {
-        // Drift guard (council altitude lens): the classifier reaches the
-        // `file` prop by literal; pin that the describe registry actually
-        // declares that attribute on :Item so a schema-side rename cannot
-        // silently degrade the rule to the equality fallback.
+        // The classifier reaches the `file` prop by literal; pin that the
+        // describe registry actually declares that attribute on :Item so a
+        // schema-side rename cannot silently degrade the rule to the equality
+        // fallback.
         let describe = cfdb_core::schema_describe();
         let item = describe
             .nodes
@@ -295,8 +291,8 @@ mod tests {
     }
 
     // --- persistence: contention warnings survive save/load so a later
-    // `cfdb query` process sees them (RFC-054 54-A test row); the transient
-    // per-edge ingest log does NOT ride along ---
+    // `cfdb query` process sees them; the transient per-edge ingest log does
+    // NOT ride along ---
 
     #[test]
     fn contention_warnings_survive_persist_round_trip() {
@@ -329,10 +325,9 @@ mod tests {
 
     #[test]
     fn edge_drop_warnings_stay_transient_across_persist() {
-        // Altitude ruling: durability is a property of the record, not of
-        // the shared buffer. The per-edge unknown-endpoint log is
-        // process-local; only contention diagnostics are contracted to
-        // survive into the keyspace file.
+        // Durability is a property of the record, not of the shared buffer.
+        // The per-edge unknown-endpoint log is process-local; only contention
+        // diagnostics are contracted to survive into the keyspace file.
         use cfdb_core::fact::Edge;
         use cfdb_core::schema::EdgeLabel;
         let ks = Keyspace::new("t");
@@ -371,8 +366,8 @@ mod tests {
 
     #[test]
     fn pre_rfc054_keyspace_file_without_warnings_field_loads() {
-        // Legacy compat pin: a file missing `contention_warnings` (pre-54-A)
-        // must load with zero warnings, not error.
+        // Legacy compat pin: a file missing `contention_warnings` must load
+        // with zero warnings, not error.
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("legacy.json");
         let legacy = serde_json::json!({

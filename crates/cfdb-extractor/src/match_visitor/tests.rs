@@ -1,7 +1,6 @@
-//! Visitor-level tests for `:MatchSite` + `MATCHES_AT` emission and the
-//! RFC-053 §3.1 dedup-before-id contract. These drive the real
-//! `MatchSiteVisitor` + `Emitter` (no mock) on parsed fn-body blocks and
-//! inspect the emitted facts.
+//! Visitor-level tests for `:MatchSite` + `MATCHES_AT` emission. These drive
+//! the real `MatchSiteVisitor` + `Emitter` (no mock) on parsed fn-body blocks
+//! and inspect the emitted facts.
 
 use std::collections::BTreeSet;
 

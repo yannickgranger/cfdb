@@ -1,7 +1,7 @@
 //! `cfdb diff` — keyspace-to-keyspace delta.
 //!
 //! Loads both keyspaces via the composition root, emits the sorted-JSONL
-//! canonical dump for each (RFC-cfdb.md §12.1), delegates set-algebra to
+//! canonical dump for each, delegates set-algebra to
 //! `cfdb_query::diff::compute_diff`, and prints the resulting
 //! `DiffEnvelope` as pretty JSON (default) or line-oriented sorted-JSONL
 //! (`--format sorted-jsonl`).

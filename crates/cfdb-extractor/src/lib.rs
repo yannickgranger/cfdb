@@ -306,84 +306,21 @@ pub fn extract_workspace_profiled(
         )?;
     }
 
-    // Step 2 (post-walk): emit one `:Context` node per unique bounded
-    // context. `BTreeMap` iteration is ordered, so the emission order is
-    // deterministic across runs regardless of which crate discovered the
-    // context first. Contexts declared in `.cfdb/concepts/*.toml` that no
-    // workspace crate is part of are still emitted — downstream tooling
-    // may reference cross-workspace taxonomies.
     for (name, (meta, source)) in &contexts_seen {
         emit_context_node(&mut emitter, name, meta, *source);
     }
 
-    // Phase 3 (RFC-048 §1) — post-walk deferred resolution: the RETURNS /
-    // TYPE_OF resolvers, referenced-item synthesis, and the canonical sort.
     observe(ExtractPhaseMarker::DeferredResolveStart);
 
-    // Step 3 (post-walk) — RETURNS resolution (RFC-037 §3.2, #216).
-    //
-    // For each (fn_qname, rendered_return_type) pair queued by the
-    // item visitor, emit a RETURNS edge if the rendered return type
-    // resolves to an emitted `:Item` qname in this workspace. The
-    // `emitted_item_qnames` set covers every item across every file
-    // because both halves of the state live on the workspace-scoped
-    // `Emitter` — this lets `pub fn use_foo() -> Foo` declared before
-    // `pub struct Foo {}` (within a file or across files) still emit
-    // a RETURNS edge: same-walk forward-lookup is unnecessary because
-    // the resolution loop runs after every walk has completed.
-    //
-    // Wrapper-unwrap third tier (#239, RFC-037 §6 closeout): when
-    // exact-match + unique-last-segment miss on the outer rendered
-    // return type, the resolver falls back to `render_type_inner` on
-    // the original `syn::Type` (stored in the queue) with a
-    // depth-3 recursion budget. This catches `fn f() -> Vec<Foo>` /
-    // `Option<Foo>` / `Result<Ok, Err>` / nested combinations —
-    // wrapper-wrapped same-crate types now emit RETURNS. The closed
-    // 9-wrapper list lives in `type_render::WRAPPER_TYPES`.
     resolver::resolve_deferred_returns(&mut emitter);
-
-    // Step 4 (post-walk) — TYPE_OF resolution (RFC-037 §3.4, #220;
-    // #239). Same three-tier policy as RETURNS: exact-match, unique
-    // last-segment fallback, and `render_type_inner` wrapper unwrap on
-    // the stored `syn::Type`. Source labels in the deferred queue are
-    // restricted to `:Field` and `:Param`; variant-level TYPE_OF is a
-    // follow-up (variant payloads are already walked as `:Field`
-    // nodes which queue their own TYPE_OF entries).
     resolver::resolve_deferred_type_of(&mut emitter);
-
-    // Step 5 (post-walk) — MATCHES_ON resolution (RFC-053 §3.2, slice
-    // 53-B). For each (matchsite_id, matched_path_prefix) queued by the
-    // match visitor, emit a MATCHES_ON edge when the name-level prefix
-    // resolves to a workspace enum. Reuses the RETURNS / TYPE_OF two-tier
-    // primitive (exact-match + unique last-segment) with a `kind="enum"`
-    // filter, a §3.5 homonym guard (a name-level resolution is trusted
-    // only when the matched-path prefix is a segment-suffix of the resolved
-    // qname), and no wrapper-unwrap third tier — a matched path is a
-    // pattern-path prefix, not a wrapped type. An external prefix
-    // (`syn::Visibility`) is not a suffix of the same-named workspace enum
-    // and resolves to nothing, so its `:MatchSite` keeps no MATCHES_ON edge
-    // (the honest name-level-only representation).
-    // Runs BEFORE synthesis for the same reason RETURNS / TYPE_OF do —
-    // the resolver's exact-match tier must not see synthesised entries.
     resolver::resolve_deferred_match_targets(&mut emitter);
-
-    // Step 6 (post-walk) — synthesize minimal `:Item` nodes for edge dst
-    // qnames that no walk path emitted: foreign traits (`std::fmt::Display`),
-    // foreign types (`serde::Value`), or any same-workspace item referenced
-    // by edge before walking. Without this pass `cfdb-petgraph::ingest_one_edge`
-    // drops every IMPLEMENTS / IMPLEMENTS_FOR / RETURNS / TYPE_OF whose dst
-    // is unknown — issue #317 (reframed from withdrawn RFC-039). Runs AFTER
-    // RETURNS / TYPE_OF / MATCHES_ON resolution so the resolvers' exact-match
-    // tier is not contaminated by synthesised entries; runs BEFORE finish() so
-    // synthesised nodes/edges land in the same canonical sort.
     synthesize::synthesize_referenced_items(&mut emitter, &overrides);
 
     let (mut nodes, mut edges) = emitter.finish();
     nodes.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
     edges.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
 
-    // Final boundary (RFC-048 §1) — extraction complete; the observer times
-    // the deferred-resolve phase from here back to its start marker.
     observe(ExtractPhaseMarker::Finished);
     Ok((nodes, edges))
 }

@@ -31,13 +31,10 @@
 //!
 //! ## Why text parsing, not the `toml` crate
 //!
-//! RFC-039 §3.5.1 SAP analysis: `tools/dogfood-enrich` is the leaf in
-//! the dogfood pipeline (`Ca = 0`); every dependency added here widens
-//! the harness's compile cost and surface area. The TOML files this
-//! scanner reads are tightly conventioned (one concept per file,
-//! top-level scalar fields only — no nested arrays of tables, no
-//! computed values), so a line-based regex parser captures the schema
-//! the harness needs.
+//! The TOML files this scanner reads are tightly conventioned (one
+//! concept per file, top-level scalar fields only — no nested arrays of
+//! tables, no computed values), so a line-based regex parser captures the
+//! schema needed.
 //!
 //! Specifically the scanner recognises two top-level field shapes:
 //!
