@@ -1,5 +1,4 @@
-//! Evaluator fast paths for `candidate_nodes` — RFC-035 §3.6
-//! fast paths 1, 2, and cross-MATCH (slices 5 #184 + 6 #185).
+//! Evaluator fast paths for `candidate_nodes` via inverted-index posting lists.
 //!
 //! Three indexable shapes are handled here:
 //!
@@ -9,8 +8,8 @@
 //!
 //! 2. **Label + WHERE Eq on literal** — `MATCH (a:Item) WHERE a.qname = $x`.
 //!    The evaluator threads the query's top-level WHERE clause into
-//!    `candidate_nodes` (slice 5 change) so this module can detect
-//!    indexable `Eq` conjuncts bound to the pattern's variable.
+//!    `candidate_nodes` so this module can detect indexable `Eq`
+//!    conjuncts bound to the pattern's variable.
 //!
 //! 3. **Cross-MATCH computed-key intersection** — two shapes:
 //!    - `context_homonym`: `last_segment(a.qname) = last_segment(b.qname)`.
@@ -18,7 +17,7 @@
 //!      regexp_extract(b.name, '<vetted>')`, recognised as the
 //!      `ConversionPrefix` computed key when the pattern literal equals
 //!      [`CONVERSION_PREFIX_PATTERN`](crate::index::spec::CONVERSION_PREFIX_PATTERN)
-//!      byte-for-byte (slice 6).
+//!      byte-for-byte.
 //!      When the bound var's value on the non-target side resolves through
 //!      the `bound_var_prop` closure, we apply the computed key and narrow
 //!      the target var's candidates to that single bucket. Turns the
@@ -49,8 +48,8 @@
 //! in the WHERE, property-on-both-sides Eq without a bound-var
 //! resolver, computed call on a prop the index is not built on)
 //! yield `None` — callers fall back to the full `by_label` scan,
-//! preserving the pre-RFC-035 behaviour for every query that cannot
-//! be accelerated.
+//! preserving the existing behaviour for every query that cannot be
+//! accelerated.
 //!
 //! # Why `And`-only descent
 //!
@@ -128,23 +127,22 @@ enum ComputedHint {
 /// Hint sources:
 /// - `np.props` — every literal prop equality becomes a hint when the
 ///   `(label, prop)` pair is in `state.index_spec`.
-/// - `where_clause` (slice 5) — every `Predicate::Compare { op: Eq, ... }`
+/// - `where_clause` — every `Predicate::Compare { op: Eq, ... }`
 ///   conjunct whose left/right is `(a.prop, literal)` or `(literal,
 ///   a.prop)` with `a == np.var` becomes a hint under the same spec
 ///   check.
-/// - `where_clause` (slice 6, cross-MATCH computed) — a `Compare { op:
-///   Eq }` whose two sides invoke the SAME allowlisted `ComputedKey`
-///   over the SAME source prop (and, for `regexp_extract`, the SAME
-///   pattern literal): `last_segment(a.qname) = last_segment(b.qname)`
-///   (`context_homonym`) or `regexp_extract(a.name, '<vetted>') =
-///   regexp_extract(b.name, '<vetted>')` (`random_scattering`,
-///   recognised as `ConversionPrefix`). Exactly one side is `np.var`,
-///   the other resolves through `bound_var_prop`, and the computed key
-///   is in the spec. When the bound side's key resolves, the hint
-///   narrows the target to its single bucket. When the bound side is a
-///   PARTIAL key that did NOT match (NULL join operand), the whole
-///   candidate set is provably empty and the function returns
-///   `Some(vec![])` (RFC-035 §3.6).
+/// - Cross-MATCH computed keys — a `Compare { op: Eq }` whose two
+///   sides invoke the SAME allowlisted `ComputedKey` over the SAME
+///   source prop (and, for `regexp_extract`, the SAME pattern literal):
+///   `last_segment(a.qname) = last_segment(b.qname)` (`context_homonym`)
+///   or `regexp_extract(a.name, '<vetted>') = regexp_extract(b.name,
+///   '<vetted>')` (`random_scattering`, recognised as `ConversionPrefix`).
+///   Exactly one side is `np.var`, the other resolves through
+///   `bound_var_prop`, and the computed key is in the spec. When the bound
+///   side's key resolves, the hint narrows the target to its single bucket.
+///   When the bound side is a PARTIAL key that did NOT match (NULL join
+///   operand), the whole candidate set is provably empty and the function
+///   returns `Some(vec![])`.
 ///
 /// The predicate walker descends only through `And` nodes; `Or` /
 /// `Not` subtrees contribute nothing but don't poison sibling
@@ -267,16 +265,16 @@ where
             op: CompareOp::Eq,
             right,
         } => {
-            // Slice 5: a.prop = literal / $param.
+            // Property eq: a.prop = literal / $param.
             if let Some((prop, value)) = resolve_eq_hint(target_var, left, right, params) {
                 if is_indexed_pair(indexed_pairs, label, &prop) {
                     out.push((prop, value));
                 }
             }
-            // Slice 6: f(a.p) = f(b.p) for an allowlisted computed key
-            // (last_segment / conversion_prefix) where exactly one of
-            // {a, b} is the target var and the other is resolvable via
-            // `bound_var_prop`.
+            // Computed-key eq: f(a.p) = f(b.p) for an allowlisted
+            // computed key (last_segment / conversion_prefix) where exactly
+            // one of {a, b} is the target var and the other is resolvable
+            // via `bound_var_prop`.
             match resolve_cross_ref_computed_hint(target_var, left, right, bound_var_prop) {
                 ComputedHint::Bucket(tag, value) => {
                     if is_indexed_pair(indexed_pairs, label, &tag) {
@@ -285,26 +283,22 @@ where
                 }
                 ComputedHint::ProvablyEmpty(tag) => {
                     // Gate the empty-narrow on the computed key being
-                    // indexed, mirroring the Bucket path: the fast path
-                    // is opt-in via indexes.toml. Without the index we
-                    // fall back to the full scan (still correct).
+                    // indexed: the fast path is opt-in via
+                    // indexes.toml. Without the index we fall back to
+                    // the full scan (still correct).
                     if is_indexed_pair(indexed_pairs, label, &tag) {
                         return HintOutcome::ProvablyEmpty;
                     }
                 }
                 ComputedHint::NoHint => {}
             }
-            // Slice 6b: a.prop = b.prop — plain property-to-property
-            // equi-join (e.g. `a.name = b.name`). Same composition
-            // shape as the slice-6 computed-key path but without a
-            // UDF: bucket the target by the bound side's raw prop
-            // value. Soundness: the bucket key is the exact value
-            // the WHERE clause already requires, so the
-            // post-narrowing predicate filter is still applied and
-            // no row that would have passed is dropped. Activates
-            // only when the `(label, prop)` pair is in the spec —
-            // narrowing without an index falls back to the label
-            // scan, same as slice 5.
+            // Property-to-property equi-join (e.g. `a.name = b.name`).
+            // Bucket the target by the bound side's raw prop value. Soundness:
+            // the bucket key is the exact value the WHERE clause already
+            // requires, so the post-narrowing predicate filter is still applied
+            // and no row that would have passed is dropped. Activates only when
+            // the `(label, prop)` pair is in the spec — narrowing without an
+            // index falls back to the label scan.
             if let Some((tag, value)) =
                 resolve_cross_ref_prop_hint(target_var, left, right, bound_var_prop)
             {

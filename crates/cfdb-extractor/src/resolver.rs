@@ -1,39 +1,21 @@
-//! Post-walk RETURNS / TYPE_OF / MATCHES_ON resolvers
-//! (RFC-037 §3.2 + §3.4, #239; RFC-053 §3.2, slice 53-B).
+//! Post-walk RETURNS / TYPE_OF / MATCHES_ON resolvers.
 //!
 //! Drains the deferred queues on [`crate::emitter::Emitter`] and emits
 //! edges for every entry whose rendered type string resolves to a
 //! known `:Item` qname. Three match tiers, in order:
 //!
 //! 1. **Exact match** on the rendered string against
-//!    `emitted_item_qnames` (fast path for already-qualified returns
-//!    like `mycrate::Foo`).
+//!    `emitted_item_qnames` (fast path for already-qualified returns).
 //! 2. **Unique last-segment fallback** via the `by_last_segment` index
 //!    (matches `"Foo"` to `"mycrate::Foo"`; ambiguous segments drop
-//!    silently — safer than mis-attribution).
-//! 3. **Wrapper unwrap** via [`crate::type_render::render_type_inner`]
-//!    (#239) on the stored `syn::Type` with a depth-3 budget. Each
-//!    inner candidate string runs through the same two tiers above.
-//!    `Result<Ok, Err>` can emit two edges (both arms resolve
-//!    independently).
+//!    silently).
+//! 3. **Wrapper unwrap** on the stored `syn::Type` with a depth-3 budget.
+//!    Each inner candidate string runs through the same two tiers.
 //!
-//! [`resolve_deferred_match_targets`] (RFC-053 slice 53-B) reuses
-//! [`resolve_type_string`] / [`build_last_segment_index`] — the same
-//! primitives the two type-resolvers call — but not tier 3 (a matched
-//! path is a pattern-path prefix, not a wrapped type, so there is
-//! nothing to unwrap), adds a `kind = "enum"` filter the others lack,
-//! and accepts a name-level resolution only when the matched-path prefix
-//! is a segment-suffix of the resolved qname (see [`is_segment_suffix`])
-//! so a qualified external homonym (`syn::Visibility`) does not collapse
-//! onto a same-named workspace enum while in-crate partial qualification
-//! (`mymod::MyEnum`) still resolves (RFC-053 §3.5 homonym-proof fence;
-//! see the fn doc). A standalone short orchestration rather than a shared
-//! generic combinator was the council-converged position: the three
-//! orchestrations genuinely diverge, so a combinator would need enough
-//! knobs to be worse than three short siblings.
-//!
-//! Split from `lib.rs` (#239 slice) to keep the top-level module under
-//! the 500-LOC architecture threshold.
+//! [`resolve_deferred_match_targets`] reuses the type-resolver primitives
+//! but not tier 3, adds a `kind = "enum"` filter, and accepts a name-level
+//! resolution only when the matched-path prefix is a segment-suffix of the
+//! resolved qname.
 
 use std::collections::BTreeMap;
 

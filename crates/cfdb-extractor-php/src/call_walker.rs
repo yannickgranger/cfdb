@@ -1,9 +1,9 @@
-//! Recursive call-site body walk for the PHP producer (RFC-045 §3.4).
+//! Recursive call-site body walk for the PHP producer.
 //!
 //! Descends a function/method body, emitting one buffered [`PendingCallSite`]
 //! per call expression. The per-caller, per-`callee_path` occurrence counter
 //! (reset per body) feeds the `callsite:{caller}:{callee_path}:{idx}` id —
-//! the same scheme the Rust producer uses (`cfdb-extractor/src/call_visitor.rs`).
+//! the same scheme the Rust producer uses.
 //!
 //! Resolution follows the §3.4 PHP scope table:
 //!
@@ -17,8 +17,8 @@
 //! | `$x->foo()` / `$x?->foo()` | `foo` | no (method name only) |
 //! | `$cls::foo()` (dynamic) | `foo` | no |
 //!
-//! `new MyClass()` (`object_creation_expression`) is NOT a call site (a §6
-//! non-goal); the walk skips it but still recurses into its arguments.
+//! `new MyClass()` (`object_creation_expression`) is NOT a call site;
+//! the walk skips it but still recurses into its arguments.
 
 use std::collections::BTreeMap;
 

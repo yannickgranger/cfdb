@@ -1,7 +1,6 @@
 //! Persistence — save/load a keyspace to a single JSON file on disk.
 //!
-//! RFC §12.1 calls the store file "a cache, not a fixture" — JSON is the
-//! canonical format because determinism (G1) is asserted on it. Saving and
+//! JSON is the canonical format for deterministic storage. Saving and
 //! loading the same keyspace MUST produce byte-identical bytes across calls
 //! on unchanged state.
 //!
@@ -31,25 +30,19 @@ use serde::{Deserialize, Serialize};
 
 use crate::PetgraphStore;
 
-/// On-disk representation of one keyspace. Serialized as COMPACT JSON
-/// (#551): the file is a machine-read artifact re-parsed in full on every
-/// query, and pretty-printing was pure size/parse tax at scale (356MB on
-/// qbot-core). Humans diff the canonical dump (G6) or `jq` on demand;
-/// parsing is whitespace-insensitive, so pre-#551 pretty files load
-/// unchanged.
+/// On-disk representation of one keyspace. Serialized as compact JSON:
+/// the file is a machine-read artifact re-parsed in full on every query,
+/// and pretty-printing is pure size/parse tax at scale. Parsing is
+/// whitespace-insensitive.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct KeyspaceFile {
     pub schema_version: SchemaVersion,
     pub nodes: Vec<Node>,
     pub edges: Vec<Edge>,
-    /// Identity-contention diagnostics (RFC-054 54-A #556) — persisted so a
-    /// later `cfdb query` process sees the node loss the extract observed.
-    /// Deliberately ONLY the contention kind: the per-edge unknown-endpoint
-    /// ingest log stays process-local (durability is a property of the
-    /// record, not of the shared warning buffer). `default` keeps pre-054
-    /// files loading unchanged; old readers ignore the unknown field;
-    /// `skip_serializing_if` keeps clean keyspaces byte-identical to
-    /// pre-054 output. Bounded by the recording cap + one summary row.
+    /// Identity-contention diagnostics — persisted so a later `cfdb query`
+    /// process sees the node loss the extract observed. Deliberately ONLY
+    /// the contention kind: the per-edge unknown-endpoint ingest log stays
+    /// process-local. Bounded by the recording cap + one summary row.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub contention_warnings: Vec<Warning>,
 }
@@ -63,10 +56,9 @@ pub fn save(store: &PetgraphStore, keyspace: &Keyspace, path: &Path) -> Result<(
     nodes.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
     edges.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
 
-    // Unknown keyspaces default to V0_1_0 — the pre-`visibility` wire shape.
-    // Upgrading a legacy file to V0_1_1 is a no-op for reads: the new
-    // `:Item.visibility` attribute is optional on every item, so readers at
-    // V0_1_1 treat its absence as "not recorded" rather than malformed.
+    // Unknown keyspaces default to V0_1_0. The new `:Item.visibility`
+    // attribute is optional on every item, so readers treat its absence
+    // as "not recorded" rather than malformed.
     let schema_version = store
         .schema_version(keyspace)
         .unwrap_or(SchemaVersion::V0_1_0);

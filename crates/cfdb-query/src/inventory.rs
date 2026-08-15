@@ -1,5 +1,4 @@
-//! Debt-class taxonomy and structured scope inventory
-//! (RFC-cfdb.md §A2 / §A3.3).
+//! Debt-class taxonomy and structured scope inventory.
 //!
 //! `DebtClass` is the 6-variant canonical taxonomy used by the `cfdb scope`
 //! verb. `ScopeInventory` is the JSON envelope returned to consumer skills
@@ -8,8 +7,8 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Canonical debt-class taxonomy for the `cfdb scope` verb
-/// (RFC-cfdb.md §A2.1). The 6 variants are the exact
+/// Canonical debt-class taxonomy for the `cfdb scope` verb.
+/// The 6 variants are the exact
 /// classes used by `ScopeInventory::findings_by_class` JSON buckets.
 ///
 /// Serde variant naming is `snake_case` so the JSON keys match the addendum
@@ -132,9 +131,8 @@ pub struct CanonicalCandidate {
 }
 
 /// A per-item reachability entry. `None` at the outer `ScopeInventory` level
-/// in v0.1 (HIR-blocked per RFC-cfdb §10 + addendum §A1.2). This struct is
-/// defined for forward-compatible JSON schema and deserialization by
-/// consumer skills — no v0.1 code populates it.
+/// in v0.1. This struct is defined for forward-compatible JSON schema and
+/// deserialization by consumer skills — no v0.1 code populates it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReachabilityEntry {
     pub reachable_from_entry_point: bool,
@@ -142,9 +140,8 @@ pub struct ReachabilityEntry {
     pub entry_qname: Option<String>,
 }
 
-/// Structured infection inventory for a bounded context
-/// (RFC-cfdb.md §A3.3). Returned by `cfdb scope
-/// --context <name>`. Pure data aggregation — no workflow hints,
+/// Structured infection inventory for a bounded context.
+/// Returned by `cfdb scope --context <name>`. Pure data aggregation — no workflow hints,
 /// no raid-plan formatting; that is the consumer skill's concern
 /// (`/operate-module` per §A3.4).
 ///

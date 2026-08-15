@@ -9,8 +9,7 @@ use thiserror::Error;
 /// The single error type produced by `build_hir_database` and
 /// `extract_call_sites`. Variants wrap lower-layer `ra-ap-*` errors
 /// as `String` rather than the ra-ap-* concrete types so that the
-/// `HirError` does NOT carry any `ra_ap_*` type in its public
-/// signature (RFC-029 §A1.2 boundary contract).
+/// `HirError` does NOT carry any `ra_ap_*` type in its public signature.
 #[derive(Debug, Error)]
 pub enum HirError {
     /// Cargo workspace could not be discovered at the given root.

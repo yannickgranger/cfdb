@@ -1,8 +1,6 @@
-//! Const-driven recall thresholds for the nightly Gitea status workflow
-//! (issue #340, Phase C of EPIC #338).
+//! Const-driven recall thresholds for the nightly Gitea status workflow.
 //!
-//! Per `CLAUDE.md` §6 row 5 ("No metric ratchets") and the project-level
-//! `CLAUDE.md` §3 row 5: every threshold in the cfdb tooling lives as a
+//! Every threshold in the cfdb tooling lives as a
 //! `const` in tool source. There is no `.recall-baseline.json`, no
 //! allowlist file, no `--update-baseline` flag. Raising a threshold is a
 //! reviewed PR that edits this file.
@@ -24,17 +22,17 @@
 //! These values are independent of [`crate::DEFAULT_THRESHOLD`] (the
 //! v0.1 hard-gate floor used by the PR-time slim build, currently 0.95).
 //! The nightly workflow can run at a tighter floor than the PR gate
-//! because nightly is soft-warning during the first cycle (#340 AC-5).
+//! because nightly is soft-warning during the first cycle.
 
 /// Minimum recall ratio (matched / adjusted_denominator) any single
 /// crate must clear in the nightly run before its `recall/<crate-name>`
 /// Gitea status flips from `success` to `failure`.
 ///
 /// Initial value: `0.85`. Conservative on purpose — the nightly is
-/// soft-warning for the first cycle (AC-5), so a too-tight floor would
+/// soft-warning during the initial phase, so a too-tight floor would
 /// front-load alert fatigue before we have a baseline of nightly runs
 /// to calibrate against. Expected to be tightened in a reviewed PR
-/// after the second-cycle promotion to required-check.
+/// after the phase transitions to required-check.
 pub const RECALL_THRESHOLD_PER_CRATE: f64 = 0.85;
 
 /// Minimum aggregate recall the workspace must clear before the
@@ -59,18 +57,18 @@ pub const RECALL_THRESHOLD_TOTAL: f64 = 0.90;
 /// a different floor, and we want that decision in source rather than
 /// in an external file that drifts from the code.
 // `#[allow(clippy::match_single_binding)]` is load-bearing: the match
-// shape is the documented extension point (#340 AC-4 — "Per-crate
+// shape is the documented extension point — per-crate
 // threshold may differ from total via `match crate_name { ... }` inside
-// the const-driven check"). Collapsing it to a bare expression would
+// the const-driven check. Collapsing it to a bare expression would
 // force the next per-crate override to re-introduce the match and
-// change the call shape — that is exactly the kind of churn the issue's
+// change the call shape — that is exactly the kind of churn the
 // const-driven design avoids.
 #[allow(clippy::match_single_binding)]
 pub fn threshold_for_crate(crate_name: &str) -> f64 {
     match crate_name {
-        // No per-crate overrides at the time of #340 landing. Future
-        // overrides go here, each with a comment citing the issue or
-        // RFC that motivated the deviation.
+        // No per-crate overrides at the time of initial landing. Future
+        // overrides go here, each with a comment citing the rationale
+        // for the deviation.
         _ => RECALL_THRESHOLD_PER_CRATE,
     }
 }

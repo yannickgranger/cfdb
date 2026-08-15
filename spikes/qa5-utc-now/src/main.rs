@@ -1,13 +1,12 @@
-//! QA-5 macro spike reconciler — issue #3623.
+//! QA-5 macro spike reconciler.
 //!
-//! Produces the classification artifact required by issue #3623 AC:
+//! Produces the classification artifact with:
 //!
 //!   1. rg -n 'Utc::now' crates/ | wc -l  → denominator
 //!   2. Each hit classified into (a) syn-visible prod, (b) extractor blind spot
 //!      in prod, or (c) test-scope.
-//!   3. Compute (a) / (a+b) — the syn-recall ratio on prod. If < 95%, the RFC
-//!      §13 Item 2 Pattern D target is unmet and `ra-ap-hir` must be promoted
-//!      from v0.2 into v0.1.
+//!   3. Compute (a) / (a+b) — the syn-recall ratio on prod. If < 95%, an
+//!      uplift to `ra-ap-hir` must be considered.
 //!
 //! The reconciler uses the `ignore` crate (the library backing ripgrep) to
 //! produce the denominator in-process, and shells out to the already-built

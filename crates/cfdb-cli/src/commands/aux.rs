@@ -1,7 +1,6 @@
 //! Auxiliary command handlers — `cfdb dump`, `cfdb list-keyspaces`, and
-//! the `cfdb export` alias. Split out of `commands.rs` for the drift
-//! god-file decomposition (#151). Move-only; public paths preserved via
-//! `pub use` in `commands.rs`.
+//! the `cfdb export` alias. Public paths are preserved via `pub use` in
+//! `commands.rs`.
 
 use std::path::PathBuf;
 use std::str::FromStr;

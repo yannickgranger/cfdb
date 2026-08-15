@@ -1,6 +1,6 @@
 //! `--param <name>:<form>:<value>` CLI-arg resolver for `cfdb check-predicate`.
 //!
-//! Four forms per RFC-034 §3.4:
+//! Four forms:
 //! - `context:<concept-name>` → `ParamBinding::List` of crates from
 //!   `.cfdb/concepts/<name>.toml` (sorted ascending for determinism)
 //! - `regex:<pattern>`        → `ParamBinding::Scalar(PropValue::Str(pattern))`
@@ -8,17 +8,16 @@
 //! - `list:<a,b,c>`           → `ParamBinding::List` of comma-separated strings
 //!   (insertion order preserved — semantic per RFC §3.4)
 //!
-//! Invariant §4.6: the `context:` branch reads `.cfdb/concepts/*.toml` ONLY
-//! via [`cfdb_concepts::load_concept_overrides`]. No inline TOML parser lives
+//! The `context:` branch reads `.cfdb/concepts/*.toml` ONLY via
+//! [`cfdb_concepts::load_concept_overrides`]. No inline TOML parser lives
 //! in this module.
 //!
-//! Invariant §4.5 (hermeticity): the resolver takes `(workspace_root, cli_arg)`
+//! The resolver takes `(workspace_root, cli_arg)`
 //! and performs ZERO environment reads, subprocess spawns, or network calls.
 //! The single filesystem access — `.cfdb/concepts/*.toml` through the canonical
 //! loader — is bounded to the caller-supplied `workspace_root`.
 //!
-//! Visibility: `pub(crate)` per `council/49/RATIFIED.md` §9. Slice 3's
-//! `check_predicate.rs` consumes via `use crate::param_resolver::*`. No
+//! `pub(crate)` — consumed via `use crate::param_resolver::*`. No
 //! `pub use` escape to the crate root.
 //!
 //! Homonym note on `ParamResolveError`: a lexically similar `LoadError`

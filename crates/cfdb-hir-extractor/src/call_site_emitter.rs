@@ -1,7 +1,7 @@
-//! `extract_call_sites` — walk every source file in the VFS,
-//! resolve method-call AND path-call dispatch via `ra_ap_hir::Semantics`,
-//! emit `:CallSite` + `CALLS(item→item)` + `INVOKES_AT(item→:CallSite)`
-//! facts into cfdb-core's graph vocabulary.
+//! Walk every source file in the VFS, resolve method-call and path-call
+//! dispatch via `ra_ap_hir::Semantics`, and emit `:CallSite`,
+//! `CALLS(item→item)`, and `INVOKES_AT(item→:CallSite)` facts into
+//! cfdb-core's graph vocabulary.
 //!
 //! ## Resolved call shapes
 //!
@@ -63,10 +63,9 @@ use walk::walk_file;
 /// Iterates every `.rs` file in `vfs`, parses each via
 /// `Semantics::parse_guess_edition`, walks the syntax tree for method
 /// calls, and resolves each via `Semantics::resolve_method_call`. Every
-/// successful resolution emits exactly one `:CallSite` node (with
-/// `resolver="hir"` + `callee_resolved=true`), one `CALLS(item:caller
-/// → item:callee)` edge, and one `INVOKES_AT(item:caller →
-/// :CallSite)` edge.
+/// successful resolution emits one `:CallSite` node, one `CALLS` edge
+/// from caller to callee, and one `INVOKES_AT` edge from caller to the
+/// call site.
 ///
 /// # Errors
 ///
@@ -86,17 +85,14 @@ use walk::walk_file;
 /// invocations on the same workspace produce byte-identical vecs
 /// regardless of the VFS iteration order chosen by `ra_ap_vfs`.
 ///
-/// # Walk scope + `file` props (#561)
+/// # Walk scope + `file` props
 ///
-/// Only files under `workspace_root` are walked; dependency and
-/// sysroot sources in the VFS are skipped. Their call sites were pure
-/// noise: a dependency cannot statically call back into the workspace
-/// (HIR resolves generic calls at the definition site), so dep-internal
-/// edges never join the workspace graph — they only dangled into
-/// synthesized stubs. Scoping the walk also makes the workspace-relative
+/// Only files under `workspace_root` are walked; dependency and sysroot
+/// sources in the VFS are skipped. Dep-internal edges never join the
+/// workspace graph. Scoping the walk also makes the workspace-relative
 /// `file`-prop contract total: every emitted path strips against the
-/// canonical root by construction, no silent absolute fallback possible
-/// (the #527 discipline).
+/// canonical root by construction, with no silent absolute fallback
+/// possible.
 pub fn extract_call_sites<DB>(
     db: &DB,
     vfs: &Vfs,
@@ -106,10 +102,8 @@ pub fn extract_call_sites<DB>(
 where
     DB: HirDatabase + Sized,
 {
-    // hir-ty's next-solver reads the database from its OWN thread-local
-    // (separate from salsa's top-level attached slot). Without this
-    // attach, any HIR query that dispatches through the solver panics
-    // "Try to use attached db, but not db is attached". The closure
+    // hir-ty's next-solver reads from its own thread-local slot (separate
+    // from salsa's). Without attaching it, HIR queries panic. The closure
     // returns owned Vecs so the attach scope ends before we return.
     attach_db(db, || {
         extract_call_sites_attached(db, vfs, workspace_root, targets)
@@ -135,13 +129,10 @@ where
     for (file_id, file_path) in files {
         let source_file = sema.parse_guess_edition(file_id);
         // Build a LineIndex once per file so byte-offset → 1-indexed
-        // source-line conversion in `walk_file` is O(log n) per call
-        // site. The text comes from salsa-cached `SourceDatabase::file_text`,
-        // so this read is free; constructing the LineIndex is a single
-        // newline scan amortised across every method-call we emit. F-005
-        // / EPIC #273: `:CallSite.line` in the HIR extractor was hardcoded
-        // to 0 — this is the parity fix matching what PR #291 did for the
-        // syn extractor.
+        // source-line conversion is O(log n) per call site. The text
+        // comes from salsa-cached `SourceDatabase::file_text`, so this
+        // read is free; constructing the LineIndex is a single newline
+        // scan amortised across every method-call we emit.
         let file_text_handle = db.file_text(file_id);
         let file_text: &str = file_text_handle.text(db);
         let line_index = LineIndex::new(file_text);
@@ -188,11 +179,9 @@ fn vfs_path_to_pathbuf(p: &VfsPath) -> Option<PathBuf> {
 }
 
 /// Enumerate the workspace's own `.rs` files from the VFS, sorted by
-/// path for G1 byte-stability, each paired with its WORKSPACE-RELATIVE
-/// path (#561 — the `file`-prop contract is workspace-relative; see
-/// [`extract_call_sites`] walk-scope docs). Files outside the canonical
-/// root (dependency and sysroot sources) are skipped. Shared with
-/// [`crate::entry_point_emitter`].
+/// path for deterministic order, each paired with its workspace-relative
+/// path. Files outside the canonical root (dependency and sysroot sources)
+/// are skipped. Shared with [`crate::entry_point_emitter`].
 pub(crate) fn workspace_rs_files(
     vfs: &Vfs,
     workspace_root: &Path,

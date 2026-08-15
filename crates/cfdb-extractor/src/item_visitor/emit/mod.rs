@@ -40,22 +40,11 @@ mod sub_items;
 /// Emit a `:CallSite` node + `INVOKES_AT` edge from the owning `:Item`.
 ///
 /// Centralises the prop shape, node label, and edge wiring shared by the
-/// two CallSite emission paths in this crate (audit 2026-W17 / EPIC #273
-/// / Pattern 3 fan-out):
+/// two CallSite emission paths in this crate:
+/// - Body-call sites ([`crate::call_visitor::CallSiteVisitor::emit_call_site`])
+/// - Attribute-ref sites ([`ItemVisitor::emit_attr_call_site`])
 ///
-/// - **Body-call sites** ([`crate::call_visitor::CallSiteVisitor::emit_call_site`]) —
-///   call expressions inside a fn body. The caller computes
-///   `cs_id = callsite_node_id(&target.identity(caller_qname), callee_path, local_idx)`
-///   (RFC-054: the caller's target-scoped identity, via the canonical helper).
-/// - **Attribute-ref sites**
-///   ([`ItemVisitor::emit_attr_call_site`]) — name references inside
-///   attributes such as `#[serde(default = "Utc::now")]`. The caller
-///   computes `cs_id = callsite_node_id(&format!("{identity}.{field_name}"), callee_path, 0)`
-///   where `identity` is the parent's target-scoped identity
-///   and passes the `field` prop via `extra_props`.
-///
-/// The id format and the attr-only `field` prop stay caller-side; this
-/// helper owns the prop shape (`callee_last_segment` derivation, the
+/// This helper owns the prop shape (`callee_last_segment` derivation, the
 /// `resolver="syn"` discriminator, the `callee_resolved=false` default),
 /// the `Label::CALL_SITE` node emission, and the `INVOKES_AT` edge from
 /// `item_node_id_for_target(caller_qname, caller_target)` (RFC-054).

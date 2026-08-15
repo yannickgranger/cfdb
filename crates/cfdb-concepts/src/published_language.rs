@@ -1,9 +1,8 @@
 //! Published-language crates loader — `.cfdb/published-language-crates.toml`.
 //!
-//! DDD Published Language marker loader per RFC-cfdb.md Addendum B §A1.8
-//! (issue #100). Declares which crates publish a "Published Language"
-//! intentionally consumed across bounded contexts. The `:Finding`
-//! classifier (issue #48) reads the materialised `:Crate.published_language`
+//! DDD Published Language marker loader. Declares which crates publish a
+//! "Published Language" intentionally consumed across bounded contexts. The
+//! `:Finding` classifier reads the materialised `:Crate.published_language`
 //! prop to suppress false Context-Homonym positives for crates that live
 //! cross-context by design (e.g. `qbot-prelude`, `qbot-types`).
 //!

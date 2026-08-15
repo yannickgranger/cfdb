@@ -1,14 +1,12 @@
 //! Shared [`Emitter`] sink — holds the accumulating nodes + edges the
 //! AST walkers push into, plus the post-walk RETURNS / TYPE_OF
-//! resolution state (`emitted_item_qnames` + two deferred queues per
-//! RFC-037 §3.2, #216) and the MATCHES_ON resolution state
-//! (`emitted_enum_qnames` + a third deferred queue per RFC-053 §3.2,
-//! slice 53-B).
+//! resolution state (`emitted_item_qnames` + two deferred queues)
+//! and the MATCHES_ON resolution state (`emitted_enum_qnames` +
+//! a third deferred queue).
 //!
-//! Split from `lib.rs` (#239 slice) to keep the top-level module under
-//! the 500-LOC architecture threshold. The public surface is
-//! `pub(crate)` only — outside consumers see the extractor exclusively
-//! through [`crate::extract_workspace`].
+//! Split from `lib.rs` to keep the top-level module under the 500-LOC
+//! architecture threshold. The public surface is `pub(crate)` only — outside
+//! consumers see the extractor exclusively through [`crate::extract_workspace`].
 
 use cfdb_core::fact::{Edge, Node};
 use cfdb_core::qname::TargetDiscriminator;
@@ -18,31 +16,27 @@ use cfdb_core::qname::TargetDiscriminator;
 /// [`crate::extract_workspace`] owns the instance and calls
 /// [`Emitter::finish`] once the workspace has been fully walked.
 ///
-/// **RETURNS / TYPE_OF post-walk state (RFC-037 §3.2, #216; extended
-/// for #239).** Three fields support deferred edge resolution:
-/// `emitted_item_qnames` records every `:Item` qname the extractor has
-/// emitted (populated by
+/// **RETURNS / TYPE_OF post-walk state.** Three fields support deferred edge
+/// resolution: `emitted_item_qnames` records every `:Item` qname the extractor
+/// has emitted (populated by
 /// [`crate::item_visitor::ItemVisitor::emit_item_with_flags`] and the
-/// impl-method emission path); `deferred_returns` records
-/// `(fn_qname, target, rendered_return_type_string, original_return_syn_type)`
-/// tuples queued by `visit_item_fn` / `visit_impl_item_fn`; and
-/// `deferred_type_of` records the same shape for `:Field` / `:Param`
-/// TYPE_OF edges. Once the workspace walk is complete,
-/// [`crate::resolver::resolve_deferred_returns`] /
-/// [`crate::resolver::resolve_deferred_type_of`] drain the queues and
-/// emit edges for every resolvable entry. Holding these on the
-/// workspace-scoped `Emitter` (rather than on the per-file
-/// [`crate::item_visitor::ItemVisitor`]) means the resolution loop sees
-/// every item across every file regardless of walk order — a
-/// `pub fn use_foo() -> Foo` declared before `pub struct Foo {}` in
-/// the same file (or in a different file walked earlier) still
-/// resolves correctly.
+/// impl-method emission path); `deferred_returns` records `(fn_qname, target,
+/// rendered_return_type_string, original_return_syn_type)` tuples queued by
+/// `visit_item_fn` / `visit_impl_item_fn`; and `deferred_type_of` records the
+/// same shape for `:Field` / `:Param` TYPE_OF edges. Once the workspace walk
+/// is complete, [`crate::resolver::resolve_deferred_returns`] /
+/// [`crate::resolver::resolve_deferred_type_of`] drain the queues and emit
+/// edges for every resolvable entry. Holding these on the workspace-scoped
+/// `Emitter` (rather than on the per-file [`crate::item_visitor::ItemVisitor`])
+/// means the resolution loop sees every item across every file regardless of
+/// walk order — a `pub fn use_foo() -> Foo` declared before `pub struct Foo {}`
+/// in the same file (or in a different file walked earlier) still resolves
+/// correctly.
 pub(crate) struct Emitter {
     nodes: Vec<Node>,
     edges: Vec<Edge>,
     /// Display qname → claiming targets, for every `:Item` emitted so
-    /// far (RFC-054 §3.5.2: a set cannot represent N target claims) —
-    /// used for RETURNS /
+    /// far (a set cannot represent N target claims) — used for RETURNS /
     /// TYPE_OF post-walk resolution. Populated by
     /// [`crate::item_visitor::ItemVisitor::emit_item_with_flags`] and
     /// by the impl-method emission path in
@@ -53,8 +47,8 @@ pub(crate) struct Emitter {
     /// Walked after all items are emitted. The rendered string is
     /// consulted first (exact + unique-last-segment tiers); the
     /// stored `syn::Type` powers the third-tier wrapper unwrap via
-    /// [`crate::type_render::render_type_inner`] (#239), which runs
-    /// only when the rendered-string tiers miss.
+    /// [`crate::type_render::render_type_inner`], which runs only when
+    /// the rendered-string tiers miss.
     pub(crate) deferred_returns: Vec<(String, TargetDiscriminator, String, syn::Type)>,
     /// Deferred TYPE_OF edges — `(source_node_id, rendered_type_string,
     /// source_label, original_syn_type, source_target)` where `source_label` is
@@ -66,30 +60,26 @@ pub(crate) struct Emitter {
     /// the RETURNS resolver. Variants are not queued from here —
     /// a variant's payload is walked into separate `:Field` nodes
     /// which queue their own TYPE_OF entries. Variant-level TYPE_OF
-    /// is a documented follow-up (RFC-037 §3.4 / #220 non-goals).
+    /// is a documented follow-up.
     pub(crate) deferred_type_of:
         Vec<(String, String, &'static str, syn::Type, TargetDiscriminator)>,
     /// Deferred MATCHES_ON edges — `(matchsite_id, matched_path_prefix,
-    /// site_target)`
-    /// (RFC-053 §3.2, slice 53-B). Queued walk-time by
-    /// [`crate::match_visitor`] for every `:MatchSite` it emits;
-    /// [`crate::resolver::resolve_deferred_match_targets`] drains it after
-    /// the walk and emits a `MATCHES_ON` edge for each prefix that
-    /// resolves to a workspace *enum*. The stored prefix is the
-    /// name-level `matched_path` as written (`Visibility`,
+    /// site_target)`. Queued walk-time by [`crate::match_visitor`] for
+    /// every `:MatchSite` it emits; [`crate::resolver::resolve_deferred_match_targets`]
+    /// drains it after the walk and emits a `MATCHES_ON` edge for each
+    /// prefix that resolves to a workspace *enum*. The stored prefix is
+    /// the name-level `matched_path` as written (`Visibility`,
     /// `syn::Visibility`); resolution reuses the same two-tier
     /// [`crate::resolver`] primitives RETURNS / TYPE_OF use, without the
     /// third-tier wrapper unwrap (a matched path is a pattern-path
     /// prefix, not a wrapped type). A third deferred queue is a natural
-    /// extension of the single deferred-resolution responsibility — no
-    /// `DeferredResolution` trait (RFC-053 §3.3, YAGNI).
+    /// extension of the single deferred-resolution responsibility.
     pub(crate) deferred_match_targets: Vec<(String, String, TargetDiscriminator)>,
     /// Display qname → claiming targets for every emitted enum `:Item` — the
-    /// `MATCHES_ON` kind filter (RFC-053 §3.2: resolution targets are
-    /// constrained to `kind = "enum"`; a prefix resolving to a
-    /// struct/trait emits nothing). A subset of
-    /// [`Self::emitted_item_qnames`], populated at the same single `:Item`
-    /// emission site
+    /// `MATCHES_ON` kind filter (resolution targets are constrained to
+    /// `kind = "enum"`; a prefix resolving to a struct/trait emits nothing).
+    /// A subset of [`Self::emitted_item_qnames`], populated at the same
+    /// single `:Item` emission site
     /// ([`crate::item_visitor::ItemVisitor::emit_item_with_flags`]). Held
     /// on the workspace-scoped `Emitter` so the post-walk resolver sees
     /// every enum across every file regardless of walk order.
@@ -109,10 +99,10 @@ impl Emitter {
         }
     }
 
-    /// Record that `qname` is claimed by `target` (RFC-054 §3.5.2). The
-    /// resolver's same-target → lib → never-a-foreign-bin policy reads
-    /// these claims; a `BTreeSet<String>` cannot represent "claimed by N
-    /// targets", which is why this is a map.
+    /// Record that `qname` is claimed by `target`. The resolver's
+    /// same-target → lib → never-a-foreign-bin policy reads these claims;
+    /// a `BTreeSet<String>` cannot represent "claimed by N targets", which is
+    /// why this is a map.
     pub(crate) fn claim_item_qname(&mut self, qname: &str, target: &TargetDiscriminator) {
         let claims = self
             .emitted_item_qnames
@@ -120,7 +110,7 @@ impl Emitter {
             .or_default();
         // Claims are 1 element in the overwhelming case and bounded by the
         // package's target count — a Vec with a linear guard beats a
-        // BTreeSet leaf allocation per qname (simplify review F5).
+        // BTreeSet leaf allocation per qname.
         if !claims.contains(target) {
             claims.push(target.clone());
         }
@@ -148,8 +138,8 @@ impl Emitter {
     /// Read-only view of every edge emitted so far. Used by the post-walk
     /// synthesis pass ([`crate::synthesize::synthesize_referenced_items`])
     /// to discover dst qnames that no walk path emitted as `:Item` nodes
-    /// (foreign traits, foreign types — issue #317). Not exposed publicly;
-    /// `pub(crate)` so the synthesis function in this crate can iterate.
+    /// (foreign traits, foreign types). Not exposed publicly; `pub(crate)`
+    /// so the synthesis function in this crate can iterate.
     pub(crate) fn edges(&self) -> &[Edge] {
         &self.edges
     }

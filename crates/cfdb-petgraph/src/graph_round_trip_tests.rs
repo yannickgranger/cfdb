@@ -1,11 +1,10 @@
-//! AC1 round-trip test for RFC-035 slice 4 (#183).
+//! Round-trip test for `persist::load` rebuilding the index from in-memory facts.
 //!
-//! Lives in its own `#[cfg(test)] mod` file (declared from `lib.rs`)
-//! to keep `crates/cfdb-petgraph/src/graph.rs` under the workspace
-//! god-file ceiling — the test wants visibility into `pub(crate)`
-//! `KeyspaceState` + `PetgraphStore::keyspaces`, both of which are
-//! crate-visible by construction so a sibling test module reaches
-//! them without any new public surface (Forbidden Move #11 honored).
+//! Lives in its own `#[cfg(test)] mod` file to keep
+//! `crates/cfdb-petgraph/src/graph.rs` under the workspace god-file ceiling —
+//! the test wants visibility into `pub(crate)` `KeyspaceState` +
+//! `PetgraphStore::keyspaces`, both of which are crate-visible by construction
+//! so a sibling test module reaches them without any new public surface.
 //!
 //! Test-helper duplication (`item`, `three_index_spec`) is acceptable
 //! here because it is intentionally inert — these helpers exist only
@@ -48,23 +47,18 @@ fn item(id: &str, qname: &str, ctx: &str) -> Node {
         .with_prop("bounded_context", ctx)
 }
 
-/// AC1 (RFC-035 slice 4 / #183) — `persist::load` rebuilds
-/// `by_prop` from the in-memory fact content via slice 2's
-/// `ingest_nodes` chain. The rebuild MUST be byte-for-byte
-/// identical to the ingest-time `by_prop` when the destination
-/// keyspace carries the same `IndexSpec` as the source.
+/// `persist::load` rebuilds `by_prop` from the in-memory fact content via
+/// `ingest_nodes` chain. The rebuild MUST be byte-for-byte identical to the
+/// ingest-time `by_prop` when the destination keyspace carries the same
+/// `IndexSpec` as the source.
 ///
-/// Mechanism (already shipped in slice 2 / commit 55fcd88):
-/// `persist::load → PetgraphStore::ingest_nodes → keyspace_mut →
-/// KeyspaceState::ingest_one_node → compute_index_entries`
-/// populates `by_prop` from `self.index_spec`. Slice 4 verifies
-/// the round-trip dimension that slice 2 didn't explicitly test.
+/// Mechanism: `persist::load → PetgraphStore::ingest_nodes → keyspace_mut →
+/// KeyspaceState::ingest_one_node → compute_index_entries` populates `by_prop`
+/// from `self.index_spec`.
 ///
-/// Non-empty-spec test surface: we pre-seed `store.keyspaces`
-/// directly via the `pub(crate) keyspaces` field — this stays
-/// inside `#[cfg(test)] mod` access (no public surface added per
-/// Forbidden Move #11; the slice 7 `with_indexes` builder is
-/// still pending).
+/// Non-empty-spec test surface: we pre-seed `store.keyspaces` directly via
+/// the `pub(crate) keyspaces` field — this stays inside `#[cfg(test)] mod`
+/// access without any new public surface.
 #[test]
 fn by_prop_rebuilt_on_load_matches_ingest_time_state() {
     let spec = three_index_spec();

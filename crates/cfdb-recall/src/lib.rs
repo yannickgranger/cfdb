@@ -1,17 +1,16 @@
 //! cfdb-recall — measure cfdb-extractor recall against `cargo public-api`
-//! ground truth, per RFC-029 §13 acceptance gate Item 2.
+//! ground truth.
 //!
-//! **Why this crate exists.** The original RFC sketched the recall gate as
-//! `rg -c '^pub (struct|enum|trait|fn|type|const)' crates/$c/src/` against a
-//! query count from the store. That is broken in three ways: (1) the ratio
-//! is count-based, so two items with the same local name collapse into one
-//! denominator slot; (2) `rg` cannot see items produced by macro expansion
-//! (`define_id!`, `#[derive(...)]`, `paste!`, etc.); (3) a `pub` keyword
-//! inside a `pub mod { ... }` block that is already public produces nested
-//! matches `rg` cannot disambiguate. QA-2 during RFC council rejected the
-//! original formulation and mandated `cargo public-api` (or `rustdoc
-//! --output-format json`) as the canonical source of truth. This crate is
-//! the replacement.
+//! **Why this crate exists.** A recall gate using `rg -c '^pub
+//! (struct|enum|trait|fn|type|const)' crates/$c/src/` against a query count
+//! from the store is broken in three ways: (1) the ratio is count-based, so
+//! two items with the same local name collapse into one denominator slot;
+//! (2) `rg` cannot see items produced by macro expansion (`define_id!`,
+//! `#[derive(...)]`, `paste!`, etc.); (3) a `pub` keyword inside a `pub mod
+//! { ... }` block that is already public produces nested matches `rg` cannot
+//! disambiguate. `cargo public-api` (or `rustdoc --output-format json`) is
+//! the canonical source of truth instead. This crate implements the
+//! replacement.
 //!
 //! **Dependency rule.** The pure logic in this module (sets, ratios, audit
 //! carve-out) has zero I/O and zero dependencies on `rustdoc-json` or
@@ -109,10 +108,8 @@ impl AuditList {
 
 /// The minimum per-crate recall the v0.1 acceptance gate requires.
 ///
-/// Defined in RFC-029 §13 Item 2 (revised). The value is a `const` in
-/// source deliberately, per CLAUDE.md §6 rule 8: every metric threshold in
-/// the qbot ecosystem is a `const`, never a baseline file. Raising this
-/// threshold requires a reviewed PR against this constant.
+/// Every metric threshold is a `const`, never a baseline file. Raising
+/// this threshold requires a reviewed PR against this constant.
 pub const DEFAULT_THRESHOLD: f64 = 0.95;
 
 /// Result of a single-crate recall computation.

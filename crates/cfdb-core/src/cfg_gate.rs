@@ -1,7 +1,7 @@
 //! `CfgGate` — `#[cfg(feature = "…")]` expression tree captured on `:Item`.
 //!
-//! Added in SchemaVersion v0.1.2 per Issue #36. Represents the subset of
-//! Rust's `cfg()` attribute language that is relevant to rescue signal:
+//! Represents the subset of Rust's `cfg()` attribute language that is
+//! relevant to rescue signal:
 //! feature predicates and their logical combinators.
 //!
 //! Recognised shapes:

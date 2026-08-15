@@ -1,6 +1,6 @@
 //! Query-shape lint — catches known performance footguns before evaluation.
 //!
-//! Study 001 §4.2 measured that the textbook F1a Cartesian form —
+//! The textbook Cartesian form with function-equality predicates —
 //!
 //! ```cypher
 //! MATCH (a:Item), (b:Item)
@@ -8,9 +8,8 @@
 //!   AND a <> b
 //! ```
 //!
-//! — runs in 212s on LadybugDB and 5s on petgraph at 15k items, while the
-//! equivalent aggregation form (F1b) runs in 4–86ms on the same data. No
-//! planner pushes `f(a.p) = f(b.p)` into a hash join, so cfdb flags it at
+//! — exhibits O(n²) performance. The equivalent aggregation form is much faster.
+//! No planner pushes `f(a.p) = f(b.p)` into a hash join, so cfdb flags it at
 //! shape time and suggests the aggregation rewrite instead.
 //!
 //! v0.1 scope: **one rule**. `lint_shape` walks the top-level `match_clauses`

@@ -9,10 +9,9 @@
 //! that are re-parsed via the shared
 //! [`crate::macro_tokens::walk_macro_tokens`] helper).
 //!
-//! Per RFC-041 §3.1 the emitted `value` is the **raw inter-delimiter
-//! source bytes** of the literal token, NOT
-//! [`syn::LitStr::value()`]. Escape decoding would break the
-//! `=~`-matches-`grep` invariant the downstream ban rules rely on
+//! The emitted `value` is the **raw inter-delimiter source bytes**
+//! of the literal token, NOT [`syn::LitStr::value()`]. Escape decoding
+//! would break the `=~`-matches-`grep` invariant
 //! (`"phase\tname"` is 11 source bytes including the backslash-t;
 //! `value()` returns 10 bytes with an embedded TAB).
 //!
@@ -20,8 +19,7 @@
 //! [`crate::item_visitor`] pass the precomputed `is_test` (the OR of
 //! `attrs_contain_cfg_test` / `attrs_contain_hash_test` plus
 //! `is_in_test_mod` depth). The visitor never re-evaluates the
-//! predicate at the literal site — RFC-041 §4 forbids a parallel
-//! resolver.
+//! predicate at the literal site.
 //!
 //! ## Exclusions (RFC-041 §6)
 //!
@@ -136,9 +134,7 @@ impl LiteralVisitor<'_, '_> {
 /// Pure builder: produce the `:Literal` `Node` for one `syn::LitStr`.
 ///
 /// Splitting this out of [`LiteralVisitor::emit_literal`] lets the unit
-/// tests assert the contract (RFC §3.1: label, raw-bytes value, no
-/// `kind` attr, is_test propagation, node-id shape) without standing
-/// up a full `Emitter`.
+/// tests assert the contract without standing up a full `Emitter`.
 pub(crate) fn build_literal_node(
     lit: &syn::LitStr,
     file_path: &str,
@@ -154,9 +150,9 @@ pub(crate) fn build_literal_node(
     let id = format!("literal:{file_path}:{line}:{col}");
 
     let mut props: BTreeMap<String, PropValue> = BTreeMap::new();
-    // RFC §3.1: descriptor lists exactly these 6 attrs in alphabetical
-    // order; no `kind`. Insertion order matters only for human-reading
-    // the serialized output — `cfdb-petgraph` keys props by name.
+    // Descriptor lists exactly these 6 attrs in alphabetical order; no
+    // `kind`. Insertion order matters only for human-reading the
+    // serialized output — `cfdb-petgraph` keys props by name.
     props.insert("col".into(), PropValue::Int(col));
     props.insert("crate".into(), PropValue::Str(crate_name.to_string()));
     props.insert("file".into(), PropValue::Str(file_path.to_string()));
@@ -227,7 +223,7 @@ mod tests {
         // Source: "phase\tname" — 11 bytes between the quotes
         // (5 + 1 backslash + 1 t + 4). `LitStr::value()` would
         // decode to "phase<TAB>name" (10 bytes including the TAB).
-        // RFC-041 §3.1 mandates the raw source form for the
+        // The raw source form must be preserved for the
         // `=~`-matches-`grep` invariant.
         let lit = parse_lit_str("\"phase\\tname\"");
         let v = raw_inter_delimiter_bytes(&lit);
@@ -282,8 +278,7 @@ mod tests {
 
     #[test]
     fn build_literal_node_props_are_exactly_six_no_kind() {
-        // RFC-041 §3.1 + ddd lens: NO `kind` attr; exactly the six
-        // descriptor-prescribed attrs.
+        // NO `kind` attr; exactly the six descriptor-prescribed attrs.
         let lit = parse_lit_str("\"x\"");
         let node = build_literal_node(&lit, "a/b.rs", "foo", false);
         let names: std::collections::BTreeSet<&str> =
@@ -307,10 +302,9 @@ mod tests {
 
     #[test]
     fn build_literal_node_value_is_raw_bytes_not_decoded() {
-        // RFC-041 §3.1: `value` is the raw inter-delimiter source
-        // bytes, NOT `LitStr::value()`. This is the load-bearing
-        // contract for the `=~`-matches-`grep` invariant; pinned
-        // here separate from the helper-level test.
+        // `value` is the raw inter-delimiter source bytes, NOT
+        // `LitStr::value()`. This is load-bearing for the
+        // `=~`-matches-`grep` invariant.
         let lit = parse_lit_str("\"phase\\tname\"");
         let node = build_literal_node(&lit, "a/b.rs", "foo", false);
         let value = node

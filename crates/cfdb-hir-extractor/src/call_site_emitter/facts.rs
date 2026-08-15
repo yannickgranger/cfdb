@@ -1,6 +1,5 @@
 //! Fact emission — build `:CallSite`, `CALLS`, `INVOKES_AT`, and
-//! `:Argument`/`HAS_ARG` facts from resolved calls. Split out of
-//! `call_site_emitter.rs` (#467).
+//! `:Argument`/`HAS_ARG` facts from resolved calls.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -91,17 +90,16 @@ where
         .unwrap_or(&callee_qname)
         .to_string();
 
-    // RFC-054 54-C: derive each side's target discriminator from its
-    // OWN crate — a bin-target caller can resolve a lib-target callee
-    // and the two ids discriminate independently.
+    // Derive each side's target discriminator from its OWN crate — a
+    // bin-target caller can resolve a lib-target callee and the two ids
+    // discriminate independently.
     let db = sema.db;
     let caller_target = krate_discriminator(db, ctx.vfs, ctx.targets, caller_fn.krate(db));
     let callee_target = krate_discriminator(db, ctx.vfs, ctx.targets, callee.krate(db));
     let caller_identity = caller_target.identity(&caller_qname);
 
     // One owned key per call is unavoidable (the counter owns it);
-    // the identity itself stays a Cow so the dominant lib path keeps
-    // the borrow (node_id.rs efficiency F3).
+    // the identity itself stays a Cow so the dominant lib path keeps the borrow.
     let key = (caller_identity.to_string(), callee_qname.clone());
     let idx = {
         let c = counts.entry(key).or_insert(0);
@@ -133,8 +131,8 @@ where
     });
 
     // CALLS (resolved): caller Item → callee Item, each endpoint under
-    // its own target's discriminated id (RFC-054 54-C) so the edge
-    // joins the syn side's :Items instead of dangling (#517/#542).
+    // its own target's discriminated id so the edge joins the syn side's
+    // :Items instead of dangling.
     let mut calls_props = BTreeMap::new();
     calls_props.insert("resolved".into(), PropValue::Bool(true));
     edges.push(Edge {
@@ -156,7 +154,7 @@ where
 }
 
 /// Coarse syntactic classification of a `ra_ap_syntax::ast::Expr` into the
-/// closed-set `kind` string used on `:Argument` nodes (RFC-043 §3.1 / §3.2).
+/// closed-set `kind` string used on `:Argument` nodes.
 ///
 /// HIR-native classifier — mirrors `cfdb_extractor_shared::classify_arg_kind`
 /// but operates on `ra_ap_syntax::ast::Expr` rather than `syn::Expr` to avoid
@@ -172,7 +170,7 @@ fn classify_hir_arg_kind(expr: &ast::Expr) -> &'static str {
     }
 }
 
-/// Emit one `:Argument` node and one `HAS_ARG` edge (RFC-043 Slice A).
+/// Emit one `:Argument` node and one `HAS_ARG` edge.
 ///
 /// `cs_id` — the owning `:CallSite` id.
 /// `expr` — the `ra_ap_syntax` AST expression for the argument.

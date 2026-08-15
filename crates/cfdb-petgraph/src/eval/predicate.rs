@@ -248,29 +248,25 @@ impl<'a> Evaluator<'a> {
         let (PropValue::Str(sa), PropValue::Str(sb)) = (a, b) else {
             return None;
         };
-        // #409 perf — was `normalize_signature(&sa) != normalize_signature(&sb)`,
-        // which allocated TWO new Strings per call. Hot path on
-        // signature-divergent.cypher: ~5M invocations per smoke run on
-        // cfdb-self drove the query to 542s wall-time in CI run 575.
+        // Compare signatures with whitespace normalization.
         // `signatures_differ_modulo_whitespace` walks both inputs once
         // with no allocation, skipping whitespace runs as a single
-        // logical space — equivalent semantics, ~order-of-magnitude
-        // less constant-factor cost.
+        // logical space — equivalent semantics to allocation-heavy
+        // comparison without the allocation cost.
         Some(PropValue::Bool(signatures_differ_modulo_whitespace(
             &sa, &sb,
         )))
     }
 
-    /// `entries_subset(a, b) -> Bool` — RFC-040 §3.4.
+    /// `entries_subset(a, b) -> Bool`
     ///
     /// Returns `true` iff every element of JSON-array `a` is contained
     /// in JSON-array `b`. The empty set is a subset of anything; equal
     /// sets are subsets of each other. Operates on the
-    /// `:ConstTable.entries_normalized` wire shape (RFC-040 §3.4): a
-    /// JSON array of strings (e.g. `["EUR","USD"]`) or numbers
-    /// (e.g. `[1,42,100]`). Element type is inferred from the first
-    /// parsable element; mixed-element-type inputs return `false`
-    /// (treated as no overlap — RFC-040 §3.4 N2).
+    /// `:ConstTable.entries_normalized` wire shape: a JSON array of
+    /// strings (e.g. `["EUR","USD"]`) or numbers (e.g. `[1,42,100]`).
+    /// Element type is inferred from the first parsable element;
+    /// mixed-element-type inputs return `false`.
     ///
     /// # Type-mismatch behavior
     ///
@@ -285,13 +281,12 @@ impl<'a> Evaluator<'a> {
         Some(PropValue::Bool(entries_subset_impl(&sa, &sb)))
     }
 
-    /// `entries_jaccard(a, b) -> Float` — RFC-040 §3.4.
+    /// `entries_jaccard(a, b) -> Float`
     ///
     /// Returns `|a ∩ b| / |a ∪ b|`. Returns `0.0` when both inputs
     /// are empty (avoid divide-by-zero). Operates on the
-    /// `:ConstTable.entries_normalized` wire shape (RFC-040 §3.4).
-    /// Mixed-element-type inputs return `0.0` (treated as no overlap
-    /// — RFC-040 §3.4 N2).
+    /// `:ConstTable.entries_normalized` wire shape. Mixed-element-type
+    /// inputs return `0.0`.
     ///
     /// # Type-mismatch behavior
     ///
@@ -306,14 +301,13 @@ impl<'a> Evaluator<'a> {
     }
 
     /// `overlap_verdict(a_normalized, b_normalized, a_hash, b_hash) -> Str`
-    /// — RFC-040 §3.4 precedence-decoder.
     ///
     /// Maps a `(a, b)` pair to one of `'CONST_TABLE_DUPLICATE'`,
     /// `'CONST_TABLE_SUBSET'`, `'CONST_TABLE_INTERSECTION_HIGH'`, or
-    /// `'CONST_TABLE_NONE'` per the precedence ordering in RFC-040 §3.4:
+    /// `'CONST_TABLE_NONE'` per the precedence ordering:
     ///
     ///   1. DUPLICATE: `a_hash = b_hash` (entries_hash equality is the
-    ///      canonical set-equality key, RFC-040 §3.1).
+    ///      canonical set-equality key).
     ///   2. SUBSET: not duplicate AND `entries_subset(a, b)` OR
     ///      `entries_subset(b, a)`.
     ///   3. INTERSECTION_HIGH: not subset AND
@@ -321,13 +315,11 @@ impl<'a> Evaluator<'a> {
     ///   4. otherwise: `'CONST_TABLE_NONE'`.
     ///
     /// Lives here (alongside `entries_subset` / `entries_jaccard`)
-    /// because the v0.1 Cypher subset has no `CASE WHEN` / `UNION`
-    /// (`crates/cfdb-query/src/parser/mod.rs` §316–432), so the
-    /// precedence-decoder MUST live in a UDF for the rule file to
-    /// emit a single `verdict` string column. The precedence semantics
-    /// are RFC-040-load-bearing — keeping them in one Rust function
-    /// (rather than reimplemented in every consumer query) is the
-    /// canonical-resolver pattern (RFC-035 §3.3).
+    /// because the Cypher subset has no `CASE WHEN` / `UNION` construct,
+    /// so the precedence-decoder must live in a UDF for the rule file to
+    /// emit a single `verdict` string column. Keeping the precedence
+    /// semantics in one Rust function avoids reimplementation across
+    /// multiple consumer queries.
     fn call_overlap_verdict(&self, args: &[Expr], bindings: &Bindings) -> Option<PropValue> {
         let a_norm = self.eval_expr(args.first()?, bindings)?;
         let b_norm = self.eval_expr(args.get(1)?, bindings)?;

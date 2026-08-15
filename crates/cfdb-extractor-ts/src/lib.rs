@@ -1,26 +1,18 @@
-//! `cfdb-extractor-ts` — TypeScript-language `LanguageProducer` MVP
-//! (RFC-041 Phase 3 / issue #265 / META #266).
+//! TypeScript-language `LanguageProducer` MVP.
 //!
 //! Walks a Next.js-shaped TS project syntactically via
 //! [`tree-sitter-typescript`] and emits the v0.1 cfdb fact set
-//! (`:Crate`, `:Module`, `:Item`, plus `IN_CRATE` / `IN_MODULE`
-//! edges). Pairs with `cfdb-extractor` (Rust reference impl) and the
-//! follow-up `cfdb-extractor-php` (#264) — all three plug into the
-//! same `cfdb-cli` dispatcher per RFC-041 §3.4.
+//! (`:Crate`, `:Module`, `:Item`, plus `IN_CRATE` / `IN_MODULE` edges).
+//! Pairs with `cfdb-extractor` (Rust reference impl) and parallel
+//! language extractors, all plugging into the same `cfdb-cli` dispatcher.
 //!
 //! # TS → Rust closed-set `:Item.kind` mapping (load-bearing)
 //!
 //! `cfdb-core::schema::labels` declares a closed set of `:Item.kind`
 //! values (`"struct"`, `"enum"`, `"trait"`, `"fn"`, `"impl_block"`,
-//! `"const"`, `"static"`, `"type"`, `"mod"`). Per RFC-041 §4
-//! Published Language invariant, this producer MUST NOT emit a
-//! `kind` outside that set — adding a TypeScript-native value
-//! (`"interface"`, `"type_alias"`, `"class"`, `"namespace"`,
-//! `"jsx_component"`) requires a separate schema RFC + a
-//! `cfdb-core::SchemaVersion` patch + a lockstep PR on
-//! `graph-specs-rust` per RFC-033 §4 I2. This crate works around the
-//! constraint by mapping each TS construct to its closest semantic
-//! Rust analogue:
+//! `"const"`, `"static"`, `"type"`, `"mod"`). This producer MUST NOT
+//! emit a `kind` outside that set. This crate works around the constraint
+//! by mapping each TS construct to its closest semantic Rust analogue:
 //!
 //! | TS construct                        | Mapped to                          | Rationale                                                                 |
 //! | ----------------------------------- | ---------------------------------- | ------------------------------------------------------------------------- |
@@ -48,15 +40,14 @@
 //! produced the bytes. Two consecutive `produce()` calls on the same
 //! tree are byte-identical.
 //!
-//! # AC bar (RFC-041 §7 Phase 3 / issue #265)
+//! # Acceptance criteria
 //!
-//! The MVP intentionally does NOT match `ts-morph` parity. The AC
-//! is satisfied if the fixture round-trips at least one
-//! `:Item { kind: "trait" }` (interface), one
-//! `:Item { kind: "type" }` (type alias), and one
+//! The MVP intentionally does NOT match `ts-morph` parity. Acceptance is
+//! satisfied if the fixture round-trips at least one `:Item { kind: "trait" }`
+//! (interface), one `:Item { kind: "type" }` (type alias), and one
 //! `:Item { kind: "fn" }` (exported function). Cross-file imports,
 //! re-exports, JSX, decorators, generics, and namespace-merging are
-//! deferred to a follow-up RFC.
+//! deferred to future work.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -71,15 +62,14 @@ mod emit;
 mod methods;
 
 /// Stable producer identifier — matches the `lang-typescript` Cargo
-/// feature gate on `cfdb-cli` (RFC-041 §3.4) and the keyspace suffix
-/// `cfdb-cli` derives at dispatch time.
+/// feature gate and the keyspace suffix `cfdb-cli` derives at dispatch time.
 const PRODUCER_NAME: &str = "typescript";
 
 /// Workspace-root marker filenames. BOTH must be present for a
 /// directory to be detected as a TypeScript project — `package.json`
 /// alone matches plain Node.js / JavaScript projects, which this
 /// producer does not handle. The `tsconfig.json` requirement is the
-/// TS-specific signal (RFC-041 §3.4 detection contract).
+/// TS-specific signal.
 const TSCONFIG_JSON: &str = "tsconfig.json";
 const PACKAGE_JSON: &str = "package.json";
 
@@ -90,11 +80,10 @@ const PACKAGE_JSON: &str = "package.json";
 /// `.d.ts`) we do not want to double-emit.
 const SKIPPED_DIRS: &[&str] = &["node_modules", "dist", "build"];
 
-/// TypeScript reference implementation of `cfdb_lang::LanguageProducer`
-/// (RFC-041 Phase 3 / issue #265).
+/// TypeScript reference implementation of `cfdb_lang::LanguageProducer`.
 ///
 /// See the crate-root docs for the TS → Rust closed-set mapping and
-/// the explicit AC bar.
+/// the acceptance criteria.
 pub struct TypeScriptProducer;
 
 impl LanguageProducer for TypeScriptProducer {

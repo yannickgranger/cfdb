@@ -1,12 +1,12 @@
-//! RFC-034 §4.2 mechanical C-trigger identifiers.
+//! Mechanical C-trigger identifiers.
 
 use serde::Serialize;
 
 /// One of the five Tier-1 mechanical C-triggers.
 ///
-/// Serializes to the exact RFC-034 §4.2 string form: `"C1"`, `"C3"`, `"C7"`,
-/// `"C8"`, `"C9"`. The set is additive (OCP) — future Tier-2 promotions append
-/// new variants without breaking consumers that parse the string.
+/// Serializes to: `"C1"`, `"C3"`, `"C7"`, `"C8"`, `"C9"`. The set is
+/// additive — future variants append without breaking consumers that parse
+/// the string.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
 pub enum TriggerId {
     #[serde(rename = "C1")]

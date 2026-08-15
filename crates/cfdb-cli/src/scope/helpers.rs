@@ -4,7 +4,6 @@ use cfdb_core::{ParamBinding, PropValue, Query, RowValue};
 use cfdb_query::{CanonicalCandidate, Finding};
 
 /// Validate that `context` is one of the `:Context` nodes in the keyspace.
-/// Pulled out of [`scope`] to flatten the outer function's branch count.
 pub(crate) fn validate_context(
     store: &cfdb_petgraph::PetgraphStore,
     ks: &cfdb_core::schema::Keyspace,

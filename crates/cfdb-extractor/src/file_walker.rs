@@ -87,7 +87,7 @@ fn visit_file_inner(
         message: e.to_string(),
     })?;
 
-    // Issue #527: a `strip_prefix` mismatch here used to fall back to the
+    // A `strip_prefix` mismatch here used to fall back to the
     // absolute `file_path` silently, making every file-scoped fence anchored
     // on a relative path a silently dead rule (zero rows forever). The
     // workspace root is canonicalized once at extraction entry
@@ -116,8 +116,8 @@ fn visit_file_inner(
             p
         },
     });
-    // IN_MODULE membership for the deepest enclosing `:Module` (#267 /
-    // CFDB-EXT-H1). Schema declares `IN_MODULE` from `[Item, File]` to
+    // IN_MODULE membership for the deepest enclosing `:Module`.
+    // Schema declares `IN_MODULE` from `[Item, File]` to
     // `[Module]` (`cfdb-core/src/schema/describe/edges.rs`), but the
     // extractor used to skip the File side entirely. The `:Module`
     // node for `module_qpath(&module_stack)` is emitted by the parent
@@ -179,7 +179,7 @@ fn visit_file_inner(
 /// count against the `clones-in-loops` quality gate — the clone is
 /// necessary (each recursive call owns its own stack) but belongs to
 /// the helper body rather than the outer loop scope.
-#[allow(clippy::too_many_arguments)] // 10 args: per-target-root context threading (RFC-054) joins the pre-existing walk state
+#[allow(clippy::too_many_arguments)] // 10 args: per-target-root context threading joins the pre-existing walk state
 fn descend_into_pending_mod(
     emitter: &mut Emitter,
     crate_id: &str,

@@ -94,10 +94,9 @@ pub(super) fn predicate_parser<'a>(expr: BoxedParser<'a, Expr>) -> BoxedParser<'
 //
 // `pred` is the outer recursive Predicate parser threaded through so the inner
 // WHERE accepts the full v0.1 predicate subset (regex, IN, AND/OR/NOT, nested
-// NOT EXISTS) — single resolution point with the top-level WHERE per RFC-035
-// §3.3 invariant-owner pattern. The previous shape rebuilt a Compare/Ne-only
-// "inner_cmp" grammar inline (audit 2026-W17 / EPIC #273 / CFDB-QRY-H1 #271),
-// which was a split-brain with `predicate_parser` — any extension to the
+// NOT EXISTS) — single resolution point with the top-level WHERE. The previous
+// shape rebuilt a Compare/Ne-only "inner_cmp" grammar inline, which was a
+// split-brain with `predicate_parser` — any extension to the
 // outer grammar silently bypassed the subquery body.
 fn subquery_parser<'a>(
     pred: impl Parser<'a, &'a str, Predicate, Extra<'a>> + Clone + 'a,

@@ -1,16 +1,6 @@
-//! Target-dogfood measurement for RFC-035 slice 6 (#185) — runs the
-//! `context_homonym`-shape cross-MATCH query against a real
-//! qbot-core extraction and asserts the RFC §9 threshold of
-//! **< 60 s wall time**.
-//!
-//! This test is the follow-up to PR #193, which shipped the slice-6
-//! algorithm with the §9 measurement deferred. The deferral
-//! rationale cited "IndexSpec must be wired through the CLI
-//! composition root first (slice 7)". That rationale was wrong: the
-//! CLI wiring only blocks running via `cfdb scope --context`. The
-//! library-level evaluator is already reachable through
-//! `KeyspaceState::new_with_spec` + `persist::load`, which is what
-//! this test uses to drive the slice-6 code path at real scale.
+//! Target-dogfood measurement — runs the `context_homonym`-shape
+//! cross-MATCH query against a real qbot-core extraction and asserts a
+//! wall-time threshold of **< 60 s**.
 //!
 //! `#[ignore]` by default so CI does not depend on a 150k-node
 //! extraction being on disk; the reviewer runs it explicitly via:
@@ -18,19 +8,14 @@
 //! ```bash
 //! ./target/release/cfdb extract \
 //!     --workspace /path/to/qbot-core \
-//!     --db .proofs/target-185.db \
+//!     --db .proofs/target.db \
 //!     --keyspace qbot-core
 //!
-//! CFDB_TARGET_DOGFOOD_KEYSPACE=.proofs/target-185.db/qbot-core.json \
+//! CFDB_TARGET_DOGFOOD_KEYSPACE=.proofs/target.db/qbot-core.json \
 //!   /usr/bin/time -v \
 //!   cargo test --release -p cfdb-petgraph \
 //!     eval::target_dogfood_tests -- --ignored --nocapture
 //! ```
-//!
-//! Numbers captured by the author at qbot-core @ `6eb494ebe`
-//! (148 959 nodes / 150 755 edges) on a 99%-CPU-bound single core
-//! land in `.proofs/target-dogfood-185-followup.txt` and are
-//! summarised in the PR body.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;

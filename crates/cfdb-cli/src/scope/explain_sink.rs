@@ -2,11 +2,11 @@
 //! accept a shared `&ExplainSink` argument without threading
 //! `&mut Option<Vec<ExplainRow>>` through five layers.
 //!
-//! Slice-7 (#186) — activated by `cfdb scope --explain`. When
-//! disabled, every method is a no-op and no allocation happens beyond
-//! the zero-sized wrapper. When enabled, each query execution pushes
-//! its collected [`ExplainRow`]s into the shared `Vec`, which the
-//! caller drains and prints to stderr once all queries have run.
+//! Activated by `cfdb scope --explain`. When disabled, every method is a
+//! no-op and no allocation happens beyond the zero-sized wrapper. When
+//! enabled, each query execution pushes its collected [`ExplainRow`]s into
+//! the shared `Vec`, which the caller drains and prints to stderr once all
+//! queries have run.
 
 use std::cell::RefCell;
 

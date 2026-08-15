@@ -115,7 +115,7 @@ fn read_reach_pair(
 }
 
 // ------------------------------------------------------------------
-// AC-1: 1 entry point E -[:EXPOSES]-> A; A -[:CALLS]-> B; C isolated.
+// 1 entry point E -[:EXPOSES]-> A; A -[:CALLS]-> B; C isolated.
 // ------------------------------------------------------------------
 
 #[test]
@@ -170,7 +170,7 @@ fn ac1_three_item_fixture_reachability() {
 }
 
 // ------------------------------------------------------------------
-// AC-2: multi-entry-point attribution — two entry points reaching an
+// multi-entry-point attribution — two entry points reaching an
 // overlapping item should count 2.
 // ------------------------------------------------------------------
 
@@ -218,7 +218,7 @@ fn ac2_multi_entry_attribution_counts_distinct_origins() {
 }
 
 // ------------------------------------------------------------------
-// AC-3: zero :EntryPoint → ran=false + warning, no attrs touched.
+// zero :EntryPoint → ran=false + warning, no attrs touched.
 // ------------------------------------------------------------------
 
 #[test]
@@ -247,7 +247,7 @@ fn ac3_zero_entry_points_returns_ran_false_with_warning() {
 }
 
 // ------------------------------------------------------------------
-// AC-5: cycle safety — graph with A -> B -> A terminates.
+// cycle safety — graph with A -> B -> A terminates.
 // ------------------------------------------------------------------
 
 #[test]
@@ -284,7 +284,7 @@ fn ac5_call_cycle_does_not_loop_forever() {
 }
 
 // ------------------------------------------------------------------
-// AC-6: determinism across two runs.
+// determinism across two runs.
 // ------------------------------------------------------------------
 
 #[test]
@@ -410,10 +410,10 @@ fn unknown_keyspace_returns_err() {
 }
 
 // ==================================================================
-// RFC-042 042-B (issue #392) — ReachabilityFilter::ProductionOnly
+// ReachabilityFilter::ProductionOnly
 // ==================================================================
 //
-// Council-prescribed (RFC §7 042-B verbatim): two EntryPoints — one
+// Two EntryPoints — one
 // kind=mcp_tool, one kind=test — each EXPOSES a distinct :Item. After
 // `store.enrich_reachability(&ks)` the trait method runs BOTH passes
 // (All then ProductionOnly). Pass 1 writes `reachable_from_entry`;
@@ -645,13 +645,13 @@ fn prod5_two_runs_with_mixed_kinds_are_byte_identical() {
 }
 
 // ==================================================================
-// #396 — serde_default callee resolution post-pass
+// serde_default callee resolution post-pass
 // ==================================================================
 //
 // `:CallSite{kind="serde_default"}` carries a `callee_path` string
 // referencing a fn invoked by serde's derived `Deserialize` impl. The
-// derive expansion is invisible to cfdb (proc-macro server is disabled
-// per #398), so the BFS never reaches the callee through a normal call
+// derive expansion is invisible to cfdb (proc-macro server is disabled),
+// so the BFS never reaches the callee through a normal call
 // chain. Without the post-pass, every `#[serde(default = "fn")]`
 // callee is flagged `unwired`.
 //

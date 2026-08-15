@@ -66,8 +66,8 @@ pub(crate) fn scan_workspace(
 }
 
 fn distinct_files(items: &[FnItem]) -> Vec<String> {
-    // BTreeSet (not HashSet) keeps this deterministic per RFC-029 §12.1 G1 —
-    // iteration order is the sort order, so the collected Vec is already sorted.
+    // BTreeSet (not HashSet) keeps this deterministic — iteration order is
+    // the sort order, so the collected Vec is already sorted.
     let set: BTreeSet<&str> = items.iter().map(|i| i.file.as_str()).collect();
     set.into_iter().map(str::to_string).collect()
 }

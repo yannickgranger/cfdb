@@ -1,12 +1,9 @@
-//! Cross-MATCH unit tests for [`crate::index::lookup`]
-//! (RFC-035 slice 6 #185).
+//! Cross-MATCH unit tests for [`crate::index::lookup`].
 //!
 //! Split out of `lookup_tests.rs` to keep both test files under the
-//! workspace 500-LoC god-file ceiling — slice-5 kept its tests in
-//! `lookup_tests.rs`; slice-6's cross-MATCH surface needs bespoke
-//! helpers (call-expression builder, bound-var resolver over a
-//! `BTreeMap`) that would push `lookup_tests.rs` over the limit if
-//! co-located.
+//! workspace 500-LoC god-file ceiling. This file's cross-MATCH surface
+//! needs bespoke helpers (call-expression builder, bound-var resolver
+//! over a `BTreeMap`) that would push tests over the limit if co-located.
 //!
 //! Test shape: construct a small `KeyspaceState` with the slice-6
 //! spec (`(Item, qname)` + `(Item, last_segment(qname))` computed),

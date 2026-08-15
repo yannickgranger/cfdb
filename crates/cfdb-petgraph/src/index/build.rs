@@ -1,4 +1,4 @@
-//! Build-pass helpers for `KeyspaceState::by_prop` (RFC-035 slice 2 #181).
+//! Build-pass helpers for `KeyspaceState::by_prop`.
 //!
 //! Pure functions that turn an [`IndexEntry`] + a [`Node`] into the
 //! `(tag, value)` pair that gets inserted into `by_prop`. Keeping these
@@ -6,20 +6,19 @@
 //! re-ingest maintenance path share one code path — and lets unit tests
 //! exercise edge cases without wiring a full graph.
 //!
-//! # Computed-key dispatch (RFC-035 §3.3 invariant ownership)
+//! # Computed-key dispatch
 //!
 //! Computed keys (`IndexEntry::Computed { computed, ... }`) read the
 //! key's `source_prop` (`qname` for `LastSegment`, `name` for
 //! `ConversionPrefix`) and dispatch through
 //! [`ComputedKey::evaluate`](crate::index::spec::ComputedKey::evaluate),
 //! the single canonical formula surface. `LastSegment` routes to
-//! [`cfdb_core::qname::last_segment`] (the workspace invariant owner for
-//! qname structure, RFC-035 §3.3 / R1 B3); `ConversionPrefix` routes to
-//! the vetted `CONVERSION_PREFIX_PATTERN` regex. `evaluate` is PARTIAL:
-//! `ConversionPrefix` over a `name` with no conversion prefix returns
-//! `None`, and that node contributes NO posting (SQL NULL-index
-//! semantics) — a scatter fork only buckets items whose name actually
-//! carries a conversion prefix.
+//! [`cfdb_core::qname::last_segment`] for qname structure;
+//! `ConversionPrefix` routes to the vetted `CONVERSION_PREFIX_PATTERN`
+//! regex. `evaluate` is PARTIAL: `ConversionPrefix` over a `name` with no
+//! conversion prefix returns `None`, and that node contributes NO posting
+//! (SQL NULL-index semantics) — a scatter fork only buckets items whose
+//! name actually carries a conversion prefix.
 
 use cfdb_core::fact::{Node, PropValue};
 use cfdb_core::schema::Label;
@@ -52,10 +51,10 @@ pub(crate) fn index_key_of(pv: &PropValue) -> Option<IndexValue> {
         PropValue::Int(n) => Some(n.to_string()),
         PropValue::Bool(b) => Some(b.to_string()),
         PropValue::Float(_) | PropValue::Null => None,
-        // RFC-044 §3.7: `PropValue` is `#[non_exhaustive]`. Future unknown
-        // variants are treated as not-indexable (same as Float/Null) so the
-        // posting list stays correct under variant addition; the variant's
-        // existence in fact data will still appear via canonical_dump.
+        // Future unknown variants are treated as not-indexable (same as
+        // Float/Null) so the posting list stays correct under variant
+        // addition; the variant's existence in fact data will still appear
+        // via canonical_dump.
         _ => None,
     }
 }

@@ -1,5 +1,4 @@
-//! Structural-duplicate clustering — `dup_cluster_id` emission
-//! (RFC-036 §3.3 CP5).
+//! Structural-duplicate clustering — `dup_cluster_id` emission.
 //!
 //! Group `:Item{kind:"Fn"}` by `signature_hash`; for any group of size
 //! ≥ 2, emit `dup_cluster_id = sha256(lex_sorted(member_qnames).join("\n"))`
@@ -11,8 +10,7 @@
 //!
 //! Group keys come from a `BTreeMap<signature_hash, Vec<qname>>`. Member
 //! lists are sorted before hashing so the cluster id is stable
-//! regardless of input order (RFC-036 §3.3 CP5). Output map iteration
-//! is `BTreeMap`-ordered.
+//! regardless of input order. Output map iteration is `BTreeMap`-ordered.
 
 use std::collections::BTreeMap;
 
@@ -62,7 +60,7 @@ pub(crate) fn compute_dup_cluster_ids(items: &[FnItem]) -> BTreeMap<String, Stri
 /// part of the external API.
 pub(crate) fn hash_cluster(members_unsorted: &[String]) -> String {
     let mut sorted: Vec<&str> = members_unsorted.iter().map(String::as_str).collect();
-    // Stable `sort` (not `sort_unstable`) per RFC-029 §12.1 G1 determinism rule.
+    // Stable `sort` (not `sort_unstable`) for determinism.
     sorted.sort();
     let joined = sorted.join("\n");
     let digest = Sha256::digest(joined.as_bytes());

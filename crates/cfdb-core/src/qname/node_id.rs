@@ -3,8 +3,7 @@
 //! Each function produces the stable node-id for one label kind. Both
 //! the syn-based `cfdb-extractor` and the HIR-based
 //! `cfdb-hir-extractor` route through these helpers so cross-extractor
-//! edges always target the same node id (RFC-037 §3.8 B8 canonical id
-//! helpers).
+//! edges always target the same node id.
 //!
 //! All functions are pure: values in → values out, zero I/O, zero
 //! allocations beyond the return `String`.
@@ -13,15 +12,15 @@
 /// (`item:<qname>`). This prefix is the graph-level convention used
 /// by every edge whose source or target is an Item.
 ///
-/// RFC-054 §3.1: this is the LIB-target formula. Bin-target items get a
-/// `#bin:{name}` identity suffix via [`item_node_id_for_target`] —
-/// producers that know their target route through that instead.
+/// This is the LIB-target formula. Bin-target items get a `#bin:{name}`
+/// identity suffix via [`item_node_id_for_target`] — producers that know
+/// their target route through that instead.
 #[must_use]
 pub fn item_node_id(qname: &str) -> String {
     format!("item:{qname}")
 }
 
-/// Which cargo build target an item was walked from (RFC-054 §3.1).
+/// Which cargo build target an item was walked from.
 ///
 /// A plain domain type — deliberately NOT a re-export of
 /// `cargo_metadata`/`ra_ap` types (cfdb-core stays dependency-free; the
@@ -32,8 +31,8 @@ pub fn item_node_id(qname: &str) -> String {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TargetDiscriminator {
     /// The package's `[lib]` target — identity is the bare qname
-    /// (byte-stable vs pre-RFC-054 ids, keeping the overwhelming majority
-    /// of every keyspace, rule, and the cross-dogfood contract untouched).
+    /// (keeping the overwhelming majority of every keyspace, rule, and
+    /// the cross-dogfood contract untouched).
     Lib,
     /// A `[[bin]]` target; `name` is the cargo target name verbatim
     /// (dashes kept).
@@ -64,8 +63,8 @@ impl TargetDiscriminator {
 
     /// Wire value for the `:Item.target` prop: `"lib"` or `"bin:{name}"`.
     /// A plain wire string, not an enum in the schema — same convention as
-    /// the `kind` and `resolver` props (RFC-054 §3.2). Borrowed for the
-    /// constant lib arm, matching the `ContextSource::as_wire_str` sibling.
+    /// the `kind` and `resolver` props. Borrowed for the constant lib arm,
+    /// matching the `ContextSource::as_wire_str` sibling.
     #[must_use]
     pub fn as_wire_str(&self) -> std::borrow::Cow<'static, str> {
         match self {
@@ -76,10 +75,10 @@ impl TargetDiscriminator {
 
     /// Inverse of [`Self::as_wire_str`] — parse a `:Item.target` prop value
     /// back into the discriminator. `None` for anything that is not a
-    /// well-formed wire value (absent prop, pre-RFC-054 keyspaces,
-    /// non-Rust producers). Consumers (the enrich passes today, the HIR
-    /// producer at 54-C) MUST route through this instead of string-surgery
-    /// on the wire value — the `#bin:`/`bin:` literals stay in this file.
+    /// well-formed wire value (absent prop, older keyspaces, non-Rust
+    /// producers). Consumers MUST route through this instead of
+    /// string-surgery on the wire value — the `#bin:`/`bin:` literals
+    /// stay in this file.
     #[must_use]
     pub fn from_wire_str(wire: &str) -> Option<Self> {
         match wire {
@@ -92,11 +91,9 @@ impl TargetDiscriminator {
         }
     }
 
-    /// RFC-054 §3.5.2 claim policy, the single home (council simplify
-    /// review: the extractor resolver and the petgraph enrich pass each
-    /// re-encoded it): prefer the claim matching `src`, else the lib
-    /// claim, never a foreign bin (mirrors rustc visibility — a bin sees
-    /// its own items and the lib, not sibling bins).
+    /// Claim policy: prefer the claim matching `src`, else the lib claim,
+    /// never a foreign bin (mirrors rustc visibility — a bin sees its own
+    /// items and the lib, not sibling bins).
     #[must_use]
     pub fn choose_claim<'a>(claims: &'a [Self], src: &Self) -> Option<&'a Self> {
         claims

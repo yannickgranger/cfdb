@@ -1,7 +1,6 @@
 //! Syntax-tree traversal — walk every method-call and path-call
 //! expression, dispatch on `SyntaxKind`, and resolve each arm. The
-//! fact-building it delegates to `super::facts`. Split out of
-//! `call_site_emitter.rs` (#467).
+//! fact-building it delegates to `super::facts`.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -92,8 +91,7 @@ fn emit_method_call<DB>(
         return;
     };
     // 1-indexed source line of the call expression — matches the syn
-    // extractor's `proc_macro2::Span::start().line` convention (#291 /
-    // F-005); receiver-token start mirrors syn for `foo\n .bar()`.
+    // extractor's convention; receiver-token start mirrors syn for `foo\n .bar()`.
     let offset: TextSize = method_call.syntax().text_range().start();
     let line = line_index.line_col(offset).line as usize + 1;
     let Some(cs_id) = emit_resolved_call(
@@ -110,7 +108,7 @@ fn emit_method_call<DB>(
     ) else {
         return;
     };
-    // RFC-043 Slice A: receiver at position 0, explicit args at 1..N.
+    // Receiver at position 0, explicit args at 1..N.
     if let Some(receiver) = method_call.receiver() {
         emit_argument_facts(&cs_id, &receiver, 0, line_index, file_path, nodes, edges);
     }

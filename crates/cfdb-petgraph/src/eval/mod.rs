@@ -1,5 +1,4 @@
-//! Query evaluator — ports the validated Gate 3 spike logic onto the real
-//! `cfdb_core::Query` AST.
+//! Query evaluator — ports the logic onto the real `cfdb_core::Query` AST.
 //!
 //! Evaluation stages, in order:
 //! 1. Seed a one-row binding stream `[{}]`.
@@ -25,15 +24,8 @@
 //! in the final WHERE-filtered `Vec` therefore carry the same determinism as
 //! the prior non-streaming implementation.
 //!
-//! # Memory note (issue #167 / #168)
-//!
-//! The earlier implementation materialised a full `Vec<Bindings>` between
-//! every MATCH stage. On a 148k-node keyspace even single-MATCH queries built
-//! ~89 MB of `BTreeMap` allocations before `WHERE` could discard them; multi-
-//! MATCH (inventory-shaped classifier rules) reached tens of GB. Streaming
-//! the pipeline keeps peak memory bounded by the per-row expansion plus the
-//! final surviving-row count — structurally eliminating the 13 GB OOM
-//! documented in #167.
+//! Streaming the pipeline keeps peak memory bounded by the per-row expansion
+//! plus the final surviving-row count.
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -64,11 +56,10 @@ mod with_clause;
 /// `var_length` match — unreachable in practice, since the caller gates on
 /// `var_length.is_some()`).
 ///
-/// NOTE (RFC-047a §3.2, #488): this is **never applied to an explicit or open
-/// bound**. Explicit `*N..M` is honoured as written, and the open form `*N..`
-/// (`u32::MAX`) is unbounded-via-visited-set. Historically this constant
-/// silently clamped *every* var-length pattern to 5 (`*1..10` → 5) — a latent
-/// bug this slice fixes.
+/// This is **never applied to an explicit or open bound**. Explicit `*N..M`
+/// is honoured as written, and the open form `*N..` (`u32::MAX`) is
+/// unbounded-via-visited-set. Historically this constant silently clamped
+/// *every* var-length pattern to 5 (`*1..10` → 5) — a latent bug.
 pub(super) const DEFAULT_VAR_LENGTH_MAX: u32 = 5;
 
 /// A bound value in the evaluator's scratch table.
@@ -83,7 +74,7 @@ pub(super) enum Binding {
     /// (`r.label`, `r.src`, `r.dst`, `r.<prop>`) and for bare-var
     /// references in aggregations (`count(r)`). Unset for variable-length
     /// patterns where `r` would otherwise need to bind to a list of edges
-    /// — variable-length edge binding is deferred (issue #242).
+    /// — variable-length edge binding is deferred.
     EdgeRef(EdgeIndex),
     /// A concrete value — used for `UNWIND $list AS var` cross-joins and for
     /// projection aliases in `WITH`.
@@ -113,11 +104,11 @@ pub(crate) struct Evaluator<'a> {
     pub(crate) state: &'a KeyspaceState,
     pub(crate) params: &'a BTreeMap<String, ParamBinding>,
     pub(crate) warnings: RefCell<Vec<Warning>>,
-    /// Slice-7 (#186) — explain-trace collector. `None` for the regular
-    /// `execute` path (zero allocation cost); `Some` when the caller
-    /// invoked `execute_explained` to get observability rows for
-    /// `cfdb scope --explain`. Each `candidate_nodes` call pushes one
-    /// [`crate::explain::ExplainRow`] when `Some`.
+    /// Explain-trace collector. `None` for the regular `execute` path (zero
+    /// allocation cost); `Some` when the caller invoked `execute_explained`
+    /// to get observability rows for `cfdb scope --explain`. Each
+    /// `candidate_nodes` call pushes one [`crate::explain::ExplainRow`]
+    /// when `Some`.
     pub(crate) explain: Option<RefCell<Vec<crate::explain::ExplainRow>>>,
     /// Per-run compiled-regex cache shared by every `regexp_extract`
     /// and `=~` predicate eval. The Cypher patterns are literals in
@@ -143,8 +134,8 @@ impl<'a> Evaluator<'a> {
         }
     }
 
-    /// Slice-7 variant: enable explain-trace collection. Caller drains
-    /// rows via [`Self::run_explained`].
+    /// Enable explain-trace collection. Caller drains rows via
+    /// [`Self::run_explained`].
     pub(crate) fn new_with_explain(
         state: &'a KeyspaceState,
         params: &'a BTreeMap<String, ParamBinding>,
@@ -184,23 +175,21 @@ impl<'a> Evaluator<'a> {
         result
     }
 
-    /// Slice-7 sibling of [`Self::run`]. Drives the same pipeline and
-    /// returns the collected [`crate::explain::ExplainRow`] trace
-    /// alongside. When the evaluator was constructed via
-    /// [`Self::new`] (not `new_with_explain`), the returned `Vec` is
-    /// empty.
+    /// Drives the same pipeline as [`Self::run`] and returns the collected
+    /// [`crate::explain::ExplainRow`] trace alongside. When the evaluator was
+    /// constructed via [`Self::new`] (not `new_with_explain`), the returned
+    /// `Vec` is empty.
     pub(crate) fn run_explained(
         self,
         query: &Query,
     ) -> (QueryResult, Vec<crate::explain::ExplainRow>) {
         let seed: BindingStream<'_> = Box::new(std::iter::once(BTreeMap::new()));
         let mut stage: BindingStream<'_> = seed;
-        // RFC-035 §3.6 slice 5: thread the top-level WHERE predicate
-        // into every pattern stage so `candidate_nodes` can pick up
-        // indexable `a.prop = literal` conjuncts and turn them into a
-        // `by_prop` posting-list lookup. The outer WHERE filter below
-        // still re-applies the full predicate — hints strictly narrow
-        // candidates; they do not replace filtering.
+        // Thread the top-level WHERE predicate into every pattern stage
+        // so `candidate_nodes` can pick up indexable `a.prop = literal`
+        // conjuncts and turn them into a `by_prop` posting-list lookup. The
+        // outer WHERE filter below still re-applies the full predicate —
+        // hints strictly narrow candidates; they do not replace filtering.
         let where_ref = query.where_clause.as_ref();
         for pattern in &query.match_clauses {
             stage = self.apply_pattern(stage, pattern, where_ref);

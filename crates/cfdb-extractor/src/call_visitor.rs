@@ -53,14 +53,13 @@ pub(crate) fn walk_call_sites_with_test_flag(
 struct CallSiteVisitor<'e, 'a> {
     emitter: &'e mut Emitter,
     caller_qname: &'a str,
-    /// RFC-054 §3.1 (#557): cs ids derive from the caller's discriminated
-    /// identity so same-spelling calls in sibling bins stay distinct.
+    /// Call-site ids derive from the caller's discriminated identity so
+    /// same-spelling calls in sibling bins stay distinct.
     caller_target: &'a cfdb_core::qname::TargetDiscriminator,
     file_path: &'a str,
     /// Count of prior occurrences of each `callee_path` within this fn body.
-    /// Used to build collision-free CallSite ids — even with real line
-    /// numbers (#273 / F-005), two calls on the same line need distinct
-    /// ids so the local-index counter stays.
+    /// Used to build collision-free CallSite ids — two calls on the same
+    /// line need distinct ids so the local-index counter stays.
     counts: BTreeMap<String, usize>,
     is_test: bool,
 }
@@ -70,11 +69,10 @@ impl<'ast> Visit<'ast> for CallSiteVisitor<'_, '_> {
         if let syn::Expr::Path(p) = &*node.func {
             let callee_path = render_path(&p.path);
             // Source-line of the call — `node.func.span()` points at the
-            // callee path which is the "where the call happens" the
-            // human reader expects (#273 / F-005).
+            // callee path which is the "where the call happens".
             let line = node.func.span().start().line;
             let cs_id = self.emit_call_site(&callee_path, "call", line);
-            // RFC-043 Slice A: emit :Argument nodes for each positional arg.
+            // Emit :Argument nodes for each positional arg.
             // For ExprCall, position 0 is the first positional argument.
             self.emit_arguments(&cs_id, &node.args, 0);
         }
@@ -101,12 +99,11 @@ impl<'ast> Visit<'ast> for CallSiteVisitor<'_, '_> {
         let method = node.method.to_string();
         // The method ident span is the "where the call happens" line —
         // `x\n .foo()` has the receiver on one line and `.foo` on the
-        // next; the method-name line is the more useful one for
-        // line-precision queries (#273 / F-005).
+        // next; the method-name line is the more useful one.
         let line = node.method.span().start().line;
         let cs_id = self.emit_call_site(&method, "method", line);
-        // RFC-043 Slice A: position 0 is the implicit self receiver
-        // (RECEIVER_POSITION = 0); positions 1..N are the explicit args.
+        // Position 0 is the implicit self receiver (RECEIVER_POSITION = 0);
+        // positions 1..N are the explicit args.
         self.emit_single_argument(&cs_id, &node.receiver, RECEIVER_POSITION);
         self.emit_arguments(&cs_id, &node.args, 1);
         // Same fn-pointer-arg projection as `visit_expr_call`. This is the

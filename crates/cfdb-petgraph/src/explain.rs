@@ -1,4 +1,4 @@
-//! Public explain-trace types for RFC-035 slice 7 (#186).
+//! Public explain-trace types.
 //!
 //! Emitted by [`crate::PetgraphStore::execute_explained`] so the `cfdb
 //! scope --explain` CLI surface can report which MATCH patterns were
@@ -8,8 +8,7 @@
 //! **Stability contract (for dogfood tests).** One [`ExplainRow`] per
 //! `candidate_nodes` invocation. For multi-MATCH queries the row count
 //! per pattern depends on whether the pattern's candidate set is
-//! provably binding-independent (#409 fast path in
-//! `eval::pattern::apply_node_pattern`):
+//! provably binding-independent:
 //!
 //! - **Binding-independent** (no foreign-var coupling in props or
 //!   WHERE) — `candidate_nodes` fires ONCE per query, regardless of
@@ -19,8 +18,7 @@
 //!   once, not once per outer `a` row.
 //! - **Binding-dependent** (WHERE has a leaf predicate referencing
 //!   both `own_var` and a foreign var, e.g. `a.x = b.x`) —
-//!   `candidate_nodes` fires once per incoming binding row, as in the
-//!   pre-#409 behaviour.
+//!   `candidate_nodes` fires once per incoming binding row.
 //!
 //! Aggregate via
 //! `.iter().filter(|r| matches!(r.hit, ExplainHit::Indexed)).count()`
@@ -30,8 +28,7 @@
 //!
 //! **Not serialized.** This channel is side-band from `QueryResult` so
 //! no explain rows leak into the canonical dump or the keyspace wire
-//! format (RFC-035 §4 determinism invariant). The channel lives entirely
-//! inside `cfdb-petgraph`.
+//! format. The channel lives entirely inside `cfdb-petgraph`.
 
 /// How a single `candidate_nodes` call was satisfied.
 #[derive(Clone, Debug, PartialEq, Eq)]

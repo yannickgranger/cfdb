@@ -1,4 +1,4 @@
-//! Composition root for `cfdb-cli` (RFC-031 §4).
+//! Composition root for `cfdb-cli`.
 //!
 //! This module is the **single place in cfdb-cli that knows which concrete
 //! `StoreBackend` is wired in**. Every other handler module constructs and
@@ -6,18 +6,8 @@
 //! `scope.rs`, `stubs.rs`, and `enrich.rs` never call `PetgraphStore::new()`
 //! or `persist::{load, save}` directly.
 //!
-//! # Why a single composition root
-//!
-//! Before this module existed, `PetgraphStore::new()` was instantiated
-//! directly in four handler modules. A decision to swap the backend (say, to
-//! a future `LadybugStore` or to a test double) required editing every
-//! handler. The SOLID audit (issue #23, RFC-031 §4) flagged this as a Clean
-//! Architecture + SRP violation: handler modules owned both command semantics
-//! AND infrastructure construction.
-//!
-//! With this module in place, swapping the backend is a one-file change.
 //! Handler modules depend on the factory functions here, not on the concrete
-//! `PetgraphStore` type.
+//! `PetgraphStore` type, so swapping the backend is a one-file change.
 //!
 //! # Why these functions return a concrete type
 //!
@@ -56,11 +46,6 @@ pub(crate) fn empty_store() -> PetgraphStore {
 /// Resolve a keyspace's on-disk path under `db` and verify it exists.
 /// Returns the resolved path. Centralises the "keyspace not found" error
 /// shape so every handler sees one consistent diagnostic.
-///
-/// Audit 2026-W17, EPIC #273, Pattern 3 finding cfdb-cli F-003: 8 sites
-/// across the crate hand-rolled `keyspace_path + .exists() + format!("not
-/// found...")`, with three different error-message variants. This helper
-/// collapses them into one canonical informative form.
 pub(crate) fn ensure_keyspace_exists(db: &Path, keyspace: &str) -> Result<PathBuf, CfdbCliError> {
     let path = keyspace_path(db, keyspace);
     if !path.exists() {
@@ -85,20 +70,16 @@ pub(crate) fn load_store(
     db: &Path,
     keyspace: &str,
 ) -> Result<(PetgraphStore, Keyspace), CfdbCliError> {
-    // #409 closeout — auto-discover the workspace by walking up from
-    // `db` looking for `.cfdb/indexes.toml`. Without this, callers
-    // that don't accept a `--workspace` flag (notably `cfdb query`
-    // and `cfdb violations` — used by the CI smoke loop) miss the
-    // RFC-035 inverted-index narrow and fall back to full label-scan
-    // on every Cartesian classifier, which on a 25k-:Item keyspace
-    // turns sub-second queries into multi-minute hangs.
+    // Auto-discover the workspace by walking up from `db` looking for
+    // `.cfdb/indexes.toml`. Without this, callers that don't accept a
+    // `--workspace` flag miss the index spec and fall back to full
+    // label-scan on every query.
     //
     // The walk-up is anchored on `db` because the canonical layout is
     // `<workspace>/.cfdb/db/<keyspace>.json` — so `db.ancestors()`
     // will find `<workspace>` containing `.cfdb/indexes.toml` within
     // a few steps. Non-canonical layouts (db far from workspace) get
-    // `None` and the legacy behaviour: empty index spec, label-scan
-    // fallback.
+    // `None` and empty index spec, label-scan fallback.
     let auto_workspace = discover_workspace_from_db(db);
     load_store_with_workspace(db, keyspace, auto_workspace)
 }
@@ -106,9 +87,7 @@ pub(crate) fn load_store(
 /// Walk up from `db` searching for the first ancestor that holds
 /// `.cfdb/indexes.toml`. Returns that ancestor as the workspace root,
 /// or `None` if no ancestor contains the file (caller falls back to
-/// the empty-index spec). Issue #409 closeout — auto-discovery so
-/// `cfdb query`, `cfdb violations`, and other index-blind verbs pick
-/// up the index spec without a new `--workspace` CLI flag.
+/// the empty-index spec).
 ///
 /// The search is bounded by [`Path::ancestors`] which terminates at
 /// the root of the file system; the indexes file is typically
@@ -125,17 +104,14 @@ fn discover_workspace_from_db(db: &Path) -> Option<PathBuf> {
 }
 
 /// Variant that also attaches a workspace root to the store. Used by
-/// enrichment verbs that read workspace files (`enrich_git_history` —
-/// slice 43-B; future `enrich_rfc_docs`, `enrich_concepts`) and by the
-/// slice-7 `cfdb scope` path that needs `.cfdb/indexes.toml` wired.
-/// `None` ⇒ identical behaviour to [`load_store`]. Separate function
-/// (not a default arg on `load_store`) so the 20+ existing call sites
-/// stay signature-stable — clean-arch B4 resolution from
-/// `council/43/clean-arch.md`.
+/// enrichment verbs that read workspace files and by paths that need
+/// `.cfdb/indexes.toml` wired. `None` ⇒ identical behaviour to
+/// [`load_store`]. Separate function (not a default arg on `load_store`)
+/// so existing call sites stay signature-stable.
 ///
 /// When `workspace_root = Some(root)`, this is the single composition
-/// root for `.cfdb/indexes.toml` per RFC-035 §3.8 — no other code path
-/// reads the TOML. Missing file → `IndexSpec::empty()`, not an error.
+/// root for `.cfdb/indexes.toml` — no other code path reads the TOML.
+/// Missing file → `IndexSpec::empty()`, not an error.
 pub(crate) fn load_store_with_workspace(
     db: &Path,
     keyspace: &str,
@@ -202,10 +178,10 @@ pub(crate) fn list_keyspace_names(db: &Path) -> Result<Vec<String>, CfdbCliError
 
 #[cfg(test)]
 mod tests {
-    //! Slice-7 (#186) — `load_store_with_workspace` reads
-    //! `.cfdb/indexes.toml` at the composition root. Missing file is
-    //! not an error (returns `IndexSpec::empty()`); invalid TOML is an
-    //! error; valid TOML populates the store's `IndexSpec`.
+    //! `load_store_with_workspace` reads `.cfdb/indexes.toml` at the
+    //! composition root. Missing file is not an error (returns
+    //! `IndexSpec::empty()`); invalid TOML is an error; valid TOML
+    //! populates the store's `IndexSpec`.
 
     use cfdb_core::schema::Keyspace;
     use cfdb_core::store::StoreBackend;

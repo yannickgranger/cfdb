@@ -81,9 +81,9 @@ pub(super) fn edge_pattern_parser<'a>(
 
     // `*N..M` (closed) and `*N..` (open upper bound). The upper bound is
     // optional; an omitted upper bound parses to the `u32::MAX` sentinel,
-    // reusing the existing `(u32, u32)` AST tuple — no new variant (RFC-047a
-    // B1, #488). The open form is what `cfdb impact` composes for unbounded
-    // reverse reachability: `(seed)<-[:CALLS*1..]-(affected)`.
+    // reusing the existing `(u32, u32)` AST tuple. The open form is used
+    // for unbounded reverse reachability queries like
+    // `(seed)<-[:CALLS*1..]-(affected)`.
     let range = just('*')
         .ignore_then(digits())
         .then_ignore(just("..").padded())

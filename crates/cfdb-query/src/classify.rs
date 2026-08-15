@@ -1,13 +1,12 @@
 //! Wire envelope for `cfdb classify` — debt-class routing of diff-restricted
 //! findings.
 //!
-//! Composed of a [`ScopeInventory`] (the #48 classifier output) plus a
+//! Composed of a [`ScopeInventory`] (classifier output) plus a
 //! [`DiffSourceMeta`] block that identifies the upstream `cfdb diff`
-//! envelope. Consumers (qbot-core #3736 per-PR drift gate,
-//! `/operate-module`, `/boy-scout --from-inventory`) deserialise this type
-//! directly — routing from `DebtClass` → concrete Claude skill happens
-//! via the external `SkillRoutingTable` (RFC-cfdb.md §A2.3), not on the
-//! finding rows (enforced by `finding_no_skill_field`).
+//! envelope. Consumers deserialise this type directly — routing from
+//! `DebtClass` → concrete skill happens via the external
+//! `SkillRoutingTable`, not on the finding rows (enforced by
+//! `finding_no_skill_field`).
 //!
 //! # Envelope schema versioning
 //!
@@ -33,8 +32,8 @@ pub struct ClassifyEnvelope {
     /// Envelope schema version — always [`CLASSIFY_ENVELOPE_SCHEMA_VERSION`].
     pub schema_version: String,
     /// Classifier output restricted to the diff's `added` ∪ `changed`
-    /// qnames. Same shape #48 shipped — consumers that already deserialise
-    /// `ScopeInventory` (e.g. `cfdb scope`) share the bucket layout.
+    /// qnames. Same shape as existing scope output — consumers that already
+    /// deserialise `ScopeInventory` (e.g. `cfdb scope`) share the bucket layout.
     pub inventory: ScopeInventory,
     /// Upstream diff identity — `(a, b)` keyspace pair + count of qnames
     /// that survived the restriction. Does NOT embed the raw diff envelope;

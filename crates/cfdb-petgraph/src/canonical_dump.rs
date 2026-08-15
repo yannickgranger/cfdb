@@ -1,4 +1,4 @@
-//! Canonical-dump helpers for `PetgraphStore::canonical_dump` (RFC §12.1).
+//! Canonical-dump helpers for `PetgraphStore::canonical_dump`.
 //!
 //! The sort-then-join machinery that produces a byte-stable JSONL dump of a
 //! `KeyspaceState` lives here so the `impl StoreBackend for PetgraphStore`
@@ -13,9 +13,9 @@ use serde_json::Value;
 
 use crate::graph::KeyspaceState;
 
-/// Produce the canonical sorted-JSONL dump of a keyspace per RFC §12.1.
+/// Produce the canonical sorted-JSONL dump of a keyspace.
 ///
-/// **Format contract (issue #3630):**
+/// **Format contract:**
 /// - One pure JSON object per line, LF-separated, NO trailing newline
 /// - Every key at every nesting level is emitted in alphabetical order
 ///   (achieved by building `BTreeMap<String, Value>` envelopes — direct
@@ -120,11 +120,11 @@ fn prop_value_to_json(p: &PropValue) -> Value {
             .unwrap_or(Value::Null),
         PropValue::Bool(b) => Value::Bool(*b),
         PropValue::Null => Value::Null,
-        // RFC-044 §3.7: cfdb-core's `PropValue` is `#[non_exhaustive]`.
-        // Surface unknown future variants as a sentinel string so the
-        // canonical dump is non-silent — a future variant addition is
-        // visible in `cfdb_dump.jsonl` and the G1 byte-stability check
-        // flags it as a diff.
+        // cfdb-core's `PropValue` is `#[non_exhaustive]`. Surface unknown
+        // future variants as a sentinel string so the canonical dump is
+        // non-silent — a future variant addition is visible in
+        // `cfdb_dump.jsonl` and the G1 byte-stability check flags it as a
+        // diff.
         _ => Value::String(format!("unsupported_propvalue:{:?}", p)),
     }
 }
@@ -198,10 +198,9 @@ mod tests {
     use cfdb_core::fact::Node;
     use cfdb_core::schema::Label;
 
-    /// #486 / G6 (`specs/concepts/cfdb-core.md`): G1-excluded attributes
-    /// (toolchain-dependent values like `test_coverage`) must never enter
-    /// the canonical dump — otherwise populating them breaks G1 byte
-    /// stability.
+    /// G1-excluded attributes (toolchain-dependent values like
+    /// `test_coverage`) must never enter the canonical dump — otherwise
+    /// populating them breaks G1 byte stability.
     #[test]
     fn g1_excluded_attr_absent_from_node_dump() {
         let node = Node::new("item:demo::f", Label::new(Label::ITEM))

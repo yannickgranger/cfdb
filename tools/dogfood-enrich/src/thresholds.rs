@@ -1,13 +1,11 @@
 //! CI-policy thresholds for the 7 dogfood invariants.
 //!
-//! Per RFC-039 §3.2: consts live in this leaf binary (`tools/dogfood-enrich`,
-//! `Ca = 0`). They are NOT in `cfdb-core` (clean-arch: inner ring must not
-//! know about CI policy) and NOT in `cfdb-cli` (solid-architect SAP: highly
-//! efferent crate, unsuitable for stable policy values).
+//! Consts live in this leaf binary (`tools/dogfood-enrich`). They are NOT
+//! in `cfdb-core` (inner ring must not know about CI policy) and NOT in
+//! `cfdb-cli` (unsuitable for stable policy values).
 //!
-//! Per `CLAUDE.md` §6 row 5 ("No metric ratchets"): tightening is a
-//! separate reviewed PR. No baseline file, no allowlist file. A PR that
-//! adds one is rejected on sight.
+//! Tightening thresholds is a separate reviewed PR. No baseline file, no
+//! allowlist file. A PR that adds one is rejected on sight.
 //!
 //! Each of the 7 passes carries a `pub const … _THRESHOLD: Option<u32>`.
 //! Four are `Some(N)` (the ratio-based passes); three are `None`
@@ -19,31 +17,25 @@
 /// `enrich-deprecation` — hard-equality sentinel: extracted
 /// `:Item.is_deprecated` count must equal grep'd `#[deprecated]` count.
 /// `None` means "no ratio threshold; the per-pass query asserts equality."
-/// RFC-039 §3.1 (`enrich-deprecation` row) / §7.2.
 pub const DEPRECATION_THRESHOLD: Option<u32> = None;
 
 /// `enrich-rfc-docs` — hard-equality sentinel: `:RfcDoc` count must
 /// match `docs/RFC-*.md` count AND `:REFERENCED_BY` edges must be > 0.
-/// RFC-039 §3.1 (`enrich-rfc-docs` row) / §7.3.
 pub const RFC_DOCS_THRESHOLD: Option<u32> = None;
 
 /// `enrich-bounded-context`: ≥N% of `:Item` have non-null
 /// `bounded_context` after the combined extract+enrich pipeline.
-/// RFC-039 §3.1 (`enrich-bounded-context` row) / §7.4.
 ///
-/// Initial floor: 95%. Per-pass issue (#345) sets the real value if
-/// cfdb-self requires a different floor.
+/// Initial floor: 95%.
 pub const BC_COVERAGE_THRESHOLD: Option<u32> = Some(95);
 
 /// `enrich-concepts` — hard-equality sentinel: `:Concept` count must
 /// equal distinct context names across all `.cfdb/concepts/*.toml`,
 /// `:LABELED_AS` > 0, conditional `:CANONICAL_FOR` > 0.
-/// RFC-039 §3.1 + §3.1.2 / §7.5.
 pub const CONCEPTS_THRESHOLD: Option<u32> = None;
 
 /// `enrich-reachability`: ≥N% of `:Item{kind:Fn}` reachable from any
 /// `:EntryPoint` over `CALLS*`. Nightly-only (requires `hir`).
-/// RFC-039 §3.1 (`enrich-reachability` row) / §7.6.
 ///
 /// Initial floor: 80%. Lower than the other ratios because reachability
 /// from extracted entry points is structurally noisier (test-only fns,
@@ -52,17 +44,13 @@ pub const REACHABILITY_THRESHOLD: Option<u32> = Some(80);
 
 /// `enrich-metrics`: ≥N% of `:Item{kind:Fn}` have non-null `cyclomatic`
 /// AND `unwrap_count`. Nightly-only (requires `quality-metrics`).
-/// RFC-039 §3.1 (`enrich-metrics` row) / §7.7.
 ///
 /// Initial floor: 95%. The 5% slack covers macro-expanded fns whose
 /// `:Item.file` does not point at a re-parseable `.rs` file.
 pub const METRICS_COVERAGE_THRESHOLD: Option<u32> = Some(95);
 
 /// `enrich-git-history`: ≥N% of `:Item` have non-null
-/// `git_last_commit_unix_ts` (the actual emitted attribute name —
-/// `commit_age_days` from the R1 RFC draft does not exist; rust-systems
-/// caught the typo). Nightly-only (requires `git-enrich`).
-/// RFC-039 §3.1 (`enrich-git-history` row) / §7.8.
+/// `git_last_commit_unix_ts`. Nightly-only (requires `git-enrich`).
 ///
 /// Initial floor: 95%. The slack covers items whose `file` is outside
 /// the git tree (vendored deps, generated code).

@@ -1,4 +1,4 @@
-//! `ContextSource` — provenance discriminator for `:Context` nodes (RFC-038).
+//! `ContextSource` — provenance discriminator for `:Context` nodes.
 //!
 //! `Declared` contexts are author-asserted in `.cfdb/concepts/<name>.toml`.
 //! `Heuristic` contexts are auto-derived from crate-name prefix stripping in
@@ -10,18 +10,18 @@
 //!
 //! `ContextSource` has no variant carrying owned data. `as_wire_str` returns
 //! `&'static str` directly — no allocation. This is the closed-set convention
-//! captured in RFC-038 §3.1 (open-set wire enums like `Visibility::Restricted(String)`
-//! return `String` because their variants own data; this enum doesn't, so it
-//! returns the static literal).
+//! (open-set wire enums like `Visibility::Restricted(String)` return `String`
+//! because their variants own data; this enum doesn't, so it returns the
+//! static literal).
 
 use std::fmt;
 use std::str::FromStr;
 
 use crate::fact::PropValue;
 
-/// Provenance discriminator for `:Context` nodes (RFC-038). `Declared` is
-/// author-asserted in `.cfdb/concepts/<name>.toml`; `Heuristic` is auto-derived
-/// by `cfdb_concepts::compute_bounded_context` via crate-name prefix stripping.
+/// Provenance discriminator for `:Context` nodes. `Declared` is author-asserted
+/// in `.cfdb/concepts/<name>.toml`; `Heuristic` is auto-derived by
+/// `cfdb_concepts::compute_bounded_context` via crate-name prefix stripping.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum ContextSource {
@@ -60,16 +60,15 @@ impl FromStr for ContextSource {
 /// Parse a `:Context.source` prop value into [`ContextSource`], defaulting
 /// to [`ContextSource::Heuristic`] when:
 ///
-/// - the prop is absent (legacy pre-RFC-038 keyspace),
+/// - the prop is absent,
 /// - the prop is `Null`,
 /// - the prop is non-string (`Int`, `Float`, `Bool`),
 /// - the string fails to parse via [`ContextSource::from_str`].
 ///
-/// Per RFC-038 §4: absence of provenance cannot be promoted to declared
-/// status; `Heuristic` is the least-confidence default. This invariant lets
-/// pre-RFC-038 keyspaces (no `:Context.source` prop on disk) load cleanly
-/// under post-RFC-038 readers without misclassifying their contexts as
-/// author-asserted.
+/// Absence of provenance cannot be promoted to declared status; `Heuristic`
+/// is the least-confidence default. This invariant lets keyspaces with no
+/// `:Context.source` prop on disk load cleanly without misclassifying their
+/// contexts as author-asserted.
 ///
 /// Centralised here so consumers in `cfdb-petgraph` / `cfdb-query` /
 /// `cfdb-cli` and downstream crates don't each reinvent the absence-handling

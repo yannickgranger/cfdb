@@ -3,7 +3,7 @@
 //!
 //! Handlers perform zero I/O beyond `std::fs::read_to_string` on paths they
 //! are explicitly given. They never write files, never spawn subprocesses,
-//! and never cache (Forbidden move #5: stateless).
+//! and never cache (stateless).
 
 pub mod c1_cross_context;
 pub mod c3_port_signature;

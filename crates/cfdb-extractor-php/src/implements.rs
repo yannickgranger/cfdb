@@ -1,4 +1,4 @@
-//! `IMPLEMENTS` pass-1 buffering for the PHP producer (RFC-045 §3.2 45-A).
+//! `IMPLEMENTS` pass-1 buffering for the PHP producer.
 //!
 //! Buffers one `(class id, target interface qname)` pair per interface named
 //! in a `class_interface_clause` (`implements`); the pairs are resolved to

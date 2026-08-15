@@ -1,9 +1,8 @@
 //! Source-side ground truth for the `enrich-rfc-docs` dogfood.
 //!
 //! Walks a workspace's `docs/` directory (one level, NOT recursive) and
-//! counts files whose name matches `RFC-*.md` — the literal glob shape
-//! prescribed in RFC-039 §3.1 row `enrich-rfc-docs` and AC-1 of
-//! issue #344. The harness substitutes the count into the
+//! counts files whose name matches `RFC-*.md` — the literal glob shape.
+//! The harness substitutes the count into the
 //! `.cfdb/queries/self-enrich-rfc-docs.cypher` template's
 //! `{{ ground_truth_count }}` placeholder. The Cypher sentinel then
 //! compares it against `count(:RfcDoc)`. A drop in the extracted count
@@ -21,9 +20,7 @@
 //!
 //! ## Why filename-match, not content-grep
 //!
-//! RFC-039 §7.3 prescribes "pure helper that counts `docs/RFC-*.md`
-//! files returns the expected count on a fixture." The ground truth
-//! is filesystem identity — a file named `RFC-040-foo.md` IS an RFC
+//! The ground truth is filesystem identity — a file named `RFC-040-foo.md` IS an RFC
 //! whether or not its content parses. The cypher sentinel cares
 //! about node count, not document validity, so a stdlib `read_dir`
 //! pass is the right size:
@@ -33,8 +30,7 @@
 //!   string-prefix + suffix, no traversal needed.
 //! - The dash after `RFC` is significant — `docs/RFC.md` is the
 //!   un-numbered umbrella RFC and is excluded by the glob (it has no
-//!   trailing identifier). Issue #344 explicitly enumerates
-//!   `RFC-*.md`, NOT `RFC*.md`.
+//!   trailing identifier).
 //!
 //! ## Non-recursion rationale
 //!

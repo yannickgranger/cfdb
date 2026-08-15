@@ -1,4 +1,4 @@
-//! `:MatchSite` extraction inside a function body (RFC-053 slice 53-A).
+//! `:MatchSite` extraction inside a function body.
 //!
 //! Mirrors [`call_visitor`](crate::call_visitor) and
 //! [`literal_visitor`](crate::literal_visitor): an entry function wraps the
@@ -10,22 +10,22 @@
 //!
 //! **Name-level, unresolved.** `matched_path` is the all-but-last-segment
 //! prefix of a multi-segment arm-pattern path exactly as the author wrote
-//! it — same doctrine as `:CallSite.callee_path`. Each emitted site also
-//! queues its prefix on `Emitter.deferred_match_targets`; the post-walk
-//! [`crate::resolver::resolve_deferred_match_targets`] pass (slice 53-B)
+//! it. Each emitted site also queues its prefix on
+//! `Emitter.deferred_match_targets`; the post-walk
+//! [`crate::resolver::resolve_deferred_match_targets`] pass
 //! emits the resolved `MATCHES_ON` edge when the prefix resolves to a
 //! workspace enum. An external-type match (e.g. `syn::Visibility`) keeps
 //! its `:MatchSite` with no resolved edge.
 //!
 //! `is_test` propagates the enclosing `#[cfg(test)]` depth flag exactly as
 //! `:CallSite` / `:Literal` do — threaded, never re-evaluated at the match
-//! site (RFC-041 §4 fidelity invariant).
+//! site.
 //!
 //! Match expressions inside re-parseable macro *invocation* bodies are
 //! extracted via the shared [`crate::macro_tokens::walk_macro_tokens`]
 //! helper, consistent with call sites and literals; `macro_rules!`
-//! *definitions* stay opaque (RFC-053 §3.3, §3.6). The pure prefix
-//! extraction lives in the sibling [`prefix`] module.
+//! *definitions* stay opaque. The pure prefix extraction lives in the
+//! sibling [`prefix`] module.
 
 mod prefix;
 
@@ -72,9 +72,8 @@ struct MatchSiteVisitor<'e, 'a> {
     /// fn body — builds collision-free `:MatchSite` ids when the same
     /// prefix appears in more than one `match` expression (even on the same
     /// line). The counter is incremented once per DISTINCT prefix per match
-    /// expression (dedup happens in [`prefix::match_facts`], BEFORE the id
-    /// is built — RFC-053 §3.1), so a multi-arm single-prefix `match`
-    /// increments it exactly once.
+    /// expression (dedup happens in [`prefix::match_facts`]), so a
+    /// multi-arm single-prefix `match` increments it exactly once.
     counts: BTreeMap<String, usize>,
     is_test: bool,
 }
@@ -145,14 +144,12 @@ impl MatchSiteVisitor<'_, '_> {
             label: Label::new(Label::MATCH_SITE),
             props,
         });
-        // Queue the name-level prefix for post-walk MATCHES_ON resolution
-        // (RFC-053 §3.2, slice 53-B). The resolver
-        // (`resolve_deferred_match_targets`) emits the edge only when the
-        // prefix resolves to a workspace enum; an external / unresolvable
-        // prefix leaves this `:MatchSite` with no MATCHES_ON edge — the
-        // honest name-level-only representation. Queued in walk order so
-        // the emitted edges are queue-order-independent after the final
-        // sort (G1).
+        // Queue the name-level prefix for post-walk MATCHES_ON resolution.
+        // The resolver (`resolve_deferred_match_targets`) emits the edge
+        // only when the prefix resolves to a workspace enum; an external /
+        // unresolvable prefix leaves this `:MatchSite` with no MATCHES_ON
+        // edge — the honest name-level-only representation. Queued in walk
+        // order so the emitted edges are queue-order-independent.
         self.emitter.deferred_match_targets.push((
             id.clone(),
             matched_path.to_string(),

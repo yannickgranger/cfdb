@@ -14,12 +14,10 @@ use super::{
 };
 
 /// Static list of (class, cypher source) pairs. Iteration order matches
-/// [`DebtClass::variants`] so the orchestrator run order is deterministic
-/// — load-bearing for G1.
+/// [`DebtClass::variants`] so the orchestrator run order is deterministic.
 ///
-/// `production_only` (RFC-042 042-B / issue #392) swaps the
-/// `Unwired` cypher between the all-kinds default and the production-only
-/// variant. The two cyphers are structural siblings (RFC §3.3 EDIT 8) —
+/// `production_only` swaps the `Unwired` cypher between the all-kinds default
+/// and the production-only variant. The two cyphers are structural siblings —
 /// the only difference is which reachability attr they read.
 pub(super) fn classifier_rules(production_only: bool) -> [(DebtClass, &'static str); 6] {
     let unwired_cypher = if production_only {
@@ -87,7 +85,9 @@ pub(super) fn run_classifier_rule(
 /// Build an inventory query pre-filtered to a single bounded context by
 /// embedding `WHERE item.bounded_context = $context` in the Cypher AST.
 /// Pushing the predicate into the evaluator avoids materialising all rows
-/// before the Rust filter — the root cause of the 13 GB OOM in issue #167.
+/// before the Rust filter — the prior shape was an unbounded query
+/// returning every `:Item` across all contexts, then filtered in Rust,
+/// the root cause of a 13 GB OOM on large keyspaces.
 pub(super) fn compose_inventory_query_for_context(context: &str) -> cfdb_core::query::Query {
     use cfdb_core::query::{CompareOp, Expr, Predicate};
     let mut q = compose_list_items_matching(".*", None, false);
@@ -155,26 +155,19 @@ pub(super) fn query_canonical_candidates(
 
 #[cfg(test)]
 mod tests_memory_169 {
-    //! Regression test for issue #169 (`memory(scope): push $context filter
-    //! into Cypher`).
+    //! Regression test for bounded context filtering.
     //!
     //! Prior behaviour: `query_findings_in_context` called
     //! `compose_list_items_matching(".*", None, false)` — an unbounded
     //! query returning every `:Item` across all contexts — then filtered in
     //! Rust with `if row_context != context { continue; }`. On a 148k-item
-    //! keyspace the evaluator materialised every row before the Rust
-    //! filter could throw them away, a direct contributor to the 13 GB OOM
-    //! documented in parent issue #167.
+    //! keyspace the evaluator materialised every row before the Rust filter
+    //! could throw them away, a direct contributor to a 13 GB OOM.
     //!
     //! The fix pushes the `bounded_context = $context` constraint into the
     //! Cypher query. This test asserts the structural invariant without
     //! executing the query: the composed `Query` AST must carry a predicate
     //! (or parameter binding) that constrains `item.bounded_context`.
-    //!
-    //! The test imports `super::compose_inventory_query_for_context` — a
-    //! `pub(super)` composer the fix introduces. Any equivalent refactor
-    //! that exposes the composed inventory `Query` for inspection is
-    //! acceptable; rename the symbol and update this `use` if so.
     use cfdb_core::query::{CompareOp, Expr, Predicate, Query};
 
     use super::compose_inventory_query_for_context;

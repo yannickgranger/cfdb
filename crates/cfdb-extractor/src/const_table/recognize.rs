@@ -3,15 +3,15 @@
 //! returned [`RecognizedConstTable`]. The companion module
 //! [`super::canonical`] turns the recognizer's output into wire props.
 //!
-//! Split out of `const_table.rs` (#350) to keep each file under the 500-LOC
-//! budget. Public surface is unchanged — every item visible to the rest of
-//! the crate is re-exported from [`super`].
+//! Split out to keep each file under the 500-LOC budget. Public surface is
+//! unchanged — every item visible to the rest of the crate is re-exported
+//! from [`super`].
 
 use syn::{
     Expr, ExprArray, ExprLit, ExprReference, Lit, Type, TypeArray, TypeReference, TypeSlice,
 };
 
-/// Closed-set wire vocabulary owner (RFC-038 §3.1 invariant-owner pattern).
+/// Closed-set wire vocabulary owner.
 ///
 /// The producer's wire string for the `:ConstTable.element_type` attribute
 /// flows through [`ElementType::as_wire_str`] only. Constructing the wire
@@ -20,10 +20,9 @@ use syn::{
 /// split-brain shape that R1 solid-architect B2 flagged; this enum is the
 /// single owner.
 ///
-/// Adding a sixth variant is RFC-gated (no-ratchet rule, RFC-040 §4) — the
-/// describer's documented wire vocabulary
-/// `{"str", "u32", "i32", "u64", "i64"}` and this enum must be expanded
-/// together.
+/// Adding a sixth variant is gated to maintain the invariant — the
+/// describer's documented wire vocabulary `{"str", "u32", "i32", "u64",
+/// "i64"}` and this enum must be expanded together.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ElementType {
     Str,

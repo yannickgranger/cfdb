@@ -23,7 +23,7 @@ pub fn emit_json<T: Serialize + ?Sized>(payload: &T) -> Result<(), CfdbCliError>
 ///
 /// Wire strings (`text`, `json`, `sorted-jsonl`, `table`) are stable and
 /// asserted on by integration tests; do not rename them without a
-/// deliberate user-facing change. See EPIC #273 Pattern 1 #4.
+/// deliberate user-facing change.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputFormat {
     /// `text` — TSV / human-readable shape (e.g. `cfdb check-predicate --format text`).
@@ -51,8 +51,7 @@ impl OutputFormat {
     /// otherwise produce a [`CfdbCliError::Usage`] of the shape
     /// `"<cmd>: --format `<got>` not supported; expected `<a>` or `<b>` ..."`.
     /// The wire shape matches the per-handler error messages that existed
-    /// before unification (see EPIC #273 Pattern 1 #4) so substring-asserting
-    /// integration tests keep passing.
+    /// before unification so substring-asserting integration tests keep passing.
     pub fn require_one_of(self, allowed: &[OutputFormat], cmd: &str) -> Result<Self, CfdbCliError> {
         if allowed.contains(&self) {
             return Ok(self);

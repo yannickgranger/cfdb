@@ -1,9 +1,8 @@
 //! C8 — pipeline-stage cross detection.
 //!
 //! Fires when a changed path set touches ≥2 stages in `pipeline-stages.toml`
-//! (`[stages.signal]`, `[stages.sizing]`, `[stages.execution]`, ...). The RFC
-//! treats a single change crossing stage boundaries as a candidate split-brain
-//! bypass — pre-council inspection is mandatory.
+//! (`[stages.signal]`, `[stages.sizing]`, `[stages.execution]`, ...). A
+//! single change crossing stage boundaries requires pre-council inspection.
 
 use serde_json::json;
 use std::collections::BTreeMap;

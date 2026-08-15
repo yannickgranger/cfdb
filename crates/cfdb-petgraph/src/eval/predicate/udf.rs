@@ -6,14 +6,14 @@
 //! across the file split) so a future change to a helper and its test
 //! is a one-file diff.
 
-/// Parsed JSON-array element set for the RFC-040 §3.4 overlap UDFs.
+/// Parsed JSON-array element set for the overlap UDFs.
 ///
 /// `entries_normalized` is JSON-array-as-string of either all strings
 /// (`["a","b"]`) or all numbers (`[1,2]`) — the element type is
 /// inferred from the first parseable element. Mixed-element-type
 /// inputs (e.g. `["a", 1]`) are forbidden by the wire contract; the
 /// UDFs treat them as `MixedOrInvalid` so the enclosing rule sees no
-/// overlap (RFC-040 §3.4 N2).
+/// overlap.
 #[derive(Debug, PartialEq, Eq)]
 enum NormalizedEntries {
     Strs(std::collections::BTreeSet<String>),
@@ -53,8 +53,7 @@ fn parse_entries_normalized(s: &str) -> NormalizedEntries {
     //
     // Decide kind via a snapshot of the first element (borrow ends at
     // the matches!), then consume `items` by-value in each branch — the
-    // owned String / Number variants move into the result set with no
-    // clone, dropping the loop-clone flagged by quality-metrics.
+    // owned String / Number variants move into the result set with no clone.
     let first_is_string = matches!(&items[0], serde_json::Value::String(_));
     let first_is_number = matches!(&items[0], serde_json::Value::Number(_));
     if first_is_string {
@@ -94,10 +93,10 @@ pub(super) fn entries_subset_impl(a_json: &str, b_json: &str) -> bool {
         (NormalizedEntries::MixedOrInvalid, _) | (_, NormalizedEntries::MixedOrInvalid) => false,
         (NormalizedEntries::Strs(sa), NormalizedEntries::Strs(sb)) => sa.is_subset(&sb),
         (NormalizedEntries::Ints(ia), NormalizedEntries::Ints(ib)) => ia.is_subset(&ib),
-        // Cross-element-type — no overlap by RFC-040 §3.4 N2. The
-        // empty-on-the-right case (e.g. Strs vs Empty) is `false`
-        // because a populated set is never a subset of empty; the
-        // empty-on-the-left case is handled by the first arm above.
+        // Cross-element-type — no overlap. The empty-on-the-right case
+        // (e.g. Strs vs Empty) is `false` because a populated set is
+        // never a subset of empty; the empty-on-the-left case is
+        // handled by the first arm above.
         (NormalizedEntries::Strs(_), NormalizedEntries::Ints(_))
         | (NormalizedEntries::Ints(_), NormalizedEntries::Strs(_))
         | (NormalizedEntries::Strs(_), NormalizedEntries::Empty)
@@ -141,7 +140,7 @@ fn jaccard_btree<T: Ord>(
     }
 }
 
-/// `overlap_verdict` impl — RFC-040 §3.4 precedence-decoder.
+/// `overlap_verdict` impl — precedence decoder.
 /// See [`Evaluator::call_overlap_verdict`] for the contract.
 pub(super) fn overlap_verdict_impl(
     a_norm: &str,
@@ -162,22 +161,20 @@ pub(super) fn overlap_verdict_impl(
 }
 
 // Normalize a signature string for `signature_divergent` comparison —
-// `normalize_signature(s)` lives in `udf/tests.rs` (extracted #421
-// boy-scout for the god-file split). It trims outer whitespace and
-// collapses any run of internal whitespace to a single ASCII space.
-// See [`super::Evaluator::call_signature_divergent`] for the rationale.
-// Production dispatch goes through [`signatures_differ_modulo_whitespace`]
-// (equivalent semantics, zero allocation, #409); the allocating form
-// is kept for the unit-test corpus that locks the normalization shape
-// AND for the equivalence assertion in `signature_divergent_tests`.
+// `normalize_signature(s)` lives in `udf/tests.rs`. It trims outer
+// whitespace and collapses any run of internal whitespace to a single
+// ASCII space. See [`super::Evaluator::call_signature_divergent`] for the
+// rationale. Production dispatch goes through
+// [`signatures_differ_modulo_whitespace`] (equivalent semantics, zero
+// allocation); the allocating form is kept for the unit-test corpus that
+// locks the normalization shape AND for the equivalence assertion in
+// `signature_divergent_tests`.
 
 /// `signatures_differ_modulo_whitespace(a, b)` — equivalent to
 /// `normalize_signature(a) != normalize_signature(b)` but iterates
 /// both inputs once with zero heap allocation. Used by
 /// [`super::Evaluator::call_signature_divergent`] on the
-/// `signature-divergent.cypher` hot path (#409). Pre-fix wall-time
-/// on cfdb-self smoke was 542s for that one query; the double
-/// allocation per invocation was the dominant cost.
+/// `signature-divergent.cypher` hot path.
 ///
 /// # Semantics (locked by `signature_divergent_tests`)
 ///

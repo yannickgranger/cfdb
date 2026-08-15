@@ -1,4 +1,4 @@
-//! RFC-054 54-C (#558): the target-root correlation map.
+//! The target-root correlation map.
 //!
 //! ra_ap exposes NO target kind on `CrateData` / `hir::Crate` — cargo's
 //! `TargetData.kind` collapses into `is_proc_macro` during crate-graph
@@ -14,8 +14,8 @@
 //! [`build_hir_database`](crate::build_hir_database) constructs this map
 //! once per load from the retained `CargoWorkspace` (workspace members
 //! only) and returns it alongside the database; the emitters correlate
-//! each item's crate root through it to derive the RFC-054
-//! [`TargetDiscriminator`] its ids are routed through.
+//! each item's crate root through it to derive the [`TargetDiscriminator`]
+//! its ids are routed through.
 //!
 //! Path-representation residual: the map records each target root under
 //! cargo-metadata's spelling AND its canonicalized form, but ra_ap never
@@ -26,13 +26,12 @@
 //! (`tests/entry_point_bin_name.rs` asserts `#bin:` presence); the
 //! partial single-crate case is accepted residual risk.
 //!
-//! Only `[lib]` and `[[bin]]` targets are recorded: RFC-054's identity
-//! namespace discriminates lib vs bin. Test / example / bench /
-//! build-script targets — and any non-member or non-cargo crate (deps,
-//! sysroot, language crates) — miss the map and resolve to
-//! [`TargetDiscriminator::Lib`], keeping their ids byte-stable with
-//! pre-54-C extracts (those crates have no syn-side `:Item`s to join
-//! against either way).
+//! Only `[lib]` and `[[bin]]` targets are recorded: the identity namespace
+//! discriminates lib vs bin. Test / example / bench / build-script targets —
+//! and any non-member or non-cargo crate (deps, sysroot, language crates) —
+//! miss the map and resolve to [`TargetDiscriminator::Lib`], keeping their
+//! ids byte-stable with earlier extracts (those crates have no syn-side
+//! `:Item`s to join against either way).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

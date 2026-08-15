@@ -1,15 +1,13 @@
 //! C9 — workspace cardinality change detection.
 //!
 //! Fires when the workspace root `Cargo.toml` appears in the diff AND the
-//! current `[workspace] members = [...]` list parses successfully. This is the
-//! RFC-034 §4.2 lower-bound signal that the workspace is gaining or losing a
-//! crate in the changeset; cardinality growth beyond a threshold triggers
-//! pre-council review.
+//! current `[workspace] members = [...]` list parses successfully. This signals
+//! that the workspace is gaining or losing a crate in the changeset; cardinality
+//! growth beyond a threshold triggers pre-council review.
 //!
-//! Rust-systems Amendment 2 (RFC-034 §4.2): `Cargo.toml` is parsed directly
-//! via the `toml` crate. The binary MUST NOT invoke `cargo` as a subprocess
-//! nor depend on `cargo_metadata`, which would re-enter workspace lock
-//! resolution and deadlock in nested CI contexts.
+//! `Cargo.toml` is parsed directly via the `toml` crate. The binary MUST NOT
+//! invoke `cargo` as a subprocess nor depend on `cargo_metadata`, which would
+//! re-enter workspace lock resolution and deadlock in nested CI contexts.
 
 use serde_json::json;
 use std::path::Path;

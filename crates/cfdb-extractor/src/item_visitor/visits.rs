@@ -1,5 +1,5 @@
 //! `syn::Visit` implementation for [`ItemVisitor`]. Split out of
-//! `item_visitor.rs` to keep each file under the 500-LOC budget (#128).
+//! `item_visitor.rs` to keep each file under the 500-LOC budget.
 
 use std::collections::BTreeMap;
 
@@ -23,11 +23,9 @@ use super::{span_line, ItemVisitor};
 /// `self`) is rendered as `&Self`, `&mut Self`, or `Self` so cross-
 /// extractor consumers see a stable string; receivers have no
 /// `syn::Type` (they carry `Self`), so `syn_type` is `None` in that
-/// arm. §6.4 semantic normalization is deferred; today `type_path`
-/// and `type_normalized` share the rendered source form (#209 /
-/// RFC-036 §3.1). The `syn_type` slot is consumed downstream by
-/// `emit_param` to power the TYPE_OF third-tier wrapper unwrap
-/// (#239, RFC-037 §6 closeout).
+/// arm. Semantic normalization is deferred; today `type_path` and
+/// `type_normalized` share the rendered source form. The `syn_type` slot
+/// is consumed downstream by `emit_param` to power wrapper unwrap logic.
 fn param_info(arg: &syn::FnArg) -> (String, bool, String, String, Option<syn::Type>) {
     match arg {
         syn::FnArg::Receiver(r) => {
@@ -69,15 +67,14 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
             Some(&signature),
             None,
         );
-        // RETURNS post-walk queue (RFC-037 §3.2, #216). Defer
-        // resolution to `extract_workspace`'s post-walk pass — the
-        // return type may name an item declared later in this file or
-        // in a file walked later in the same workspace.
+        // Defer return type resolution to `extract_workspace`'s post-walk
+        // pass — the return type may name an item declared later in this
+        // file or in a file walked later in the same workspace.
         if let syn::ReturnType::Type(_, ty) = &node.sig.output {
             let return_type = render_type_string(ty);
-            // Store the original `syn::Type` alongside the rendered
-            // string so `resolve_deferred_returns` can fall back to
-            // `render_type_inner` on wrapper unwrap (#239).
+            // Store the original `syn::Type` alongside the rendered string
+            // so `resolve_deferred_returns` can fall back to
+            // `render_type_inner` on wrapper unwrap.
             self.emitter.deferred_returns.push((
                 caller_qname.clone(),
                 self.target.clone(),
@@ -111,9 +108,8 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
             &node.block,
             is_test,
         );
-        // RFC-041 slice 041-B (#370): emit `:Literal` per string
-        // literal in the fn body, inheriting the just-computed
-        // `is_test` (no parallel resolver — §4 invariant).
+        // Emit `:Literal` per string literal in the fn body, inheriting the
+        // just-computed `is_test` (no parallel resolver).
         walk_literals_in_block(
             self.emitter,
             &self.file_path,
@@ -121,9 +117,9 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
             &node.block,
             is_test,
         );
-        // RFC-053 slice 53-A: emit `:MatchSite` + `MATCHES_AT` per `match`
-        // expression in the fn body — a third independent pass, same
-        // threaded `is_test` as the two above.
+        // Emit `:MatchSite` + `MATCHES_AT` per `match` expression in the fn
+        // body — a third independent pass, same threaded `is_test` as the
+        // two above.
         walk_match_sites_with_test_flag(
             self.emitter,
             &caller_qname,
@@ -136,27 +132,27 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
     }
 
     fn visit_item_impl(&mut self, node: &'ast syn::ItemImpl) {
-        // Capture the impl target so nested method visits can build
-        // qnames. Normalise through `cfdb_core::qname::normalize_impl_target`
-        // so the stripped-angle-brackets form (`Vec` not `Vec<Node>`)
-        // matches what `cfdb-hir-extractor` emits when it runs on the
-        // same impl. Without this, generic impl targets produce
-        // divergent qnames across the two extractors and cross-extractor
-        // `CALLS(Item→Item)` edges silently dangle (#94 ddd review).
+        // Capture the impl target so nested method visits can build qnames.
+        // Normalise through `cfdb_core::qname::normalize_impl_target` so the
+        // stripped-angle-brackets form (`Vec` not `Vec<Node>`) matches what
+        // `cfdb-hir-extractor` emits when it runs on the same impl. Without
+        // this, generic impl targets produce divergent qnames across the two
+        // extractors and cross-extractor `CALLS(Item→Item)` edges silently
+        // dangle.
         let target = normalize_impl_target(&render_type_string(&node.self_ty));
 
-        // #42 — emit an `:Item { kind: "impl_block" }` node for the impl
-        // itself plus `IMPLEMENTS` (trait impls only) + `IMPLEMENTS_FOR`
-        // edges. The impl-block node is the shared source for both
+        // Emit an `:Item { kind: "impl_block" }` node for the impl itself plus
+        // `IMPLEMENTS` (trait impls only) + `IMPLEMENTS_FOR` edges. The
+        // impl-block node is the shared source for both
         // edges so queries can express "the trait-target pair for this
         // impl block" by joining `IMPLEMENTS` and `IMPLEMENTS_FOR` on
         // the impl-block id. (Inherent impls emit `IMPLEMENTS_FOR`
         // only — no trait to point to.)
         let trait_qname: Option<String> =
             node.trait_.as_ref().map(|(_, path, _)| render_path(path));
-        // Use the `impl` keyword's span line — stable across inherent
-        // and trait impls, and matches what a human reader would point
-        // to as "the impl line" (#273 / F-005).
+        // Use the `impl` keyword's span line — stable across inherent and
+        // trait impls, and matches what a human reader would point to as
+        // "the impl line".
         let impl_line = node.impl_token.span.start().line;
         self.emit_impl_block(&target, trait_qname.as_deref(), impl_line, &node.attrs);
 
@@ -226,7 +222,7 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
             &node.block,
             is_test,
         );
-        // RFC-041 slice 041-B (#370): impl-method body literals.
+        // Emit impl-method body literals.
         walk_literals_in_block(
             self.emitter,
             &self.file_path,
@@ -234,7 +230,7 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
             &node.block,
             is_test,
         );
-        // RFC-053 slice 53-A: impl-method body match sites.
+        // Emit impl-method body match sites.
         walk_match_sites_with_test_flag(
             self.emitter,
             &qname,
@@ -257,8 +253,7 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
         );
         // Walk the struct's fields uniformly — `emit_field_list` handles
         // both `Fields::Named` (record struct) and `Fields::Unnamed`
-        // (tuple struct). `Fields::Unit` is a no-op. #218 / RFC-037 §3.3
-        // step 7.
+        // (tuple struct). `Fields::Unit` is a no-op.
         self.emit_field_list(&id, &node.fields, &parent_qname);
         // Serde `default = "path"` attribute on a named field is a
         // name-based reference to a callable — syntactically visible
@@ -270,10 +265,9 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
             for f in &named.named {
                 if let Some(ident) = &f.ident {
                     if let Some(callee_path) = extract_serde_default_attr(&f.attrs) {
-                        // Real source line of the field ident — the
-                        // attr-ref CallSite points at the field whose
-                        // `#[serde(default = "...")]` attr it represents
-                        // (#273 / F-005).
+                        // Real source line of the field ident — the attr-ref
+                        // CallSite points at the field whose
+                        // `#[serde(default = "...")]` attr it represents.
                         let field_line = ident.span().start().line;
                         self.emit_attr_call_site(
                             &parent_qname,
@@ -297,10 +291,9 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
             &node.vis,
             &node.attrs,
         );
-        // Walk every variant — emit the `:Variant` node + `HAS_VARIANT`
-        // edge, then recurse into the variant's payload via
-        // `emit_field_list` (shared with `visit_item_struct`). #218 /
-        // RFC-037 §3.3.
+        // Walk every variant — emit the `:Variant` node + `HAS_VARIANT` edge,
+        // then recurse into the variant's payload via `emit_field_list`
+        // (shared with `visit_item_struct`).
         for (index, variant) in node.variants.iter().enumerate() {
             let variant_name = variant.ident.to_string();
             let payload_kind = match &variant.fields {
@@ -350,10 +343,10 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
             &node.vis,
             &node.attrs,
         );
-        // RFC-040 §3.3 — recognize literal slice/array tables and emit a
-        // `:ConstTable` node + `HAS_CONST_TABLE` edge alongside the parent
-        // `:Item`. Non-recognized consts (scalars, custom types, non-literal
-        // exprs) take the early-return None path and emit only the parent.
+        // Recognize literal slice/array tables and emit a `:ConstTable` node
+        // + `HAS_CONST_TABLE` edge alongside the parent `:Item`.
+        // Non-recognized consts (scalars, custom types, non-literal exprs)
+        // take the early-return None path and emit only the parent.
         if let Some(table) = crate::const_table::recognize_const_table(
             node,
             &self.crate_name,
@@ -362,9 +355,9 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
         ) {
             self.emit_const_table(table, &item_id);
         }
-        // RFC-041 slice 041-B (#370): const initializer literals.
-        // `is_test` for a const/static inherits from the enclosing
-        // `#[cfg(test)] mod` only — consts have no fn-level `#[test]`.
+        // Emit const initializer literals. `is_test` for a const/static
+        // inherits from the enclosing `#[cfg(test)] mod` only — consts have
+        // no fn-level `#[test]`.
         walk_literals_in_expr(
             self.emitter,
             &self.file_path,
@@ -383,7 +376,7 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
             &node.vis,
             &node.attrs,
         );
-        // RFC-041 slice 041-B (#370): static initializer literals.
+        // Emit static initializer literals.
         walk_literals_in_expr(
             self.emitter,
             &self.file_path,
@@ -394,9 +387,6 @@ impl<'ast> Visit<'ast> for ItemVisitor<'_> {
     }
 
     fn visit_item_union(&mut self, node: &'ast syn::ItemUnion) {
-        // #515 — `union` completes the top-level item vocabulary: recall's
-        // KEPT_ITEM_KINDS listed the wire value against rustdoc ground
-        // truth (which indexes unions) while no visitor produced it.
         let name = node.ident.to_string();
         self.emit_item(
             &name,

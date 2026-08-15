@@ -1,5 +1,5 @@
 //! Post-walk synthesis pass — emit minimal `:Item` nodes for every edge
-//! dst qname that no walk path emitted (issue #317).
+//! dst qname that no walk path emitted.
 //!
 //! ## Why
 //!
@@ -23,7 +23,7 @@
 //! props (`file`, `visibility`, `module_qpath`, `line`, `signature`,
 //! `is_test`, `is_deprecated`, ...) are deliberately omitted — their
 //! absence is the discriminator between "walked from source" and
-//! "referenced only" (commit `fdaf333` rationale, RFC-039 withdrawal).
+//! "referenced only".
 //!
 //! ## Kind inference (AC-4 + AC-5)
 //!
@@ -131,8 +131,8 @@ pub(crate) fn synthesize_referenced_items(emitter: &mut Emitter, overrides: &Con
         });
         // Synthetic stubs stand in for items outside every workspace
         // target (foreign crates), so they claim the Lib slot — the
-        // RFC-054 resolver's lib fallback routes cross-target references
-        // to them exactly as it does for real lib items.
+        // resolver's lib fallback routes cross-target references to them
+        // exactly as it does for real lib items.
         emitter.claim_item_qname(&qname, &cfdb_core::qname::TargetDiscriminator::Lib);
     }
 }
@@ -141,7 +141,7 @@ pub(crate) fn synthesize_referenced_items(emitter: &mut Emitter, overrides: &Con
 /// (and caching) on first access. Extracted from
 /// [`synthesize_referenced_items`] so the per-row clone needed to
 /// retain `crate_name` for the memo key happens outside the emission
-/// loop body (#374, RFC §7 no-clones-in-loops).
+/// loop body.
 fn memoized_bounded_context(
     bc_memo: &mut BTreeMap<String, String>,
     crate_name: &str,
@@ -157,9 +157,7 @@ fn memoized_bounded_context(
 
 /// Build the `:Item.props` map for one synthesised node. Routes through
 /// the canonical `cfdb_core::fact::build_item_props` so the property-key
-/// vocabulary is single-sourced workspace-wide (#421 boy-scout: closes
-/// the split-brain flagged by `audit-split-brain` against
-/// `cfdb-hir-petgraph-adapter::build_callee_stub`).
+/// vocabulary is single-sourced workspace-wide.
 fn build_synthetic_item_props(
     qname: &str,
     kind: &str,
@@ -175,10 +173,10 @@ fn build_synthetic_item_props(
 /// into scope. IMPLEMENTS proves the dst is a trait; the others
 /// (IMPLEMENTS_FOR, RETURNS, TYPE_OF) only prove the dst is some
 /// type, so we fall back to `struct` (the most general type-shaped
-/// value the `ItemKind` vocabulary supports — RFC-cfdb §7).
+/// value the `ItemKind` vocabulary supports).
 ///
-/// Routes through [`ItemKind::to_extractor_str`] (RATIFIED.md §A.14)
-/// so any future rename of the wire-form vocabulary stays single-sourced.
+/// Routes through [`ItemKind::to_extractor_str`] so any future rename
+/// of the wire-form vocabulary stays single-sourced.
 fn kind_for_evidence(evidence: &'static str) -> &'static str {
     match evidence {
         EdgeLabel::IMPLEMENTS => ItemKind::Trait.to_extractor_str(),

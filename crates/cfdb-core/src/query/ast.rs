@@ -105,7 +105,7 @@ pub struct EdgePattern {
     pub direction: Direction,
     /// `[:LABEL*1..5]` → `Some((1, 5))`; the open form `[:LABEL*1..]` (omitted
     /// upper bound) → `Some((1, u32::MAX))`; `[:LABEL]` → None. The `u32::MAX`
-    /// sentinel signals an unbounded traversal to the evaluator (RFC-047a).
+    /// sentinel signals an unbounded traversal to the evaluator.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub var_length: Option<(u32, u32)>,
 }
@@ -253,7 +253,6 @@ mod tests {
 
     #[test]
     fn ast_roundtrip_via_serde() {
-        // F1b (aggregation) — the canonical Pattern A query shape.
         let q = Query::new(
             vec![Pattern::Node(NodePattern {
                 var: Some("a".into()),

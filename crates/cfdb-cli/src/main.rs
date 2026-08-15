@@ -1,27 +1,26 @@
-//! `cfdb` — CLI wire form for cfdb v0.1 + v0.2 (RFC §6.2 / §11).
+//! `cfdb` — CLI wire form.
 //!
-//! Exposes the full 20-verb cfdb API surface (RFC §6 + council-cfdb-wiring
-//! RATIFIED §A.14 + §A.17 + #43 council round 1 §43-A) as clap subcommands:
+//! Exposes the full cfdb API surface as clap subcommands:
 //!
-//! INGEST (8 — post #43-A amendment):
+//! INGEST (8):
 //! - `cfdb extract --workspace <path> --db <path> [--keyspace <name>]`
-//! - `cfdb enrich-git-history --db <path> --keyspace <name>`      (Phase A stub — slice 43-B)
-//! - `cfdb enrich-rfc-docs --db <path> --keyspace <name>`         (Phase A stub — slice 43-D)
-//! - `cfdb enrich-deprecation --db <path> --keyspace <name>`      (Phase A stub — slice 43-C)
-//! - `cfdb enrich-bounded-context --db <path> --keyspace <name>`  (Phase A stub — slice 43-E)
-//! - `cfdb enrich-concepts --db <path> --keyspace <name>`         (Phase A stub — slice 43-F)
-//! - `cfdb enrich-reachability --db <path> --keyspace <name>`     (Phase A stub — slice 43-G)
-//! - `cfdb enrich-metrics --db <path> --keyspace <name>`          (Phase A stub — deferred, out of #43 scope)
+//! - `cfdb enrich-git-history --db <path> --keyspace <name>`      (Phase A stub)
+//! - `cfdb enrich-rfc-docs --db <path> --keyspace <name>`         (Phase A stub)
+//! - `cfdb enrich-deprecation --db <path> --keyspace <name>`      (Phase A stub)
+//! - `cfdb enrich-bounded-context --db <path> --keyspace <name>`  (Phase A stub)
+//! - `cfdb enrich-concepts --db <path> --keyspace <name>`         (Phase A stub)
+//! - `cfdb enrich-reachability --db <path> --keyspace <name>`     (Phase A stub)
+//! - `cfdb enrich-metrics --db <path> --keyspace <name>`          (Phase A stub — deferred)
 //!
 //! RAW (1):
 //! - `cfdb query --db <path> --keyspace <name> <cypher> [--params <json>] [--input <yaml>]`
 //!
 //! TYPED (8):
 //! - `cfdb find-canonical --db <path> --keyspace <name> --concept <c>` (Phase A stub)
-//! - `cfdb list-callers --db <path> --keyspace <name> --qname <regex>` (wired — #3633)
+//! - `cfdb list-callers --db <path> --keyspace <name> --qname <regex>` (wired)
 //! - `cfdb violations --db <path> --keyspace <name> --rule <file.cypher>`
-//! - `cfdb check --db <path> --keyspace <name> --trigger <T1|T3> [--no-fail]` (editorial-drift triggers — #101/#102)
-//! - `cfdb check-predicate --db <path> --keyspace <name> --workspace-root <path> --name <predicate> [--param <name>:<form>:<value> ...] [--format text|json] [--no-fail]` (named-predicate library — RFC-034)
+//! - `cfdb check --db <path> --keyspace <name> --trigger <T1|T3> [--no-fail]` (editorial-drift triggers)
+//! - `cfdb check-predicate --db <path> --keyspace <name> --workspace-root <path> --name <predicate> [--param <name>:<form>:<value> ...] [--format text|json] [--no-fail]` (named-predicate library)
 //! - `cfdb list-bypasses --db <path> --keyspace <name> --concept <c>`  (Phase A stub)
 //! - `cfdb list-items-matching --db <path> --keyspace <name> --name-pattern <r> [--kinds <list>] [--group-by-context]`
 //! - `cfdb scope --db <path> --context <name> [--workspace <path>] [--format json|table] [--output <path>] [--keyspace <name>]`
@@ -35,7 +34,7 @@
 //! - `cfdb version`                                                — schema_version
 //! - `cfdb schema-describe`                                        — full schema JSON
 //!
-//! AUX (existing helpers, RFC §11 wire-form ergonomics):
+//! AUX (existing helpers):
 //! - `cfdb dump --db <path> --keyspace <name>`               — canonical sorted dump
 //! - `cfdb export --db <path> --keyspace <name> [--format sorted-jsonl]` — alias of `dump`
 //! - `cfdb list-keyspaces --db <path>`                       — convenience listing
@@ -48,16 +47,11 @@
 //!   arg, unknown enum value)
 //! - `30` — findings present, gate failure (rule rows returned by
 //!   `cfdb violations` / `cfdb check` / `cfdb check-predicate` without
-//!   `--no-fail`). Mirrors the `ci/cross-dogfood.sh` convention so CI
-//!   scripts can disambiguate "extractor blew up" (1) from "rule found
-//!   rows" (30). Issue #269 / EPIC #273 (audit ID CFDB-CLI-H1).
+//!   `--no-fail`). Mirrors a convention so CI scripts can disambiguate
+//!   "extractor blew up" (1) from "rule found rows" (30).
 //!
-//! NOTE — downstream `qbot-core` consumers reading exit code 1 as
-//! "findings" must update to read 30. The `scripts/check-arch-rfc.sh`
-//! and `.gitea/workflows/arch-rfc-enforcement.yml` in qbot-core need a
-//! follow-up PR (cross-repo). Until that lands, qbot-core CI may
-//! misclassify findings as runtime errors. Tracking issue:
-//! `agency:yg/qbot-core` (file post-merge).
+//! NOTE — downstream consumers reading exit code 1 as "findings" must
+//! update to read 30.
 //!
 //! The `--db` path is a directory containing one `{keyspace}.json` file per
 //! keyspace. Extract writes; query/dump/list read.

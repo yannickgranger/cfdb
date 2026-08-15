@@ -8,19 +8,14 @@ mod last_segment_tests {
     use crate::eval::Evaluator;
     use crate::graph::KeyspaceState;
 
-    /// AC4 — the `last_segment(...)` Cypher UDF MUST delegate to
-    /// `cfdb_core::qname::last_segment` (the RFC-035 §3.3 invariant
-    /// owner) byte-for-byte. Routing the dispatch through the
-    /// canonical helper closes the read-side of the §3.3 invariant
-    /// (the write-side closed in slice 3 via `ComputedKey::evaluate`).
-    ///
-    /// Canary set extends the slice 3 self-dogfood inputs with edge
-    /// cases (single-segment, leading/trailing separator, single-`:`
-    /// non-qname inputs). The canonical helper splits at the LAST
-    /// `::` and returns the trailing segment (or the whole input
-    /// when no `::` is present). Pinning these here surfaces any
-    /// future divergence between the UDF and the canonical helper
-    /// loudly rather than via a downstream Cypher query mismatch.
+    /// The `last_segment(...)` Cypher UDF MUST delegate to
+    /// `cfdb_core::qname::last_segment` byte-for-byte. Routing the
+    /// dispatch through the canonical helper closes the read-side of
+    /// the invariant. The canonical helper splits at the LAST `::` and
+    /// returns the trailing segment (or the whole input when no `::` is
+    /// present). Pinning these here surfaces any future divergence
+    /// between the UDF and the canonical helper loudly rather than via
+    /// a downstream Cypher query mismatch.
     #[test]
     fn call_last_segment_agrees_with_canonical_owner_byte_for_byte() {
         let state = KeyspaceState::new();

@@ -1,7 +1,7 @@
 //! Textual rendering of `syn::Type` and `syn::Path` into the searchable
 //! form the extractor uses for `type_qname` field props and impl-target
 //! qnames. This is deliberately shallow — full path resolution through
-//! re-exports is RFC §8.2 Phase B (`ra-ap-hir`).
+//! re-exports is deferred.
 
 /// Render a `syn::Type` into the caller's `String` buffer. The output
 /// is the minimal textual form: last-segment-joined paths, references
@@ -61,7 +61,7 @@ pub(crate) fn render_type(ty: &syn::Type, out: &mut String) {
 /// it via the `render_type` primitive. Callers on a hot path that already
 /// own a `String` buffer should call `render_type` directly to avoid the
 /// allocation. Minimal rendering suitable for the extractor's searchable
-/// `type_qname`; full path resolution is RFC §8.2 Phase B (ra-ap-hir).
+/// `type_qname`; full path resolution is deferred.
 pub(crate) fn render_type_string(ty: &syn::Type) -> String {
     let mut out = String::new();
     render_type(ty, &mut out);
@@ -71,10 +71,9 @@ pub(crate) fn render_type_string(ty: &syn::Type) -> String {
 /// Closed list of standard-library wrapper types whose generic arg is
 /// `render_type_inner`'s candidate set. Matching is by **last path
 /// segment** (`std::vec::Vec<T>` and `Vec<T>` both match via `"Vec"`).
-/// This table is audit-load-bearing per RFC-037 §6 / issue #239 — the
-/// closed-list property means extending it is an RFC-gated change, not a
-/// silent addition. Keep the 9 entries; do not grow this set in a PR
-/// that is not a ratified RFC amendment.
+/// This table is load-bearing — the closed-list property means extending
+/// it requires explicit design review. Keep the 9 entries; do not grow
+/// this set without review.
 const WRAPPER_TYPES: &[&str] = &[
     "Arc", "Box", "Cell", "Option", "Pin", "RefCell", "Rc", "Result", "Vec",
 ];
@@ -98,7 +97,7 @@ const WRAPPER_TYPES: &[&str] = &[
 /// without inspecting `ty`; this is the termination condition for
 /// pathologically nested wrappers (`Vec<Vec<Vec<Vec<Foo>>>>` at
 /// depth 3 exhausts the budget before reaching `Foo`). Callers in
-/// the resolvers use `depth = 3` per RFC-037 §6 / issue #239.
+/// the resolvers use `depth = 3`.
 ///
 /// Non-wrapper `Type::Path` (including bare generics like `T` and
 /// user-defined types like `MyBox<Foo>`) returns empty Vec. Non-Path
@@ -151,9 +150,9 @@ pub(crate) fn render_path(p: &syn::Path) -> String {
 /// `<ret>` is the rendered return type or `()` when the fn returns
 /// nothing explicit.
 ///
-/// Invariant (G1 byte-stability, RFC §6): the output is deterministic
-/// across two runs on the same source — `syn::Signature::inputs` preserves
-/// source order, and the modifier prefix order is fixed by this function.
+/// Invariant (byte-stability): the output is deterministic across two
+/// runs on the same source — `syn::Signature::inputs` preserves source
+/// order, and the modifier prefix order is fixed by this function.
 /// Whitespace is normalized: single spaces separating modifiers from
 /// `fn`, `", "` between parameters, `" -> "` before the return type, no
 /// trailing or doubled whitespace.
@@ -222,7 +221,7 @@ fn render_fn_arg(arg: &syn::FnArg, out: &mut String) {
 #[cfg(test)]
 mod render_type_inner_tests {
     //! Unit tests for [`super::render_type_inner`] — the closed-list
-    //! wrapper-unwrap helper (issue #239, RFC-037 §6 closeout).
+    //! wrapper-unwrap helper.
     //!
     //! Rules under test:
     //! - Wrapper match is by last path segment (`Vec`, `std::vec::Vec`

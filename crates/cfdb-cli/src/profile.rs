@@ -1,21 +1,20 @@
-//! `cfdb extract --profile` phase-timing report (RFC-048 §3.1, slice 48-A).
+//! `cfdb extract --profile` phase-timing report.
 //!
 //! The profile is a diagnostic **gate**, not an optimisation: it attributes
-//! `extract`'s wall-clock across the six phases RFC-048 §1 fixes so the
-//! operator can decide whether the deferred incremental-extraction slices
-//! (48-B / 48-C) are ever worth filing. v1 ships the measurement only.
+//! `extract`'s wall-clock across six phases so the operator can decide whether
+//! incremental-extraction optimisations are worthwhile. v1 ships the
+//! measurement only.
 //!
-//! Determinism (RFC-048 §4): the breakdown is rendered to **stderr** only —
-//! nothing here is written into the keyspace or its canonical dump, so
-//! `--profile` cannot perturb the `G1` byte-stable extract.
+//! The breakdown is rendered to **stderr** only — nothing here is written
+//! into the keyspace or its canonical dump, so `--profile` cannot perturb
+//! determinism.
 
 use std::time::Duration;
 
-/// Per-phase wall-clock breakdown of one `cfdb extract` run over the six
-/// phases RFC-048 §1 fixes: the three `extract`-internal phases surfaced by
-/// the Rust extractor (`cargo metadata`, the `syn` walk, deferred
-/// resolution) plus the three the CLI orchestrator owns (ingest, the
-/// optional `--hir` load, and save).
+/// Per-phase wall-clock breakdown of one `cfdb extract` run: the three
+/// `extract`-internal phases surfaced by the Rust extractor (`cargo metadata`,
+/// the `syn` walk, deferred resolution) plus the three the CLI orchestrator
+/// owns (ingest, the optional `--hir` load, and save).
 ///
 /// `total` is the independently-measured end-to-end wall-clock; the
 /// difference between it and [`ExtractProfile::phase_sum`] is the
@@ -24,9 +23,9 @@ use std::time::Duration;
 /// graph, so it cannot affect determinism.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ExtractProfile {
-    /// `cargo metadata` subprocess (RFC-048 §1).
+    /// `cargo metadata` subprocess.
     pub cargo_metadata: Duration,
-    /// `syn` walk — parse, per-file visit, context emission (RFC-048 §1).
+    /// `syn` walk — parse, per-file visit, context emission.
     pub syn_walk: Duration,
     /// Post-walk RETURNS / TYPE_OF resolution, synthesis, and canonical sort.
     pub deferred_resolve: Duration,
@@ -43,9 +42,8 @@ pub struct ExtractProfile {
 
 impl ExtractProfile {
     /// Sum of the six phase durations. `hir_load` contributes zero when the
-    /// phase did not run. The RFC-048 §7 unit invariant is that this sum
-    /// tracks the measured `total` within tolerance — the only gap is the
-    /// unattributed glue between phases.
+    /// phase did not run. This sum tracks the measured `total` within
+    /// tolerance — the only gap is the unattributed glue between phases.
     pub fn phase_sum(&self) -> Duration {
         self.cargo_metadata
             + self.syn_walk

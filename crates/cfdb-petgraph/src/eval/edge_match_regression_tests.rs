@@ -1,11 +1,9 @@
-//! Regression tests for issue #242 — edge-pattern MATCH returns 0 rows.
+//! Regression tests for edge-pattern MATCH returns 0 rows.
 //!
-//! Root cause (confirmed via probe 2026-04-24): `build_path_binding`
-//! (`pattern.rs:260`) inserts `pp.from.var` and `pp.to.var` as
-//! `Binding::NodeRef` but does not insert `pp.edge.var`. The `Binding`
-//! enum lacked an `EdgeRef` variant, making the edge variable
-//! architecturally unrepresentable — every `count(r)` or `r.prop`
-//! evaluated against an empty binding and returned Null.
+//! Root cause: `build_path_binding` inserts node variables but does not
+//! insert the edge variable. The `Binding` enum lacked an `EdgeRef` variant,
+//! making the edge variable architecturally unrepresentable — every `count(r)`
+//! or `r.prop` evaluated against an empty binding and returned Null.
 //!
 //! # Test shapes
 //!
@@ -16,9 +14,7 @@
 //! on): write the same fixture to JSON via `persist::save`, load it
 //! into a fresh store via `persist::load`, run the same queries.
 //!
-//! Both shapes FAIL on develop tip `346eab1` and PASS on the fix.
-//! Per repo `CLAUDE.md §2.5`, the red→green transition in a single
-//! PR IS the bug-fix regression contract.
+//! Both shapes FAIL on develop tip and PASS on the fix.
 
 use cfdb_core::fact::{Edge, Node, PropValue};
 use cfdb_core::result::RowValue;

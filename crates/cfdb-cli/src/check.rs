@@ -32,8 +32,8 @@
 //!
 //! - This enum: cfdb editorial-drift triggers, variants `T1..Tn`
 //!   (capital-T), detecting TOML-vs-code drift.
-//! - That enum: RFC-034 mechanical C-triggers for graph-specs-rust
-//!   companion prelude enforcement, variants `C1..C9` (capital-C).
+//! - That enum: mechanical C-triggers for graph-specs-rust companion
+//!   prelude enforcement, variants `C1..C9` (capital-C).
 //!
 //! Different bounded contexts, different serialization namespaces,
 //! independent change vectors.
