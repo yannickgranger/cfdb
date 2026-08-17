@@ -18,6 +18,11 @@ cfdb-core = { path = "../cfdb-core" }
 cfdb-concepts = { path = "../cfdb-concepts" }
 cfdb-query = { path = "../cfdb-query" }
 cfdb-petgraph = { path = "../cfdb-petgraph" }
+# RFC-056 — strangler-fig destination for the enrichment passes. As of
+# slice 056-0 only `enrich_deprecation` is dispatched through it (the one
+# verb whose "pass" already moved and whose cutover no later slice claims);
+# 056-A..F each add one more EnrichVerb arm as their pass migrates in.
+cfdb-enrich = { path = "../cfdb-enrich" }
 # RFC-041 Phase 1 / Slice 41-C — `cfdb-lang` defines the
 # `LanguageProducer` trait that `crate::lang::available_producers()`
 # dispatches through. Unconditional dep — the trait is an inner-ring

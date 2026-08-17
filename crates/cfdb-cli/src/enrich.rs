@@ -43,7 +43,14 @@ pub fn enrich(
     let report: EnrichReport = match verb {
         EnrichVerb::GitHistory => store.enrich_git_history(&ks)?,
         EnrichVerb::RfcDocs => store.enrich_rfc_docs(&ks)?,
-        EnrichVerb::Deprecation => store.enrich_deprecation(&ks)?,
+        // RFC-056: the only verb whose dispatch already moved to
+        // EnrichEngine as of slice 056-0 — its "pass" is a trivial
+        // extractor-time no-op report, so 056-0 closed its composition-root
+        // cutover immediately rather than leaving it unassigned across
+        // 056-A..G (no later slice claims this verb).
+        EnrichVerb::Deprecation => {
+            cfdb_enrich::EnrichEngine::new(&mut store).enrich_deprecation(&ks)?
+        }
         EnrichVerb::BoundedContext => store.enrich_bounded_context(&ks)?,
         EnrichVerb::Concepts => store.enrich_concepts(&ks)?,
         EnrichVerb::Reachability => store.enrich_reachability(&ks)?,

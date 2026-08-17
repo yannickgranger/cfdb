@@ -46,6 +46,13 @@ pub trait GraphView {
     /// Set a single attribute on the node with the given id. Returns `false`
     /// if `id` is unknown (no-op, not an error — mirrors how enrichment
     /// passes already treat a missing node today).
+    ///
+    /// Byte-faithful to the pre-port write path: does NOT reconcile any
+    /// inverted index (`by_prop`) an implementor might maintain — only
+    /// batch ingestion (`ingest_nodes`/`ingest_edges`) does that today. A
+    /// pass that needs a property both readable via an index AND writable
+    /// via `set_attr` must re-ingest the node, not rely on this method
+    /// alone.
     fn set_attr(&mut self, id: &str, key: &str, value: PropValue) -> bool;
 
     /// Add or replace a batch of nodes.

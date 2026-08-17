@@ -5,6 +5,8 @@
 //! — this file introduces no new behavior, only a `pub` trait surface over
 //! what already exists.
 
+use std::path::Path;
+
 use petgraph::visit::EdgeRef;
 use petgraph::Direction as PetDirection;
 
@@ -87,7 +89,7 @@ impl GraphBackend for PetgraphStore {
         Ok(state as &mut dyn GraphView)
     }
 
-    fn workspace_root(&self) -> Option<&std::path::Path> {
+    fn workspace_root(&self) -> Option<&Path> {
         PetgraphStore::workspace_root(self)
     }
 }

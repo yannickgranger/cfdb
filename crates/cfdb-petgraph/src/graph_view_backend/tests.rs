@@ -10,6 +10,7 @@ use cfdb_core::graph::GraphBackend;
 use cfdb_core::schema::{Direction, EdgeLabel, Keyspace, Label};
 use cfdb_core::store::StoreBackend;
 
+use crate::graph::KeyspaceState;
 use crate::PetgraphStore;
 
 fn label(s: &str) -> Label {
@@ -28,9 +29,11 @@ fn node(id: &str, lbl: &str) -> Node {
     }
 }
 
-/// A small fixture: two `:Fn` nodes and one `:Item` node, with the `:Item`
-/// having two outgoing `CALLS` edges (a multi-edge-label node — RFC-056
-/// §7's 056-0 Tests block asks for at least one).
+/// A small fixture: two `:Fn` nodes and one `:Item` node. `a` has two
+/// outgoing edges (a multi-edge-label node — RFC-056 §7's 056-0 Tests
+/// block asks for at least one); `b` additionally has both an incoming
+/// edge (from `a`) AND an outgoing edge (to `c`) so `Direction::Undirected`
+/// on `b` cannot pass by degenerating to a single direction.
 fn fixture() -> (PetgraphStore, Keyspace) {
     let ks = Keyspace::new("test");
     let mut store = PetgraphStore::new();
@@ -56,6 +59,12 @@ fn fixture() -> (PetgraphStore, Keyspace) {
                     label: edge_label("USES"),
                     props: Props::new(),
                 },
+                Edge {
+                    src: "b".into(),
+                    dst: "c".into(),
+                    label: edge_label("USES"),
+                    props: Props::new(),
+                },
             ],
         )
         .expect("ingest edges");
@@ -71,12 +80,24 @@ fn node_by_id_matches_direct_lookup() {
 }
 
 #[test]
-fn nodes_with_label_matches_sorted_ids() {
+fn nodes_with_label_preserves_underlying_order() {
+    // Order-sensitive on purpose (RFC-056 §4 G1 determinism invariant) —
+    // compares against KeyspaceState::nodes_with_label directly rather than
+    // sorting both sides, so a mutation that changes iteration order (e.g.
+    // reversing the id-resolution step) fails this test instead of passing
+    // vacuously.
     let (mut store, ks) = fixture();
+    let expected: Vec<String> = {
+        let state = store.keyspaces.get(&ks).expect("keyspace exists");
+        KeyspaceState::nodes_with_label(state, &label("Fn"))
+            .into_iter()
+            .filter_map(|idx| state.graph.node_weight(idx).map(|n| n.id.clone()))
+            .collect()
+    };
     let view = store.graph_view(&ks).expect("known keyspace");
-    let mut fn_ids = view.nodes_with_label(&label("Fn"));
-    fn_ids.sort();
-    assert_eq!(fn_ids, vec!["b".to_string(), "c".to_string()]);
+    assert_eq!(view.nodes_with_label(&label("Fn")), expected);
+    // Non-vacuity: the two :Fn nodes ("b", "c") must both be present.
+    assert_eq!(expected.len(), 2);
 }
 
 #[test]
@@ -106,14 +127,19 @@ fn neighbors_incoming_from_the_far_endpoint() {
 
 #[test]
 fn neighbors_undirected_unions_both_directions() {
+    // Node "b" (not "a") is the interesting case: it has an INCOMING edge
+    // (CALLS from "a") and an OUTGOING edge (USES to "c"). Asserting on "a"
+    // alone (which has only outgoing edges) would pass even if the
+    // Direction::Undirected arm silently dropped the incoming walk — this
+    // caught exactly that mutation in review.
     let (mut store, ks) = fixture();
     let view = store.graph_view(&ks).expect("known keyspace");
-    let mut neighbors = view.neighbors("a", Direction::Undirected);
+    let mut neighbors = view.neighbors("b", Direction::Undirected);
     neighbors.sort();
     assert_eq!(
         neighbors,
         vec![
-            (edge_label("CALLS"), "b".to_string()),
+            (edge_label("CALLS"), "a".to_string()),
             (edge_label("USES"), "c".to_string()),
         ]
     );

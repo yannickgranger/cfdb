@@ -71,3 +71,45 @@ fn enrich_engine_is_send_sync() {
     let engine = EnrichEngine::new(&mut store);
     assert_send_sync(&engine);
 }
+
+#[test]
+fn require_workspace_ok_path_matches_the_attached_root() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let mut store = PetgraphStore::new().with_workspace(tmp.path());
+    let engine = EnrichEngine::new(&mut store);
+
+    let root = engine
+        .require_workspace("enrich_test_verb", "so the pass can do X")
+        .expect("workspace_root is attached");
+
+    assert_eq!(root, tmp.path());
+}
+
+#[test]
+fn require_workspace_degraded_report_pins_exact_warning_text() {
+    // Byte-identical to cfdb-petgraph::enrich_backend.rs's require_workspace
+    // (moved verbatim, RFC-056 §3.2) — a pass that migrates in a later
+    // slice must see the exact same warning its characterization test
+    // (PR #575) already pins.
+    let mut store = PetgraphStore::new();
+    let engine = EnrichEngine::new(&mut store);
+
+    let report = engine
+        .require_workspace("enrich_test_verb", "so the pass can do X")
+        .expect_err("no workspace_root attached must degrade, not panic");
+
+    assert_eq!(report.verb, "enrich_test_verb");
+    assert!(!report.ran);
+    assert_eq!(report.facts_scanned, 0);
+    assert_eq!(report.attrs_written, 0);
+    assert_eq!(report.edges_written, 0);
+    assert_eq!(
+        report.warnings,
+        vec![
+            "enrich_test_verb: no workspace_root attached to PetgraphStore — \
+             construct via `PetgraphStore::new().with_workspace(root)` so \
+             the pass can do X"
+                .to_string()
+        ]
+    );
+}

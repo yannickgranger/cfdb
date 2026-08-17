@@ -272,6 +272,7 @@ dependencies = [
  "assert_cmd",
  "cfdb-concepts",
  "cfdb-core",
+ "cfdb-enrich",
  "cfdb-extractor",
  "cfdb-extractor-php",
  "cfdb-extractor-ts",

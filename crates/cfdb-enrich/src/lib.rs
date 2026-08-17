@@ -41,10 +41,19 @@ impl<'s, S: GraphBackend> EnrichEngine<'s, S> {
     /// §3.2) — same warning text, so a pass's characterization test stays
     /// byte-identical once it moves here.
     ///
-    /// Unused as of slice 056-0 (no moved pass needs it yet — only
-    /// `enrich_deprecation` is dispatched here, and it needs no workspace
-    /// root). Wired up starting slice 056-A (`enrich_rfc_docs`, the first
-    /// pass that reads `workspace_root`).
+    /// Byte-identity with the pre-move warning text is pinned by
+    /// `require_workspace_degraded_report_pins_exact_warning_text`
+    /// (`tests.rs`) as of 056-0 itself — no need to wait for 056-A to
+    /// discover a mismatch. TODO(056-G): the message names `PetgraphStore`
+    /// by name, which stops being generically true once a second
+    /// `GraphBackend` implementor exists; revisit the wording when this
+    /// crate's last caller-facing tie to the concrete backend is cut.
+    ///
+    /// No PRODUCTION caller yet as of slice 056-0 (only `enrich_deprecation`
+    /// is dispatched here, and it needs no workspace root) — hence
+    /// `#[allow(dead_code)]`: a plain `cargo build` doesn't see the
+    /// `#[cfg(test)]` callers above. Wired up starting slice 056-A
+    /// (`enrich_rfc_docs`, the first pass that reads `workspace_root`).
     #[allow(dead_code)]
     fn require_workspace(
         &self,
