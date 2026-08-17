@@ -36,6 +36,7 @@ forbidden = [
   "cfdb-query",          # parser: cfdb-query -> cfdb-core, never reverse
   "cfdb-extractor",      # producers of Node/Edge facts
   "cfdb-hir-extractor",
+  "cfdb-enrich",         # RFC-056: impls EnrichBackend over GraphBackend — depends on cfdb-core
   "cfdb-cli",            # wire-form / entry points
   "cfdb-http",
   "syn",                 # heavy parser/IR — extractor-only
@@ -107,6 +108,7 @@ forbidden = [
   "cfdb-query",          # query text parsing is not the backend's concern
   "cfdb-extractor",      # different axis (code->facts); CP6 forbids this edge
   "cfdb-hir-extractor",
+  "cfdb-enrich",          # RFC-056: enrichment moves OUT of the backend, not back in
   "cfdb-store-petgraph",  # sibling backends don't know each other
   "cfdb-store-lbug",
   "cfdb-recall",          # entry points
@@ -116,6 +118,31 @@ forbidden = [
   "quote",                #     siblings stay out of the backend
   "ra-ap-hir",
   "ra-ap-syntax",
+  "tokio",
+  "axum",
+  "hyper",
+  "reqwest",
+]
+
+[cfdb-enrich]
+# RFC-056 — strangler-fig destination for cfdb-petgraph's 7 enrichment
+# passes. Depends ONLY on cfdb-core (the GraphBackend port + EnrichBackend
+# trait it implements). Never depends on cfdb-petgraph or any other
+# concrete storage engine — that dependency would defeat the whole point
+# of the port (an enrichment pass swappable across backends).
+allowed = [
+  "cfdb-core",  # the hub — GraphBackend/GraphView port + EnrichBackend trait
+]
+forbidden = [
+  "cfdb-petgraph",        # RFC-056: the port exists so this crate never needs the concrete backend
+  "cfdb-store-petgraph",
+  "cfdb-store-lbug",
+  "cfdb-query",           # query text parsing is not an enrichment concern
+  "cfdb-extractor",       # different axis (code->facts)
+  "cfdb-hir-extractor",
+  "cfdb-recall",          # entry points
+  "cfdb-cli",
+  "cfdb-http",
   "tokio",
   "axum",
   "hyper",

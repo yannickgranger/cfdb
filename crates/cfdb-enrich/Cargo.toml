@@ -1,0 +1,25 @@
+[package]
+name = "cfdb-enrich"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+# The hub — GraphView/GraphBackend (the port), EnrichBackend (the trait this
+# crate's EnrichEngine implements), EnrichReport, Node/Edge/PropValue.
+# RFC-056: this is cfdb-enrich's ONLY production dependency until a later
+# slice (056-B: cfdb-concepts; 056-D: feature-gated git2; 056-E:
+# feature-gated syn+sha2) adds what that pass needs.
+cfdb-core = { path = "../cfdb-core" }
+
+[dev-dependencies]
+# The moved enrichment-pass test suites need a concrete GraphBackend to run
+# against, and PetgraphStore is the only one that exists (RFC-056 §2 —
+# precedented by cfdb-petgraph's own [dev-dependencies] cfdb-query; exempt
+# from the CLEAN-3 dependency-rule gate since tests/architecture_dep_rule.rs
+# only scans [dependencies], never [dev-dependencies]). No production edge
+# cfdb-enrich -> cfdb-petgraph exists or is intended.
+cfdb-petgraph = { path = "../cfdb-petgraph" }
+tempfile.workspace = true

@@ -317,6 +317,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cfdb-enrich"
+version = "0.7.0"
+dependencies = [
+ "cfdb-core",
+ "cfdb-petgraph",
+ "tempfile",
+]
+
+[[package]]
 name = "cfdb-extractor"
 version = "0.7.0"
 dependencies = [

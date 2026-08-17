@@ -220,5 +220,20 @@ impl fmt::Display for Keyspace {
     }
 }
 
+/// Edge-traversal direction. Shared graph-topology vocabulary: the query
+/// grammar uses it for pattern-syntax arrows (`-->`/`<--`), the evaluator
+/// uses it for the matching runtime traversal (`eval/pattern/path.rs`), and
+/// `GraphView::neighbors` (RFC-056) uses it for enrichment-pass traversal —
+/// one concept across three consumers, not a coincidental homonym. Moved
+/// here from `query::ast` (RFC-056 §3.3 — `Direction` is graph-topology
+/// vocabulary, a peer of `Label`/`EdgeLabel`, not a query-grammar type);
+/// `query::ast` re-exports it so existing callers are unaffected.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Direction {
+    Out,
+    In,
+    Undirected,
+}
+
 #[cfg(test)]
 mod tests;
