@@ -4,8 +4,9 @@ use cfdb_core::enrich::EnrichBackend;
 use cfdb_core::fact::{Node, PropValue, Props};
 use cfdb_core::schema::{EdgeLabel, Keyspace, Label};
 use cfdb_core::store::StoreBackend;
+use cfdb_petgraph::PetgraphStore;
 
-use crate::PetgraphStore;
+use crate::EnrichEngine;
 
 fn write(root: &Path, rel: &str, contents: &str) {
     let path = root.join(rel);
@@ -56,7 +57,9 @@ fn ac1_match_emits_one_rfc_doc_and_one_edge() {
     );
     let mut store = store_with_item(tmp.path(), "FooBarService", "crate::FooBarService");
     let ks = Keyspace::new("test");
-    let report = store.enrich_rfc_docs(&ks).expect("pass");
+    let report = EnrichEngine::new(&mut store)
+        .enrich_rfc_docs(&ks)
+        .expect("pass");
 
     assert!(report.ran);
     assert_eq!(report.facts_scanned, 1, "one RFC file scanned");
@@ -74,7 +77,9 @@ fn ac2_no_rfc_files_returns_zeroed_report() {
     let tmp = tempfile::tempdir().expect("tempdir");
     let mut store = store_with_item(tmp.path(), "FooBarService", "crate::FooBarService");
     let ks = Keyspace::new("test");
-    let report = store.enrich_rfc_docs(&ks).expect("pass");
+    let report = EnrichEngine::new(&mut store)
+        .enrich_rfc_docs(&ks)
+        .expect("pass");
 
     assert!(report.ran);
     assert_eq!(report.facts_scanned, 0);
@@ -102,7 +107,9 @@ fn ac6_empty_file_and_no_heading_do_not_panic() {
     );
     let mut store = store_with_item(tmp.path(), "FooBarService", "crate::FooBarService");
     let ks = Keyspace::new("test");
-    let report = store.enrich_rfc_docs(&ks).expect("pass");
+    let report = EnrichEngine::new(&mut store)
+        .enrich_rfc_docs(&ks)
+        .expect("pass");
 
     assert!(report.ran);
     assert_eq!(report.facts_scanned, 3);
@@ -124,7 +131,9 @@ fn whole_word_matching_rejects_substring_matches() {
     );
     let mut store = store_with_item(tmp.path(), "Timer", "crate::Timer");
     let ks = Keyspace::new("test");
-    let report = store.enrich_rfc_docs(&ks).expect("pass");
+    let report = EnrichEngine::new(&mut store)
+        .enrich_rfc_docs(&ks)
+        .expect("pass");
 
     assert_eq!(report.edges_written, 0, "substring matches rejected");
 }
@@ -139,7 +148,9 @@ fn whole_word_matching_accepts_punctuation_neighbours() {
     );
     let mut store = store_with_item(tmp.path(), "Timer", "crate::Timer");
     let ks = Keyspace::new("test");
-    let report = store.enrich_rfc_docs(&ks).expect("pass");
+    let report = EnrichEngine::new(&mut store)
+        .enrich_rfc_docs(&ks)
+        .expect("pass");
 
     assert_eq!(
         report.edges_written, 1,
@@ -172,7 +183,9 @@ fn qname_match_triggers_reference_when_name_absent() {
         props,
     };
     store.ingest_nodes(&ks, vec![node]).expect("ingest");
-    let report = store.enrich_rfc_docs(&ks).expect("pass");
+    let report = EnrichEngine::new(&mut store)
+        .enrich_rfc_docs(&ks)
+        .expect("pass");
 
     assert_eq!(report.edges_written, 1);
 }
@@ -218,9 +231,13 @@ fn ac5_two_runs_produce_identical_canonical_dumps() {
 
     let ks = Keyspace::new("test");
     let mut s1 = build(tmp.path());
-    s1.enrich_rfc_docs(&ks).expect("run 1");
+    EnrichEngine::new(&mut s1)
+        .enrich_rfc_docs(&ks)
+        .expect("run 1");
     let mut s2 = build(tmp.path());
-    s2.enrich_rfc_docs(&ks).expect("run 2");
+    EnrichEngine::new(&mut s2)
+        .enrich_rfc_docs(&ks)
+        .expect("run 2");
     let d1 = s1.canonical_dump(&ks).expect("dump 1");
     let d2 = s2.canonical_dump(&ks).expect("dump 2");
     assert_eq!(d1, d2, "two runs must produce byte-identical dumps (AC-5)");
@@ -231,7 +248,7 @@ fn unknown_keyspace_returns_err() {
     let tmp = tempfile::tempdir().expect("tempdir");
     let mut store = PetgraphStore::new().with_workspace(tmp.path());
     let ks = Keyspace::new("never");
-    let err = store
+    let err = EnrichEngine::new(&mut store)
         .enrich_rfc_docs(&ks)
         .expect_err("unknown keyspace must err");
     assert!(format!("{err:?}").contains("UnknownKeyspace"));
@@ -251,7 +268,9 @@ fn no_workspace_root_returns_degraded_report() {
         props,
     };
     store.ingest_nodes(&ks, vec![node]).expect("ingest");
-    let report = store.enrich_rfc_docs(&ks).expect("pass");
+    let report = EnrichEngine::new(&mut store)
+        .enrich_rfc_docs(&ks)
+        .expect("pass");
     assert!(!report.ran, "no workspace_root → ran=false");
     assert!(
         report.warnings.iter().any(|w| w.contains("workspace_root")),
@@ -271,7 +290,9 @@ fn rfc_file_with_no_matches_is_not_emitted_as_node() {
     );
     let mut store = store_with_item(tmp.path(), "FooBarService", "crate::FooBarService");
     let ks = Keyspace::new("test");
-    let report = store.enrich_rfc_docs(&ks).expect("pass");
+    let report = EnrichEngine::new(&mut store)
+        .enrich_rfc_docs(&ks)
+        .expect("pass");
 
     assert_eq!(report.facts_scanned, 1);
     assert_eq!(

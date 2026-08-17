@@ -21,6 +21,8 @@ use cfdb_core::graph::GraphBackend;
 use cfdb_core::schema::Keyspace;
 use cfdb_core::store::StoreError;
 
+mod rfc_docs;
+
 /// Wraps any [`GraphBackend`] implementor and dispatches the 7 `enrich_*`
 /// verbs against it. Borrows the store rather than owning it — mirrors
 /// `PetgraphStore`'s enrich dispatch, which never took ownership either.
@@ -49,12 +51,7 @@ impl<'s, S: GraphBackend> EnrichEngine<'s, S> {
     /// `GraphBackend` implementor exists; revisit the wording when this
     /// crate's last caller-facing tie to the concrete backend is cut.
     ///
-    /// No PRODUCTION caller yet as of slice 056-0 (only `enrich_deprecation`
-    /// is dispatched here, and it needs no workspace root) — hence
-    /// `#[allow(dead_code)]`: a plain `cargo build` doesn't see the
-    /// `#[cfg(test)]` callers above. Wired up starting slice 056-A
-    /// (`enrich_rfc_docs`, the first pass that reads `workspace_root`).
-    #[allow(dead_code)]
+    /// First production caller lands in slice 056-A (`enrich_rfc_docs`).
     fn require_workspace(
         &self,
         verb: &'static str,
@@ -97,11 +94,23 @@ impl<'s, S: GraphBackend> EnrichBackend for EnrichEngine<'s, S> {
         })
     }
 
-    // The other 6 verbs (enrich_git_history, enrich_rfc_docs,
-    // enrich_bounded_context, enrich_concepts, enrich_reachability,
-    // enrich_metrics) are not overridden here — they fall through to
-    // EnrichBackend's default `EnrichReport::not_implemented(...)` stub
-    // until their slice (056-A through 056-F) moves the real pass in.
+    fn enrich_rfc_docs(&mut self, keyspace: &Keyspace) -> Result<EnrichReport, StoreError> {
+        let root = match self.require_workspace(
+            "enrich_rfc_docs",
+            "so the pass can scan docs/ for RFC references",
+        ) {
+            Ok(root) => root,
+            Err(report) => return Ok(report),
+        };
+        let view = self.store.graph_view(keyspace)?;
+        Ok(rfc_docs::run(view, &root))
+    }
+
+    // The other 5 verbs (enrich_git_history, enrich_bounded_context,
+    // enrich_concepts, enrich_reachability, enrich_metrics) are not
+    // overridden here — they fall through to EnrichBackend's default
+    // `EnrichReport::not_implemented(...)` stub until their slice
+    // (056-B through 056-F) moves the real pass in.
 }
 
 #[cfg(test)]

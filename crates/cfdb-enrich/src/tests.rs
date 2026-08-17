@@ -53,13 +53,14 @@ fn deprecation_unknown_keyspace_returns_err() {
 
 #[test]
 fn unmoved_verbs_fall_through_to_not_implemented_stub() {
-    // Sanity check: every verb except enrich_deprecation is still the
-    // trait's default stub as of 056-0 — no pass has moved yet.
+    // Sanity check: verbs not yet moved are still the trait's default stub.
+    // enrich_rfc_docs moved in 056-A (see rfc_docs::tests) — probe with
+    // enrich_git_history, still unmoved as of 056-A.
     let ks = Keyspace::new("test");
     let mut store = store_with_empty_keyspace(&ks);
     let mut engine = EnrichEngine::new(&mut store);
 
-    let report = engine.enrich_rfc_docs(&ks).expect("pass");
+    let report = engine.enrich_git_history(&ks).expect("pass");
     assert!(!report.ran);
     assert!(report.warnings[0].contains("not implemented"));
 }

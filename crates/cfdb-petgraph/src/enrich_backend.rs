@@ -84,24 +84,9 @@ impl EnrichBackend for PetgraphStore {
         Ok(enrich_git_history_dispatch(self, keyspace))
     }
 
-    fn enrich_rfc_docs(
-        &mut self,
-        keyspace: &cfdb_core::schema::Keyspace,
-    ) -> Result<cfdb_core::enrich::EnrichReport, StoreError> {
-        self.require_keyspace(keyspace)?;
-        let root = match self.require_workspace(
-            "enrich_rfc_docs",
-            "so the pass can scan docs/ for RFC references",
-        ) {
-            Ok(r) => r,
-            Err(report) => return Ok(report),
-        };
-        let state = self
-            .keyspaces
-            .get_mut(keyspace)
-            .expect("keyspace presence checked above");
-        Ok(crate::enrich::rfc_docs::run(state, &root))
-    }
+    // enrich_rfc_docs moved to cfdb-enrich::EnrichEngine (RFC-056 056-A) —
+    // falls through to EnrichBackend's default not_implemented stub on
+    // PetgraphStore now; cfdb-cli's dispatcher no longer calls this arm.
 
     fn enrich_bounded_context(
         &mut self,
