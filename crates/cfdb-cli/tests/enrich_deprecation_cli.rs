@@ -2,13 +2,18 @@
 //! 056-0 — the one verb whose composition-root cutover to `EnrichEngine`
 //! landed in 056-0 itself, per `crates/cfdb-cli/src/enrich.rs`).
 //!
-//! Unlike the in-process `self_dogfood_enrich_*.rs` tests (which construct
-//! `PetgraphStore` directly and never exercise `crates/cfdb-cli/src/enrich.rs`'s
+//! NOT a `self_dogfood_*` test (deliberately not named that way): it runs
+//! against a minimal synthetic single-crate fixture, not cfdb's own tree —
+//! harmless here because `enrich_deprecation`'s report is content-independent
+//! (fixed counters, fixed warning text), but the wrong template for the
+//! other 6 verbs once they move (056-A..F), which DO need a cfdb-self
+//! fixture to prove diff-emptiness per RFC-056 §3.4. This file's only job
+//! is proving the CLI→EnrichEngine wiring — unlike the in-process
+//! `self_dogfood_enrich_*.rs` tests (which construct `PetgraphStore`
+//! directly and never exercise `crates/cfdb-cli/src/enrich.rs`'s
 //! dispatcher), this shells out to the actual `cfdb` binary — the same
 //! path `tools/dogfood-enrich` drives — so a botched composition-root
 //! cutover shows up here even though it wouldn't in the in-process tests.
-//! Uses a minimal synthetic single-crate fixture rather than cfdb's own
-//! tree (unnecessary for a pass with zero content dependency) to stay fast.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -68,6 +73,7 @@ fn enrich_deprecation_through_the_real_binary_matches_pinned_report() {
 
     assert_eq!(report["verb"], "enrich_deprecation");
     assert_eq!(report["ran"], true);
+    assert_eq!(report["facts_scanned"], 0);
     assert_eq!(report["attrs_written"], 0);
     assert_eq!(report["edges_written"], 0);
     assert_eq!(
