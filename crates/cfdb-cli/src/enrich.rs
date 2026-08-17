@@ -52,7 +52,10 @@ pub fn enrich(
         EnrichVerb::Deprecation => {
             cfdb_enrich::EnrichEngine::new(&mut store).enrich_deprecation(&ks)?
         }
-        EnrichVerb::BoundedContext => store.enrich_bounded_context(&ks)?,
+        // RFC-056 056-B: bounded_context pass moved to cfdb-enrich::EnrichEngine.
+        EnrichVerb::BoundedContext => {
+            cfdb_enrich::EnrichEngine::new(&mut store).enrich_bounded_context(&ks)?
+        }
         EnrichVerb::Concepts => store.enrich_concepts(&ks)?,
         EnrichVerb::Reachability => store.enrich_reachability(&ks)?,
         EnrichVerb::Metrics => store.enrich_metrics(&ks)?,

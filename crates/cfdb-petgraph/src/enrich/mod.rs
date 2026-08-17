@@ -11,14 +11,14 @@
 //! | Verb | Module | Slice | Issue | Feature |
 //! |---|---|---|---|---|
 //! | `enrich_git_history` | [`git_history`] | — | — | `git-enrich` |
-//! | `enrich_bounded_context` | [`bounded_context`] | — | — | — |
 //! | `enrich_concepts` | [`concepts`] | — | — | — |
 //! | `enrich_reachability` | [`reachability`] | — | — | — |
 //! | `enrich_metrics` | [`metrics`] | — | — | `quality-metrics` |
 //!
 //! `enrich_deprecation` ships as an extractor-time fact — its EnrichBackend
 //! method is a no-op report, not a module in this directory. `enrich_rfc_docs`
-//! moved to `cfdb-enrich::rfc_docs` (RFC-056 slice 056-A).
+//! moved to `cfdb-enrich::rfc_docs` (RFC-056 slice 056-A). `enrich_bounded_context`
+//! moved to `cfdb-enrich::bounded_context` (RFC-056 slice 056-B).
 
 // The module is compiled only with the `git-enrich` feature — libgit2 is a
 // heavy dep. The feature-off path is handled entirely in
@@ -26,12 +26,6 @@
 // without the feature).
 #[cfg(feature = "git-enrich")]
 pub(crate) mod git_history;
-
-// Re-reads `.cfdb/concepts/*.toml` and patches `:Item.bounded_context` on
-// items whose crate's mapping changed. Calls into the shared `cfdb_concepts`
-// crate so the resolution logic has a single home (extract-time + enrich-time
-// cannot diverge).
-pub(crate) mod bounded_context;
 
 // Materialises `:Concept` nodes from `.cfdb/concepts/*.toml` and emits
 // `LABELED_AS` + `CANONICAL_FOR` edges.

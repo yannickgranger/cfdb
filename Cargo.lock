@@ -321,6 +321,7 @@ dependencies = [
 name = "cfdb-enrich"
 version = "0.7.0"
 dependencies = [
+ "cfdb-concepts",
  "cfdb-core",
  "cfdb-petgraph",
  "tempfile",

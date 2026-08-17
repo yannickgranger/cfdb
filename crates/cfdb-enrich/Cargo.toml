@@ -9,10 +9,12 @@ publish.workspace = true
 [dependencies]
 # The hub — GraphView/GraphBackend (the port), EnrichBackend (the trait this
 # crate's EnrichEngine implements), EnrichReport, Node/Edge/PropValue.
-# RFC-056: this is cfdb-enrich's ONLY production dependency until a later
-# slice (056-B: cfdb-concepts; 056-D: feature-gated git2; 056-E:
-# feature-gated syn+sha2) adds what that pass needs.
 cfdb-core = { path = "../cfdb-core" }
+# bounded_context (056-B) + concepts (056-C) both resolve `.cfdb/concepts/*.toml`
+# through the same `compute_bounded_context`/`load_concept_overrides` — single
+# resolution point, no split-brain. Drops from cfdb-petgraph once 056-C lands
+# (RFC-056 §2).
+cfdb-concepts = { path = "../cfdb-concepts" }
 
 [dev-dependencies]
 # The moved enrichment-pass test suites need a concrete GraphBackend to run
