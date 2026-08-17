@@ -2,6 +2,18 @@
 //! `.cfdb/concepts/*.toml` declarations and emit `(:Item)-[:LABELED_AS]->
 //! (:Concept)` + `(:Item)-[:CANONICAL_FOR]->(:Concept)` edges.
 //!
+//! Moved from `cfdb-petgraph::enrich::concepts` (RFC-056 slice 056-C) —
+//! rewritten against [`GraphView`] instead of `&mut KeyspaceState`. Every
+//! pure function below (node/edge construction, canonical-crate resolution)
+//! is unchanged; only `build_item_index`'s node reads moved from direct
+//! `KeyspaceState`/`NodeIndex` access to the port's
+//! `nodes_with_label`/`node_by_id`.
+//!
+//! This is the slice that proves `ingest_nodes`/`ingest_edges` — the
+//! node-creation path through the port — composes correctly (RFC-056 §3.4:
+//! 056-A/B only ever wrote attrs on existing nodes; this pass creates new
+//! `:Concept` nodes from scratch).
+//!
 //! # Sixth pass — concept node materialisation
 //!
 //! The original 5-pass table omitted `:Concept` node materialisation that
@@ -45,16 +57,14 @@ use std::path::Path;
 use cfdb_concepts::{load_concept_overrides, ConceptOverrides, ContextMeta};
 use cfdb_core::enrich::EnrichReport;
 use cfdb_core::fact::{Edge, Node, PropValue, Props};
+use cfdb_core::graph::GraphView;
 use cfdb_core::schema::{EdgeLabel, Label};
-use petgraph::stable_graph::NodeIndex;
-
-use crate::graph::KeyspaceState;
 
 pub(crate) const VERB: &str = "enrich_concepts";
 const ITEM_CRATE_PROP: &str = "crate";
 const ASSIGNED_BY_MANUAL: &str = "manual";
 
-pub(crate) fn run(state: &mut KeyspaceState, workspace_root: &Path) -> EnrichReport {
+pub(crate) fn run(view: &mut dyn GraphView, workspace_root: &Path) -> EnrichReport {
     let overrides = match load_concept_overrides(workspace_root) {
         Ok(o) => o,
         Err(e) => {
@@ -84,10 +94,10 @@ pub(crate) fn run(state: &mut KeyspaceState, workspace_root: &Path) -> EnrichRep
         };
     }
 
-    // Build item index: crate_name -> Vec<(node_id, node_idx)>. One O(N)
-    // walk over `:Item` nodes; downstream edge emission is O(labelled crates
-    // × items in that crate).
-    let items_by_crate = build_item_index(state);
+    // Build item index: crate_name -> Vec<node_id>. One O(N) walk over
+    // `:Item` nodes; downstream edge emission is O(labelled crates × items
+    // in that crate).
+    let items_by_crate = build_item_index(view);
 
     let concept_nodes = build_concept_nodes(&concepts);
     let edges = build_edges(&overrides, &items_by_crate);
@@ -99,8 +109,8 @@ pub(crate) fn run(state: &mut KeyspaceState, workspace_root: &Path) -> EnrichRep
     let edges_written = u64::try_from(edges.len()).unwrap_or(u64::MAX);
     let concepts_count = u64::try_from(concepts.len()).unwrap_or(u64::MAX);
 
-    state.ingest_nodes(concept_nodes);
-    state.ingest_edges(edges);
+    view.ingest_nodes(concept_nodes);
+    view.ingest_edges(edges);
 
     EnrichReport {
         verb: VERB.into(),
@@ -116,15 +126,14 @@ pub(crate) fn run(state: &mut KeyspaceState, workspace_root: &Path) -> EnrichRep
 // Item index
 // ---------------------------------------------------------------------------
 
-/// Walk `:Item` nodes once and group their `(node_id, index)` pairs by the
-/// `crate` prop. Items with no `crate` prop are skipped — no LABELED_AS edge
-/// possible without a crate assignment.
-fn build_item_index(state: &KeyspaceState) -> BTreeMap<String, Vec<ItemRef>> {
-    state
-        .nodes_with_label(&Label::new(Label::ITEM))
+/// Walk `:Item` nodes once and group their ids by the `crate` prop. Items
+/// with no `crate` prop are skipped — no LABELED_AS edge possible without a
+/// crate assignment.
+fn build_item_index(view: &dyn GraphView) -> BTreeMap<String, Vec<ItemRef>> {
+    view.nodes_with_label(&Label::new(Label::ITEM))
         .into_iter()
-        .filter_map(|idx| {
-            state.graph.node_weight(idx).and_then(|node| {
+        .filter_map(|id| {
+            view.node_by_id(&id).and_then(|node| {
                 node.props
                     .get(ITEM_CRATE_PROP)
                     .and_then(PropValue::as_str)
@@ -242,13 +251,6 @@ fn canonical_crates(overrides: &ConceptOverrides) -> BTreeMap<String, String> {
             acc
         })
 }
-
-// ---------------------------------------------------------------------------
-// Re-use prevention: NodeIndex only used via state; suppress dead-code lint
-// ---------------------------------------------------------------------------
-
-#[allow(dead_code)]
-fn _use_node_index(_: NodeIndex) {}
 
 // ---------------------------------------------------------------------------
 // Tests

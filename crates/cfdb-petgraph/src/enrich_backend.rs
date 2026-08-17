@@ -13,6 +13,7 @@
 //! warning naming the extractor so callers can distinguish "done upstream"
 //! from "deferred".
 
+#[cfg(any(feature = "git-enrich", feature = "quality-metrics"))]
 use std::path::PathBuf;
 
 use cfdb_core::enrich::EnrichBackend;
@@ -36,6 +37,13 @@ impl PetgraphStore {
     /// `purpose_suffix` is the per-verb explanation of what the pass would
     /// do with the workspace root (e.g. "scan docs/ for RFC references") —
     /// these are user-facing diagnostics that vary meaningfully per verb.
+    ///
+    /// Feature-gated: `enrich_rfc_docs`/`enrich_bounded_context`/
+    /// `enrich_concepts` — the only unconditional callers — moved to
+    /// `cfdb-enrich::EnrichEngine` (RFC-056 056-A/B/C), leaving only the
+    /// feature-gated `enrich_git_history`/`enrich_metrics` dispatch arms;
+    /// a default (no-features) build would otherwise flag this dead.
+    #[cfg(any(feature = "git-enrich", feature = "quality-metrics"))]
     fn require_workspace(
         &self,
         verb: &'static str,
@@ -93,24 +101,9 @@ impl EnrichBackend for PetgraphStore {
     // stub on PetgraphStore now; cfdb-cli's dispatcher no longer calls this
     // arm.
 
-    fn enrich_concepts(
-        &mut self,
-        keyspace: &cfdb_core::schema::Keyspace,
-    ) -> Result<cfdb_core::enrich::EnrichReport, StoreError> {
-        self.require_keyspace(keyspace)?;
-        let root = match self.require_workspace(
-            "enrich_concepts",
-            "so the pass can read `.cfdb/concepts/*.toml`",
-        ) {
-            Ok(r) => r,
-            Err(report) => return Ok(report),
-        };
-        let state = self
-            .keyspaces
-            .get_mut(keyspace)
-            .expect("keyspace presence checked above");
-        Ok(crate::enrich::concepts::run(state, &root))
-    }
+    // enrich_concepts moved to cfdb-enrich::EnrichEngine (RFC-056 056-C) —
+    // falls through to EnrichBackend's default not_implemented stub on
+    // PetgraphStore now; cfdb-cli's dispatcher no longer calls this arm.
 
     fn enrich_reachability(
         &mut self,
