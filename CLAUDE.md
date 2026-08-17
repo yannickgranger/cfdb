@@ -42,7 +42,7 @@ Every RFC answers, in this order:
 6. **Non-goals.** Explicit.
 7. **Issue decomposition.** Vertical slices, one issue each. Each entry carries an explicit `Tests:` line naming the test surface per §2.5 — architects prescribe, implementers execute.
 
-Ratified RFCs live alongside drafts. The `council/RATIFIED.md` and `council/verdicts/` pattern already shows how cfdb records architect verdicts.
+Ratified RFCs live alongside drafts, and the RFC's own header carries its status and ratification record. Council deliberation is ephemeral (§2.3): nothing under a `council/` tree is tracked.
 
 ### §2.3 — Architect review via agent teams
 
@@ -57,11 +57,11 @@ Every RFC is reviewed by a team of architect sub-agents, one teammate per lens:
 | SOLID + component principles | `solid-architect` | Crate granularity, SRP on evaluator vs extractor, stable abstractions for `cfdb-core` |
 | Rust systems | `rust-systems` | `syn` parsing strategy, petgraph internals, feature flags, trait object safety |
 
-Invocation is via `Agent(subagent_type=...)` or agent teams. Each lens returns a verdict (RATIFY / REJECT / REQUEST CHANGES) with evidence. The RFC is not ratified until all four verdicts are RATIFY, or a single author-documented override is recorded in `council/RATIFIED.md`.
+Invocation is via agent teams driven through the mailbox. Each lens returns a verdict (RATIFY / REJECT / REQUEST CHANGES) with evidence. The RFC is not ratified until all four verdicts are RATIFY, or a single author-documented override is recorded in the RFC's own header. **Deliberation is ephemeral scaffolding** (operator ruling 2026-08-17): mandates, per-lens verdicts, round syntheses and dry-run notes emit to the session and are never tracked; what survives a council is its synthesis, and the synthesis is the RFC — status line, verdict tally and the author fold live in the RFC header. The `council/` tree that used to hold these was excised on 2026-08-17 (last tracked at develop bd69a63) and CI refuses any tracked `council/` path (`.gitea/workflows/council-ephemeral.yml`); a `council/…` citation inside a ratified RFC is historical and resolves against git history only — never a file to restore.
 
 **Architects also prescribe tests** (§2.5). The verdict is not complete until each issue in the decomposition carries a named test surface — unit, integration, recall-corpus extension, dogfood assertion, or a documented `Tests: none` rationale. Implementers do not choose the test shape; they deliver against the prescription.
 
-The existing `council/BRIEF.md` / `council/SYNTHESIS-R1.md` / `council/RATIFIED.md` artifacts are the model for this — make the pattern mandatory for new capability, not optional.
+The pattern is mandatory for new capability, not optional; its record is the RFC, not a sidecar file.
 
 ### §2.4 — Ratification → issues
 

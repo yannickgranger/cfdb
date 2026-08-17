@@ -1,0 +1,24 @@
+name: council-ephemeral
+on:
+  pull_request:
+  push:
+    branches: [develop, main]
+jobs:
+  fence:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone
+        run: |
+          BRANCH=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}
+          git clone --depth=1 --branch="$BRANCH" "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" repo
+      - name: deliberation scaffolding is ephemeral (no tracked council/ tree)
+        run: |
+          set -e
+          cd repo
+          tracked=$(git ls-files | grep -E '(^|/)council/' || true)
+          if [ -n "$tracked" ]; then
+            echo "FATAL: council deliberation is ephemeral — the synthesis is the RFC (CLAUDE.md §2.3); tracked council/ paths:" >&2
+            printf '  %s\n' $tracked >&2
+            exit 1
+          fi
+          echo "ok: no tracked council/ path"
