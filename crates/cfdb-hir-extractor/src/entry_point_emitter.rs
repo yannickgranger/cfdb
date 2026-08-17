@@ -1,21 +1,17 @@
 //! `extract_entry_points` — scan the HIR-loaded VFS and emit
-//! `:EntryPoint` nodes + `EXPOSES` edges for the v0.2 kind vocabulary
-//! (RFC-029 §A1.1).
+//! `:EntryPoint` nodes + `EXPOSES` edges for the v0.2 kind vocabulary.
 //!
 //! Framework detection is dispatched through the [`framework`]
-//! `FrameworkDetector` registry (RFC-049 §3.1, slice 49-0): each
-//! framework recogniser is a registered detector, so adding a framework
-//! is a registration rather than a new dispatch arm. Test/bench
-//! classification is not a framework and runs as a dedicated pass
-//! ([`scan_test_bench_fns`]). The registry refactor is recall-neutral —
-//! the emitted fact set is byte-identical, guaranteed by the final sort
-//! in [`extract_entry_points`]. The detector recogniser contract,
-//! unchanged by 49-0, spans two scan shapes:
+//! `FrameworkDetector` registry: each framework recogniser is a registered
+//! detector, so adding a framework is a registration rather than a new
+//! dispatch arm. Test/bench classification is not a framework and runs as
+//! a dedicated pass ([`scan_test_bench_fns`]). The detector recogniser
+//! contract spans two scan shapes:
 //!
-//! - **Attribute-level** (Issue #86): `cli_command` for `struct`/`enum`
+//! - **Attribute-level**: `cli_command` for `struct`/`enum`
 //!   with `#[derive(Parser/Subcommand)]`; `mcp_tool` for `fn` with an
 //!   attribute whose last path segment is `tool`.
-//! - **Call-expression-level** (Issues #124 + #125): `http_route` for
+//! - **Call-expression-level**: `http_route` for
 //!   `axum` `Router::route|get|post|put|delete|patch|nest("/path",
 //!   handler)` and `actix_web` `.route("/p", web::<method>().to(h))` /
 //!   `.service(web::resource("/p").route(...))` chains; `cron_job` for
@@ -119,14 +115,13 @@ where
     let mut edges: Vec<Edge> = Vec::new();
 
     // Workspace-scoped, workspace-relative enumeration shared with the
-    // call-site emitter (#561 — see its walk-scope docs).
+    // call-site emitter.
     let files = workspace_rs_files(vfs, workspace_root)?;
 
     let registry = FrameworkRegistry::<DB>::rust_default();
-    // RFC-049 §3.1: populate the manifest from the workspace members'
-    // own `[dependencies]` (scoped by `workspace_root`) so each
-    // detector's `present(manifest)` gate consults them (49-A gates clap
-    // on `clap`; 49-B gates the HTTP route detector on axum/actix).
+    // Populate the manifest from the workspace members' own
+    // `[dependencies]` (scoped by `workspace_root`) so each detector's
+    // `present(manifest)` gate consults them.
     let manifest = Manifest::from_crate_graph(db, vfs, workspace_root);
 
     for (file_id, file_path) in files {
@@ -137,7 +132,7 @@ where
         edges.append(&mut framework_edges);
         // Test/bench entry points are not a manifest-gated framework, so
         // they are classified in a dedicated pass that honours the
-        // `#[tool]` precedence (RFC-042 §3.1).
+        // `#[tool]` precedence.
         scan_test_bench_fns(
             &sema,
             &ctx,
@@ -163,14 +158,13 @@ where
 /// Emit `test` / `bench` `:EntryPoint`s for the fns in `source_file`.
 ///
 /// Test/bench classification is not a manifest-gated framework, so it
-/// runs outside the [`framework`] `FrameworkDetector` registry (RFC-049
-/// §3.1). It preserves the RFC-042 §3.1 precedence below `#[tool]`: a
-/// `#[tool]` fn is emitted as `mcp_tool` by the MCP detector and MUST
-/// NOT also be classified test/bench, so `#[tool]` fns are skipped here.
-/// Below that, attribute-based `#[test]` / `#[bench]` wins over the
-/// `tests/` / `benches/` file-location fallback (both resolved by
-/// [`test_bench_kind`]). Exactly one `:EntryPoint` per fn is preserved
-/// (no-duplicate invariant, RFC-042 §4).
+/// runs outside the [`framework`] `FrameworkDetector` registry. It
+/// preserves precedence below `#[tool]`: a `#[tool]` fn is emitted as
+/// `mcp_tool` by the MCP detector and MUST NOT also be classified
+/// test/bench, so `#[tool]` fns are skipped here. Below that,
+/// attribute-based `#[test]` / `#[bench]` wins over the `tests/` /
+/// `benches/` file-location fallback (both resolved by [`test_bench_kind`]).
+/// Exactly one `:EntryPoint` per fn is preserved (no-duplicate invariant).
 fn scan_test_bench_fns<DB>(
     sema: &Semantics<'_, DB>,
     ctx: &EmitCtx<'_>,
@@ -199,9 +193,8 @@ fn scan_test_bench_fns<DB>(
     }
 }
 
-/// Classify a non-`#[tool]` fn as `test` / `bench` / `None` per the
-/// RFC-042 §3.1 precedence below `#[tool]`: attribute first, then
-/// file-location.
+/// Classify a non-`#[tool]` fn as `test` / `bench` / `None` per
+/// precedence below `#[tool]`: attribute first, then file-location.
 fn test_bench_kind(fn_ast: &ast::Fn, file_path: &Path) -> Option<&'static str> {
     if has_test_attr(fn_ast) {
         Some("test")
@@ -262,7 +255,7 @@ where
 /// `<module>::Foo::bar`, trait impls get `<module>::Trait::bar`, free
 /// fns get `<module>::bar`. Routing through the canonical builder
 /// keeps cross-producer :Param / REGISTERS_PARAM keys bit-identical
-/// with the syn-side emitter (RFC-037 §3.1 / #227).
+/// with the syn-side emitter.
 fn fn_handler<DB>(sema: &Semantics<'_, DB>, ctx: &EmitCtx<'_>, fn_ast: &ast::Fn) -> Option<Handler>
 where
     DB: HirDatabase + Sized,
@@ -279,10 +272,9 @@ where
 }
 
 /// A resolved entry-point handler: display name, bare display qname,
-/// and the RFC-054 target discriminator of the crate that owns it.
-/// Ids derive from [`Handler::identity`]; the `handler_qname` prop
-/// stays the bare qname (display props never carry the identity
-/// suffix — RFC-054 §3.5.1).
+/// and the target discriminator of the crate that owns it. Ids derive
+/// from [`Handler::identity`]; the `handler_qname` prop stays the bare
+/// qname (display props never carry the identity suffix).
 struct Handler {
     name: String,
     qname: String,
@@ -357,18 +349,13 @@ fn build_item_qname<DB>(
 where
     DB: HirDatabase + Sized,
 {
-    // RFC-029 §A1.2 object-safety constraint: the database is always
-    // a monomorphic `DB: HirDatabase + Sized`. Passing `sema.db`
-    // (which is `&DB`) directly to HIR query methods preserves the
-    // monomorphisation — coercing to `&dyn HirDatabase` here was
-    // pre-existing drift (no functional impact; all HIR query methods
-    // accept `&impl HirDatabase`, not `&dyn HirDatabase`, because the
-    // trait is not object-safe). AC-6 on #124 enforces zero `dyn
-    // HirDatabase` anywhere under `crates/cfdb-hir-extractor/src/`.
+    // The database is monomorphic `DB: HirDatabase + Sized`. Passing
+    // `sema.db` (which is `&DB`) directly to HIR query methods preserves
+    // the monomorphisation — the trait is not object-safe.
     let db = sema.db;
     // Key the crate segment off the PACKAGE name (not the bin TARGET name
     // `display_name` yields) so the qname matches the syn extractor and the
-    // EXPOSES edge lands on a real :Item (#517).
+    // EXPOSES edge lands on a real :Item.
     let crate_name = crate::crate_name::crate_qname_prefix(db, krate);
 
     let mut stack: Vec<String> = module
@@ -388,10 +375,9 @@ where
 /// Emit the `:EntryPoint` node and its `EXPOSES` edge. The optional
 /// `extra_props` map is merged into the node props (e.g. `cron_expr`
 /// for `cron_job`). Ids derive from the handler's discriminated
-/// identity (RFC-054 54-C): two same-qname handlers in sibling bins
-/// are distinct entry points, and the `EXPOSES` dst joins the syn
-/// side's discriminated `:Item`. The `handler_qname` prop stays the
-/// bare display qname (RFC-054 §3.5.1).
+/// identity: two same-qname handlers in sibling bins are distinct entry
+/// points, and the `EXPOSES` dst joins the syn side's discriminated `:Item`.
+/// The `handler_qname` prop stays the bare display qname.
 fn emit(
     nodes: &mut Vec<Node>,
     edges: &mut Vec<Edge>,

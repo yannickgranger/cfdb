@@ -2,9 +2,9 @@
 //!
 //! [`Emitter`] collects `:Node`s (deduped by id) and `:Edge`s during the
 //! tree-sitter walk, buffers `implements` targets for the two-pass
-//! `IMPLEMENTS` resolution (RFC-045 §3.2), and yields the fact set at
-//! [`Emitter::finish`]. The [`item_id`] / [`module_id`] formatters define
-//! the id space the accumulator resolves `IMPLEMENTS` targets against.
+//! `IMPLEMENTS` resolution, and yields the fact set at [`Emitter::finish`].
+//! The [`item_id`] / [`module_id`] formatters define the id space the
+//! accumulator resolves `IMPLEMENTS` targets against.
 
 use std::collections::BTreeMap;
 
@@ -22,12 +22,12 @@ pub(crate) fn module_id(namespace: &str) -> String {
     format!("module:{namespace}")
 }
 
-/// One call expression discovered during the body walk (RFC-045 §3.4),
-/// buffered in pass 1 and turned into a `:CallSite` (+ `INVOKES_AT`, +
-/// `CALLS` when resolved) in pass 2. The `:CallSite` node and `INVOKES_AT`
-/// edge are unconditional; `callee_resolved` and the `CALLS` edge depend on
-/// whether `resolve_target` names an in-workspace `:Item` — only knowable
-/// after every file is walked, hence the two-pass.
+/// One call expression discovered during the body walk, buffered in pass 1
+/// and turned into a `:CallSite` (+ `INVOKES_AT`, + `CALLS` when resolved)
+/// in pass 2. The `:CallSite` node and `INVOKES_AT` edge are unconditional;
+/// `callee_resolved` and the `CALLS` edge depend on whether `resolve_target`
+/// names an in-workspace `:Item` — only knowable after every file is walked,
+/// hence the two-pass.
 pub(crate) struct PendingCallSite {
     /// `callsite:{caller_qname}:{callee_path}:{local_idx}` (the `local_idx`
     /// is the per-caller per-`callee_path` occurrence counter — matches the
@@ -103,9 +103,8 @@ impl Emitter {
     /// target interface qname resolves to an emitted in-workspace `:Item`.
     /// Unresolved targets (external `vendor/` interfaces, `use`-aliased
     /// names) are dropped: the graph never invents a placeholder node and
-    /// never emits an edge that would dangle at ingest (RFC-045 §3.2 D2 /
-    /// §4 I4 — stubs are not arrows). Every emitted edge carries
-    /// `resolver = "tree-sitter-php"`.
+    /// never emits an edge that would dangle at ingest. Every emitted edge
+    /// carries `resolver = "tree-sitter-php"`.
     pub(crate) fn resolve_pending_implements(&mut self) {
         let pending = std::mem::take(&mut self.pending_implements);
         for (source_id, target_qname) in pending {
@@ -126,12 +125,11 @@ impl Emitter {
 
     /// Pass 2 — for each buffered call site emit a `:CallSite` node (full
     /// Rust-parity prop set, `resolver = "tree-sitter-php"`) and the
-    /// `INVOKES_AT` edge `:Item{caller} -> :CallSite` (Item→CallSite — the
-    /// direction the descriptor was corrected to in this slice). When the
+    /// `INVOKES_AT` edge `:Item{caller} -> :CallSite`. When the
     /// `resolve_target` names an emitted in-workspace `:Item`, also set
     /// `callee_resolved = true` and emit `:Item{caller} -[:CALLS]-> :Item{callee}`.
     /// Unresolved calls carry `callee_resolved = false` and NO `CALLS`
-    /// (no guessed target, never an edge that would dangle — §4 I4).
+    /// (no guessed target, never an edge that would dangle).
     pub(crate) fn resolve_pending_call_sites(&mut self) {
         let pending = std::mem::take(&mut self.pending_call_sites);
         for cs in pending {

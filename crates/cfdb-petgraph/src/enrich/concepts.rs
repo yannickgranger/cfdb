@@ -1,17 +1,14 @@
 //! `enrich_concepts` — materialize `:Concept` nodes from
 //! `.cfdb/concepts/*.toml` declarations and emit `(:Item)-[:LABELED_AS]->
-//! (:Concept)` + `(:Item)-[:CANONICAL_FOR]->(:Concept)` edges (slice 43-F /
-//! issue #109).
+//! (:Concept)` + `(:Item)-[:CANONICAL_FOR]->(:Concept)` edges.
 //!
 //! # Sixth pass — concept node materialisation
 //!
-//! DDD Q4 (council round 1 synthesis §43-F C2) caught that RFC §A2.2's
-//! original 5-pass table omitted `:Concept` node materialisation that
-//! downstream triggers (#101 T1, #102 T3) depend on. Schema was already
-//! reserved in 43-A (`Label::CONCEPT`, `EdgeLabel::LABELED_AS`,
-//! `EdgeLabel::CANONICAL_FOR`, and the `:Concept {name, assigned_by}`
-//! descriptor with `Provenance::EnrichConcepts`) — this slice writes the
-//! implementation.
+//! The original 5-pass table omitted `:Concept` node materialisation that
+//! downstream triggers depend on. Schema was already reserved
+//! (`Label::CONCEPT`, `EdgeLabel::LABELED_AS`, `EdgeLabel::CANONICAL_FOR`,
+//! and the `:Concept {name, assigned_by}` descriptor with
+//! `Provenance::EnrichConcepts`) — this implementation materialises them.
 //!
 //! # Emission rules
 //!
@@ -74,7 +71,7 @@ pub(crate) fn run(state: &mut KeyspaceState, workspace_root: &Path) -> EnrichRep
         }
     };
 
-    // No TOML files at all → graceful no-op (AC-2).
+    // No TOML files at all → graceful no-op.
     let concepts = overrides.declared_contexts();
     if concepts.is_empty() {
         return EnrichReport {

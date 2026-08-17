@@ -1,16 +1,16 @@
 //! `crate_tier` — topological longest-path depth of each workspace crate in
-//! the intra-workspace **normal-`[dependencies]`** DAG (RFC-050 50-A).
+//! the intra-workspace **normal-`[dependencies]`** DAG.
 //!
 //! A crate with no in-workspace normal dependencies is tier 0; otherwise its
 //! tier is `1 + max(crate_tier of its in-workspace normal deps)`. Longest-path
 //! (not shortest) is the correct rank — a crate sits one above its *deepest*
-//! dependency (RFC-050 §3.2).
+//! dependency.
 //!
 //! **Normal deps only.** dev- and build-dependencies are excluded so the common
 //! "test-only back-edge" shape does not cycle: cfdb's own tree has
 //! `cfdb-cli --normal--> cfdb-hir-extractor` AND
 //! `cfdb-hir-extractor --dev--> cfdb-cli`, which an all-kinds DAG would treat
-//! as a cycle (RFC-050 §5, rust-systems lens).
+//! as a cycle.
 //!
 //! Pure functions over `cargo_metadata` manifests — no I/O. A cycle in the
 //! normal-deps DAG is a hard error ([`ExtractError::CrateTierCycle`]).

@@ -42,7 +42,7 @@ fn count_edges(store: &PetgraphStore, ks: &Keyspace, label: &str) -> usize {
 }
 
 // ------------------------------------------------------------------
-// AC-1: synthetic RFC with known item name → exactly 1 :RfcDoc + 1
+// Synthetic RFC with known item name → exactly 1 :RfcDoc + 1
 // REFERENCED_BY edge.
 // ------------------------------------------------------------------
 
@@ -66,7 +66,7 @@ fn ac1_match_emits_one_rfc_doc_and_one_edge() {
 }
 
 // ------------------------------------------------------------------
-// AC-2: no RFC files → ran=true, all counters zero, no panic.
+// No RFC files → ran=true, all counters zero, no panic.
 // ------------------------------------------------------------------
 
 #[test]
@@ -83,7 +83,7 @@ fn ac2_no_rfc_files_returns_zeroed_report() {
 }
 
 // ------------------------------------------------------------------
-// AC-6: no panic on malformed markdown.
+// No panic on malformed markdown.
 // ------------------------------------------------------------------
 
 #[test]

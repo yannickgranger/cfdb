@@ -3,9 +3,8 @@
 //!
 //! ## Why rustdoc JSON and not `rg -c`?
 //!
-//! RFC-029 §13 acceptance gate Item 2 (revised) mandates `cargo public-api`
-//! or `rustdoc --output-format json` as the recall gate's ground truth,
-//! because any text-based scan of source:
+//! `cargo public-api` or `rustdoc --output-format json` as the recall gate's
+//! ground truth, because any text-based scan of source:
 //!
 //! 1. misses macro-generated items (`define_id!`, `#[derive(...)]`, `paste!`),
 //! 2. collapses items with the same local name at different qnames when
@@ -47,8 +46,7 @@
 //!   handles these via other labels (`Field`, `Variant`, `Module`) or
 //!   does not emit them at all — including them in the recall denominator
 //!   would create a systematic asymmetry the formula cannot resolve in
-//!   v0.1. They are deferred to v0.2 along with `ra-ap-hir` per RFC §8.2
-//!   Phase B.
+//!   v0.1. They are deferred.
 //!
 //! The [`KEPT_ITEM_KINDS`] constant is the single source of truth for the
 //! "kept" set — every `ItemKind` variant is explicitly listed so a future

@@ -101,8 +101,8 @@ pub(crate) fn attrs_contain_cfg_test(attrs: &[syn::Attribute]) -> bool {
 ///
 /// Only the bare `#[test]` single-ident attribute is matched. Multi-segment
 /// paths like `#[tokio::test]` or `#[test_log::test]` are deliberately not
-/// matched because they are custom test harnesses outside libtest, and the
-/// council decision scopes this predicate to libtest-native tests only.
+/// matched because they are custom test harnesses outside libtest, and this
+/// predicate is scoped to libtest-native tests only.
 pub(crate) fn attrs_contain_hash_test(attrs: &[syn::Attribute]) -> bool {
     attrs.iter().any(|attr| {
         if !attr.path().is_ident("test") {
@@ -114,8 +114,7 @@ pub(crate) fn attrs_contain_hash_test(attrs: &[syn::Attribute]) -> bool {
     })
 }
 
-/// Extract deprecation state from an item's attribute list (#106 /
-/// RFC addendum §A2.2 row 3).
+/// Extract deprecation state from an item's attribute list.
 ///
 /// Returns `(is_deprecated, deprecation_since)`:
 ///
@@ -134,9 +133,8 @@ pub(crate) fn attrs_contain_hash_test(attrs: &[syn::Attribute]) -> bool {
 /// carries unrelated semantics). This matches the discipline used by
 /// [`attrs_contain_hash_test`] for `#[test]` vs `#[tokio::test]`.
 ///
-/// Per the #43 council DDD + rust-systems verdicts, this is an
-/// extractor-time fact tagged `Provenance::Extractor` — the AST walker
-/// already visits item attributes, so extraction is the right layer.
+/// This is an extractor-time fact tagged `Provenance::Extractor` — the AST
+/// walker already visits item attributes, so extraction is the right layer.
 /// The [`cfdb_core::enrich::EnrichBackend::enrich_deprecation`] trait
 /// method exists for surface symmetry; its `PetgraphStore` override
 /// returns a `ran: true, attrs_written: 0` no-op naming the extractor
@@ -185,9 +183,9 @@ fn parse_deprecated_since(list: &syn::MetaList) -> Option<String> {
     since
 }
 
-/// Extract the feature-only `cfg(...)` gate from the item's attribute list
-/// (Issue #36). Recognises `cfg(feature = "x")`, `cfg(all(...))`,
-/// `cfg(any(...))`, `cfg(not(...))` and nested combinations thereof.
+/// Extract the feature-only `cfg(...)` gate from the item's attribute list.
+/// Recognises `cfg(feature = "x")`, `cfg(all(...))`, `cfg(any(...))`,
+/// `cfg(not(...))` and nested combinations thereof.
 ///
 /// **All-or-nothing policy.** Returns `None` when the item either (a)
 /// has no `#[cfg(...)]` attributes, or (b) carries a cfg expression with

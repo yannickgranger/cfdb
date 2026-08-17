@@ -1,16 +1,13 @@
-//! `enrich_rfc_docs` — scan `docs/**/*.md` + `.concept-graph/*.md` for
-//! whole-word matches on `:Item.name` / `:Item.qname` and emit
-//! `:RfcDoc { path, title }` nodes + `(:Item)-[:REFERENCED_BY]->(:RfcDoc)`
-//! edges (slice 43-D / issue #107).
+//! Scan `docs/**/*.md` + `.concept-graph/*.md` for whole-word matches
+//! on `:Item.name` / `:Item.qname` and emit `:RfcDoc { path, title }`
+//! nodes + `(:Item)-[:REFERENCED_BY]->(:RfcDoc)` edges.
 //!
-//! # Scan strategy (rust-systems Q2)
+//! # Scan strategy
 //!
 //! `str::contains` + a hand-rolled `\b` boundary check (char-level, ASCII
-//! word chars `[A-Za-z0-9_]`) is sufficient for <500 concepts × ~15 RFC
-//! files × ~8 KB each — completes in <100ms on cfdb's own tree per AC-8.
-//! `aho-corasick` is transitively available via `regex-automata` 1.1.4 but
-//! the naive scan stays well under the 5000-concept / 100MB threshold
-//! where multi-pattern search matters.
+//! word chars `[A-Za-z0-9_]`) is sufficient for typical workspaces and
+//! completes quickly. `aho-corasick` could be used for larger datasets but
+//! the naive scan stays well under performance thresholds.
 //!
 //! # Match semantics
 //!
@@ -24,18 +21,15 @@
 //!   mentions in the same file still emit exactly one edge (edge carries
 //!   no `count` prop).
 //! - **Self-reference filter.** Items whose defining `file` prop is
-//!   itself the RFC file are skipped to prevent an item that the RFC
-//!   documents *about* from claiming to be *referenced by* the RFC.
-//!   Applies only when the `:Item.file` prop matches the RFC path
-//!   exactly — rarely triggers since `:Item` nodes live in source files,
-//!   not markdown, but defensive for future rustdoc-generated items.
+//!   itself the RFC file are skipped. Applies only when the `:Item.file`
+//!   prop matches the RFC path exactly — rarely triggers since `:Item`
+//!   nodes live in source files, not markdown.
 //!
 //! # Emission policy
 //!
-//! Only RFC files that have **at least one referencing item** become
-//! `:RfcDoc` nodes. Orphan RFC files with no references (e.g. meta docs
-//! like `docs/cross-fixture-bump.md`) are skipped — no reader consumes
-//! them and their omission keeps the graph smaller.
+//! Only RFC files that have at least one referencing item become
+//! `:RfcDoc` nodes. Orphan RFC files with no references are skipped to
+//! keep the graph smaller.
 //!
 //! # Determinism (AC-5)
 //!
@@ -249,8 +243,7 @@ fn collect_items(state: &KeyspaceState, label: &Label) -> Vec<ItemRow> {
 
 /// Pure projection from a `:Item` node into an `ItemRow`. Extracted from
 /// `collect_items`'s for-loop body so the cloning of `node.id` happens
-/// inside an iterator chain (map), not a for-loop — quality-metrics
-/// treats these distinctly even though the semantics are identical.
+/// inside an iterator chain rather than a for-loop.
 fn project_item_row(node: &Node) -> ItemRow {
     ItemRow {
         node_id: node.id.clone(),
@@ -371,9 +364,8 @@ fn emit_graph(scanned: &[ScannedFile], references: &References<'_>) -> (Vec<Node
     (rfc_nodes, edges)
 }
 
-/// Construct one `:RfcDoc` node from a scanned file. Clones of `path`,
-/// `title`, and `label` happen inside this helper — called from the
-/// iterator chain in `emit_graph`, not a for-loop body.
+/// Construct one `:RfcDoc` node from a scanned file. Clones happen
+/// inside this helper, called from the iterator chain in `emit_graph`.
 fn build_rfc_doc_node(file: &ScannedFile, label: &Label) -> Node {
     let mut props = Props::new();
     props.insert("path".into(), PropValue::Str(file.path.clone()));
@@ -388,8 +380,7 @@ fn build_rfc_doc_node(file: &ScannedFile, label: &Label) -> Node {
     }
 }
 
-/// Construct one `REFERENCED_BY` edge. Cloning of `item_node_id` and
-/// `label` happens inside this helper, outside any for-loop.
+/// Construct one `REFERENCED_BY` edge.
 fn build_edge(item_node_id: &str, file: &ScannedFile, label: &EdgeLabel) -> Edge {
     Edge {
         src: item_node_id.to_string(),

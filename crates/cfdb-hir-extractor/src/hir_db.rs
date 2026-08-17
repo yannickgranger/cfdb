@@ -2,18 +2,17 @@
 //! salsa `RootDatabase`, paired with the VFS needed to enumerate
 //! files during extraction.
 //!
-//! RFC-029 §A1.2: the returned database is a CONCRETE `RootDatabase`
-//! — not `dyn HirDatabase`. `ra_ap_hir::db::HirDatabase` is a salsa
-//! query database with associated types and generic methods; it is
-//! explicitly NOT object-safe. Every downstream function that accepts
-//! the database accepts it monomorphically via `impl HirDatabase +
-//! Sized` bounds, honoring the architect's object-safety constraint.
+//! The returned database is a CONCRETE `RootDatabase` — not `dyn
+//! HirDatabase`. `ra_ap_hir::db::HirDatabase` is a salsa query database
+//! with associated types and generic methods; it is explicitly NOT
+//! object-safe. Every downstream function that accepts the database
+//! accepts it monomorphically via `impl HirDatabase + Sized` bounds.
 //!
-//! RFC-043: the function additionally returns an `Option<ProcMacroClient>`
-//! whose `Some` arm owns the proc-macro subprocess handle. Salsa keeps
-//! live references to expanders inside the DB; dropping the client
-//! while salsa still holds them kills the subprocess and breaks any
-//! lazy expansion during the caller's VFS walk. Callers MUST hold the
+//! The function additionally returns an `Option<ProcMacroClient>` whose
+//! `Some` arm owns the proc-macro subprocess handle. Salsa keeps live
+//! references to expanders inside the DB; dropping the client while
+//! salsa still holds them kills the subprocess and breaks any lazy
+//! expansion during the caller's VFS walk. Callers MUST hold the
 //! client alongside the DB for the duration of extraction.
 
 use std::path::{Path, PathBuf};
@@ -40,20 +39,18 @@ use crate::target_map::TargetRootMap;
 /// The `Option<ProcMacroClient>` owns the proc-macro subprocess; it is
 /// `Some` when proc-macro expansion is active and `None` otherwise.
 /// Callers MUST hold the client alongside the database for the duration
-/// of extraction (RFC-043 §4 I7). The [`TargetRootMap`] is the RFC-054
-/// 54-C target-root correlation map — callers pass it to the emitters
-/// so ids route through the discriminated identity formulas.
+/// of extraction. The [`TargetRootMap`] is the target-root correlation
+/// map — callers pass it to the emitters so ids route through the
+/// discriminated identity formulas.
 ///
 /// `proc_macros` selects the loader policy:
-/// - `true` (default in production) — RFC-043 §3.1: enable
-///   `ProcMacroServerChoice::Sysroot` with `proc_macro_processes = 1` when
-///   the sysroot binary is available. When the binary is missing
-///   (typical CI-on-stock-rustc, RFC-043 §3.3 case 1) the function emits
-///   a stderr warning and silently falls back to `None + 0` so the
-///   extract still produces a usable keyspace at pre-RFC-043 recall.
-/// - `false` — pre-RFC-043 behaviour: `ProcMacroServerChoice::None` with
-///   `proc_macro_processes = 0`. No probe; no warning. The operator
-///   selects this via `cfdb extract --no-proc-macro`.
+/// - `true` (default in production) — enable `ProcMacroServerChoice::Sysroot`
+///   with `proc_macro_processes = 1` when the sysroot binary is available.
+///   When the binary is missing (typical CI-on-stock-rustc) the function
+///   emits a stderr warning and silently falls back to `None + 0`.
+/// - `false` — `ProcMacroServerChoice::None` with `proc_macro_processes = 0`.
+///   No probe; no warning. The operator selects this via `cfdb extract
+///   --no-proc-macro`.
 ///
 /// # Errors
 ///

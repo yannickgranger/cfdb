@@ -1,4 +1,4 @@
-//! RFC-034 §4.2 frozen JSON envelope.
+//! Frozen JSON envelope.
 //!
 //! The shape is OCP-locked at `schema_version = "v1"`:
 //!
@@ -27,7 +27,7 @@ use crate::trigger_id::TriggerId;
 /// that every consumer skill must opt into; additive trigger changes keep `v1`.
 pub const SCHEMA_VERSION: &str = "v1";
 
-/// RFC-034 §4.2 envelope emitted on stdout.
+/// Envelope emitted on stdout.
 #[derive(Debug, Serialize)]
 pub struct PreludeTriggerReport {
     pub schema_version: &'static str,

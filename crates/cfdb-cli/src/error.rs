@@ -1,16 +1,14 @@
-//! Typed error enum for `cfdb-cli` command handlers (#22).
+//! Typed error enum for `cfdb-cli` command handlers.
 //!
-//! Replaces the previous `Result<_, Box<dyn std::error::Error>>` with a
-//! richer type so callers and tests can branch on error kind without
-//! downcasting. Each variant wraps an upstream error type verbatim where
-//! context is self-explanatory; [`CfdbCliError::Usage`] is the escape
+//! Provides a richer type so callers and tests can branch on error kind
+//! without downcasting. Each variant wraps an upstream error type verbatim
+//! where context is self-explanatory; [`CfdbCliError::Usage`] is the escape
 //! hatch for runtime-validation failures the CLI raises itself (unknown
 //! flag values, missing keyspaces, unsupported formats, malformed
 //! `--params` shapes).
 //!
-//! `From<String>` and `From<&str>` both route into `Usage` so the many
-//! `Err("message".into())` and `Err(format!("...").into())` sites scattered
-//! across the handlers keep working verbatim.
+//! `From<String>` and `From<&str>` both route into `Usage` so error
+//! strings can be created directly from string literals or formatted output.
 
 use thiserror::Error;
 
@@ -20,30 +18,23 @@ pub enum CfdbCliError {
     /// unreadable `.rs` file, syn parse error, cargo metadata failure.
     ///
     /// Feature-gated on `lang-rust` because `cfdb-extractor` is now
-    /// an optional dep (RFC-041 Phase 1 / Slice 41-C); slim builds
-    /// (`--no-default-features`) drop the variant entirely. New code
-    /// dispatches via the `LanguageProducer` trait and surfaces
-    /// failures as [`CfdbCliError::Lang`] instead — `Extract` survives
-    /// only for backward-compat with consumers that may still hold a
-    /// `cfdb_extractor::ExtractError` directly (e.g. via the legacy
-    /// `cfdb_extractor::extract_workspace` public shim).
+    /// an optional dep; slim builds (`--no-default-features`) drop the
+    /// variant entirely. New code dispatches via the `LanguageProducer`
+    /// trait and surfaces failures as [`CfdbCliError::Lang`] instead.
     #[cfg(feature = "lang-rust")]
     #[error("extract failed: {0}")]
     Extract(#[from] cfdb_extractor::ExtractError),
 
-    /// `LanguageProducer` failure surfaced through the dispatcher
-    /// (RFC-041 §3.4). Every dispatch through `&dyn LanguageProducer`
-    /// returns `cfdb_lang::LanguageError`, which `?`-propagates here
-    /// — this is the variant new code paths land on.
+    /// `LanguageProducer` failure surfaced through the dispatcher.
+    /// Every dispatch through `&dyn LanguageProducer` returns
+    /// `cfdb_lang::LanguageError`, which `?`-propagates here.
     #[error("language producer failed: {0}")]
     Lang(#[from] cfdb_lang::LanguageError),
 
     /// `cfdb extract` was invoked but no compiled-in producer
     /// accepted the workspace. Carries the workspace path + the
-    /// names of producers that WERE compiled in (so the user can
-    /// diagnose: typical cause is a slim build without the right
-    /// `lang-*` feature). Mapped via `#[from]` from
-    /// [`crate::lang::NoProducerDetected`].
+    /// names of producers that WERE compiled in so the user can
+    /// diagnose the cause.
     #[error(transparent)]
     NoProducer(#[from] crate::lang::NoProducerDetected),
 

@@ -4,9 +4,9 @@
 //! fan-out), not O(cartesian). Memory note lives in `super::Evaluator`.
 //!
 //! Path-pattern methods (`apply_path_pattern`, traversal, BFS) live in the
-//! `path` submodule per the #253 god-file split; node-pattern methods,
-//! `OPTIONAL MATCH`, `UNWIND`, and free helpers (`matches_existing`,
-//! `edge_label_matches`, `collect_pattern_vars`) stay here.
+//! `path` submodule; node-pattern methods, `OPTIONAL MATCH`, `UNWIND`, and
+//! free helpers (`matches_existing`, `edge_label_matches`, `collect_pattern_vars`)
+//! stay here.
 
 mod coupling;
 mod path;
@@ -30,17 +30,14 @@ impl<'a> Evaluator<'a> {
         np: &'e NodePattern,
         where_clause: Option<&'e Predicate>,
     ) -> BindingStream<'e> {
-        // Issue #409 fast path — when neither the NodePattern itself
-        // nor the top-level WHERE references any var OTHER than the
-        // pattern's own var, `candidate_nodes` is binding-independent:
-        // the result is identical for every incoming row, so we
-        // compute it ONCE up front and have the per-row closure borrow
-        // the cached vec. Without this lift, the post-cleanup
-        // qbot-core market_data scope ran the Cartesian classifier
-        // rules at O(outer × inner_lookup) and hung 40+ min at 96% CPU
-        // (issue #409). With the lift the inner leaf collapses to O(1)
-        // lookups per rule; explain traces show `(b:Item)` appearing
-        // ONCE rather than `outer_row_count` times.
+        // When neither the NodePattern itself nor the top-level WHERE
+        // references any var OTHER than the pattern's own var,
+        // `candidate_nodes` is binding-independent: the result is
+        // identical for every incoming row, so we compute it ONCE up
+        // front and have the per-row closure borrow the cached vec.
+        // Without this lift, the Cartesian classifier rules run at
+        // O(outer × inner_lookup) and hang. With the lift the inner
+        // leaf collapses to O(1) lookups per rule.
         if is_binding_independent_pattern(np, where_clause, self.state) {
             let cached = self.candidate_nodes(np, where_clause, &Bindings::new());
             return Box::new(table.flat_map(move |bindings| {
@@ -50,11 +47,11 @@ impl<'a> Evaluator<'a> {
             }));
         }
         // Per-row candidate_nodes — the incoming row's bindings pick
-        // the cross-MATCH bucket (RFC-035 slice 6). Empty bindings
-        // collapse to slice-5 behaviour. This path runs when the
-        // pattern OR the WHERE references a foreign var (genuine
-        // cross-binding equi-join), where the candidate set IS
-        // binding-dependent and per-row narrowing is correct.
+        // the cross-MATCH bucket. Empty bindings collapse to
+        // base-case behaviour. This path runs when the pattern OR the
+        // WHERE references a foreign var (genuine cross-binding
+        // equi-join), where the candidate set IS binding-dependent and
+        // per-row narrowing is correct.
         Box::new(table.flat_map(move |bindings| {
             let candidates = self.candidate_nodes(np, where_clause, &bindings);
             let mut out: Vec<Bindings> = Vec::new();
@@ -65,9 +62,7 @@ impl<'a> Evaluator<'a> {
 
     /// Dispatch a single binding row through the three node-pattern cases:
     /// anonymous (no `var`), pre-bound `var` (pinned to the existing ref), or
-    /// fresh `var` (multiplied by candidates). Split out of
-    /// `apply_node_pattern` to keep cognitive complexity below the project
-    /// ceiling (RFC-031 §5 / issue #26).
+    /// fresh `var` (multiplied by candidates).
     fn emit_node_bindings(
         &self,
         out: &mut Vec<Bindings>,

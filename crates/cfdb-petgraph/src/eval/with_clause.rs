@@ -202,17 +202,11 @@ impl<'a> Evaluator<'a> {
                     RowValue::Scalar(PropValue::Null)
                 }
             }
-            // RFC-044 §3.7 (slice 044-G): `Aggregation` is `#[non_exhaustive]`.
-            // A future variant added in cfdb-core surfaces here as a sentinel
-            // result row from `unsupported_aggregation_sentinel` — NOT a
-            // silent empty list or null. The hard E0004 compile error makes
-            // this branch reachable only post-cfdb-core-variant-addition.
-            // AC (c) prescribed `StoreError::Eval(..)` propagation; the
-            // non-fallible call chain (`apply_with → group_and_aggregate →
-            // materialise_group_row → eval_aggregation` → `Vec<Bindings>`)
-            // would require a 3-layer Result cascade beyond this slice's
-            // scope — deviation amendment tracked at #430. The sentinel
-            // string satisfies the "non-silent signal" intent and is
+            // `Aggregation` is `#[non_exhaustive]`. A future variant added in
+            // cfdb-core surfaces here as a sentinel result row from
+            // `unsupported_aggregation_sentinel` — NOT a silent empty list or
+            // null. The hard E0004 compile error makes this branch reachable
+            // only post-cfdb-core-variant-addition. The sentinel string is
             // unit-tested below.
             _ => unsupported_aggregation_sentinel(agg),
         }
@@ -238,18 +232,15 @@ mod tests {
     use super::*;
     use cfdb_core::query::ast::Expr;
 
-    /// AC (c) of slice 044-G: the `_ =>` arm of `eval_aggregation` returns a
-    /// non-silent sentinel for unsupported / future `Aggregation` variants.
+    /// The `_ =>` arm of `eval_aggregation` returns a non-silent sentinel for
+    /// unsupported / future `Aggregation` variants.
     ///
     /// We cannot construct a "future" variant directly (cfdb-core's
     /// `#[non_exhaustive]` annotation prevents that from outside the crate),
     /// so this test exercises the sentinel-emitting helper directly with
-    /// every CURRENT variant. The helper's contract is independent of which
+    /// every current variant. The helper's contract is independent of which
     /// variant is passed — it always emits the `"unsupported_aggregation:<d>"`
-    /// shape. If the `_ =>` arm in `eval_aggregation` ever stops calling this
-    /// helper, the trybuild compile-fail surface in `cfdb-core/tests/ui/`
-    /// extends to cover Aggregation in a follow-up; meanwhile the unit test
-    /// here pins the sentinel format.
+    /// shape.
     #[test]
     fn unsupported_aggregation_sentinel_has_documented_shape() {
         let variants: Vec<Aggregation> = vec![

@@ -1,8 +1,7 @@
-//! Test and bench attribute classification probes used by
-//! the registry's per-file `SyntaxKind::FN` dispatch (RFC-042). These probes
-//! have no REGISTERS_PARAM counterpart — they are pure classification
-//! (kept separate from `registers_param.rs` because they change for a
-//! different reason: vocabulary evolution vs param-edge wiring
+//! Test and bench attribute classification probes used by the registry's
+//! per-file function dispatch. These probes have no REGISTERS_PARAM
+//! counterpart — they are pure classification (kept separate because they
+//! change for a different reason: vocabulary evolution vs param-edge wiring
 //! evolution).
 
 use std::path::Path;

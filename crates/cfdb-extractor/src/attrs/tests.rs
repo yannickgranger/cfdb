@@ -36,7 +36,7 @@ fn attrs_contain_hash_test_rejects_no_attrs() {
     assert!(!attrs_contain_hash_test(&item.attrs));
 }
 
-// ---- extract_cfg_feature_gate (Issue #36) ----------------------------
+// ---- extract_cfg_feature_gate -------------------------------------------
 
 fn parse_attrs(src: &str) -> Vec<syn::Attribute> {
     let wrapped = format!("{src} fn dummy() {{}}");

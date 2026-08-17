@@ -3,9 +3,8 @@
 //! `reconcile_index_entries` (in `graph.rs`) walks the before/after
 //! diff for an updated node and calls these helpers per (label, tag,
 //! value) triple. Hoisting the per-triple work out of the loop body
-//! keeps the loop free of `.clone()` calls (the metric scanner flags
-//! clones-in-loops; the structural BTreeMap-key clones live here, in
-//! a single-shot function body, instead).
+//! keeps the loop free of `.clone()` calls; the structural BTreeMap-key
+//! clones live here, in a single-shot function body, instead.
 //!
 //! The helpers operate directly on `&mut KeyspaceState::by_prop`
 //! rather than `&mut self` to avoid pulling the rest of the keyspace

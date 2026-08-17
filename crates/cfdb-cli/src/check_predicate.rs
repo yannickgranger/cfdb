@@ -1,4 +1,4 @@
-//! `cfdb check-predicate` verb handler — RFC-034 Slice 3 / #147.
+//! `cfdb check-predicate` verb handler.
 //!
 //! Loads `.cfdb/predicates/<name>.cypher` from `workspace_root`, resolves
 //! `--param <name>:<form>:<value>` CLI args via the Slice-1
@@ -13,9 +13,9 @@
 //! tie-break changes (§4.1). `ORDER BY` inside the predicate template is
 //! a necessary-but-not-sufficient condition.
 //!
-//! Visibility: `pub` per RFC-034 §3.1 + RATIFIED §9 (external verb
-//! surface). Distinct from Slice-1's `pub(crate)` plumbing because this
-//! is the integration-test / skill-consumer boundary.
+//! Visibility: `pub` as an external verb surface. Distinct from the
+//! internal `pub(crate)` plumbing because this is the integration-test /
+//! skill-consumer boundary.
 //!
 //! Output shapes:
 //! - `text` (default): stderr summary `check-predicate: N (predicate: <name>)`;

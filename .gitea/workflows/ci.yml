@@ -187,6 +187,20 @@ jobs:
             exit 1
           fi
 
+      - name: Test slim cfdb-petgraph (default features — git-enrich/quality-metrics off)
+        run: |
+          cd repo
+          # `cfdb-petgraph`'s `default = []` (git-enrich, quality-metrics both
+          # opt-in). The workspace-wide `cargo nextest run --all-features`
+          # step above always compiles the feature-ON dispatch branch of
+          # `enrich_backend.rs`'s `enrich_git_history_dispatch` /
+          # `enrich_metrics_dispatch` — the `#[cfg(not(feature = ...))]`
+          # sibling branch is a separate function that only exists in the
+          # compiled test binary when the feature is OFF. Without this step
+          # that branch (and its characterization tests) never compiles in
+          # CI at all. Mirrors the slim cfdb-recall/cfdb-cli pattern above.
+          cargo test -p cfdb-petgraph
+
       - name: Producer syn-isolation guard (RFC-045 §3.1 / Invariant 6)
         run: |
           cd repo

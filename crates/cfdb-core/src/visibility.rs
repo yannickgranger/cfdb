@@ -1,7 +1,6 @@
 //! `Visibility` — Rust item visibility for `:Item` fact attributes.
 //!
-//! Added in SchemaVersion v0.1.1 per RFC-032 Group A / Issue #35. Captures
-//! the five forms an item can carry in Rust source:
+//! Captures the five forms an item can carry in Rust source:
 //!
 //! - `Public`           — `pub`
 //! - `CrateLocal`       — `pub(crate)`
@@ -30,8 +29,7 @@
 use std::fmt;
 use std::str::FromStr;
 
-/// Visibility of a Rust item as it appears in `:Item.visibility` (RFC-033
-/// §7 Group A1 / Issue #35).
+/// Visibility of a Rust item as it appears in `:Item.visibility`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum Visibility {

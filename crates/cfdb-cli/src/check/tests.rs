@@ -7,9 +7,8 @@ fn trigger_id_display_is_uppercase_tag() {
 
 #[test]
 fn trigger_id_from_str_round_trips_every_variant() {
-    // Anti-regression for issue #102 (T3): adding a variant to
-    // `variants()` must automatically let it parse without a
-    // hardcoded edit anywhere else.
+    // Adding a variant to `variants()` must automatically let it parse
+    // without a hardcoded edit anywhere else.
     for v in TriggerId::variants() {
         let spelled = v.to_string();
         let parsed: TriggerId = spelled.parse().expect("round-trip");

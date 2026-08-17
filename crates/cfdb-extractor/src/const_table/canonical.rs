@@ -1,11 +1,10 @@
-//! Canonicalization helpers for [`crate::const_table`] (RFC-040 §3.1).
+//! Canonicalization helpers for [`crate::const_table`].
 //!
 //! `entries_hash`, `entries_normalized`, and `entries_sample` are derived
 //! from the recognizer's `entries: Vec<EntryValue>` (declaration order). The
 //! visitor calls these to build the wire props.
 //!
-//! Split out of `const_table.rs` (#350) to keep each file under the 500-LOC
-//! budget. Public surface is unchanged — every item visible to the rest of
+//! Public surface is unchanged — every item visible to the rest of
 //! the crate is re-exported from [`super`].
 
 use sha2::{Digest, Sha256};

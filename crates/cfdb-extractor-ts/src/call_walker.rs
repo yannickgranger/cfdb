@@ -1,4 +1,4 @@
-//! Recursive call-site body walk for `cfdb-extractor-ts` (RFC-045 45-D).
+//! Recursive call-site body walk for `cfdb-extractor-ts`.
 //!
 //! Descends a method/function declaration node and emits a `:CallSite`
 //! (full Rust-parity prop set, `resolver = "tree-sitter-typescript"`) plus an
@@ -11,8 +11,8 @@
 //! (`obj.foo`, `this.m`, `super.m`, optional `obj?.m` with `?.` preserved),
 //! a nested `call_expression` (`a()` in `a()()`), and `parenthesized_expression`
 //! (IIFE). A tagged template (`tag` `` `x` ``) is itself a `call_expression`
-//! and emits a site; `new X()` is a `new_expression`, NOT a call site (§6
-//! non-goal) — the walk skips it but still recurses into its arguments.
+//! and emits a site; `new X()` is a `new_expression`, NOT a call site — the walk
+//! skips it but still recurses into its arguments.
 //!
 //! **Zero `CALLS`.** TS resolves no import/receiver types (syn-parity), so
 //! every `:CallSite` carries `callee_resolved = false` and no `CALLS` edge is

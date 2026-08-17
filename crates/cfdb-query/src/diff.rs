@@ -1,4 +1,4 @@
-//! Two-keyspace delta over canonical sorted-JSONL dumps (RFC-cfdb.md §12.1).
+//! Two-keyspace delta over canonical sorted-JSONL dumps.
 //!
 //! `compute_diff` is backend-agnostic: it consumes the `String` output of
 //! `StoreBackend::canonical_dump` for two keyspaces and returns a
@@ -26,8 +26,7 @@ const KIND_NODE: &str = "node";
 const KIND_EDGE: &str = "edge";
 
 /// Wire envelope for `cfdb diff` — a two-keyspace delta over the canonical
-/// sorted-JSONL dump. Consumed by `cfdb classify` (#213) and qbot-core
-/// #3736's per-PR drift gate.
+/// sorted-JSONL dump. Consumed by downstream classifiers and drift gates.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct DiffEnvelope {
     /// Left keyspace name (raw `--a` CLI arg).
@@ -168,7 +167,7 @@ type FactKey = (String, String, String, String);
 /// Compute the [`DiffEnvelope`] between two canonical sorted-JSONL dumps.
 ///
 /// `a_dump` and `b_dump` must be the output of `StoreBackend::canonical_dump`
-/// (one JSON object per line, LF-separated, sorted per RFC §12.1). The
+/// (one JSON object per line, LF-separated, in canonical sort order). The
 /// function is pure: given the same inputs it returns a byte-identical
 /// envelope via `BTreeMap` stable iteration.
 ///

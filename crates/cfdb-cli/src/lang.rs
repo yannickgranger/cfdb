@@ -1,4 +1,4 @@
-//! RFC-041 Phase 1 / Slice 41-C composition root for the
+//! Composition root for the
 //! `LanguageProducer` registry.
 //!
 //! This is the **only** module in `cfdb-cli` that names concrete
@@ -8,7 +8,7 @@
 //! which keeps the rest of the CLI agnostic to which languages
 //! happen to be compiled in.
 //!
-//! Per clean-arch R1 (RFC-041 §5.1): separating the registry into a
+//! Separating the registry into a
 //! dedicated `lang.rs` module — rather than inlining
 //! `available_producers()` into `commands/extract.rs` — mirrors the
 //! existing `compose::empty_store()` pattern at `commands/extract.rs:52`
@@ -33,8 +33,7 @@ use thiserror::Error;
 ///
 /// Every concrete producer crate is gated behind a `lang-<name>`
 /// feature on `cfdb-cli`. The bare-name vs `dep:`-prefix distinction
-/// is load-bearing under resolver v2 (per RFC-041 §3.4 + rust-systems
-/// R2 factual correction): the `[features]` block's
+/// is load-bearing: the `[features]` block's
 /// `lang-rust = ["dep:cfdb-extractor"]` form is the one that
 /// actually gates the optional dep.
 // `vec_init_then_push` is the canonical idiom for feature-gated

@@ -2,9 +2,7 @@
 //! the attribute probes the parent's detector registry dispatch uses to
 //! branch on `#[derive(Parser|Subcommand)]` vs `#[tool]`.
 //!
-//! Split from `entry_point_emitter.rs` (#239 slice) to keep that file
-//! under the 500-LOC architecture threshold. All helpers are
-//! `pub(super)` — reachable only from the parent emitter module.
+//! All helpers are `pub(super)` — reachable only from the parent emitter module.
 
 use std::collections::BTreeMap;
 
@@ -77,8 +75,7 @@ pub(super) fn has_tool_attr(fn_ast: &ast::Fn) -> bool {
 /// emit zero edges; clap requires named fields on Parser structs.
 ///
 /// The HIR side is deliberately edge-only: `:Field` nodes are owned by
-/// the syn-side producer (RFC-037 §3.1 B9 — single-producer discipline
-/// per structural node kind).
+/// the syn-side producer — single-producer discipline per structural node kind.
 pub(super) fn emit_clap_struct_registers_param(
     struct_identity: &str,
     strukt: &ast::Struct,
@@ -91,9 +88,7 @@ pub(super) fn emit_clap_struct_registers_param(
         return;
     };
     let entry_point_id = entrypoint_node_id("cli_command", struct_identity);
-    // Iterator chain form avoids `.clone()` inside a `for` body (the
-    // regex-based quality-metrics rule flags literal loop-body clones
-    // but not clones inside `.map` closures).
+    // Iterator chain form avoids `.clone()` inside a `for` body.
     edges.extend(
         record_list
             .fields()
@@ -140,8 +135,7 @@ pub(super) fn emit_clap_enum_registers_param(
     );
 }
 
-/// Emit one `REGISTERS_PARAM` edge per non-self param of an MCP
-/// `#[tool]` fn (#219 / RFC-037 §3.1 MCP row — HIR-owned).
+/// Emit one `REGISTERS_PARAM` edge per non-self param of an MCP `#[tool]` fn.
 ///
 /// Targets the `:Param` node the syn extractor emits via
 /// [`cfdb_core::qname::param_node_id`]`(fn_qname, index)`. Receiver-aware:

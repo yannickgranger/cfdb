@@ -1,5 +1,4 @@
-//! Prescribed-test surface for RFC-035 slice 6 (#185) — the
-//! `context_homonym`-shape cross-MATCH fixture.
+//! Prescribed-test surface for the `context_homonym`-shape cross-MATCH fixture.
 //!
 //! Builds a synthetic 1 000-node `:Item` keyspace with exactly 10
 //! last-segment-colliding pairs across distinct bounded contexts
@@ -14,7 +13,7 @@
 //!    keyspace produces the same result set. The index is a pure
 //!    narrowing optimisation; no node is gained or lost.
 //! 3. **Wall time** — on the indexed keyspace the query completes in
-//!    under 100 ms (prescribed upper bound in the #185 body).
+//!    under 100 ms.
 //!
 //! Lives in a sibling `#[cfg(test)] mod` declared from `eval/mod.rs`
 //! so it can reach `pub(super)` / `pub(crate)` items without

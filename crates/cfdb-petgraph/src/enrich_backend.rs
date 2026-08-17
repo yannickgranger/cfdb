@@ -1,10 +1,10 @@
 //! `EnrichBackend` implementation for `PetgraphStore`.
 //!
-//! RFC-031 §2 — enrichment is a sibling trait. PetgraphStore inherits the
-//! seven Phase A stubs (`EnrichReport::not_implemented`); concrete enrichment
-//! passes override individual methods as #43 slices land.
+//! Enrichment is a sibling trait. PetgraphStore inherits the
+//! seven stubs (`EnrichReport::not_implemented`); concrete enrichment
+//! passes override individual methods.
 //!
-//! `enrich_deprecation` overridden in slice 43-C (#106) to report the real
+//! `enrich_deprecation` overridden to report the real
 //! source as the extractor rather than deflecting to `not_implemented`. The
 //! deprecation facts (`is_deprecated`, `deprecation_since`) are populated at
 //! extraction time by `cfdb-extractor` via `extract_deprecated_attr`, so the
@@ -23,8 +23,6 @@ use crate::PetgraphStore;
 impl PetgraphStore {
     /// Guard #1 — keyspace existence. Returns `Err(UnknownKeyspace)` if the
     /// caller's target keyspace is not known to the store; otherwise `Ok(())`.
-    /// Audit 2026-W17 / EPIC #273 / Pattern 3 (cfdb-petgraph F-002): this
-    /// guard was duplicated across 7 enrich verbs.
     fn require_keyspace(&self, keyspace: &cfdb_core::schema::Keyspace) -> Result<(), StoreError> {
         if !self.keyspaces.contains_key(keyspace) {
             return Err(StoreError::UnknownKeyspace(keyspace.clone()));
@@ -36,10 +34,8 @@ impl PetgraphStore {
     /// store has a workspace_root attached, otherwise `Err(degraded report)`
     /// so the caller can early-return the degraded report unchanged.
     /// `purpose_suffix` is the per-verb explanation of what the pass would
-    /// do with the workspace root (e.g. "scan docs/ for RFC references")
-    /// and is preserved verbatim from the previous inline strings — these
-    /// are user-facing diagnostics that vary meaningfully per verb.
-    /// Audit 2026-W17 / EPIC #273 / Pattern 3 (cfdb-petgraph F-002).
+    /// do with the workspace root (e.g. "scan docs/ for RFC references") —
+    /// these are user-facing diagnostics that vary meaningfully per verb.
     fn require_workspace(
         &self,
         verb: &'static str,
@@ -66,9 +62,6 @@ impl EnrichBackend for PetgraphStore {
         &mut self,
         keyspace: &cfdb_core::schema::Keyspace,
     ) -> Result<cfdb_core::enrich::EnrichReport, StoreError> {
-        // Keyspace existence check mirrors other enrichment verbs — a
-        // caller targeting an unknown keyspace gets the same error shape
-        // as `schema_version`/`drop_keyspace`.
         self.require_keyspace(keyspace)?;
         Ok(cfdb_core::enrich::EnrichReport {
             verb: "enrich_deprecation".into(),
@@ -159,11 +152,11 @@ impl EnrichBackend for PetgraphStore {
             .keyspaces
             .get_mut(keyspace)
             .expect("keyspace presence checked above");
-        // RFC-042 §3.2: two passes — first the All-kinds BFS that writes
+        // Two passes — first the All-kinds BFS that writes
         // `reachable_from_entry`, then the ProductionOnly BFS that excludes
         // `kind ∈ {test, bench}` and writes `reachable_from_production_entry`.
-        // The trait surface stays single-call (council R1 Position B); the
-        // dual-pass orchestration is encapsulated here.
+        // The trait surface stays single-call; the dual-pass orchestration
+        // is encapsulated here.
         use crate::enrich::reachability::ReachabilityFilter;
         let pass_all = crate::enrich::reachability::run(state, ReachabilityFilter::All);
         if !pass_all.ran {
@@ -195,8 +188,7 @@ impl EnrichBackend for PetgraphStore {
 
 /// Feature-off path — `quality-metrics` gates syn (+ sha2) out of default
 /// builds. Without the feature the verb still exists and dispatches here,
-/// returning a `ran: false` report whose warning names the feature flag
-/// (RFC-036 §3.3 / issue #203).
+/// returning a `ran: false` report whose warning names the feature flag.
 #[cfg(not(feature = "quality-metrics"))]
 fn enrich_metrics_dispatch(
     _store: &mut PetgraphStore,
@@ -218,7 +210,7 @@ fn enrich_metrics_dispatch(
 /// Feature-on path — requires a `workspace_root` on the store so syn can
 /// re-parse source files referenced by `:Item{kind:"Fn"}.file`. If the
 /// store was built without one, return a `ran: false` degraded report
-/// naming the configuration gap (mirrors `enrich_git_history_dispatch`).
+/// naming the configuration gap.
 #[cfg(feature = "quality-metrics")]
 fn enrich_metrics_dispatch(
     store: &mut PetgraphStore,
@@ -238,10 +230,10 @@ fn enrich_metrics_dispatch(
     crate::enrich::metrics::run(state, &root, &crate::enrich::metrics::Config::default())
 }
 
-/// Feature-off path — the real pass is gated on `git-enrich` to keep libgit2
-/// out of default builds (rust-systems Q1 / Q6). Without the feature the verb
-/// still exists and dispatches here, returning a `ran: false` report whose
-/// warning names the feature flag (AC-1 / issue #105).
+/// Feature-off path — the real pass is gated on `git-enrich` to keep
+/// libgit2 out of default builds. Without the feature the verb still
+/// exists and dispatches here, returning a `ran: false` report whose
+/// warning names the feature flag.
 #[cfg(not(feature = "git-enrich"))]
 fn enrich_git_history_dispatch(
     _store: &mut PetgraphStore,
@@ -281,4 +273,113 @@ fn enrich_git_history_dispatch(
         .get_mut(keyspace)
         .expect("keyspace presence checked by caller");
     crate::enrich::git_history::run(state, &root)
+}
+
+// ---------------------------------------------------------------------------
+// Characterization tests — pre-strangler-fig safety net.
+//
+// These pin what this dispatcher does *today*, verbatim (exact report
+// fields, exact warning text), so a later extraction of the enrichment
+// passes into their own crate (audit 2026-08-17: cfdb-petgraph bundles
+// storage + eval + enrichment with zero shared commit history between
+// enrich/ and eval/) can be checked byte-for-byte against this baseline.
+// A test failing here after a refactor means behavior changed, not that
+// the old behavior was correct — whether it *should* change is a separate,
+// later question these tests deliberately do not answer.
+// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod tests {
+    use cfdb_core::enrich::EnrichBackend;
+    use cfdb_core::schema::Keyspace;
+    use cfdb_core::store::StoreBackend;
+
+    use crate::PetgraphStore;
+
+    fn store_with_empty_keyspace(ks: &Keyspace) -> PetgraphStore {
+        let mut store = PetgraphStore::new();
+        store.ingest_nodes(ks, vec![]).expect("register keyspace");
+        store
+    }
+
+    #[test]
+    fn deprecation_pins_fixed_report_shape() {
+        let ks = Keyspace::new("test");
+        let mut store = store_with_empty_keyspace(&ks);
+
+        let report = store.enrich_deprecation(&ks).expect("pass");
+
+        assert!(report.ran);
+        assert_eq!(report.facts_scanned, 0);
+        assert_eq!(report.attrs_written, 0);
+        assert_eq!(report.edges_written, 0);
+        assert_eq!(
+            report.warnings,
+            vec!["enrich_deprecation: facts populated at extraction time by \
+                 cfdb-extractor::extract_deprecated_attr (#43-C / RFC \
+                 addendum §A2.2 row 3); no enrichment work to do"
+                .to_string()]
+        );
+    }
+
+    #[test]
+    fn deprecation_unknown_keyspace_returns_err() {
+        let mut store = PetgraphStore::new();
+        let ks = Keyspace::new("never");
+
+        let err = store
+            .enrich_deprecation(&ks)
+            .expect_err("unknown keyspace must err");
+
+        assert!(format!("{err:?}").contains("UnknownKeyspace"));
+    }
+
+    // `quality-metrics` is off in the default build (`default = []` in
+    // Cargo.toml) — CI's `--all-features` run never exercises this branch,
+    // so this test only compiles/runs under a plain `cargo test -p
+    // cfdb-petgraph` (no extra flags).
+    #[cfg(not(feature = "quality-metrics"))]
+    #[test]
+    fn enrich_metrics_feature_off_pins_degraded_report() {
+        let ks = Keyspace::new("test");
+        let mut store = store_with_empty_keyspace(&ks);
+
+        let report = store.enrich_metrics(&ks).expect("pass");
+
+        assert!(!report.ran);
+        assert_eq!(report.facts_scanned, 0);
+        assert_eq!(report.attrs_written, 0);
+        assert_eq!(report.edges_written, 0);
+        assert_eq!(
+            report.warnings,
+            vec!["enrich_metrics: built without `quality-metrics` feature — \
+                 recompile `cfdb-cli` with `--features quality-metrics` to \
+                 populate unwrap_count + cyclomatic + dup_cluster_id (and \
+                 additionally `--features llvm-cov` for test_coverage) per \
+                 RFC-036 §3.3 / issue #203"
+                .to_string()]
+        );
+    }
+
+    // Same rationale as above — `git-enrich` is off in the default build.
+    #[cfg(not(feature = "git-enrich"))]
+    #[test]
+    fn enrich_git_history_feature_off_pins_degraded_report() {
+        let ks = Keyspace::new("test");
+        let mut store = store_with_empty_keyspace(&ks);
+
+        let report = store.enrich_git_history(&ks).expect("pass");
+
+        assert!(!report.ran);
+        assert_eq!(report.facts_scanned, 0);
+        assert_eq!(report.attrs_written, 0);
+        assert_eq!(report.edges_written, 0);
+        assert_eq!(
+            report.warnings,
+            vec!["enrich_git_history: built without `git-enrich` feature — \
+                 recompile `cfdb-cli` with `--features git-enrich` to \
+                 populate git-history facts (RFC addendum §A2.2 row 1 / \
+                 issue #105)"
+                .to_string()]
+        );
+    }
 }

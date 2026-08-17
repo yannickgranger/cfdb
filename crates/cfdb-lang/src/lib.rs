@@ -1,34 +1,16 @@
 //! `cfdb-lang` — the producer-side seam for cfdb's multi-language story.
 //!
 //! Defines the [`LanguageProducer`] trait + [`LanguageError`] enum that
-//! every language-specific producer (Rust today via `cfdb-extractor`,
-//! PHP and TypeScript follow via #264 / #265) implements. Per RFC-041:
+//! every language-specific producer implements.
 //!
-//! - **Bounded context: language production.** Distinct from
-//!   `cfdb-core`'s schema-vocabulary context (which owns the
-//!   `:Item` / `:CallSite` / `:Module` / `:Crate` types + the
-//!   `IN_*` / `INVOKES_AT` edge labels) and from `cfdb-extractor`'s
-//!   Rust-producer context (which owns the syn walker + the
-//!   `Cargo.toml`-based detector). `cfdb-lang` is the *seam* between
-//!   them — the published port that consumer-side code (the CLI
-//!   dispatcher in `cfdb-cli/src/lang.rs`) calls into without naming
-//!   any concrete producer crate.
-//! - **Crate stability profile.** Sits next to `cfdb-core` in the
-//!   inner ring. Phase 1 instability metrics
-//!   (per RFC-041 §3.2 SAP table): Ca = 2 (`cfdb-extractor` +
-//!   `cfdb-cli`), Ce = 1 (`cfdb-core`), I = 0.33, A = 0.50, D = 0.17
-//!   (Zone of Usefulness). Adding more producers (#264, #265)
-//!   decreases instability.
-//! - **NOT a schema vocabulary owner.** Concrete producers MUST
-//!   emit only the closed-set `:Item.kind` values declared in
-//!   `cfdb-core::schema::labels` (the Rust producer's existing
-//!   `"struct"` / `"enum"` / `"trait"` / `"fn"` / `"impl_block"` /
-//!   `"const"` / `"static"` / `"type"` / `"mod"`). New `kind`
-//!   values for future languages require a separate schema RFC +
-//!   `cfdb-core::SchemaVersion` patch + lockstep PR on
-//!   `graph-specs-rust` per RFC-033 §4 I2. The trait does NOT
-//!   widen the schema by side effect — Published Language
-//!   invariant per RFC-041 §4.
+//! `cfdb-lang` is the seam between `cfdb-core`'s schema-vocabulary context
+//! (which owns `:Item` / `:CallSite` / `:Module` / `:Crate` types) and each
+//! language producer's context. It is the published port that consumer-side
+//! code calls into without naming any concrete producer crate.
+//!
+//! Concrete producers MUST emit only the closed-set `:Item.kind` values
+//! declared in `cfdb-core::schema::labels`. The trait does NOT widen the
+//! schema by side effect.
 
 use std::path::{Path, PathBuf};
 

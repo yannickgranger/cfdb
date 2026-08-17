@@ -1,6 +1,5 @@
 //! Tests for udf.rs — extracted as a sibling file to keep the parent
-//! under the 500-line god-file threshold (#421 boy-scout, RFC-044 §3.7
-//! quality-all god-file gate). Parent declares this module via
+//! under the 500-line god-file threshold. Parent declares this module via
 //! `#[cfg(test)] mod tests;`.
 
 use super::*;
@@ -145,8 +144,8 @@ mod signature_divergent_tests {
 }
 
 mod entries_overlap_tests {
-    //! Unit tests for the RFC-040 §3.4 overlap UDFs
-    //! (`entries_subset`, `entries_jaccard`, `overlap_verdict`).
+    //! Unit tests for the overlap UDFs (`entries_subset`, `entries_jaccard`,
+    //! `overlap_verdict`).
     //!
     //! Pure-function impls (`entries_subset_impl`, `entries_jaccard_impl`,
     //! `overlap_verdict_impl`) are exercised directly so the test surface
@@ -204,7 +203,7 @@ mod entries_overlap_tests {
 
     #[test]
     fn mixed_element_type_is_not_subset_either_way() {
-        // RFC-040 §3.4 N2 — mixed-type inputs return false.
+        // Mixed-type inputs return false.
         let strs = r#"["1","2"]"#;
         let ints = "[1,2]";
         assert!(!entries_subset_impl(strs, ints));
@@ -221,7 +220,7 @@ mod entries_overlap_tests {
 
     #[test]
     fn jaccard_of_two_empty_sets_is_zero() {
-        // RFC-040 §3.4 — divide-by-zero guard.
+        // Divide-by-zero guard.
         assert_eq!(entries_jaccard_impl("[]", "[]"), 0.0);
     }
 
@@ -274,7 +273,7 @@ mod entries_overlap_tests {
 
     #[test]
     fn jaccard_mixed_element_types_is_zero() {
-        // RFC-040 §3.4 N2 — mixed-type inputs return 0.0.
+        // Mixed-type inputs return 0.0.
         let strs = r#"["1","2"]"#;
         let ints = "[1,2]";
         assert_eq!(entries_jaccard_impl(strs, ints), 0.0);
@@ -298,9 +297,8 @@ mod entries_overlap_tests {
 
     #[test]
     fn overlap_verdict_duplicate_when_hashes_equal() {
-        // hash equality is the canonical set-equality key (RFC-040 §3.1) —
-        // takes precedence over subset / jaccard regardless of normalized
-        // contents.
+        // Hash equality is the canonical set-equality key — takes precedence
+        // over subset / jaccard regardless of normalized contents.
         let v = overlap_verdict_impl(r#"["a"]"#, r#"["a"]"#, "deadbeef", "deadbeef");
         assert_eq!(v, "CONST_TABLE_DUPLICATE");
     }
@@ -324,8 +322,7 @@ mod entries_overlap_tests {
 
     #[test]
     fn overlap_verdict_intersection_high_when_jaccard_at_threshold() {
-        // {a,b,c} vs {b,c,d} — jaccard 0.5, neither is a subset of the
-        // other. RFC-040 §3.4 third-tier verdict.
+        // {a,b,c} vs {b,c,d} — jaccard 0.5, neither is a subset of the other.
         let v = overlap_verdict_impl(r#"["a","b","c"]"#, r#"["b","c","d"]"#, "h_left", "h_right");
         assert_eq!(v, "CONST_TABLE_INTERSECTION_HIGH");
     }

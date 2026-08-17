@@ -1,26 +1,18 @@
-//! `cfdb-hir-extractor` — HIR-backed extractor scaffold (Issue #84).
+//! `cfdb-hir-extractor` — HIR-backed extractor scaffold.
 //!
 //! This crate is the Phase B companion to the existing syn-based
 //! `cfdb-extractor`. It consumes a `ra_ap_hir::db::HirDatabase` and emits
 //! resolved `:CallSite`, `CALLS`, `INVOKES_AT`, and `:EntryPoint` facts
 //! into the same `cfdb-core` schema. The two extractors run in parallel
 //! and are disambiguated at query time via the `resolver` discriminator
-//! property on `:CallSite` (`"syn"` vs `"hir"`, SchemaVersion v0.1.3+
-//! per Issue #83).
+//! property on `:CallSite` (`"syn"` vs `"hir"`, SchemaVersion v0.1.3+).
 //!
-//! **Slice status — Issue #84 scaffold only.** As shipped by this slice
-//! the crate is empty: no public API, no facts emitted. The scaffold
-//! proves only that the workspace pins the `ra-ap-*` bundle at the
-//! declared `=0.0.328` exact versions and that cfdb-core public
-//! signatures remain free of `ra_ap_*` types (architecture gate v0.2-6,
-//! asserted by `tests/arch_boundary.rs`). Logic arrives in:
+//! As a scaffold, this crate verifies that the workspace pins the
+//! `ra-ap-*` bundle at the declared `=0.0.328` exact versions and that
+//! cfdb-core public signatures remain free of `ra_ap_*` types (architecture
+//! gate v0.2-6, asserted by `tests/arch_boundary.rs`).
 //!
-//! - Issue #85 — `build_hir_database` + `extract_call_sites` +
-//!   resolved `CALLS` / `INVOKES_AT` + the `cfdb-hir-petgraph-adapter`
-//!   crate that isolates ra-ap-* from `cfdb-cli`'s compile tree.
-//! - Issue #86 — `:EntryPoint` catalog + `cfdb-cli --features hir`.
-//!
-//! ## Object-safety constraint (RFC-029 §A1.2 line 87)
+//! ## Object-safety constraint
 //!
 //! `ra_ap_hir::db::HirDatabase` is a salsa query database that uses
 //! associated types and generic methods — it is explicitly NOT
@@ -29,7 +21,7 @@
 //! HirDatabase + Sized`. `dyn HirDatabase` is forbidden and will fail
 //! the architecture review on every PR. No exception.
 //!
-//! ## Boundary contract (RFC-029 §A1.2 line 85)
+//! ## Boundary contract
 //!
 //! No `ra_ap_*` type ever appears in a `cfdb-core` public signature.
 //! The architecture test `tests/arch_boundary.rs` enforces this by
@@ -38,15 +30,15 @@
 //! `cfdb_core::fact::{Node, Edge}` happens inside this crate; the
 //! public return type is always the cfdb-core vocabulary.
 //!
-//! ## No-overlap contract (Issue #84 AC-6)
+//! ## No-overlap contract
 //!
 //! This crate NEVER emits `Label::ITEM`, `Label::CRATE`, or
 //! `Label::MODULE` nodes. Those are the exclusive domain of
 //! `cfdb-extractor` (syn-based). The exclusion test
 //! `tests/exclusion.rs` scans `src/` for the forbidden constant
 //! references and fails on any occurrence. Mixing the two breaks the
-//! bounded-context split the decomposition of #40 was specifically
-//! engineered to preserve.
+//! bounded-context split the decomposition was specifically engineered
+//! to preserve.
 
 // Workspace-dep references. The crate does not yet USE the HIR APIs
 // (scaffold only), but every declared `ra-ap-*` dep must appear as a
@@ -56,9 +48,9 @@
 // `use … as _;` form brings the crate into the linkage graph without
 // introducing any identifier into scope. See the upgrade protocol
 // (`docs/ra-ap-upgrade-protocol.md` §2).
-// RFC-044 §3.7 (slice 044-G): cfdb-core schema enums are `#[non_exhaustive]`.
-// Cross-crate `match` sites require `_ =>` arms by E0004; deny below
-// auto-activates when `non_exhaustive_omitted_patterns` stabilises.
+// cfdb-core schema enums are `#[non_exhaustive]`. Cross-crate `match`
+// sites require `_ =>` arms by E0004; deny below auto-activates when
+// `non_exhaustive_omitted_patterns` stabilises.
 #![allow(unknown_lints)]
 #![deny(non_exhaustive_omitted_patterns)]
 
@@ -75,24 +67,24 @@ use ra_ap_syntax as _;
 use ra_ap_vfs as _;
 
 // The `emit` module exposes the `CallSiteEmitter` trait and `EmitStats`
-// struct — the store-adapter contract. Slice 3b (Issue #92).
+// struct — the store-adapter contract.
 pub mod emit;
 
-// Slice 3c (Issue #85c) — the HIR extraction logic.
+// The HIR extraction logic.
 pub mod call_site_emitter;
 pub mod error;
 pub mod hir_db;
 
 // Canonical crate-name prefix resolution, shared by the call-site and
 // entry-point emitters so a `[[bin]]` target whose name differs from its
-// package name produces the package-name qname prefix both agree on (#517).
+// package name produces the package-name qname prefix both agree on.
 mod crate_name;
 
-// Slice 4 (Issue #86) — :EntryPoint catalog.
+// :EntryPoint catalog.
 pub mod entry_point_emitter;
 
-// RFC-054 54-C (#558) — target-root correlation map; the join between
-// `hir::Crate` and its cargo target that ra_ap itself discards.
+// Target-root correlation map; the join between `hir::Crate` and its
+// cargo target that ra_ap itself discards.
 pub mod target_map;
 
 pub use call_site_emitter::extract_call_sites;

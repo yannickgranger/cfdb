@@ -1,8 +1,7 @@
 //! `enrich_metrics` — populate `unwrap_count`, `cyclomatic`,
-//! `test_coverage`, and `dup_cluster_id` on `:Item{kind:"Fn"}` nodes
-//! (RFC-036 §3.3 / issue #203).
+//! `test_coverage`, and `dup_cluster_id` on `:Item{kind:"Fn"}` nodes.
 //!
-//! # SRP decomposition (RFC-036 §3.3)
+//! # SRP decomposition
 //!
 //! | Submodule | Responsibility |
 //! |---|---|
@@ -10,14 +9,14 @@
 //! | [`coverage`] | `cargo-llvm-cov` JSON → per-qname `f64` line-coverage ratio (subfeature `llvm-cov`) |
 //! | [`clustering`] | Group items by `signature_hash`, emit `dup_cluster_id = sha256(lex_sorted(member_qnames).join("\n"))` for clusters of size ≥ 2 |
 //!
-//! # Stateless full re-walk (RFC-036 §3.3)
+//! # Stateless full re-walk
 //!
 //! No `changed_files` parameter; every call re-parses every distinct
 //! source file referenced by a `:Item{kind:"Fn"}.file` prop. Cheap —
 //! syn is fast and the file set is bounded by the crate count, not the
 //! item count.
 //!
-//! # Determinism (RFC-036 §3.3 / specs/concepts/cfdb-petgraph.md)
+//! # Determinism
 //!
 //! Per-file parsing is sequential. Sort-before-emit: the computed
 //! `(qname, AstSignals)` pairs are collected into a
@@ -214,3 +213,6 @@ fn apply_item_attrs(
     }
     count
 }
+
+#[cfg(test)]
+mod tests;

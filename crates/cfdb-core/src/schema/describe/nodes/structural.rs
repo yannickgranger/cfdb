@@ -1,6 +1,6 @@
 //! Structural node-label descriptors — the Rust AST skeleton: crate,
 //! module, file, item (+ its provenance-grouped attribute sets), field,
-//! variant, and param. Split out of `nodes.rs` (#467).
+//! variant, and param.
 
 use crate::schema::descriptors::{attr, AttributeDescriptor, NodeLabelDescriptor, Provenance};
 use crate::schema::labels::Label;

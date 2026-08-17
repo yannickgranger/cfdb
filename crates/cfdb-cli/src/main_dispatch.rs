@@ -1,6 +1,5 @@
-//! Group-dispatch helpers for the `cfdb` CLI. Split out of `main.rs` as
-//! part of the #128 god-file split. Each of the four helpers below
-//! unpacks one slice of the `Command` enum and delegates to the
+//! Group-dispatch helpers for the `cfdb` CLI. Each of the four helpers
+//! below unpacks one slice of the `Command` enum and delegates to the
 //! corresponding `cfdb_cli::*` handler.
 
 use std::str::FromStr;
@@ -39,11 +38,7 @@ pub(crate) fn dispatch_core(cmd: Command) -> Result<(), CfdbCliError> {
             let rows_found = violations(db, keyspace, rule, count_only)?;
             if rows_found > 0 && !no_fail {
                 // Exit 30 = "rule rows returned, gate failure" — distinct from
-                // exit 1 (runtime error). Aligns with `ci/cross-dogfood.sh`
-                // convention so CI scripts can disambiguate "extractor blew
-                // up" from "rule found rows." See main.rs `Exit codes` doc.
-                // Routed through `findings_exit()` (main_exit.rs) — the single
-                // authorised site for the 30 exit so the contract is auditable.
+                // exit 1 (runtime error). Routed through `findings_exit()`.
                 findings_exit();
             }
             Ok(())
@@ -56,9 +51,7 @@ pub(crate) fn dispatch_core(cmd: Command) -> Result<(), CfdbCliError> {
         } => {
             let rows_found = check(&db, &keyspace, trigger)?;
             if rows_found > 0 && !no_fail {
-                // Exit 30 = "rule rows returned, gate failure" — see the
-                // sibling site in `Command::Violations` above for rationale.
-                // Routed through `findings_exit()` (main_exit.rs).
+                // Exit 30 = "rule rows returned, gate failure".
                 findings_exit();
             }
             Ok(())

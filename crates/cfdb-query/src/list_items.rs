@@ -1,4 +1,4 @@
-//! `list_items_matching` — the 16th cfdb verb (RATIFIED.md §A.14).
+//! `list_items_matching` — a cfdb verb.
 //!
 //! Composes a `Query` AST value from a regex name pattern, an optional
 //! [`ItemKind`] filter list, and a `group_by_context` flag. Pure and
@@ -13,9 +13,9 @@ use cfdb_core::query::{
 };
 use cfdb_core::schema::Label;
 
-/// Compose the `list_items_matching` query (RATIFIED.md §A.14 — the 16th
-/// cfdb verb). Returns a [`Query`] AST value; the caller is responsible for
-/// executing it against a [`cfdb_core::store::StoreBackend`].
+/// Compose the `list_items_matching` query. Returns a [`Query`] AST value;
+/// the caller is responsible for executing it against a
+/// [`cfdb_core::store::StoreBackend`].
 ///
 /// Semantics:
 /// - `name_pattern` — openCypher-compatible regex applied to `:Item.name`.
@@ -68,10 +68,10 @@ pub fn list_items_matching(
         None => Some(regex_predicate),
     };
 
-    // The seven columns surfaced per AC / RATIFIED §A.14:
-    // `{qname, name, kind, crate, file, line, bounded_context}`. Projected
-    // explicitly as `item.<prop> AS <prop>` so the row shape is a flat object
-    // keyed by the property name — not a bare `item` id string.
+    // The seven columns: `{qname, name, kind, crate, file, line,
+    // bounded_context}`. Projected explicitly as `item.<prop> AS <prop>` so
+    // the row shape is a flat object keyed by the property name — not a bare
+    // `item` id string.
     let flat_item_projections = || -> Vec<Projection> {
         [
             "qname",

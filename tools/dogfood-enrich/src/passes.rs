@@ -1,14 +1,14 @@
-//! Enumeration of the 7 enrichment passes per RFC-039 §3.1.
+//! Enumeration of the 7 enrichment passes.
 //!
 //! Each `PassDef` carries everything the runner needs to dispatch one
 //! pass: the canonical name (matches `cfdb enrich-<name>`), the path of
-//! the Cypher template (added by Issues #343–#349), the optional ratio
-//! threshold (None for hard-equality passes), and the feature gate.
+//! the Cypher template, the optional ratio threshold (None for hard-equality
+//! passes), and the feature gate.
 
 use crate::thresholds;
 
-/// Feature flag the pass requires. Default = no flag (PR-time CI).
-/// Non-default variants run only in the nightly job per RFC §3.3.
+/// Feature flag the pass requires. Default = no flag.
+/// Non-default variants run only in the nightly job.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FeatureGate {
     /// PR-time eligible — no feature flag required.
@@ -33,8 +33,7 @@ pub struct PassDef {
     pub name: &'static str,
     /// Path of the Cypher template file relative to the workspace root.
     /// Templates contain `{{ threshold }}` placeholders for ratio passes.
-    /// Materialized to a tempfile by [`crate::runner`] before subprocess
-    /// invocation. Files added by Issues #343–#349.
+    /// Materialized to a tempfile by [`crate::runner`] before subprocess invocation.
     pub query_template_path: &'static str,
     /// Ratio threshold (percentage 0–100) for ratio-based passes.
     /// `None` for hard-equality passes (deprecation, rfc-docs, concepts).
@@ -53,7 +52,7 @@ pub struct PassDef {
 }
 
 impl PassDef {
-    /// Static catalogue of all 7 passes. Order matches RFC §3.1 table.
+    /// Static catalogue of all 7 passes.
     pub const fn all() -> &'static [PassDef] {
         &[
             PassDef {

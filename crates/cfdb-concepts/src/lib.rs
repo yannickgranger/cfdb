@@ -16,13 +16,12 @@
 //!    `cfdb-extractor`, ...) produces deterministic output.
 //!
 //! Determinism: everything here uses `BTreeMap` / sorted `Vec<PathBuf>` so
-//! two runs on the same inputs emit byte-identical facts — RFC-029 §12.1 G1.
+//! two runs on the same inputs emit byte-identical facts.
 //!
 //! # Origin
 //!
 //! Originally `cfdb-extractor/src/context.rs`; extracted into this dedicated
-//! crate per Issue #3 (council-ratified #3841 doctrine). The extraction exists
-//! because multiple consumers (`cfdb-extractor` and the future `cfdb-query`
+//! crate because multiple consumers (`cfdb-extractor` and the future `cfdb-query`
 //! DSL evaluator's `ContextMap` type) need the same loader, and a shared
 //! crate is the Rust-level implementation of the Conformist pattern.
 //!
@@ -66,12 +65,11 @@ pub struct ContextMeta {
     pub owning_rfc: Option<String>,
 }
 
-/// Bounded-context name with provenance discriminator (RFC-038).
+/// Bounded-context name with provenance discriminator.
 ///
-/// Returned by [`compute_bounded_context`]. The `name` field is the same
-/// string the function returned pre-RFC-038; the `source` field surfaces
-/// the override-vs-heuristic discrimination that was previously discarded
-/// at the API boundary.
+/// Returned by [`compute_bounded_context`]. The `name` field is the resolved
+/// context name; the `source` field surfaces the override-vs-heuristic
+/// discrimination.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BoundedContext {
     pub name: String,
@@ -118,9 +116,8 @@ impl ConceptOverrides {
     }
 
     /// Iterate every `(crate_name, owning_context)` mapping in sorted crate
-    /// order. Used by `enrich_concepts` (slice 43-F / issue #109) to emit
-    /// `(:Item)-[:LABELED_AS]->(:Concept)` edges for every item whose crate
-    /// is covered by a TOML-declared context.
+    /// order. Used to emit `(:Item)-[:LABELED_AS]->(:Concept)` edges for
+    /// every item whose crate is covered by a TOML-declared context.
     pub fn crate_assignments(&self) -> &BTreeMap<String, ContextMeta> {
         &self.by_crate
     }
@@ -152,10 +149,8 @@ pub fn load_concept_overrides(workspace_root: &Path) -> Result<ConceptOverrides,
 }
 
 /// Read the `concepts/` directory and return its `*.toml` children sorted
-/// for determinism. Pulled out of [`load_concept_overrides`] so the error-
-/// path `dir.clone()` (unavoidable — `map_err` captures `dir` by move into
-/// each error branch) does not register as a clone inside the main `for`
-/// loop scope of the public entry.
+/// for determinism. Pulled out of [`load_concept_overrides`] to avoid clones
+/// inside the main loop scope of the public entry.
 fn collect_toml_entries(dir: &Path) -> Result<Vec<PathBuf>, LoadError> {
     let rd = fs::read_dir(dir).map_err(|source| LoadError::Io {
         path: dir.to_path_buf(),
@@ -179,8 +174,8 @@ fn collect_toml_entries(dir: &Path) -> Result<Vec<PathBuf>, LoadError> {
 }
 
 /// Parse one `<context>.toml` file and extend `by_crate` with its entries.
-/// Factored out of [`load_concept_overrides`] so the per-file clones stay
-/// in a dedicated helper rather than cluttering the top-level `for` loop.
+/// Factored out of [`load_concept_overrides`] to keep per-file clones in a
+/// dedicated helper rather than in the top-level loop.
 fn load_single_concept_file(
     path: &Path,
     by_crate: &mut BTreeMap<String, ContextMeta>,
@@ -209,9 +204,9 @@ fn load_single_concept_file(
 /// crates with no known prefix return their full name unchanged.
 ///
 /// Returns a [`BoundedContext`] carrying both the resolved `name` and the
-/// [`ContextSource`] discriminator (RFC-038): `Declared` when the result
-/// came from an override file, `Heuristic` when it came from prefix
-/// stripping or the no-prefix fallback.
+/// [`ContextSource`] discriminator: `Declared` when the result came from an
+/// override file, `Heuristic` when it came from prefix stripping or the
+/// no-prefix fallback.
 #[must_use]
 pub fn compute_bounded_context(package_name: &str, overrides: &ConceptOverrides) -> BoundedContext {
     if let Some(meta) = overrides.lookup(package_name) {

@@ -2,27 +2,16 @@
 //! ID contract for `cfdb`'s fact graph.
 //!
 //! Both the syn-based `cfdb-extractor` and the HIR-based
-//! `cfdb-hir-extractor` (v0.2+ — Issue #85c) emit `Item` nodes with
-//! IDs of the form `item:<qname>` and reference those IDs from other
-//! facts (e.g., `CALLS(item:caller, item:callee)`). For cross-extractor
-//! edges to land on the same `:Item` node, both extractors MUST
-//! compute the `<qname>` component bit-identically for the same source
-//! item. Any formula divergence produces silently dangling edges — the
-//! worst class of graph corruption because it passes every schema
-//! validator while making every reachability query wrong.
+//! `cfdb-hir-extractor` emit `Item` nodes with IDs of the form `item:<qname>`.
+//! For cross-extractor edges to land on the same `:Item` node, both extractors
+//! MUST compute the `<qname>` component bit-identically for the same source item.
+//! Any formula divergence produces silently dangling edges — the worst class
+//! of graph corruption because it passes every schema validator while making
+//! every reachability query wrong.
 //!
 //! The functions in this module are the single canonical formula.
-//! `cfdb-extractor` (syn) uses them via direct call. `cfdb-hir-extractor`
-//! will use them after projecting HIR types down to the same
-//! `(module_stack, item_name)` tuple.
-//!
 //! All functions are pure: values in → values out, zero I/O, zero
 //! allocations beyond the return `String`.
-//!
-//! Per-label node-id formulas live in the private `node_id` submodule
-//! and are re-exported here ([`field_node_id`], [`item_node_id`],
-//! [`param_node_id`], [`variant_node_id`]) so callers of
-//! `cfdb_core::qname::field_node_id` (etc.) keep working unchanged.
 
 mod node_id;
 pub use node_id::{

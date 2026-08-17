@@ -22,8 +22,7 @@
 //! `method`. The rustdoc JSON `paths` map (our ground truth, see
 //! `adapters/ground_truth.rs`) only indexes TOP-LEVEL items — impl
 //! methods live under `Crate::index` inside `Impl` items and need a
-//! separate walk. For v0.1 we measure recall on top-level items only
-//! and defer methods to v0.2; so this projection drops `kind="method"`
+//! separate walk. So this projection drops `kind="method"`
 //! to keep the two sides of the recall formula symmetric.
 
 use std::collections::BTreeSet;
@@ -216,8 +215,6 @@ mod tests {
         // Methods are emitted by `visit_impl_item_fn` with kind="method".
         // The rustdoc `paths` ground truth does not index methods, so
         // the recall formula is symmetric only if we drop them here too.
-        // Until v0.2 (ra-ap-hir + impl traversal on both sides) this is
-        // the correct thing to do.
         let nodes = vec![
             item_node_with_kind("item:c::foo", "c", "c::foo", "fn", false),
             item_node_with_kind("item:c::Bar", "c", "c::Bar", "struct", false),

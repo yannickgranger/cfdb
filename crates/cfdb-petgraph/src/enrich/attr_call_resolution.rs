@@ -1,15 +1,15 @@
 //! `attr_call_resolution` — post-pass that flips `:Item.reachable_from_entry`
 //! to `true` for fn items invoked by an attribute-driven derived impl that
-//! cfdb cannot trace via the normal call graph (issue #396).
+//! cfdb cannot trace via the normal call graph.
 //!
 //! # The recall gap this closes
 //!
 //! `#[serde(default = "fn")]` on a struct field references a callable that
 //! serde's derived `Deserialize` impl invokes when the field is missing.
 //! The derive expansion is invisible to cfdb (the proc-macro server is
-//! disabled — see issue #398), so the BFS in [`super::reachability`]
-//! never reaches the callee through a CALLS chain. Without this post-pass,
-//! every `#[serde(default = "fn")]` callee is flagged `unwired` even when
+//! disabled), so the BFS in [`super::reachability`] never reaches the
+//! callee through a CALLS chain. Without this post-pass, every
+//! `#[serde(default = "fn")]` callee is flagged `unwired` even when
 //! the owning struct is actively deserialised.
 //!
 //! The syn-side extractor (`cfdb-extractor::item_visitor::visits`) DOES
@@ -91,8 +91,8 @@ const KIND_SERDE_DEFAULT: &str = "serde_default";
 ///
 /// Misses are silent — the caller logs nothing because a missing
 /// callee_path resolution simply means the recall improvement does not
-/// apply to this particular attr. This matches the rest of cfdb's
-/// degraded-pass discipline (RFC §6 graceful degradation).
+/// apply to this particular attr. This is a graceful degradation in absence
+/// of a definitive resolution.
 pub(crate) fn mark_serde_default_callees_reachable(
     state: &mut KeyspaceState,
     reach_attr: &str,
@@ -125,13 +125,12 @@ fn collect_resolutions(state: &KeyspaceState) -> BTreeMap<NodeIndex, NodeIndex> 
         else {
             continue;
         };
-        // RFC-054 §3.5.3 (#557, council altitude ruling): the caller's
-        // target comes from the graph's own structure — the incoming
-        // INVOKES_AT edge names the exact owning `:Item` (emitted with the
-        // discriminated src), so no value-join on display props exists to
-        // be wrong, and nothing is scanned when the keyspace carries no
-        // serde-default sites. Pre-054 keyspaces / non-Rust producers have
-        // no `target` prop ⇒ `None` ⇒ bare-id candidates only.
+        // The caller's target comes from the graph's own structure — the
+        // incoming INVOKES_AT edge names the exact owning `:Item` (emitted
+        // with the discriminated src), so no value-join on display props
+        // exists to be wrong, and nothing is scanned when the keyspace
+        // carries no serde-default sites. Keyspaces without this targeting
+        // have no `target` prop ⇒ `None` ⇒ bare-id candidates only.
         let caller_target = caller_target_via_invokes_at(state, cs_idx);
         if let Some(item_idx) =
             resolve_callee_to_item(state, callee_path, caller_qname, caller_target.as_ref())
@@ -295,10 +294,10 @@ mod tests {
 
     #[test]
     fn bin_target_caller_resolves_bin_local_callee_same_target_first() {
-        // RFC-054 §3.5.3 regression (#557): a #[serde(default = "...")]
-        // callee defined in a bin target lives at a discriminated id; the
-        // caller's target context must route the candidate there, with
-        // the bare (lib) id as fallback — never a foreign bin.
+        // A #[serde(default = "...")] callee defined in a bin target lives
+        // at a discriminated id; the caller's target context must route the
+        // candidate there, with the bare (lib) id as fallback — never a
+        // foreign bin.
         let mut callee = make_item("tif::defaults::seed");
         callee.id = format!("{}#bin:alpha", callee.id);
         let mut state = KeyspaceState::new();

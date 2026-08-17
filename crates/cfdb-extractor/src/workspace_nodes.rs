@@ -1,9 +1,6 @@
 //! Workspace-level node emission + per-package target walk — the
-//! `:Crate` / `:Context` producers and the per-target `visit_file`
-//! dispatch (RFC-054 §3.3 target threading).
+//! `:Crate` / `:Context` producers and the per-target `visit_file` dispatch.
 //!
-//! Split out of `lib.rs` verbatim (#560-class god-file decomposition,
-//! boy-scouted in #557; precedent: #239 `emitter.rs`/`resolver.rs`).
 //! `extract_workspace` orchestration stays in `lib.rs`; this module owns
 //! how workspace structure becomes nodes.
 
@@ -54,9 +51,9 @@ pub(crate) fn emit_crate_and_walk_targets(
         label: Label::new(Label::CRATE),
         props: {
             let mut p = BTreeMap::new();
-            // RFC-050 50-A. `crate_tiers` is total over the workspace member
-            // set, so the lookup always hits; `unwrap_or(0)` is a defensive
-            // non-panic for the structurally-impossible miss (a leaf default).
+            // `crate_tiers` is total over the workspace member set, so the
+            // lookup always hits; `unwrap_or(0)` is a defensive non-panic
+            // for the structurally-impossible miss.
             p.insert(
                 "crate_tier".into(),
                 PropValue::Int(
@@ -72,10 +69,9 @@ pub(crate) fn emit_crate_and_walk_targets(
                 PropValue::Str(package.version.to_string()),
             );
             p.insert("is_workspace_member".into(), PropValue::Bool(true));
-            // Published Language marker (issue #100 / addendum §A1.8):
-            // `true` iff the crate is declared in
-            // `.cfdb/published-language-crates.toml`. Every `:Crate`
-            // carries this prop — no `Option`, missing file → `false`.
+            // Published Language marker: `true` iff the crate is declared in
+            // `.cfdb/published-language-crates.toml`. Every `:Crate` carries
+            // this prop — no `Option`, missing file → `false`.
             p.insert(
                 "published_language".into(),
                 PropValue::Bool(published_language.is_published_language(&package.name)),
@@ -85,7 +81,7 @@ pub(crate) fn emit_crate_and_walk_targets(
     });
 
     // Emit the Crate -> Context BELONGS_TO edge now so a single pass
-    // over edges shows the crate-to-context wiring (council §B.1.3).
+    // over edges shows the crate-to-context wiring.
     let context_id = format!("context:{bounded_context}");
     emitter.emit_edge(Edge {
         src: crate_id.clone(),
@@ -94,9 +90,9 @@ pub(crate) fn emit_crate_and_walk_targets(
         props: BTreeMap::new(),
     });
 
-    // RFC-054 §3.3 (#557): stop discarding target identity — each target
-    // root carries its TargetDiscriminator so distinct cargo targets of one
-    // package occupy distinct identity namespaces (#542).
+    // Stop discarding target identity — each target root carries its
+    // TargetDiscriminator so distinct cargo targets of one package occupy
+    // distinct identity namespaces.
     let targets: Vec<(PathBuf, TargetDiscriminator)> = package
         .targets
         .iter()

@@ -1,10 +1,10 @@
 //! Per-keyspace graph state — a `StableDiGraph<Node, Edge>` plus an
 //! insertion-ordered id → `NodeIndex` map and a label index.
 //!
-//! Determinism (RFC §12 G1): the id map uses `IndexMap` so iteration order is
-//! insertion order; the label index uses `BTreeMap` so label iteration is
-//! sorted. Two runs that ingest the same facts in the same order produce
-//! identical in-memory state — and identical canonical dumps.
+//! Determinism: the id map uses `IndexMap` so iteration order is insertion
+//! order; the label index uses `BTreeMap` so label iteration is sorted. Two
+//! runs that ingest the same facts in the same order produce identical
+//! in-memory state — and identical canonical dumps.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -47,37 +47,33 @@ pub(crate) struct KeyspaceState {
     /// warnings so partially-ingested graphs are obvious to the caller.
     pub(crate) ingest_warnings: Vec<Warning>,
 
-    /// Identity contentions individually recorded so far (RFC-054 54-A).
-    /// Recording stops at [`CONTENTION_WARNING_CAP`]; see
-    /// [`Self::materialized_ingest_warnings`] for the summary row.
+    /// Identity contentions individually recorded so far. Recording stops at
+    /// [`CONTENTION_WARNING_CAP`]; see [`Self::materialized_ingest_warnings`]
+    /// for the summary row.
     pub(crate) recorded_contentions: usize,
 
     /// Identity contentions past the cap — carried as a count and
     /// materialized into one summary warning at read time.
     pub(crate) suppressed_contentions: usize,
 
-    /// Inverted-index spec for this keyspace (RFC-035 slice 2 #181).
-    /// Empty by default; populated via [`KeyspaceState::new_with_spec`]
-    /// when the composition root (slice 7 #186) hands `.cfdb/indexes.toml`
-    /// down. `ingest_one_node` consults this to maintain
+    /// Inverted-index spec for this keyspace. Empty by default; populated via
+    /// [`KeyspaceState::new_with_spec`] when the composition root hands
+    /// `.cfdb/indexes.toml` down. `ingest_one_node` consults this to maintain
     /// [`Self::by_prop`] incrementally.
     pub(crate) index_spec: IndexSpec,
 
-    /// Inverted indexes by `(Label, tag) → value → node set`. Populated
-    /// at ingest time from [`Self::index_spec`]; rebuilt on load (slice
-    /// 4 #183) rather than serialised to disk (RFC-035 §3.7). Empty
-    /// when `index_spec` declares no indexes.
+    /// Inverted indexes by `(Label, tag) → value → node set`. Populated at
+    /// ingest time from [`Self::index_spec`]; rebuilt on load rather than
+    /// serialised to disk. Empty when `index_spec` declares no indexes.
     ///
-    /// The `tag` is either the literal prop name (for `IndexEntry::Prop`)
-    /// or the canonical computed-key string such as
-    /// `"last_segment(qname)"` (for `IndexEntry::Computed`). See
-    /// [`crate::index::build`] for the `(IndexEntry, Node) → (tag, value)`
-    /// mapping.
+    /// The `tag` is either the literal prop name (for `IndexEntry::Prop`) or
+    /// the canonical computed-key string such as `"last_segment(qname)"`
+    /// (for `IndexEntry::Computed`). See [`crate::index::build`] for the
+    /// `(IndexEntry, Node) → (tag, value)` mapping.
     ///
-    /// **Not part of `canonical_dump`.** Indexes are rebuild-able
-    /// scratch — leaking them into the byte-stable dump would break
-    /// the G1 determinism invariant (RFC-035 §4). `canonical_dump.rs`
-    /// does not touch this field.
+    /// **Not part of `canonical_dump`.** Indexes are rebuild-able scratch —
+    /// leaking them into the byte-stable dump would break the determinism
+    /// invariant. `canonical_dump.rs` does not touch this field.
     pub(crate) by_prop: BTreeMap<(Label, IndexTag), BTreeMap<IndexValue, BTreeSet<NodeIndex>>>,
 
     /// Precomputed `Label.as_str() → {tag, …}` membership map derived

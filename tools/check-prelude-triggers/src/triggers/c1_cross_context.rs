@@ -4,9 +4,6 @@
 //! `context-map.toml`. Mechanism: bucket each changed path against every
 //! context's `path_prefixes` list; a path that matches at least one prefix
 //! is credited to that context.
-//!
-//! Reference: RFC-034 §4.2 table + POC stub at
-//! `qbot-core:poc/prevention-round-1:docs/poc/prevention/round-4/bin/check-prelude-triggers.py`.
 
 use serde_json::json;
 use std::collections::BTreeMap;

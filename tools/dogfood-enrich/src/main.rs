@@ -1,4 +1,4 @@
-//! `dogfood-enrich` binary — RFC-039 §3.5.1 entry point.
+//! `dogfood-enrich` binary — entry point.
 //!
 //! Subprocess-driven harness. Invokes `cfdb enrich-<pass>` to verify the
 //! feature is active (I5.1 guard), then materializes the matching
@@ -7,7 +7,7 @@
 //! tempfile. Exit codes:
 //!
 //! - `0`  — zero violation rows (invariant holds).
-//! - `30` — at least one violation row (invariant violated, RFC §3.5.1).
+//! - `30` — at least one violation row (invariant violated).
 //! - `1`  — runtime error: unknown pass, missing template, missing
 //!   feature (I5.1), subprocess fail, JSON parse error.
 
@@ -83,14 +83,13 @@ fn run(cli: Cli) -> Result<i32, String> {
         &cli.db,
         &cli.keyspace,
     )?;
-    // Zero-extracted blindspot guard (issue #564): the sentinel template
-    // is shaped `MATCH … WITH count(i) AS extracted_count WHERE
-    // extracted_count < N` — but the evaluator yields NO rows for
-    // count() over an empty MATCH, so the template physically cannot
-    // fire when the extractor drops EVERY #[deprecated] item. That
-    // total-loss regression is this gate's primary reason to exist, so
-    // the harness closes the hole: source truth ≥ 1 with a keyspace-side
-    // count of 0 is a violation in its own right.
+    // Zero-extracted blindspot guard: the sentinel template is shaped
+    // `MATCH … WITH count(i) AS extracted_count WHERE extracted_count < N`
+    // — but the evaluator yields NO rows for count() over an empty MATCH,
+    // so the template physically cannot fire when the extractor drops EVERY
+    // #[deprecated] item. That total-loss regression is this gate's primary
+    // reason to exist, so the harness closes the hole: source truth ≥ 1
+    // with a keyspace-side count of 0 is a violation in its own right.
     if pass.name == "enrich-deprecation" {
         if let Some((_, truth)) = extra_owned.iter().find(|(k, _)| k == "ground_truth_count") {
             let truth: usize = truth
@@ -219,10 +218,10 @@ fn compute_extra_substitutions(
                 ),
             ])
         }
-        // Path B from #355 — keyspace-side ratio computation. The
-        // cfdb-query v0.1 subset has no arithmetic operators, so the
-        // ratio `nulls/total < threshold/100` is computed harness-side
-        // and substituted into the template as a flat absolute count.
+        // Keyspace-side ratio computation. The cfdb-query v0.1 subset has
+        // no arithmetic operators, so the ratio `nulls/total < threshold/100`
+        // is computed harness-side and substituted into the template as a
+        // flat absolute count.
         "enrich-bounded-context" => {
             ratio_substitutions(
                 cfdb_bin,
@@ -233,10 +232,10 @@ fn compute_extra_substitutions(
                 "BC_COVERAGE_THRESHOLD",
             )
         }
-        // Same Path B shape — denominator is `:Item{kind:"fn"}` per
-        // RFC-039 §3.1 reachability + metrics rows. The kind filter is
-        // applied harness-side via `count_items_with_kind` so the
-        // sentinel template can read the matching `total_items`.
+        // Denominator is `:Item{kind:"fn"}` for reachability + metrics
+        // rows. The kind filter is applied harness-side via
+        // `count_items_with_kind` so the sentinel template can read the
+        // matching `total_items`.
         "enrich-reachability" => ratio_substitutions(
             cfdb_bin,
             db,
@@ -253,8 +252,8 @@ fn compute_extra_substitutions(
             thresholds::METRICS_COVERAGE_THRESHOLD,
             "METRICS_COVERAGE_THRESHOLD",
         ),
-        // Git-history denominator is every `:Item` (per RFC-039 §3.1
-        // git-history row) — same shape as bounded-context.
+        // Git-history denominator is every `:Item` — same shape as
+        // bounded-context.
         "enrich-git-history" => ratio_substitutions(
             cfdb_bin,
             db,
@@ -267,10 +266,10 @@ fn compute_extra_substitutions(
     }
 }
 
-/// Shared Path B (#355) helper for ratio passes — count `:Item` (or
-/// kind-filtered) in the keyspace, derive `nulls_threshold` from the
-/// passed threshold const, return both as substitutions for the
-/// `{{ total_items }}` and `{{ nulls_threshold }}` placeholders.
+/// Helper for ratio passes — count `:Item` (or kind-filtered) in the
+/// keyspace, derive `nulls_threshold` from the passed threshold const,
+/// return both as substitutions for the `{{ total_items }}` and
+/// `{{ nulls_threshold }}` placeholders.
 ///
 /// `kind` is `Some("fn")` for `enrich-reachability` + `enrich-metrics`
 /// (denominators are functions only) and `None` for the kind-agnostic
@@ -298,8 +297,8 @@ fn ratio_substitutions(
         format!("{threshold_name} must be Some — this is a ratio pass; check tools/dogfood-enrich/src/thresholds.rs")
     })?;
     // Integer floor — at small fixture scale the threshold floors to 0,
-    // so any single null fires the sentinel (#345 AC-3 contract; same
-    // math applies to all four ratio passes).
+    // so any single null fires the sentinel; the same math applies to all
+    // four ratio passes.
     let nulls_threshold =
         total.saturating_mul(100usize.saturating_sub(threshold_pct as usize)) / 100;
     Ok(vec![

@@ -4,19 +4,17 @@
 //!
 //! ## Why a dedicated adapter crate (not an impl in `cfdb-petgraph`)
 //!
-//! RFC-032 §3 lines 221–227 require that `cfdb-cli` NOT pay the
-//! 90–150s `ra-ap-*` cold-compile cost on every build. Because
+//! To avoid the 90–150s `ra-ap-*` cold-compile cost on every build of
+//! `cfdb-cli`, this adapter sits in a separate crate. Because
 //! `cfdb-cli → cfdb-petgraph` already exists, placing
 //! `impl CallSiteEmitter for PetgraphStore` INSIDE `cfdb-petgraph`
 //! would transitively pull `ra-ap-*` into `cfdb-cli`'s compile tree
-//! on every default build (via `cfdb-petgraph → cfdb-hir-extractor
-//! → ra-ap-*`). Architect review of #40 flagged this as a CRITICAL
-//! rust-systems finding.
+//! via `cfdb-petgraph → cfdb-hir-extractor → ra-ap-*`.
 //!
 //! The fix is this crate: the impl lives here, and `cfdb-cli` never
-//! depends on it directly. Slice 4 (Issue #86) adds the `hir`
-//! feature flag on `cfdb-cli` that OPTIONALLY pulls this adapter —
-//! users who do not enable the feature pay zero HIR compile cost.
+//! depends on it directly. An optional `hir` feature flag on `cfdb-cli`
+//! pulls this adapter — users who do not enable the feature pay zero
+//! HIR compile cost.
 //!
 //! ## Orphan-rule justification
 //!
@@ -27,14 +25,9 @@
 //!   forbids impls only when NEITHER is local, which is not our
 //!   case.
 //!
-//! ## Slice status — Issue #92
-//!
-//! This slice ships the adapter + architecture test. The
-//! `extract_call_sites<DB: HirDatabase + Sized>` free function that
-//! produces the `(Vec<Node>, Vec<Edge>)` inputs is deferred to slice
-//! 3c (Issue #85c). Until then, callers construct the input manually
-//! (as the unit test below does) — useful for exercising the store's
-//! ingestion path without requiring a loaded `HirDatabase`.
+//! Callers construct the input manually as shown in the unit test below
+//! — useful for exercising the store's ingestion path without requiring
+//! a loaded `HirDatabase`.
 
 use std::collections::BTreeSet;
 
@@ -95,13 +88,13 @@ impl CallSiteEmitter for PetgraphAdapter<'_> {
             .filter(|e| e.label.as_str() == EdgeLabel::EXPOSES)
             .count();
 
-        // Issue #388 — synthesize stub `:Item` nodes for CALLS dsts
-        // that don't yet have one. Without this, every HIR-resolved
-        // call to a foreign-crate callee (`std::vec::Vec::push`,
+        // Synthesize stub `:Item` nodes for CALLS dsts that don't yet
+        // have one. Without this, every HIR-resolved call to a
+        // foreign-crate callee (`std::vec::Vec::push`,
         // `serde::Serialize::serialize`, …) is silently dropped by
         // `cfdb_petgraph::graph::ingest_one_edge` ("unknown dst id ⇒
-        // skip"), collapsing call-graph recall by ~99.5% on cfdb-self
-        // observed at run 524. Symmetric to
+        // skip"), collapsing call-graph recall by ~99.5% on cfdb-self.
+        // Symmetric to
         // `cfdb-extractor::synthesize::synthesize_referenced_items`
         // which handles the IMPLEMENTS/IMPLEMENTS_FOR/RETURNS/TYPE_OF
         // family on the syn side; this is the parallel for CALLS on
@@ -128,15 +121,13 @@ impl CallSiteEmitter for PetgraphAdapter<'_> {
 ///    this adapter — HIR emits :CallSite + :EntryPoint, not :Item —
 ///    but the check is cheap and future-proofs against new HIR-side
 ///    :Item emissions).
-/// 2. An existing `:Item` in the store from a prior syn-side ingest
-///    (`PetgraphStore::has_node`, issue #388).
+/// 2. An existing `:Item` in the store from a prior syn-side ingest.
 ///
 /// The stub carries only identity props (`qname`, `name`, `kind`,
 /// `crate`, `bounded_context`). Body-shaped props (`file`, `line`,
 /// `visibility`, `signature`, …) are deliberately omitted — their
 /// absence is the discriminator between "walked from source" and
-/// "referenced only" (RFC-039 withdrawal rationale; same convention
-/// used by `cfdb-extractor::synthesize::synthesize_referenced_items`).
+/// "referenced only".
 ///
 /// `bounded_context` defaults to the crate name (first `::` segment
 /// of the qname). For HIR-resolved foreign callees this matches the
@@ -155,7 +146,7 @@ fn synthesize_callee_stubs(
     // Collect distinct CALLS dst ids needing synthesis. BTreeSet for
     // deterministic stub order — appending to `nodes` in sorted-id
     // order keeps the post-ingest by_label posting list stable
-    // across runs (G1 invariant).
+    // across runs.
     let pending_ids: BTreeSet<&str> = nodes
         .iter()
         .filter(|n| n.label.as_str() == Label::ITEM)
@@ -186,14 +177,13 @@ fn synthesize_callee_stubs(
 /// the IMPLEMENTS/RETURNS/TYPE_OF family, with `kind = "fn"`
 /// (the most general callable value in `ItemKind`). Routes through
 /// `cfdb_core::fact::build_item_props` so the prop vocabulary is
-/// single-sourced (#421 boy-scout: closes the split-brain flagged by
-/// `audit-split-brain` against `cfdb-extractor::synthesize`).
+/// single-sourced.
 ///
-/// RFC-054 54-C: the stub's node id is the edge dst VERBATIM — a
-/// discriminated dst (`item:x::y#bin:z`) must not be re-wrapped from
-/// its stripped display qname, or the stub lands under a DIFFERENT id
-/// and the CALLS edge it exists to anchor still dangles. The stripped
-/// qname feeds the display props only (RFC-054 §3.5.1).
+/// The stub's node id must be the edge dst VERBATIM — a discriminated
+/// dst (`item:x::y#bin:z`) must not be re-wrapped from its stripped
+/// display qname, or the stub lands under a DIFFERENT id and the CALLS
+/// edge it exists to anchor still dangles. The stripped qname feeds
+/// the display props only.
 fn build_callee_stub(node_id: &str) -> Node {
     let qname = display_qname_from_node_id(node_id);
     let crate_name = qname
@@ -222,7 +212,7 @@ mod tests {
     use cfdb_core::qname::item_node_id;
     use std::collections::BTreeMap;
 
-    /// Helper: minimal `:CallSite` node fixture with the v0.1.3
+    /// Helper: minimal `:CallSite` node fixture with the
     /// discriminator props (resolver/callee_resolved) set for the
     /// HIR-resolved case.
     fn hir_call_site(id: &str, caller_qname: &str, callee_path: &str) -> Node {
@@ -321,9 +311,9 @@ mod tests {
         }
     }
 
-    /// Issue #388 — CALLS edge whose dst has no `:Item` triggers
-    /// stub synthesis. The stub carries identity props (qname, name,
-    /// kind=fn, crate, bounded_context) so the edge survives ingest.
+    /// CALLS edge whose dst has no `:Item` triggers stub synthesis.
+    /// The stub carries identity props (qname, name, kind=fn, crate,
+    /// bounded_context) so the edge survives ingest.
     #[test]
     fn ingest_synthesizes_stub_item_for_unknown_calls_dst() {
         let mut store = PetgraphStore::new();
@@ -376,10 +366,10 @@ mod tests {
         );
     }
 
-    /// Issue #388 — when the CALLS dst :Item is ALREADY in the
-    /// store (from a prior syn-side ingest), the synthesizer must
-    /// NOT clobber it. Verify by reading back the pre-existing
-    /// body-shaped `file` prop after the HIR ingest.
+    /// When the CALLS dst :Item is ALREADY in the store (from a prior
+    /// syn-side ingest), the synthesizer must NOT clobber it. Verify by
+    /// reading back the pre-existing body-shaped `file` prop after the HIR
+    /// ingest.
     #[test]
     fn ingest_does_not_clobber_existing_calls_dst_item() {
         let mut store = PetgraphStore::new();
@@ -428,11 +418,10 @@ mod tests {
         );
     }
 
-    /// RFC-054 54-C: a DISCRIMINATED CALLS dst (`item:x#bin:y`) with no
-    /// pre-existing :Item must get a stub whose node id is the dst id
-    /// VERBATIM — re-wrapping the stripped display qname would land the
-    /// stub under `item:x` and the edge would still dangle. Display
-    /// props stay bare (RFC-054 §3.5.1).
+    /// A DISCRIMINATED CALLS dst (`item:x#bin:y`) with no pre-existing
+    /// :Item must get a stub whose node id is the dst id VERBATIM —
+    /// re-wrapping the stripped display qname would land the stub under
+    /// `item:x` and the edge would still dangle. Display props stay bare.
     #[test]
     fn ingest_synthesizes_stub_under_discriminated_dst_id_verbatim() {
         let mut store = PetgraphStore::new();

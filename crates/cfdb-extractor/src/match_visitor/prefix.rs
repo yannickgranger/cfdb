@@ -1,4 +1,4 @@
-//! Pure prefix-extraction over `match`-arm patterns (RFC-053 §3.1).
+//! Pure prefix-extraction over `match`-arm patterns.
 //!
 //! The functions here take `syn` AST fragments and return values — zero
 //! I/O, zero emission. [`match_facts`] is the entry point the visitor
@@ -8,13 +8,12 @@
 use std::collections::BTreeSet;
 
 /// The per-`match`-expression facts extracted from its arm list: the
-/// distinct name-level matched-path prefixes (RFC-053 §3.1), the arm
-/// count, and the wildcard flag. One `:MatchSite` is emitted per prefix.
+/// distinct name-level matched-path prefixes, the arm count, and the
+/// wildcard flag. One `:MatchSite` is emitted per prefix.
 pub(crate) struct MatchFacts {
-    /// Distinct matched-path prefixes in sorted order — deduped BEFORE the
-    /// visitor assigns occurrence-counter ids (RFC-053 §3.1
-    /// dedup-before-id), so a multi-arm single-prefix `match` yields
-    /// exactly one entry.
+    /// Distinct matched-path prefixes in sorted order — deduped before the
+    /// visitor assigns occurrence-counter ids, so a multi-arm single-prefix
+    /// `match` yields exactly one entry.
     pub(crate) prefixes: Vec<String>,
     pub(crate) arm_count: u32,
     pub(crate) wildcard: bool,
@@ -39,12 +38,12 @@ pub(crate) fn match_facts(arms: &[syn::Arm]) -> MatchFacts {
     }
 }
 
-/// Walk one arm pattern recursively through the closed `syn::Pat` variant
-/// list (RFC-053 §3.1) and insert the all-but-last-segment prefix of every
-/// multi-segment path it carries. `syn::Pat` is `#[non_exhaustive]`; every
-/// currently-known variant is handled explicitly and the trailing `_` arm
-/// covers only future variants (they fall through to no contribution — the
-/// future-variant panic worry is moot).
+/// Walk one arm pattern recursively through the `syn::Pat` variant list and
+/// insert the all-but-last-segment prefix of every multi-segment path it
+/// carries. `syn::Pat` is `#[non_exhaustive]`; every currently-known variant
+/// is handled explicitly and the trailing `_` arm covers only future variants
+/// (they fall through to no contribution — the future-variant panic worry is
+/// moot).
 fn collect_pattern_prefixes(pat: &syn::Pat, out: &mut BTreeSet<String>) {
     match pat {
         // Path-bearing — contribute a prefix, and (for the two container
@@ -85,7 +84,7 @@ fn collect_pattern_prefixes(pat: &syn::Pat, out: &mut BTreeSet<String>) {
                 collect_pattern_prefixes(elem, out);
             }
         }
-        // Leaves — contribute no path (RFC-053 §3.1 closed variant list).
+        // Leaves — contribute no path.
         syn::Pat::Wild(_)
         | syn::Pat::Rest(_)
         | syn::Pat::Lit(_)
@@ -102,9 +101,8 @@ fn collect_pattern_prefixes(pat: &syn::Pat, out: &mut BTreeSet<String>) {
 /// Insert the all-but-last-segment prefix of `path` when it has ≥ 2
 /// segments. Single-segment paths (and bare idents, handled as
 /// `Pat::Ident` above) are indistinguishable from bindings at the syn
-/// level and are skipped — RFC-053 §3.1 named recall limit #1. Segment
-/// idents are joined with `::`, ignoring generic arguments, mirroring
-/// `type_render::render_path`.
+/// level and are skipped. Segment idents are joined with `::`, ignoring
+/// generic arguments, mirroring `type_render::render_path`.
 fn push_path_prefix(path: &syn::Path, out: &mut BTreeSet<String>) {
     let segments: Vec<String> = path.segments.iter().map(|s| s.ident.to_string()).collect();
     if segments.len() >= 2 {
@@ -112,14 +110,13 @@ fn push_path_prefix(path: &syn::Path, out: &mut BTreeSet<String>) {
     }
 }
 
-/// True iff `pat` (an arm's top-level pattern) is a wildcard arm per the
-/// RFC-053 §3.1 heuristic: a top-level `_` (`Pat::Wild`) OR a bare
-/// `Pat::Ident` with no sub-pattern whose identifier starts lowercase (a
-/// fresh binding, not a unit-variant/const path — syn does no name
-/// resolution, so this is a documented heuristic, named recall limit #2).
-/// Covers BOTH catch-all forms. `syn::Pat` is `#[non_exhaustive]`; all
-/// known variants are enumerated so the trailing `_` covers only future
-/// variants (never a wildcard arm).
+/// True iff `pat` (an arm's top-level pattern) is a wildcard arm: a
+/// top-level `_` (`Pat::Wild`) OR a bare `Pat::Ident` with no sub-pattern
+/// whose identifier starts lowercase (a fresh binding, not a unit-variant/const
+/// path — syn does no name resolution, so this is a heuristic). Covers BOTH
+/// catch-all forms. `syn::Pat` is `#[non_exhaustive]`; all known variants are
+/// enumerated so the trailing `_` covers only future variants (never a
+/// wildcard arm).
 fn is_wildcard_arm(pat: &syn::Pat) -> bool {
     match pat {
         syn::Pat::Wild(_) => true,
@@ -153,9 +150,8 @@ fn is_wildcard_arm(pat: &syn::Pat) -> bool {
 
 #[cfg(test)]
 mod tests {
-    //! RFC-053 §3.1 fixture pattern set — prefix extraction, the three
-    //! named recall limits, arm counting, and the wildcard heuristic
-    //! (including the lowercase-ident ambiguity).
+    //! Fixture patterns — prefix extraction, arm counting, and the wildcard
+    //! heuristic (including the lowercase-ident ambiguity).
 
     use super::*;
 
@@ -239,7 +235,7 @@ mod tests {
     fn single_segment_pattern_is_skipped_recall_limit_1() {
         // A bare uppercase ident (`Pub` under a glob import) parses as a
         // binding-shaped `Pat::Ident` — indistinguishable from a
-        // unit-variant path, so no prefix is emitted (recall limit #1).
+        // unit-variant path, so no prefix is emitted.
         let f = facts("match v { Pub => () }");
         assert!(f.prefixes.is_empty());
     }

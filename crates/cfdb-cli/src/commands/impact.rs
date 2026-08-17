@@ -1,11 +1,11 @@
-//! `cfdb impact` — blast-radius dispatch (RFC-047 §3.3 / slice 47-B, #490).
+//! `cfdb impact` — blast-radius dispatch.
 //!
 //! Resolves a set of changed-item **seeds** — either explicit `--item <qname>`
 //! or `--since <ref>` (the items defined in the files `git diff --name-only
 //! <ref>..HEAD` reports) — then runs the canonical reverse-reachability query
 //! ([`cfdb_query::impact_query`]) to return every transitive caller: the blast
-//! radius of the change. Read-only (`G2`): it only issues `query`, never
-//! mutates the graph.
+//! radius of the change. Read-only: it only issues `query`, never mutates
+//! the graph.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -25,8 +25,8 @@ use crate::output;
 /// (file-granular: items in the changed files). At least one is required. A
 /// seed set that resolves to zero items is a **Warning**, not an error — a
 /// docs-only or non-code change has an empty blast radius, which is a correct
-/// answer (RFC-047 §3.3). `max_depth` (`--max-depth`) bounds the reverse
-/// traversal to N hops (`None` = unbounded; RFC-047a §6 / 47-B).
+/// answer. `max_depth` (`--max-depth`) bounds the reverse traversal to N hops
+/// (`None` = unbounded).
 pub fn impact(
     db: PathBuf,
     keyspace: String,

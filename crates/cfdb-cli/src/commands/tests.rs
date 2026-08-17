@@ -1,6 +1,4 @@
-//! Unit tests for the `extract_rev` URL/rev/cache helpers. Split out of
-//! `commands.rs` verbatim for the drift god-file decomposition (#151);
-//! their production code now lives in `commands/extract_rev.rs` (#560).
+//! Unit tests for the `extract_rev` URL/rev/cache helpers.
 
 use std::path::PathBuf;
 
@@ -37,10 +35,8 @@ fn short_rev_keeps_non_hex_long_names_verbatim() {
 }
 
 // ---------------------------------------------------------------------
-// Option W: <url>@<sha> parsing (issue #96 / RFC-032 §A1.7).
-// These are the four discriminations the match guard in `extract`
-// relies on — mirror them in the Wiring Assertion section of
-// `.prescriptions/96.md`.
+// <url>@<sha> parsing — four discriminations the match guard in `extract`
+// relies on.
 // ---------------------------------------------------------------------
 
 #[test]

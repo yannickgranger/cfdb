@@ -2,7 +2,7 @@
 //!
 //! Fires when a changed path matches `^crates/ports[^/]*/src/`. Port trait
 //! signatures carry cross-context contract guarantees; any change belongs in
-//! pre-council review per RFC-034 §4.2.
+//! pre-council review.
 //!
 //! Mechanism: regex over each changed path. No TOML input needed.
 
@@ -14,7 +14,7 @@ use std::sync::OnceLock;
 use crate::toml_io::{read_changed_paths, LoadError};
 use crate::triggers::TriggerOutcome;
 
-/// RFC-034 §4.2 regex: matches any file under a `crates/ports*/src/` tree.
+/// Matches any file under a `crates/ports*/src/` tree.
 /// The pattern is anchored at the start of the path so nested occurrences
 /// (e.g. a fixture living inside a `ports-*` crate's `tests/`) do not fire.
 fn port_regex() -> &'static Regex {

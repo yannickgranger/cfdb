@@ -1,5 +1,5 @@
 //! Template substitution + tempfile materialization + subprocess
-//! invocation. Per RFC-039 §3.5.1.
+//! invocation.
 //!
 //! The runner is intentionally split into pure helpers
 //! (`substitute_template`) and impure orchestrators (`materialize_and_run`).
@@ -21,7 +21,7 @@ use thiserror::Error;
 ///
 /// Pure function. Cypher-comment-aware substitution is deliberately NOT
 /// implemented here: the per-pass `.cypher` templates may not put
-/// `{{ threshold }}` inside comments, by RFC §3.1 sentinel-pattern note.
+/// `{{ threshold }}` inside comments, per the sentinel-pattern specification.
 pub fn substitute_template(template: &str, threshold: Option<u32>) -> String {
     match threshold {
         Some(value) => template.replace("{{ threshold }}", &value.to_string()),

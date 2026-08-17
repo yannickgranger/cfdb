@@ -1,10 +1,10 @@
 //! Exit-code policy for the `cfdb` CLI binary.
 //!
 //! This module is the single authoritative source for the 0/1/2/30 exit-code
-//! contract documented in `main.rs:43-60`. It exists in its own file per
-//! solid-architect R1 (RFC-044 §3.6): `error.rs` owns the error *taxonomy*;
-//! adding I/O policy there would give it a second reason to change (SRP
-//! violation). Placing the policy here keeps both files single-purpose.
+//! contract documented in `main.rs:43-60`. It exists in its own file to keep
+//! concerns separated: `error.rs` owns the error *taxonomy*; adding I/O
+//! policy there would give it a second reason to change. Placing the policy
+//! here keeps both files single-purpose.
 //!
 //! # Contract
 //!

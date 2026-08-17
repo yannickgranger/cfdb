@@ -4,9 +4,7 @@
 //! `MATCH (i:Item) WITH count(i) AS n RETURN n` expression and parses
 //! the JSON output. The harness uses the count to derive the
 //! `{{ nulls_threshold }}` substitution for
-//! `.cfdb/queries/self-enrich-bounded-context.cypher` — Path B from
-//! issue #355 (`{{ total_items }}` substitution path), the unblock
-//! for #345 that avoids extending the cfdb-query subset with arithmetic.
+//! `.cfdb/queries/self-enrich-bounded-context.cypher`.
 //!
 //! ## Pure-helper contract
 //!
@@ -21,12 +19,10 @@
 //!
 //! ## Why subprocess, not direct keyspace read
 //!
-//! `dogfood-enrich` is subprocess-driven by design (RFC-039 §3.5.1 — the
-//! harness does not link `cfdb-cli` as a library). The same discipline
-//! that keeps `cfdb_core::EnrichReport` as the only `cfdb-*` dep applies
-//! here: the count helper invokes `cfdb` exactly as the violations
-//! sentinel will, so a regression in `cfdb query` itself surfaces here
-//! before the harness submits a sentinel that would also fail.
+//! `dogfood-enrich` is subprocess-driven by design — the harness does not
+//! link `cfdb-cli` as a library. The count helper invokes `cfdb` exactly as
+//! the violations sentinel will, so a regression in `cfdb query` itself
+//! surfaces here before the harness submits a sentinel that would also fail.
 
 use std::io;
 use std::path::Path;

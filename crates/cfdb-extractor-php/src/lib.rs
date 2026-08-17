@@ -1,48 +1,17 @@
 //! `cfdb-extractor-php` — PHP reference implementation of
-//! `cfdb_lang::LanguageProducer` (RFC-041 Phase 2 / issue #264).
+//! `cfdb_lang::LanguageProducer`.
 //!
-//! # Bounded context
-//!
-//! Sits in the **language production** outer ring next to
-//! `cfdb-extractor` (Rust producer). Depends on `cfdb-core` for the
-//! `Node` / `Edge` / `Label` / `EdgeLabel` schema vocabulary and on
-//! `cfdb-lang` for the `LanguageProducer` trait surface. Does NOT
-//! depend on `cfdb-extractor` — the two producers are sibling crates
-//! that share the trait but no implementation.
-//!
-//! # Schema mapping decision
-//!
-//! See `Cargo.toml` for the full rationale. The MVP maps PHP concepts
-//! to the existing closed-set `:Item.kind` values per RFC-041 §4
-//! Published Language invariant:
-//!
-//! - PHP `namespace` → `:Module` node (structural-context, not `:Item`)
+//! The PHP producer maps PHP concepts to the existing `:Item.kind` values:
+//! - PHP `namespace` → `:Module` node
 //! - PHP `class` / `interface` / `trait` → `:Item { kind: "trait" }`
 //! - PHP `method` / `function` → `:Item { kind: "fn" }`
 //!
-//! New `:Item.kind` values for PHP are deferred to a follow-up schema
-//! RFC + `cfdb-core::SchemaVersion` patch + lockstep graph-specs PR.
-//!
-//! # Walker shape
-//!
-//! tree-sitter-php parses each `.php` file into a syntax tree. At the
-//! top level a `program` node holds a flat sequence of children:
-//! `namespace_definition`, `class_declaration`, `interface_declaration`,
-//! `trait_declaration`, `function_definition`, etc. The PHP grammar
-//! does NOT nest classes inside the namespace AST node — instead, a
-//! `namespace_definition;` statement establishes the "current
-//! namespace" for everything that follows it (until the next
-//! namespace_definition or end of file).
-//!
-//! Therefore the walker tracks `current_namespace: Option<String>` as
-//! it visits top-level children left-to-right and qualifies every
-//! emitted `:Item.qname` with the active namespace.
-//!
-//! # Determinism
+//! tree-sitter-php parses each `.php` file into a syntax tree. The walker
+//! tracks `current_namespace: Option<String>` as it visits top-level children
+//! and qualifies every emitted `:Item.qname` with the active namespace.
 //!
 //! Files are walked in sorted-path order; emitted nodes are sorted by
 //! `(label, id)` and edges by `(src, dst, label)` before return.
-//! Matches the canonical-dump shape `cfdb-extractor` already produces.
 
 use std::path::{Path, PathBuf};
 

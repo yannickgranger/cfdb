@@ -36,8 +36,8 @@ fn aggregation_alias(agg: &Aggregation) -> String {
         Aggregation::Collect(_) => "collect".to_string(),
         Aggregation::CollectDistinct(_) => "collect_distinct".to_string(),
         Aggregation::Size(_) => "size".to_string(),
-        // RFC-044 §3.7: `Aggregation` is `#[non_exhaustive]`; future variants
-        // get a sentinel alias so column names are still distinguishable.
+        // `Aggregation` is `#[non_exhaustive]`; future variants get a
+        // sentinel alias so column names are still distinguishable.
         _ => "unsupported_aggregation".to_string(),
     }
 }
@@ -48,9 +48,9 @@ pub(super) fn row_value_cmp(a: &RowValue, b: &RowValue) -> std::cmp::Ordering {
         (RowValue::List(x), RowValue::List(y)) => x.len().cmp(&y.len()),
         (RowValue::Scalar(_), RowValue::List(_)) => std::cmp::Ordering::Less,
         (RowValue::List(_), RowValue::Scalar(_)) => std::cmp::Ordering::Greater,
-        // RFC-044 §3.7: `RowValue` is `#[non_exhaustive]`. Future variants
-        // sort as Equal under this comparator — a stable fallback that
-        // doesn't reorder result rows in a determinism-breaking way.
+        // `RowValue` is `#[non_exhaustive]`. Future variants sort as Equal
+        // under this comparator — a stable fallback that doesn't reorder
+        // result rows in a determinism-breaking way.
         _ => std::cmp::Ordering::Equal,
     }
 }
@@ -83,9 +83,9 @@ pub(super) fn propvalue_sort_key(v: &PropValue) -> String {
         PropValue::Int(i) => format!("2:{:020}", i),
         PropValue::Float(f) => format!("3:{:020.10}", f),
         PropValue::Str(s) => format!("4:{}", s),
-        // RFC-044 §3.7: `PropValue` is `#[non_exhaustive]`. Future variants
-        // sort after all known kinds (prefix "9:") and use Debug to keep
-        // ordering deterministic per-input.
+        // `PropValue` is `#[non_exhaustive]`. Future variants sort after
+        // all known kinds (prefix "9:") and use Debug to keep ordering
+        // deterministic per-input.
         _ => format!("9:{:?}", v),
     }
 }
@@ -100,8 +100,8 @@ pub(super) fn row_sort_key(row: &Row) -> String {
                 let joined: Vec<String> = items.iter().map(propvalue_sort_key).collect();
                 format!("L[{}]", joined.join(","))
             }
-            // RFC-044 §3.7: `RowValue` is `#[non_exhaustive]`. Future variants
-            // are encoded via Debug for deterministic sort-key fallback.
+            // `RowValue` is `#[non_exhaustive]`. Future variants are
+            // encoded via Debug for deterministic sort-key fallback.
             _ => format!("U[{:?}]", v),
         });
     }

@@ -9,8 +9,7 @@
 //! `[package] name` (e.g. `[package] name = "cfdb-cli"` +
 //! `[[bin]] name = "cfdb"`) the two diverge, and every HIR `EXPOSES` /
 //! `CALLS` endpoint built from the target name (`item:cfdb::…`) dangles
-//! against the package-name `:Item` (`item:cfdb_cli::…`) — the worst
-//! class of graph corruption (#517).
+//! against the package-name `:Item` (`item:cfdb_cli::…`).
 //!
 //! The package name is carried on the crate's [`origin`](Crate::origin):
 //! `CrateOrigin::Local` (workspace members), `CrateOrigin::Library`

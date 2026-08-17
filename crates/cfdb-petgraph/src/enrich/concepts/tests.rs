@@ -48,7 +48,7 @@ fn count_edges_by_label(store: &PetgraphStore, ks: &Keyspace, label: &str) -> us
 }
 
 // ------------------------------------------------------------------
-// AC-1: TOML with canonical_crate → :Concept + LABELED_AS + CANONICAL_FOR.
+// TOML with canonical_crate → :Concept + LABELED_AS + CANONICAL_FOR.
 // ------------------------------------------------------------------
 
 #[test]
@@ -93,7 +93,7 @@ crates = ["domain-trading", "ports-trading"]
 }
 
 // ------------------------------------------------------------------
-// AC-2: empty .cfdb/concepts/ → ran=true, zero emissions.
+// Empty .cfdb/concepts/ → ran=true, zero emissions.
 // ------------------------------------------------------------------
 
 #[test]

@@ -1,10 +1,9 @@
 //! `cfdb extract --rev` — extraction against arbitrary git revisions
-//! (#37) and `url@sha` remote pins, with the persistent clone cache.
+//! and `url@sha` remote pins, with the persistent clone cache.
 //!
-//! Split out of `commands/extract.rs` verbatim (god-file decomposition
-//! #560, boy-scouted in #556; precedent: #151 `commands/tests.rs`). The
-//! working-tree extract path stays in `extract.rs`; this module owns the
-//! rev/URL resolution, the clone cache, and the `GitWorktree` RAII guard.
+//! Split out of `commands/extract.rs`. The working-tree extract path stays
+//! in `extract.rs`; this module owns the rev/URL resolution, the clone
+//! cache, and the `GitWorktree` RAII guard.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -65,15 +64,14 @@ pub(super) fn extract_at_rev(
     result
 }
 
-/// Extract against a specific SHA in a remote repository (Option W —
-/// issue #96 / RFC-032 §A1.7). Unlike [`extract_at_rev`] (which requires
-/// a local git repo and uses `git worktree add`), this clones `<url>`
-/// into a persistent cache at [`cache_dir_for`]`(url, sha)` and checks
-/// out `<sha>`. Second runs with the same `(url, sha)` reuse the cache
-/// (AC-3) — a sentinel file `.cfdb-extract-ok` is written after a
-/// successful clone+checkout and gates the skip.
+/// Extract against a specific SHA in a remote repository. Unlike
+/// [`extract_at_rev`] (which requires a local git repo and uses `git worktree add`),
+/// this clones `<url>` into a persistent cache at [`cache_dir_for`]`(url, sha)`
+/// and checks out `<sha>`. Second runs with the same `(url, sha)` reuse the cache
+/// — a sentinel file `.cfdb-extract-ok` is written after a successful
+/// clone+checkout and gates the skip.
 ///
-/// Auth (AC-2): inherits ambient git credentials — SSH agent
+/// Auth: inherits ambient git credentials — SSH agent
 /// (`$SSH_AUTH_SOCK`), `~/.config/git/credentials`, `GIT_ASKPASS`,
 /// `credential.helper`. Whatever `git clone` itself accepts at the
 /// shell works here — no new plumbing.
@@ -144,14 +142,13 @@ fn prepare_cache_dir(cache_dir: &Path) -> Result<(), crate::CfdbCliError> {
 /// `uploadpack.allowReachableSHA1InWant`, which Gitea has on by default).
 fn clone_and_checkout(url: &str, sha: &str, cache_dir: &Path) -> Result<(), crate::CfdbCliError> {
     // The `--` separator before user-supplied positional arguments is
-    // defense-in-depth (audit 2026-W17 / CFDB-CLI-H2 / #270). `url` is
-    // user-controlled via `--rev <url>@<sha>` and an attacker-influenced
-    // value (e.g. via `.cfdb/extract-pins`) could otherwise be
-    // misinterpreted as a `git` flag — `file:///path/--option` is a valid
-    // file URL. The sha is already hex-validated by `parse_url_at_sha`
-    // (all-ASCII-hex, ≥ 7 chars — cannot start with `--`); `--` is kept
-    // on the `fetch` refspec position for symmetry. `git checkout` is
-    // INTENTIONALLY left without `--` because `git checkout -- <arg>`
+    // defense-in-depth. `url` is user-controlled via `--rev <url>@<sha>`
+    // and an attacker-influenced value (e.g. via `.cfdb/extract-pins`)
+    // could otherwise be misinterpreted as a `git` flag — `file:///path/--option`
+    // is a valid file URL. The sha is already hex-validated by
+    // `parse_url_at_sha` (all-ASCII-hex, ≥ 7 chars — cannot start with
+    // `--`); `--` is kept on the `fetch` refspec position for symmetry.
+    // `git checkout` is left without `--` because `git checkout -- <arg>`
     // forces pathspec mode and would treat a SHA as a filename, breaking
     // the checkout. The hex validation upstream is sufficient there.
     let clone = Command::new("git")
@@ -310,7 +307,7 @@ impl GitWorktree {
     fn add(repo: &Path, path: &Path, rev: &str) -> Result<Self, crate::CfdbCliError> {
         // `--` before the positional `<path> <rev>` blocks rev (user-
         // supplied via `--rev <sha-or-ref>`) from being misinterpreted as
-        // an option (audit 2026-W17 / CFDB-CLI-H2 / #270).
+        // an option.
         let status = Command::new("git")
             .current_dir(repo)
             .args(["worktree", "add", "--detach", "--quiet", "--"])

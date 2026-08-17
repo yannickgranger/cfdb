@@ -1,6 +1,5 @@
 //! Path-pattern evaluation — `(from)-[edge]->(to)` MATCH, traversal, and
-//! variable-length BFS. Extracted from `super::pattern` as part of the
-//! #253 god-file split. The methods stay on `Evaluator` via a second
+//! variable-length BFS. The methods stay on `Evaluator` via a second
 //! `impl` block; node-pattern methods (`apply_node_pattern`, etc.) and
 //! `OPTIONAL MATCH` / `UNWIND` remain in the parent file.
 
@@ -56,9 +55,7 @@ impl<'a> Evaluator<'a> {
 
     /// Expand one binding row by enumerating src candidates, walking edges,
     /// and emitting new rows for each `(src_idx, dst_idx)` pair that passes
-    /// [`Self::build_path_binding`]. Split out of `apply_path_pattern` to
-    /// keep cognitive complexity below the project ceiling (RFC-031 §5 /
-    /// issue #26).
+    /// [`Self::build_path_binding`].
     fn emit_path_bindings(
         &self,
         out: &mut Vec<Bindings>,
@@ -202,11 +199,10 @@ impl<'a> Evaluator<'a> {
         src_idx: NodeIndex,
         edge: &EdgePattern,
     ) -> Vec<(NodeIndex, Option<EdgeIndex>)> {
-        // Resolve the BFS frontier ceiling from the var-length quantifier
-        // (RFC-047a §3.2, #488). The ceiling is honoured for explicit bounds
-        // and is unbounded for the open form — it was previously clamped to
-        // `DEFAULT_VAR_LENGTH_MAX` for *every* pattern, silently truncating
-        // explicit deep traversals (`*1..10` → 5).
+        // Resolve the BFS frontier ceiling from the var-length quantifier.
+        // The ceiling is honoured for explicit bounds and is unbounded for
+        // the open form — it was previously clamped to `DEFAULT_VAR_LENGTH_MAX`
+        // for *every* pattern, silently truncating explicit deep traversals.
         let (min_depth, max_depth) = match edge.var_length {
             // Open form `*N..` (B1 maps an omitted upper bound to `u32::MAX`):
             // truly UNBOUNDED (council Q1) — the visited-set is the only bound.

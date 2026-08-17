@@ -26,13 +26,13 @@ pub(crate) struct ItemVisitor<'e> {
     /// crate in [`crate::extract_workspace`] via
     /// [`cfdb_concepts::compute_bounded_context`] and propagated down through
     /// [`crate::file_walker::visit_file`]. Stamped onto every Item node at
-    /// emission time (council-cfdb-wiring §B.1.2).
+    /// emission time.
     pub(crate) bounded_context: String,
-    /// Which cargo target this file is being walked for (RFC-054 §3.1,
-    /// #557). Threaded per target root from `extract_workspace` exactly
-    /// like `bounded_context`; the visitor carries the TARGET, not a
-    /// precomputed identity string — identities are derived at each
-    /// id-construction site from (display qname, target) (RFC-054 §3.5.1).
+    /// Which cargo target this file is being walked for. Threaded per target
+    /// root from `extract_workspace` exactly like `bounded_context`; the
+    /// visitor carries the TARGET, not a precomputed identity string —
+    /// identities are derived at each id-construction site from (display
+    /// qname, target).
     pub(crate) target: cfdb_core::qname::TargetDiscriminator,
     /// Path of module names from crate root to current position. The first
     /// element is the crate name (dashes replaced with underscores), matching
@@ -55,11 +55,11 @@ pub(crate) struct ItemVisitor<'e> {
     pub(crate) test_mod_depth: u32,
 }
 
-/// Build the `qname` for an `impl` block (#42). The segments combine the
-/// current module path, the normalised target type, and the canonical
+/// Build the `qname` for an `impl` block. The segments combine the current
+/// module path, the normalised target type, and the canonical
 /// `impl[_<Trait>]` suffix — yielding a stable, human-readable id that
-/// disambiguates inherent impls from each distinct trait impl on the
-/// same target:
+/// disambiguates inherent impls from each distinct trait impl on the same
+/// target:
 ///
 /// - `impl Foo { ... }` at module `m`        → `m::Foo::impl`
 /// - `impl Display for Foo { ... }`          → `m::Foo::impl_Display`
@@ -77,9 +77,9 @@ fn impl_block_qname(module_stack: &[String], target: &str, trait_qname: Option<&
     format!("{prefix}{target}::impl{trait_segment}")
 }
 
-/// Human-readable `name` prop for an impl-block :Item node (#42). Mirrors
-/// Rust source-level rendering: `impl Foo` (inherent) or
-/// `impl Bar for Foo` (trait impl).
+/// Human-readable `name` prop for an impl-block :Item node. Mirrors Rust
+/// source-level rendering: `impl Foo` (inherent) or `impl Bar for Foo`
+/// (trait impl).
 fn impl_block_name(target: &str, trait_qname: Option<&str>) -> String {
     match trait_qname {
         Some(t) => format!("impl {t} for {target}"),

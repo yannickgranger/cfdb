@@ -114,27 +114,21 @@ pub type Props = BTreeMap<String, PropValue>;
 ///
 /// Their values are toolchain- or environment-dependent, so any
 /// `StoreBackend::canonical_dump` implementation that emitted them would
-/// break G1 byte-stable re-extract the moment they were populated.
-/// `test_coverage` is the documented case (`specs/concepts/cfdb-core.md`
-/// G6 clause, #486): it carries `cargo-llvm-cov` line/region counts that
-/// vary by toolchain and run. It is byte-stable today only because
-/// `enrich_metrics` defaults it to `None`; this set makes the exclusion
-/// real rather than incidental.
+/// break G1 byte-stable re-extract. `test_coverage` carries
+/// `cargo-llvm-cov` line/region counts that vary by toolchain and run.
+/// It is byte-stable today only because `enrich_metrics` defaults it to
+/// `None`; this set makes the exclusion real rather than incidental.
 ///
-/// This lives in `cfdb-core` — beside the `Props` / G1 byte-stability
-/// contract and the `StoreBackend::canonical_dump` trait it constrains —
-/// so EVERY store implementation honours the same exclusion, not just
-/// `cfdb-petgraph`. It is a `const` in source per CLAUDE.md §6 rule 8 (NOT
-/// a config / allowlist / ceiling file); adding an attribute is a reviewed
-/// source edit justified against the G1 contract.
+/// This lives in `cfdb-core` alongside the `Props` / G1 byte-stability
+/// contract and the `StoreBackend::canonical_dump` trait so EVERY store
+/// implementation honours the same exclusion, not just `cfdb-petgraph`.
+/// Adding an attribute requires a reviewed source edit justified against
+/// the G1 contract.
 pub const G1_EXCLUDED_ATTRS: &[&str] = &["test_coverage"];
 
 /// Whether an attribute is excluded from the canonical (G1) dump — see
-/// [`G1_EXCLUDED_ATTRS`]. Keyed by attribute name: the G6 contract names
-/// attributes, not provenance (`test_coverage` shares
-/// `Provenance::EnrichMetrics` with `cyclomatic` / `unwrap_count` /
-/// `dup_cluster_id`, which DO participate in G1, so provenance is the wrong
-/// key). The set is tiny; a linear scan is fine.
+/// [`G1_EXCLUDED_ATTRS`]. Keyed by attribute name. The set is tiny; a
+/// linear scan is fine.
 pub fn is_g1_excluded(attr: &str) -> bool {
     G1_EXCLUDED_ATTRS.contains(&attr)
 }
@@ -143,12 +137,9 @@ pub fn is_g1_excluded(attr: &str) -> bool {
 /// `{qname, name, kind, crate}` 4-subset shared by every crate-emitting
 /// `:Item` producer in the workspace: the Rust free-item, impl-block, and
 /// impl-method paths; the TypeScript declaration and method paths; and the
-/// synthetic / HIR paths (via [`build_item_props`]). Each producer layers
-/// its own keys (`bounded_context`, `module_qpath`, `ts_construct`,
-/// `impl_target`, `visibility`, …) on top of this core, so the four key
-/// strings and their `PropValue::Str` wrapping have exactly ONE
-/// construction point and cannot drift across producers (#478, the
-/// `audit-split-brain` target class).
+/// synthetic / HIR paths. Each producer layers its own keys on top of this
+/// core, so the four key strings and their `PropValue::Str` wrapping have
+/// exactly ONE construction point and cannot drift across producers.
 ///
 /// `name` is taken EXPLICITLY, not derived from `qname`. Free items and
 /// methods carry `name == last_segment(qname)`, but an impl-block `:Item`
@@ -172,11 +163,10 @@ pub fn build_item_props_common(qname: &str, name: &str, kind: &str, crate_name: 
 
 /// Canonical `:Item.props` constructor — single owner of the 5-key
 /// `(qname, name, kind, crate, bounded_context)` shape used by the
-/// synthetic (`cfdb-extractor::synthesize`) and HIR
-/// (`cfdb-hir-petgraph-adapter`) `:Item` paths. Extends
-/// [`build_item_props_common`] with the `bounded_context` key; the common
-/// 4-subset is owned there so this constructor and the Rust/TS emitters
-/// share one construction point (#478).
+/// synthetic and HIR `:Item` paths. Extends [`build_item_props_common`]
+/// with the `bounded_context` key; the common 4-subset is owned there
+/// so this constructor and the Rust/TS emitters share one construction
+/// point.
 ///
 /// `name` is derived from `qname` via [`crate::qname::last_segment`] so
 /// these callers cannot disagree on the segmentation rule. Callers supply
@@ -225,7 +215,7 @@ impl Node {
 }
 
 /// A single edge fact. Edge identity is not stored — two edges with identical
-/// (src, dst, label, props) are distinct by construction (bag semantics, S5).
+/// (src, dst, label, props) are distinct by construction (bag semantics).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Edge {
     pub src: String,

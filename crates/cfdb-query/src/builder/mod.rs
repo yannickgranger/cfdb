@@ -1,8 +1,7 @@
 //! Fluent Rust builder API producing a `cfdb_core::Query` AST.
 //!
 //! The builder is the type-safe authoring surface. It produces the same
-//! `Query` value the parser builds, per the architectural invariant from
-//! study 001 §8.3 ("two surfaces, one AST").
+//! `Query` value the parser builds ("two surfaces, one AST").
 //!
 //! ```
 //! use cfdb_query::QueryBuilder;

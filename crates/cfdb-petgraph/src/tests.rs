@@ -1,6 +1,6 @@
 //! Unit tests for `PetgraphStore`.
 //!
-//! Anchors: round-trip canonical dump, determinism, load the Gate 3 fixture
+//! Anchors: round-trip canonical dump, determinism, load the fixture
 //! and assert the spike-validated counts (F1b=5, F2=20, F3=8), UnknownLabel
 //! warning path, OPTIONAL MATCH null-fill.
 
@@ -225,8 +225,6 @@ fn load_small_fixture(store: &mut PetgraphStore) {
 ///   WITH base, count(DISTINCT c) AS n
 ///   WHERE n > 1
 ///   RETURN base
-///
-/// Spike simplification: group directly on `base` and count distinct crates.
 fn build_f1b_query() -> Query {
     use cfdb_core::query::ProjectionValue as PV;
     Query {
@@ -351,7 +349,7 @@ fn f2_variable_length_matches_spike_count() {
     );
 }
 
-// --- RFC-047a B2 (#488) — var-length depth honouring -------------------
+// --- var-length depth honouring -------------------
 //
 // `DEFAULT_VAR_LENGTH_MAX` (5) was silently clamping *every* var-length
 // pattern, including explicit bounds (`*1..10` → 5). The fix honours
@@ -430,7 +428,7 @@ fn var_length_honours_explicit_upper_bound_past_default_cap() {
     load_linear_calls_chain(&mut store, 8);
 
     // `*1..10` over an 8-hop chain reaches all 8 Items — it must NOT clamp
-    // to DEFAULT_VAR_LENGTH_MAX (5). (RFC-047a B2 / council Q2.)
+    // to DEFAULT_VAR_LENGTH_MAX (5).
     let r10 = store
         .execute(&ks(), &build_reach_query(10))
         .expect("*1..10 query executes");
@@ -459,7 +457,7 @@ fn var_length_open_form_is_unbounded_via_visited_set() {
     load_linear_calls_chain(&mut store, 8);
 
     // The open form `*1..` (`u32::MAX`) traverses the full transitive set —
-    // the visited-set is the only bound. (RFC-047a B2 / council Q1.)
+    // the visited-set is the only bound.
     let r_open = store
         .execute(&ks(), &build_reach_query(u32::MAX))
         .expect("*1.. (open form) query executes");
@@ -728,11 +726,11 @@ fn order_by_and_limit_are_applied() {
     );
 }
 
-// ---- §12.1 sorted-jsonl canonical dump shape (#3630) -------------------
+// ---- sorted-jsonl canonical dump shape -------------------
 
 /// Helper: parse the canonical dump into a Vec of (raw_line, parsed_json).
 /// Asserts every line is a valid JSON object — guards against the old
-/// tab-prefixed `N\t...\t{json}` shape (#3630).
+/// tab-prefixed `N\t...\t{json}` shape.
 fn parse_dump_lines(dump: &str) -> Vec<(String, serde_json::Value)> {
     dump.lines()
         .map(|line| {
@@ -1058,7 +1056,7 @@ fn canonical_dump_lf_separated_no_trailing_newline() {
 
 #[test]
 fn canonical_dump_byte_identity_across_two_calls() {
-    // This is the existing G1 invariant — must continue to hold under the
+    // This is the existing invariant — must continue to hold under the
     // new format. Keeps the regression bar at parity with the old impl.
     let mut store = PetgraphStore::new();
     store
@@ -1090,12 +1088,12 @@ fn canonical_dump_byte_identity_across_two_calls() {
     assert_eq!(d1.as_bytes(), d2.as_bytes(), "G1 byte identity must hold");
 }
 
-/// Regression: issue #3675 — a bare `Var` reference in a RETURN projection
+/// Regression: a bare `Var` reference in a RETURN projection
 /// must surface a `RowValue::List` binding produced by a prior
 /// `WITH collect(...)` aggregation. Before the fix at `eval.rs::apply_return`,
 /// the non-aggregation RETURN path re-evaluated the `Var` through
 /// `eval_expr` which only handles `Scalar` bindings and dropped Lists to
-/// `null`. The enriched `hsb-by-name.cypher` rule (promoted to §13 Item 8)
+/// `null`. The enriched `hsb-by-name.cypher` rule
 /// depends on this working — without it, `crates[]`, `qnames[]`, `files[]`
 /// all come back null and the rule loses its entire triage signal.
 #[test]

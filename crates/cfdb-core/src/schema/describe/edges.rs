@@ -212,7 +212,7 @@ pub(super) fn edge_descriptors() -> Vec<EdgeLabelDescriptor> {
             to: vec![Label::new(Label::CONCEPT)],
             provenance: Provenance::Reserved,
         },
-        // ---- Enrichment overlay (RFC addendum §A2.2 — #43-A reservations) ---
+        // ---- Enrichment overlay ----
         EdgeLabelDescriptor {
             label: EdgeLabel::new(EdgeLabel::REFERENCED_BY),
             description: "An Item is mentioned (by `name` or `qname`) in an RFC document. Emitted by `enrich_rfc_docs()` — slice 43-D (issue #107) ships the first emissions with a SchemaVersion patch bump.".into(),

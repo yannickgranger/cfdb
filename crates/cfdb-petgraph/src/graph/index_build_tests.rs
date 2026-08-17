@@ -1,9 +1,5 @@
-//! RFC-035 slice 2 #181 — exercise `by_prop` build + stale-entry removal
-//! at the `KeyspaceState` layer. Lives in a sibling file because the
-//! parent `graph.rs` was crossing the 500-line god-file ceiling
-//! (#400 slice 6.6). `KeyspaceState` stays `pub(crate)`; tests at the
-//! `PetgraphStore` level land when slice 7 #186 wires the composition
-//! root's `with_indexes` builder.
+//! Exercise `by_prop` build + stale-entry removal at the `KeyspaceState`
+//! layer. `KeyspaceState` stays `pub(crate)` and is tested at this level.
 //!
 //! The parent `graph.rs` declares this module via
 //! `#[cfg(test)] mod index_build_tests;`, so this file does NOT carry

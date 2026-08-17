@@ -1,13 +1,11 @@
-//! I5.1 feature-presence guard per RFC-039 §4.
+//! Feature-presence guard for dogfood sentinel.
 //!
 //! Before running the dogfood sentinel for a feature-gated pass, the
 //! harness invokes `cfdb enrich-<pass>` and inspects `EnrichReport.ran`.
-//! When `ran == false` (the off-feature dispatch path at
-//! `crates/cfdb-petgraph/src/enrich_backend.rs:178-262`), the harness
-//! exits with `EXIT_RUNTIME_ERROR` and a "feature missing" message —
-//! NOT with the sentinel result, because a binary built without the
-//! feature would silently report 100% null coverage and look like a
-//! real regression.
+//! When `ran == false`, the harness exits with `EXIT_RUNTIME_ERROR` and a
+//! "feature missing" message — NOT with the sentinel result, because a
+//! binary built without the feature would silently report 100% null coverage
+//! and look like a real regression.
 
 use std::io;
 use std::path::Path;

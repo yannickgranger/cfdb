@@ -1,9 +1,6 @@
-//! Clap subcommand enum for the `cfdb` CLI. Extracted from
-//! `main_command.rs` as part of the #248 god-file split. Contains the
-//! single `#[derive(Subcommand)]` type — `Command` — and all per-verb
-//! inline field definitions. The parent module re-exports `Command` so
-//! existing callers (`main.rs`, `main_dispatch.rs`) see an unchanged
-//! public path.
+//! Clap subcommand enum for the `cfdb` CLI.
+//! Contains the single `#[derive(Subcommand)]` type — `Command` — and all
+//! per-verb inline field definitions.
 
 use std::path::PathBuf;
 
@@ -32,9 +29,7 @@ pub(crate) enum Command {
     Query(QueryArgs),
 
     /// Enrich a keyspace with git-history facts — commit age, author, churn
-    /// count per `:Item` file. RFC addendum §A2.2 row 1. Phase A stub —
-    /// implementation lands in #43 slice 43-B (issue #105) behind the
-    /// `git-enrich` feature flag.
+    /// count per `:Item` file. Behind the `git-enrich` feature flag.
     EnrichGitHistory {
         #[arg(long)]
         db: PathBuf,

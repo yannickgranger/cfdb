@@ -1,7 +1,7 @@
 //! `RETURN` clause — project (with optional grouping), distinct, order, limit.
 //!
 //! Ordering defaults to row-sort-key when no `ORDER BY` is given; this is the
-//! deterministic output contract the Gate 3 spike relied on.
+//! deterministic output contract.
 
 use std::collections::BTreeSet;
 
@@ -75,9 +75,8 @@ impl<'a> Evaluator<'a> {
     }
 
     /// Build one row by evaluating each projection expression against the
-    /// given bindings. Extracted from the `map(|b| ...)` closure in
-    /// [`apply_return`] so the per-projection `v.clone()` does not sit
-    /// inside a `for proj in projections` loop (clones-in-loops gate).
+    /// given bindings. The per-projection `v.clone()` does not sit inside a
+    /// `for proj in projections` loop.
     fn expr_row_for_bindings(
         &self,
         b: &Bindings,
@@ -125,9 +124,8 @@ fn bindings_to_row(bindings: &Bindings, projections: &[cfdb_core::query::Project
         .collect()
 }
 
-/// Project one [`Binding`] into its serialised [`RowValue`]. Extracted
-/// from the projection loop in [`bindings_to_row`] so the scalar clone
-/// lands in a helper call rather than inside a `for` body.
+/// Project one [`Binding`] into its serialised [`RowValue`]. The scalar
+/// clone lands in a helper call rather than inside a `for` loop.
 fn row_value_for_binding(binding: Option<&Binding>) -> RowValue {
     match binding {
         Some(Binding::Value(v)) => v.clone(),
