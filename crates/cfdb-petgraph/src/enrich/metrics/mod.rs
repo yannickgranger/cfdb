@@ -213,3 +213,6 @@ fn apply_item_attrs(
     }
     count
 }
+
+#[cfg(test)]
+mod tests;

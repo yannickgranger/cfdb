@@ -274,3 +274,112 @@ fn enrich_git_history_dispatch(
         .expect("keyspace presence checked by caller");
     crate::enrich::git_history::run(state, &root)
 }
+
+// ---------------------------------------------------------------------------
+// Characterization tests — pre-strangler-fig safety net.
+//
+// These pin what this dispatcher does *today*, verbatim (exact report
+// fields, exact warning text), so a later extraction of the enrichment
+// passes into their own crate (audit 2026-08-17: cfdb-petgraph bundles
+// storage + eval + enrichment with zero shared commit history between
+// enrich/ and eval/) can be checked byte-for-byte against this baseline.
+// A test failing here after a refactor means behavior changed, not that
+// the old behavior was correct — whether it *should* change is a separate,
+// later question these tests deliberately do not answer.
+// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod tests {
+    use cfdb_core::enrich::EnrichBackend;
+    use cfdb_core::schema::Keyspace;
+    use cfdb_core::store::StoreBackend;
+
+    use crate::PetgraphStore;
+
+    fn store_with_empty_keyspace(ks: &Keyspace) -> PetgraphStore {
+        let mut store = PetgraphStore::new();
+        store.ingest_nodes(ks, vec![]).expect("register keyspace");
+        store
+    }
+
+    #[test]
+    fn deprecation_pins_fixed_report_shape() {
+        let ks = Keyspace::new("test");
+        let mut store = store_with_empty_keyspace(&ks);
+
+        let report = store.enrich_deprecation(&ks).expect("pass");
+
+        assert!(report.ran);
+        assert_eq!(report.facts_scanned, 0);
+        assert_eq!(report.attrs_written, 0);
+        assert_eq!(report.edges_written, 0);
+        assert_eq!(
+            report.warnings,
+            vec!["enrich_deprecation: facts populated at extraction time by \
+                 cfdb-extractor::extract_deprecated_attr (#43-C / RFC \
+                 addendum §A2.2 row 3); no enrichment work to do"
+                .to_string()]
+        );
+    }
+
+    #[test]
+    fn deprecation_unknown_keyspace_returns_err() {
+        let mut store = PetgraphStore::new();
+        let ks = Keyspace::new("never");
+
+        let err = store
+            .enrich_deprecation(&ks)
+            .expect_err("unknown keyspace must err");
+
+        assert!(format!("{err:?}").contains("UnknownKeyspace"));
+    }
+
+    // `quality-metrics` is off in the default build (`default = []` in
+    // Cargo.toml) — CI's `--all-features` run never exercises this branch,
+    // so this test only compiles/runs under a plain `cargo test -p
+    // cfdb-petgraph` (no extra flags).
+    #[cfg(not(feature = "quality-metrics"))]
+    #[test]
+    fn enrich_metrics_feature_off_pins_degraded_report() {
+        let ks = Keyspace::new("test");
+        let mut store = store_with_empty_keyspace(&ks);
+
+        let report = store.enrich_metrics(&ks).expect("pass");
+
+        assert!(!report.ran);
+        assert_eq!(report.facts_scanned, 0);
+        assert_eq!(report.attrs_written, 0);
+        assert_eq!(report.edges_written, 0);
+        assert_eq!(
+            report.warnings,
+            vec!["enrich_metrics: built without `quality-metrics` feature — \
+                 recompile `cfdb-cli` with `--features quality-metrics` to \
+                 populate unwrap_count + cyclomatic + dup_cluster_id (and \
+                 additionally `--features llvm-cov` for test_coverage) per \
+                 RFC-036 §3.3 / issue #203"
+                .to_string()]
+        );
+    }
+
+    // Same rationale as above — `git-enrich` is off in the default build.
+    #[cfg(not(feature = "git-enrich"))]
+    #[test]
+    fn enrich_git_history_feature_off_pins_degraded_report() {
+        let ks = Keyspace::new("test");
+        let mut store = store_with_empty_keyspace(&ks);
+
+        let report = store.enrich_git_history(&ks).expect("pass");
+
+        assert!(!report.ran);
+        assert_eq!(report.facts_scanned, 0);
+        assert_eq!(report.attrs_written, 0);
+        assert_eq!(report.edges_written, 0);
+        assert_eq!(
+            report.warnings,
+            vec!["enrich_git_history: built without `git-enrich` feature — \
+                 recompile `cfdb-cli` with `--features git-enrich` to \
+                 populate git-history facts (RFC addendum §A2.2 row 1 / \
+                 issue #105)"
+                .to_string()]
+        );
+    }
+}
