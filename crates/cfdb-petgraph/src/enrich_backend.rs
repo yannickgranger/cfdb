@@ -88,24 +88,10 @@ impl EnrichBackend for PetgraphStore {
     // falls through to EnrichBackend's default not_implemented stub on
     // PetgraphStore now; cfdb-cli's dispatcher no longer calls this arm.
 
-    fn enrich_bounded_context(
-        &mut self,
-        keyspace: &cfdb_core::schema::Keyspace,
-    ) -> Result<cfdb_core::enrich::EnrichReport, StoreError> {
-        self.require_keyspace(keyspace)?;
-        let root = match self.require_workspace(
-            "enrich_bounded_context",
-            "so the pass can read `.cfdb/concepts/*.toml`",
-        ) {
-            Ok(r) => r,
-            Err(report) => return Ok(report),
-        };
-        let state = self
-            .keyspaces
-            .get_mut(keyspace)
-            .expect("keyspace presence checked above");
-        Ok(crate::enrich::bounded_context::run(state, &root))
-    }
+    // enrich_bounded_context moved to cfdb-enrich::EnrichEngine (RFC-056
+    // 056-B) — falls through to EnrichBackend's default not_implemented
+    // stub on PetgraphStore now; cfdb-cli's dispatcher no longer calls this
+    // arm.
 
     fn enrich_concepts(
         &mut self,

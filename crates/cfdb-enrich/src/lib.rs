@@ -21,6 +21,7 @@ use cfdb_core::graph::GraphBackend;
 use cfdb_core::schema::Keyspace;
 use cfdb_core::store::StoreError;
 
+mod bounded_context;
 mod rfc_docs;
 
 /// Wraps any [`GraphBackend`] implementor and dispatches the 7 `enrich_*`
@@ -115,11 +116,27 @@ impl<'s, S: GraphBackend> EnrichBackend for EnrichEngine<'s, S> {
         Ok(rfc_docs::run(view, &root))
     }
 
-    // The other 5 verbs (enrich_git_history, enrich_bounded_context,
-    // enrich_concepts, enrich_reachability, enrich_metrics) are not
-    // overridden here — they fall through to EnrichBackend's default
+    fn enrich_bounded_context(&mut self, keyspace: &Keyspace) -> Result<EnrichReport, StoreError> {
+        // Guard order (require_keyspace before require_workspace) is
+        // load-bearing — see enrich_rfc_docs's comment above and
+        // unknown_keyspace_errs_even_when_workspace_root_is_also_missing.
+        let _ = self.store.graph_view(keyspace)?;
+        let root = match self.require_workspace(
+            "enrich_bounded_context",
+            "so the pass can read `.cfdb/concepts/*.toml`",
+        ) {
+            Ok(root) => root,
+            Err(report) => return Ok(report),
+        };
+        let view = self.store.graph_view(keyspace)?;
+        Ok(bounded_context::run(view, &root))
+    }
+
+    // The other 4 verbs (enrich_git_history, enrich_concepts,
+    // enrich_reachability, enrich_metrics) are not overridden here — they
+    // fall through to EnrichBackend's default
     // `EnrichReport::not_implemented(...)` stub until their slice
-    // (056-B through 056-F) moves the real pass in.
+    // (056-C through 056-F) moves the real pass in.
 }
 
 #[cfg(test)]
