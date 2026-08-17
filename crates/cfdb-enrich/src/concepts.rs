@@ -2,17 +2,8 @@
 //! `.cfdb/concepts/*.toml` declarations and emit `(:Item)-[:LABELED_AS]->
 //! (:Concept)` + `(:Item)-[:CANONICAL_FOR]->(:Concept)` edges.
 //!
-//! Moved from `cfdb-petgraph::enrich::concepts` (RFC-056 slice 056-C) —
-//! rewritten against [`GraphView`] instead of `&mut KeyspaceState`. Every
-//! pure function below (node/edge construction, canonical-crate resolution)
-//! is unchanged; only `build_item_index`'s node reads moved from direct
-//! `KeyspaceState`/`NodeIndex` access to the port's
-//! `nodes_with_label`/`node_by_id`.
-//!
-//! This is the slice that proves `ingest_nodes`/`ingest_edges` — the
-//! node-creation path through the port — composes correctly (RFC-056 §3.4:
-//! 056-A/B only ever wrote attrs on existing nodes; this pass creates new
-//! `:Concept` nodes from scratch).
+//! Unlike the passes that only patch attrs on existing nodes, this one
+//! creates `:Concept` nodes from scratch via `ingest_nodes`/`ingest_edges`.
 //!
 //! # Sixth pass — concept node materialisation
 //!

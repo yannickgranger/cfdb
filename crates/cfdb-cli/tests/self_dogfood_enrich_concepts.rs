@@ -1,5 +1,4 @@
-//! Self-dogfood test for `enrich_concepts` (issue #109 — slice 43-F; ported
-//! to `EnrichEngine` in RFC-056 slice 056-C / issue #580).
+//! Self-dogfood test for `enrich_concepts` (issue #109 — slice 43-F).
 //!
 //! Extracts cfdb's own worktree (which carries `.cfdb/concepts/cfdb.toml`
 //! declaring a single `cfdb` concept with 9 crates + `canonical_crate =
@@ -17,12 +16,9 @@
 //! spirit is preserved by the module-level `no_concepts_dir_is_graceful_noop`
 //! unit test.
 //!
-//! Routes through `cfdb_enrich::EnrichEngine`, not `PetgraphStore` directly
-//! — as of 056-C, `PetgraphStore::enrich_concepts` falls through to the
-//! `EnrichBackend` default `not_implemented` stub (RFC-056 §2
-//! composition-root cutover). This test still never exercises
-//! `crates/cfdb-cli/src/enrich.rs`'s dispatcher, though — see
-//! `enrich_concepts_cli.rs` for that.
+//! Routes through `cfdb_enrich::EnrichEngine`, not `PetgraphStore`
+//! directly. Still never exercises `crates/cfdb-cli/src/enrich.rs`'s
+//! dispatcher, though — see `enrich_concepts_cli.rs` for that.
 
 use std::path::PathBuf;
 
@@ -95,8 +91,7 @@ fn self_dogfood_cfdb_concept_and_labeled_as_coverage() {
         "cfdb-concepts",
         "cfdb-query",
         "cfdb-petgraph",
-        // RFC-056 slice 056-0 — strangler-fig destination for cfdb-petgraph's
-        // enrichment passes. Mirror .cfdb/concepts/cfdb.toml.
+        // Enrichment passes' destination crate. Mirror .cfdb/concepts/cfdb.toml.
         "cfdb-enrich",
         "cfdb-extractor",
         // RFC-041 Phase 2 / Phase 3 — concrete `LanguageProducer`

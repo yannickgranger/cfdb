@@ -1,5 +1,4 @@
-//! Self-dogfood test for `enrich_git_history` (issue #105 — slice 43-B;
-//! ported to `EnrichEngine` in RFC-056 slice 056-D / issue #581).
+//! Self-dogfood test for `enrich_git_history` (issue #105 — slice 43-B).
 //!
 //! Extracts cfdb's own source tree, attaches the workspace root to the store,
 //! runs `enrich_git_history`, and asserts that ≥80% of `:Item` nodes pick up
@@ -13,12 +12,9 @@
 //! from `CARGO_MANIFEST_DIR` — this keeps the test portable across
 //! worktrees, CI runners, and user clones.
 //!
-//! Routes through `cfdb_enrich::EnrichEngine`, not `PetgraphStore` directly
-//! — as of 056-D, `PetgraphStore::enrich_git_history` falls through to the
-//! `EnrichBackend` default `not_implemented` stub (RFC-056 §2
-//! composition-root cutover). This test still never exercises
-//! `crates/cfdb-cli/src/enrich.rs`'s dispatcher, though — see
-//! `enrich_git_history_cli.rs` for that.
+//! Routes through `cfdb_enrich::EnrichEngine`, not `PetgraphStore`
+//! directly. Still never exercises `crates/cfdb-cli/src/enrich.rs`'s
+//! dispatcher, though — see `enrich_git_history_cli.rs` for that.
 
 #![cfg(feature = "git-enrich")]
 

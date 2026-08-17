@@ -1,10 +1,9 @@
 //! `cfdb enrich-concepts` end-to-end through the real binary, against
-//! cfdb's own tree (RFC-056 slice 056-C / issue #580).
+//! cfdb's own tree.
 //!
-//! Template established by `enrich_rfc_docs_cli.rs` (056-A) and
-//! `enrich_bounded_context_cli.rs` (056-B): a synthetic fixture would prove
-//! nothing about the composition-root cutover for a content-dependent
-//! pass. `self_dogfood_enrich_concepts.rs` already exercises `EnrichEngine`
+//! A synthetic fixture would prove nothing about the composition-root
+//! cutover for a content-dependent pass.
+//! `self_dogfood_enrich_concepts.rs` already exercises `EnrichEngine`
 //! in-process on cfdb-self; this test's only additional job is proving
 //! `crates/cfdb-cli/src/enrich.rs`'s dispatcher actually routes
 //! `EnrichVerb::Concepts` to it — a botched cutover (e.g. dispatcher still

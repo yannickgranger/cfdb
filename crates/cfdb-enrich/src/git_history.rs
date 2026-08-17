@@ -36,13 +36,6 @@
 //! This module only compiles with the `git-enrich` feature; the feature-off
 //! path is handled by `EnrichEngine::enrich_git_history`'s
 //! `#[cfg(not(feature = "git-enrich"))]` variant in `lib.rs`.
-//!
-//! Moved from `cfdb-petgraph::enrich::git_history` (RFC-056 slice 056-D) —
-//! rewritten against [`GraphView`] instead of `&mut KeyspaceState`. Every
-//! pure function below (git collection, path-strip matching) is unchanged;
-//! only `write_attrs`/`write_attrs_one`'s node access moved from direct
-//! `KeyspaceState`/`NodeIndex` reach-in to the port's `nodes_with_label`/
-//! `node_by_id`/`set_attr`.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -218,8 +211,7 @@ fn write_attrs(
 
 /// Write per-node attrs, returning the number of attrs written (always 3 —
 /// Null is still a write, since the classifier uses the presence of the key
-/// to gate confidence — or 0 if `id` no longer resolves to a node, mirroring
-/// the pre-move skip-on-stale-index behavior).
+/// to gate confidence — or 0 if `id` no longer resolves to a node).
 ///
 /// `:Item.file` is an absolute path emitted by the extractor; `git_info`
 /// is keyed by paths relative to the repo root (the form `git diff` returns).

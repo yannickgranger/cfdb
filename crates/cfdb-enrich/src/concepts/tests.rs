@@ -378,13 +378,7 @@ fn items_without_crate_prop_are_ignored() {
 
 #[test]
 fn unknown_keyspace_errs_even_when_workspace_root_is_also_missing() {
-    // Guard-ORDER characterization (RFC-056 §4 behavior-identity), same
-    // class of test as rfc_docs's (056-A) and bounded_context's (056-B).
-    // Pre-move, PetgraphStore::enrich_concepts ran require_keyspace BEFORE
-    // require_workspace, so when BOTH guards fail the caller saw
-    // Err(UnknownKeyspace) — not the degraded Ok(report). No pre-existing
-    // fixture exercised both-failing at once, so the ordering was unpinned
-    // and a move could silently invert it.
+    // The keyspace guard wins when both fail — never the degraded report.
     let mut store = PetgraphStore::new(); // no workspace root
     let ks = Keyspace::new("never"); // and no such keyspace
     let err = EnrichEngine::new(&mut store)

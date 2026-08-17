@@ -2,13 +2,6 @@
 //! `:Item.bounded_context` on crates whose TOML mapping changed between
 //! extractions.
 //!
-//! Moved from `cfdb-petgraph::enrich::bounded_context` (RFC-056 slice
-//! 056-B) — rewritten against [`GraphView`] instead of `&mut KeyspaceState`.
-//! Every pure function below (patch computation, memoisation) is unchanged;
-//! only node reads/writes moved from direct `KeyspaceState`
-//! field/`NodeIndex` access to the port's `node_by_id`/`nodes_with_label`/
-//! `set_attr`.
-//!
 //! # Scope — this is a re-enrichment pass
 //!
 //! The extract-time path in `cfdb-extractor::lib.rs` already populates
