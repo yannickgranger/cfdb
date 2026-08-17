@@ -302,3 +302,21 @@ fn rfc_file_with_no_matches_is_not_emitted_as_node() {
     assert_eq!(report.edges_written, 0);
     assert_eq!(count_nodes(&store, &ks, Label::RFC_DOC), 0);
 }
+
+#[test]
+fn unknown_keyspace_errs_even_when_workspace_root_is_also_missing() {
+    // Guard-ORDER characterization (RFC-056 §4 behavior-identity).
+    // Pre-move, PetgraphStore::enrich_rfc_docs ran require_keyspace BEFORE
+    // require_workspace, so when BOTH guards fail the caller saw
+    // Err(UnknownKeyspace) — not the degraded Ok(report). No pre-existing
+    // fixture exercised both-failing at once (unknown_keyspace_returns_err
+    // attaches a workspace; no_workspace_root_returns_degraded_report
+    // registers the keyspace), so the ordering was unpinned and a
+    // move could silently invert it.
+    let mut store = PetgraphStore::new(); // no workspace root
+    let ks = Keyspace::new("never"); // and no such keyspace
+    let err = EnrichEngine::new(&mut store)
+        .enrich_rfc_docs(&ks)
+        .expect_err("keyspace guard must win over the workspace guard");
+    assert!(format!("{err:?}").contains("UnknownKeyspace"));
+}

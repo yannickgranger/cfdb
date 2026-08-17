@@ -95,6 +95,15 @@ impl<'s, S: GraphBackend> EnrichBackend for EnrichEngine<'s, S> {
     }
 
     fn enrich_rfc_docs(&mut self, keyspace: &Keyspace) -> Result<EnrichReport, StoreError> {
+        // Guard order is load-bearing, not incidental: pre-move,
+        // PetgraphStore::enrich_rfc_docs ran require_keyspace BEFORE
+        // require_workspace, so when both fail the caller gets
+        // Err(UnknownKeyspace) rather than the degraded Ok(report).
+        // Resolving the view here (and discarding it) reproduces that
+        // ordering; the borrow ends with this statement, so
+        // require_workspace's &self borrow below is free to run.
+        // Pinned by unknown_keyspace_errs_even_when_workspace_root_is_also_missing.
+        let _ = self.store.graph_view(keyspace)?;
         let root = match self.require_workspace(
             "enrich_rfc_docs",
             "so the pass can scan docs/ for RFC references",
