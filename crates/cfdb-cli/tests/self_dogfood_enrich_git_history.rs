@@ -1,4 +1,5 @@
-//! Self-dogfood test for `enrich_git_history` (issue #105 — slice 43-B).
+//! Self-dogfood test for `enrich_git_history` (issue #105 — slice 43-B;
+//! ported to `EnrichEngine` in RFC-056 slice 056-D / issue #581).
 //!
 //! Extracts cfdb's own source tree, attaches the workspace root to the store,
 //! runs `enrich_git_history`, and asserts that ≥80% of `:Item` nodes pick up
@@ -11,6 +12,13 @@
 //! populate → nothing to assert on) and resolves the cfdb workspace root
 //! from `CARGO_MANIFEST_DIR` — this keeps the test portable across
 //! worktrees, CI runners, and user clones.
+//!
+//! Routes through `cfdb_enrich::EnrichEngine`, not `PetgraphStore` directly
+//! — as of 056-D, `PetgraphStore::enrich_git_history` falls through to the
+//! `EnrichBackend` default `not_implemented` stub (RFC-056 §2
+//! composition-root cutover). This test still never exercises
+//! `crates/cfdb-cli/src/enrich.rs`'s dispatcher, though — see
+//! `enrich_git_history_cli.rs` for that.
 
 #![cfg(feature = "git-enrich")]
 
@@ -20,6 +28,7 @@ use cfdb_core::enrich::EnrichBackend;
 use cfdb_core::fact::PropValue;
 use cfdb_core::schema::{Keyspace, Label};
 use cfdb_core::store::StoreBackend;
+use cfdb_enrich::EnrichEngine;
 use cfdb_petgraph::PetgraphStore;
 
 fn cfdb_workspace_root() -> PathBuf {
@@ -52,7 +61,9 @@ fn ac4_ac5_self_dogfood_eighty_percent_items_have_git_attrs() {
         .expect("ingest extractor edges");
 
     // Run the enrichment pass.
-    let report = store.enrich_git_history(&ks).expect("enrich_git_history");
+    let report = EnrichEngine::new(&mut store)
+        .enrich_git_history(&ks)
+        .expect("enrich_git_history");
     assert!(
         report.ran,
         "enrich_git_history must actually run on a git-tracked workspace: {:?}",

@@ -41,7 +41,10 @@ pub fn enrich(
     let (mut store, ks) = compose::load_store_with_workspace(&db, &keyspace, workspace)?;
 
     let report: EnrichReport = match verb {
-        EnrichVerb::GitHistory => store.enrich_git_history(&ks)?,
+        // RFC-056 056-D: git_history pass moved to cfdb-enrich::EnrichEngine.
+        EnrichVerb::GitHistory => {
+            cfdb_enrich::EnrichEngine::new(&mut store).enrich_git_history(&ks)?
+        }
         // RFC-056 056-A: rfc_docs pass moved to cfdb-enrich::EnrichEngine.
         EnrichVerb::RfcDocs => cfdb_enrich::EnrichEngine::new(&mut store).enrich_rfc_docs(&ks)?,
         // RFC-056: the only verb whose dispatch already moved to

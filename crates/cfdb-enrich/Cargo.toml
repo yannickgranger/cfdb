@@ -15,6 +15,18 @@ cfdb-core = { path = "../cfdb-core" }
 # resolution point, no split-brain. Drops from cfdb-petgraph once 056-C lands
 # (RFC-056 §2).
 cfdb-concepts = { path = "../cfdb-concepts" }
+# git_history (056-D). Same pin as cfdb-petgraph's own (now-unused) git2 dep
+# — default-features = false drops ssh/https/ssh_key_from_memory, the pass
+# only reads the local filesystem. Default builds (`cargo build -p cfdb-cli`)
+# MUST have zero git2 in their dep tree (issue #105 / rust-systems Q1/Q6).
+git2 = { version = "0.20", default-features = false, optional = true }
+
+[features]
+default = []
+# Enables `EnrichEngine::enrich_git_history`'s real implementation; pulls
+# git2. Without this feature the method returns a clear degraded report
+# directing the caller to recompile with `--features git-enrich`.
+git-enrich = ["dep:git2"]
 
 [dev-dependencies]
 # The moved enrichment-pass test suites need a concrete GraphBackend to run
