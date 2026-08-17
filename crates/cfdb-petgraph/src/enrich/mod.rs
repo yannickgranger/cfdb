@@ -11,14 +11,14 @@
 //! | Verb | Module | Slice | Issue | Feature |
 //! |---|---|---|---|---|
 //! | `enrich_git_history` | [`git_history`] | — | — | `git-enrich` |
-//! | `enrich_rfc_docs` | [`rfc_docs`] | — | — | — |
 //! | `enrich_bounded_context` | [`bounded_context`] | — | — | — |
 //! | `enrich_concepts` | [`concepts`] | — | — | — |
 //! | `enrich_reachability` | [`reachability`] | — | — | — |
 //! | `enrich_metrics` | [`metrics`] | — | — | `quality-metrics` |
 //!
 //! `enrich_deprecation` ships as an extractor-time fact — its EnrichBackend
-//! method is a no-op report, not a module in this directory.
+//! method is a no-op report, not a module in this directory. `enrich_rfc_docs`
+//! moved to `cfdb-enrich::rfc_docs` (RFC-056 slice 056-A).
 
 // The module is compiled only with the `git-enrich` feature — libgit2 is a
 // heavy dep. The feature-off path is handled entirely in
@@ -26,11 +26,6 @@
 // without the feature).
 #[cfg(feature = "git-enrich")]
 pub(crate) mod git_history;
-
-// Scans workspace `docs/**/*.md` and `.concept-graph/*.md` with stdlib
-// `str::contains` + a hand-rolled word boundary check. No feature flag needed:
-// stdlib-only, negligible compile cost.
-pub(crate) mod rfc_docs;
 
 // Re-reads `.cfdb/concepts/*.toml` and patches `:Item.bounded_context` on
 // items whose crate's mapping changed. Calls into the shared `cfdb_concepts`

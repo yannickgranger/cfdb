@@ -2,6 +2,13 @@
 //! on `:Item.name` / `:Item.qname` and emit `:RfcDoc { path, title }`
 //! nodes + `(:Item)-[:REFERENCED_BY]->(:RfcDoc)` edges.
 //!
+//! Moved from `cfdb-petgraph::enrich::rfc_docs` (RFC-056 slice 056-A) —
+//! rewritten against [`GraphView`] instead of `&mut KeyspaceState`. Every
+//! pure function below (file discovery, scanning, whole-word matching,
+//! graph emission) is unchanged; only `collect_items` and `run`'s
+//! node/edge access moved from direct `KeyspaceState` field/method reach-in
+//! to the port's `nodes_with_label`/`node_by_id`/`ingest_nodes`/`ingest_edges`.
+//!
 //! # Scan strategy
 //!
 //! `str::contains` + a hand-rolled `\b` boundary check (char-level, ASCII
@@ -46,9 +53,8 @@ use std::path::{Path, PathBuf};
 
 use cfdb_core::enrich::EnrichReport;
 use cfdb_core::fact::{Edge, Node, PropValue, Props};
+use cfdb_core::graph::GraphView;
 use cfdb_core::schema::{EdgeLabel, Label};
-
-use crate::graph::KeyspaceState;
 
 pub(crate) const VERB: &str = "enrich_rfc_docs";
 
@@ -58,14 +64,14 @@ pub(crate) const VERB: &str = "enrich_rfc_docs";
 /// flat by convention but scanning recursively costs nothing.
 const SCAN_ROOTS: &[&str] = &["docs", ".concept-graph"];
 
-pub(crate) fn run(state: &mut KeyspaceState, workspace_root: &Path) -> EnrichReport {
+pub(crate) fn run(view: &mut dyn GraphView, workspace_root: &Path) -> EnrichReport {
     let mut warnings: Vec<String> = Vec::new();
 
     let rfc_files = discover_rfc_files(workspace_root, &mut warnings);
     let scanned = scan_files(&rfc_files, workspace_root, &mut warnings);
 
     let item_label = Label::new(Label::ITEM);
-    let items = collect_items(state, &item_label);
+    let items = collect_items(view, &item_label);
 
     if items.is_empty() || scanned.is_empty() {
         return EnrichReport {
@@ -87,8 +93,8 @@ pub(crate) fn run(state: &mut KeyspaceState, workspace_root: &Path) -> EnrichRep
         .sum();
     let edges_written = u64::try_from(edges.len()).unwrap_or(u64::MAX);
 
-    state.ingest_nodes(rfc_nodes);
-    state.ingest_edges(edges);
+    view.ingest_nodes(rfc_nodes);
+    view.ingest_edges(edges);
 
     EnrichReport {
         verb: VERB.into(),
@@ -232,11 +238,10 @@ fn extract_title(content: &str) -> Option<String> {
 // :Item projection
 // ---------------------------------------------------------------------------
 
-fn collect_items(state: &KeyspaceState, label: &Label) -> Vec<ItemRow> {
-    state
-        .nodes_with_label(label)
+fn collect_items(view: &dyn GraphView, label: &Label) -> Vec<ItemRow> {
+    view.nodes_with_label(label)
         .into_iter()
-        .filter_map(|idx| state.graph.node_weight(idx).map(project_item_row))
+        .filter_map(|id| view.node_by_id(&id).map(project_item_row))
         .filter(|row| !row.qname.is_empty() || !row.name.is_empty())
         .collect()
 }

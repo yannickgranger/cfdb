@@ -42,7 +42,8 @@ pub fn enrich(
 
     let report: EnrichReport = match verb {
         EnrichVerb::GitHistory => store.enrich_git_history(&ks)?,
-        EnrichVerb::RfcDocs => store.enrich_rfc_docs(&ks)?,
+        // RFC-056 056-A: rfc_docs pass moved to cfdb-enrich::EnrichEngine.
+        EnrichVerb::RfcDocs => cfdb_enrich::EnrichEngine::new(&mut store).enrich_rfc_docs(&ks)?,
         // RFC-056: the only verb whose dispatch already moved to
         // EnrichEngine as of slice 056-0 — its "pass" is a trivial
         // extractor-time no-op report, so 056-0 closed its composition-root
