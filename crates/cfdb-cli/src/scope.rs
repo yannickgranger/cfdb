@@ -61,11 +61,14 @@ const CLASSIFIER_UNWIRED_PRODUCTION_CYPHER: &str =
 /// - `findings_by_class`: each of the six `DebtClass` buckets is
 ///   populated by a dedicated classifier rule in
 ///   `examples/queries/classifier-*.cypher`. Rules that require HIR-
-///   extracted inputs (`ContextHomonym`, `RandomScattering`,
-///   `CanonicalBypass`, `Unwired`) return empty rows when the keyspace
-///   was built without `--features hir`; a per-class warning documents
-///   the degradation. Rules whose inputs are always present
-///   (`DuplicatedFeature`, `UnfinishedRefactor`) never degrade.
+///   extracted inputs (`RandomScattering`, `CanonicalBypass`, `Unwired`)
+///   return empty rows when the keyspace was built without `--features
+///   hir`; a per-class warning documents the degradation. `ContextHomonym`
+///   is NOT HIR-dependent — its inputs (`:Item.signature`,
+///   `:Item.bounded_context`) are both populated at plain `cfdb extract`
+///   time, so an empty bucket means "no finding," same as the two rules
+///   below. Rules whose inputs are always present (`DuplicatedFeature`,
+///   `UnfinishedRefactor`, `ContextHomonym`) never degrade.
 /// - `canonical_candidates`: seeded from `hsb-by-name.cypher` (Pattern A
 ///   horizontal split-brain candidates) filtered to the requested context.
 /// - `reachability_map`: `None` (JSON `null`) — HIR-dependent per addendum
@@ -335,10 +338,9 @@ pub(crate) fn class_empty_bucket_note(class: DebtClass) -> Option<String> {
         }
         DebtClass::ContextHomonym => {
             "findings_by_class.context_homonym is empty — no cross-context \
-             signature-divergent fn/method pairs in this context. If the \
-             keyspace was extracted without --features hir, :Item.signature \
-             is absent and this class degrades to no findings; run `cfdb \
-             extract --features hir` to enable."
+             signature-divergent fn/method pairs in this context (inputs: \
+             :Item.signature, :Item.bounded_context — always present in a \
+             syn-only extract, same as duplicated_feature/unfinished_refactor)"
         }
         DebtClass::UnfinishedRefactor => {
             "findings_by_class.unfinished_refactor is empty — no \

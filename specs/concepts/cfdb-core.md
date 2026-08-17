@@ -1,6 +1,6 @@
 # Spec: cfdb-core
 
-The schema vocabulary, fact types, query AST, result types, the `StoreBackend` port, and the sibling `EnrichBackend` port — the innermost layer that every other cfdb crate depends on and that depends on nothing in the workspace.
+The schema vocabulary, fact types, query AST, result types, the `StoreBackend` port, the sibling `EnrichBackend` port, and — since RFC-056 — the narrower `GraphBackend`/`GraphView` port pair `cfdb-enrich`'s enrichment passes are coded against. The innermost layer that every other cfdb crate depends on and that depends on nothing in the workspace.
 
 `cfdb-core` is intentionally in the **Zone of Pain** (D ≈ 0.95 — high stability, near-zero abstractness) and `cfdb-concepts` is at D = 1.00. This is accepted architectural debt: both are maximally stable zero-dep foundation crates whose vocabulary is the wire contract for every downstream keyspace. The mitigation is procedural, not structural — changes here evolve only via RFC-gated additive bumps of `SchemaVersion` with a lockstep graph-specs-rust PR per CLAUDE.md §3. Unilateral modification is the drift mode we prevent by making every schema-surface change pass through the council + dogfood gates.
 
@@ -26,7 +26,7 @@ Provenance discriminator for `:Context` nodes (RFC-038). `Declared` is author-as
 
 ## Direction
 
-Traversal direction for a path pattern — outgoing, incoming, or either.
+Traversal direction for a path pattern — outgoing, incoming, or either. Graph-topology vocabulary, not query-grammar: lives in `schema` (peer of `Label`/`EdgeLabel`), re-exported from `query::ast` for backward compat (RFC-056 §3.3). Shared by the query evaluator's pattern matching AND `GraphView::neighbors`.
 
 ## Edge
 
@@ -82,6 +82,14 @@ The result of an enrichment pass — verb, completed flag, optional message, fac
 ## Expr
 
 A query expression used in `WITH` and `RETURN` — literal, property access, function call, aggregation, or arithmetic combination.
+
+## GraphBackend
+
+The per-store factory that resolves a `Keyspace` into a `GraphView`, plus `workspace_root()` (RFC-056). `Send + Sync` so a generic `EnrichEngine<S: GraphBackend>` can itself be `Send + Sync`. `cfdb-petgraph::PetgraphStore` is the sole v0.1 implementor. Sibling of `StoreBackend`/`EnrichBackend` — narrower, id-based, dyn-safe, and deliberately ignorant of any concrete storage representation.
+
+## GraphView
+
+The per-keyspace read/write surface an enrichment pass needs — id-based node/edge lookup, neighbor traversal by `Direction`, single-attribute writes, and node/edge ingestion (RFC-056). `cfdb-petgraph::KeyspaceState` is the sole v0.1 implementor, reached via `GraphBackend::graph_view`. Exists so `cfdb-enrich`'s enrichment passes never depend on a concrete graph representation (`petgraph::NodeIndex`, `StableDiGraph`) — the seam the pre-RFC-056 `cfdb-petgraph` lacked.
 
 ## ItemKind
 

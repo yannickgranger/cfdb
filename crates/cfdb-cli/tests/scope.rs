@@ -185,12 +185,31 @@ fn scope_empty_buckets_carry_per_class_warning_naming_missing_input() {
     // present in a syn-only extract.
     //
     // Runs against a syn-only cfdb keyspace (no --features hir, no
-    // enrich-concepts, no enrich-reachability), so the four HIR-dependent
+    // enrich-concepts, no enrich-reachability), so three HIR-dependent
     // classes are GUARANTEED empty regardless of the code shape:
-    //   - context_homonym    (needs :Item.signature + signature_divergent)
     //   - random_scattering  (needs :EntryPoint + reachable_from_entry)
     //   - canonical_bypass   (needs :Concept + CANONICAL_FOR + reachable_from_entry)
     //   - unwired            (needs reachable_from_entry)
+    //
+    // context_homonym is asserted empty too, but for a DIFFERENT reason
+    // than the three above — and the distinction matters, because getting
+    // it wrong once already cost a real bug (#585). It is NOT
+    // HIR-dependent: :Item.signature and :Item.bounded_context are both
+    // populated at plain `cfdb extract` time
+    // (crates/cfdb-extractor/src/item_visitor/emit/mod.rs), never by the
+    // HIR extractor or an enrichment pass — the cypher's own doc comment
+    // claimed otherwise and was corrected alongside this test. Its bucket
+    // is empty on cfdb-self because of a real architectural invariant:
+    // every cfdb crate maps to the single `cfdb` bounded context
+    // (.cfdb/concepts/cfdb.toml), so cfdb's own tree has no cross-context
+    // pairs at all. That makes this assertion a live guard on the concepts
+    // override, not a degradation check — when RFC-056 added the
+    // `cfdb-enrich` crate without registering it in cfdb.toml, the crate
+    // fell to the per-crate default context and this assertion correctly
+    // went red on 22 spurious homonyms. Registering the crate returned it
+    // to 0. Keep asserting it: a future red here means either a genuinely
+    // divergent cross-context homonym or (more likely) a new crate missing
+    // its cfdb.toml entry — both worth failing on.
     //
     // The remaining two classes (duplicated_feature, unfinished_refactor)
     // have inputs that ARE present in a syn-only extract — whether their
@@ -214,8 +233,14 @@ fn scope_empty_buckets_carry_per_class_warning_naming_missing_input() {
     ] {
         assert!(
             combined.contains(class),
-            "expected empty-bucket warning for HIR-dependent class `{class}` \
-             (syn-only keyspace guarantees empty bucket); warnings: {combined}"
+            "expected empty-bucket warning for class `{class}`. The three \
+             HIR-dependent classes (random_scattering / canonical_bypass / \
+             unwired) are empty because a syn-only keyspace lacks their \
+             inputs. `context_homonym` is empty because every cfdb crate \
+             maps to the single `cfdb` bounded context — if THAT is the one \
+             that went red, check .cfdb/concepts/cfdb.toml lists every \
+             crate in the workspace before assuming a real homonym (#585). \
+             warnings: {combined}"
         );
     }
 

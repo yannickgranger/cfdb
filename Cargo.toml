@@ -14,6 +14,7 @@ members = [
     "crates/cfdb-hir-petgraph-adapter",
     "crates/cfdb-cli",
     "crates/cfdb-recall",
+    "crates/cfdb-enrich",
     "tools/check-prelude-triggers",
     "tools/dogfood-enrich",
 ]

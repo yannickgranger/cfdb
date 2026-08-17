@@ -272,6 +272,7 @@ dependencies = [
  "assert_cmd",
  "cfdb-concepts",
  "cfdb-core",
+ "cfdb-enrich",
  "cfdb-extractor",
  "cfdb-extractor-php",
  "cfdb-extractor-ts",
@@ -314,6 +315,15 @@ dependencies = [
  "thiserror",
  "toml 0.8.23",
  "trybuild",
+]
+
+[[package]]
+name = "cfdb-enrich"
+version = "0.7.0"
+dependencies = [
+ "cfdb-core",
+ "cfdb-petgraph",
+ "tempfile",
 ]
 
 [[package]]

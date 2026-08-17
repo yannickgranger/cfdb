@@ -29,6 +29,7 @@ mod enrich_backend;
 mod eval;
 pub mod explain;
 mod graph;
+mod graph_view_backend;
 pub mod index;
 mod ingest_contention;
 pub mod persist;
