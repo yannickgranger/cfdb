@@ -84,6 +84,9 @@ fn self_dogfood_cfdb_concept_and_labeled_as_coverage() {
         "cfdb-concepts",
         "cfdb-query",
         "cfdb-petgraph",
+        // RFC-056 slice 056-0 — strangler-fig destination for cfdb-petgraph's
+        // enrichment passes. Mirror .cfdb/concepts/cfdb.toml.
+        "cfdb-enrich",
         "cfdb-extractor",
         // RFC-041 Phase 2 / Phase 3 — concrete `LanguageProducer`
         // impls for PHP (#264) and TypeScript (#265); same operational
