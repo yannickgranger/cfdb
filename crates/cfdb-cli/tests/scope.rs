@@ -185,12 +185,25 @@ fn scope_empty_buckets_carry_per_class_warning_naming_missing_input() {
     // present in a syn-only extract.
     //
     // Runs against a syn-only cfdb keyspace (no --features hir, no
-    // enrich-concepts, no enrich-reachability), so the four HIR-dependent
+    // enrich-concepts, no enrich-reachability), so three HIR-dependent
     // classes are GUARANTEED empty regardless of the code shape:
-    //   - context_homonym    (needs :Item.signature + signature_divergent)
     //   - random_scattering  (needs :EntryPoint + reachable_from_entry)
     //   - canonical_bypass   (needs :Concept + CANONICAL_FOR + reachable_from_entry)
     //   - unwired            (needs reachable_from_entry)
+    //
+    // context_homonym is NOT HIR-dependent — despite its cypher's stale
+    // doc comment (fixed alongside this test), :Item.signature and
+    // :Item.bounded_context are both populated at plain `cfdb extract`
+    // time (crates/cfdb-extractor/src/item_visitor/emit/mod.rs), not by
+    // the HIR extractor or an enrichment pass. Whether its bucket is
+    // empty depends entirely on whether cfdb's own tree currently has a
+    // genuine cross-context signature-divergent same-name fn/method pair
+    // — content-dependent, same as duplicated_feature/unfinished_refactor
+    // below. It moved from "always empty" to "content-dependent" when
+    // RFC-056's GraphView/GraphBackend port introduced trait-method /
+    // impl-method pairs across bounded contexts sharing the same
+    // last-segment name (e.g. `workspace_root`) — a real, correct
+    // finding, not a bug.
     //
     // The remaining two classes (duplicated_feature, unfinished_refactor)
     // have inputs that ARE present in a syn-only extract — whether their
@@ -206,12 +219,7 @@ fn scope_empty_buckets_carry_per_class_warning_naming_missing_input() {
         .expect("warnings array present even when empty");
     let combined = serde_json::to_string(warnings).expect("serialize warnings");
 
-    for class in [
-        "context_homonym",
-        "random_scattering",
-        "canonical_bypass",
-        "unwired",
-    ] {
+    for class in ["random_scattering", "canonical_bypass", "unwired"] {
         assert!(
             combined.contains(class),
             "expected empty-bucket warning for HIR-dependent class `{class}` \
