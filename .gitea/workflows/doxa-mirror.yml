@@ -1,0 +1,38 @@
+name: doxa-mirror
+on:
+  pull_request:
+  push:
+    branches: [develop, main]
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone
+        run: |
+          BRANCH=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}
+          git clone --branch="$BRANCH" "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" repo
+      - name: docs/RFC-*.md is a byte-identical mirror of the doxa corpus at doxa.rev
+        run: |
+          set -e
+          cd repo
+          DOXA_REV=$(tr -d '[:space:]' < doxa.rev)
+          git clone -q https://agency.lab:3000/yg/doxa.git .doxa
+          git -C .doxa checkout -q "$DOXA_REV"
+          python3 - <<'PY'
+          import json, os, filecmp, sys
+          prov = json.load(open(".doxa/provenance.json"))
+          bad = []
+          seen = set()
+          for ident, meta in sorted(prov.items()):
+              if meta["source_repo"] != "yg/cfdb": continue
+              local = meta["source_path"]; seen.add(local)
+              corpus = f".doxa/rfc/{ident}.md"
+              if not os.path.exists(local): bad.append(f"missing in mirror: {local} ({ident})"); continue
+              if not filecmp.cmp(local, corpus, shallow=False): bad.append(f"diverges from corpus: {local} != {ident}")
+          for f in sorted(os.listdir("docs")):
+              if f.startswith("RFC-") and f.endswith(".md") and f"docs/{f}" not in seen:
+                  bad.append(f"RFC file not in the corpus: docs/{f} — author it in yg/doxa, then bump doxa.rev")
+          if bad:
+              print("FATAL: docs/RFC-*.md diverges from the doxa corpus at the pin:"); print("\n".join("  " + b for b in bad)); sys.exit(1)
+          print("mirror ok:", len(seen), "files")
+          PY

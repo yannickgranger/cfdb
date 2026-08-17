@@ -19,7 +19,16 @@ Repo-local methodology. Sets the contribution and review discipline for this rep
 
 ### §2.1 — Where RFCs live
 
-`docs/RFC-<topic>.md` for major RFCs (follow existing `RFC-cfdb.md` / `RFC-030-*.md` convention). Numbered-series RFCs use `RFC-NNN-<kebab-title>.md`.
+RFCs live in `yg/doxa`, the one RFC corpus, under `<subject>-<slug>` ids: this
+repo's are `cfdb-NNN-<kebab-title>` (`cfdb-056-enrich-port-split`), the v1
+master RFC is `cfdb-v1-code-facts-database`; the corpus rev this repo reads
+is pinned in `doxa.rev`. **No RFC file is authored in this tree.** A council
+synthesizes into a doxa PR against `develop`; the operator merges; slices and
+issues cite `<id>#<clause>`. `docs/RFC-*.md` remains only as a byte-identical
+MIRROR of the corpus at the pin (CI refuses any divergence), because the
+`enrich-rfc-docs` pass and its self-dogfood test still scan `docs/`; the
+mirror is deleted when that pass reads the pinned corpus (`keel-harness` §7,
+`keel-dialect` §3.3, §6.5).
 
 ### §2.2 — RFC contents
 
