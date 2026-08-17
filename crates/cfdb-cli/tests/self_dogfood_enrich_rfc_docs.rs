@@ -1,5 +1,4 @@
-//! Self-dogfood test for `enrich_rfc_docs` (issue #107 — slice 43-D; ported
-//! to `EnrichEngine` in RFC-056 slice 056-A / issue #578).
+//! Self-dogfood test for `enrich_rfc_docs` (issue #107 — slice 43-D).
 //!
 //! Extracts cfdb's own source tree, runs `enrich_rfc_docs`, and asserts:
 //!
@@ -13,11 +12,9 @@
 //! Rust stack trace inside `cargo test`. Workspace root resolved from
 //! `CARGO_MANIFEST_DIR` for portability across worktrees + CI runners.
 //!
-//! Routes through `cfdb_enrich::EnrichEngine`, not `PetgraphStore` directly
-//! — as of 056-A, `PetgraphStore::enrich_rfc_docs` falls through to the
-//! `EnrichBackend` default `not_implemented` stub (RFC-056 §2 composition-
-//! root cutover). This test still never exercises `crates/cfdb-cli/src/
-//! enrich.rs`'s dispatcher, though — see `enrich_rfc_docs_cli.rs` for that.
+//! Routes through `cfdb_enrich::EnrichEngine`, not `PetgraphStore`
+//! directly. Still never exercises `crates/cfdb-cli/src/enrich.rs`'s
+//! dispatcher, though — see `enrich_rfc_docs_cli.rs` for that.
 
 use std::path::PathBuf;
 

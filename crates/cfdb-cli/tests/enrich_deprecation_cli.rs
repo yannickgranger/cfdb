@@ -1,19 +1,15 @@
-//! `cfdb enrich-deprecation` end-to-end through the real binary (RFC-056
-//! 056-0 — the one verb whose composition-root cutover to `EnrichEngine`
-//! landed in 056-0 itself, per `crates/cfdb-cli/src/enrich.rs`).
+//! `cfdb enrich-deprecation` end-to-end through the real binary.
 //!
 //! NOT a `self_dogfood_*` test (deliberately not named that way): it runs
 //! against a minimal synthetic single-crate fixture, not cfdb's own tree —
-//! harmless here because `enrich_deprecation`'s report is content-independent
-//! (fixed counters, fixed warning text), but the wrong template for the
-//! other 6 verbs once they move (056-A..F), which DO need a cfdb-self
-//! fixture to prove diff-emptiness per RFC-056 §3.4. This file's only job
+//! safe here because `enrich_deprecation`'s report is content-independent
+//! (fixed counters, fixed warning text). A content-dependent verb needs a
+//! cfdb-self fixture instead to prove diff-emptiness. This file's only job
 //! is proving the CLI→EnrichEngine wiring — unlike the in-process
 //! `self_dogfood_enrich_*.rs` tests (which construct `PetgraphStore`
 //! directly and never exercise `crates/cfdb-cli/src/enrich.rs`'s
-//! dispatcher), this shells out to the actual `cfdb` binary — the same
-//! path `tools/dogfood-enrich` drives — so a botched composition-root
-//! cutover shows up here even though it wouldn't in the in-process tests.
+//! dispatcher), this shells out to the actual `cfdb` binary, so a botched
+//! composition-root cutover shows up here even though it wouldn't there.
 
 use std::path::PathBuf;
 use std::process::Command;

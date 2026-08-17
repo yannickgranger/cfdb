@@ -1,14 +1,11 @@
 //! `cfdb enrich-rfc-docs` end-to-end through the real binary, against
-//! cfdb's own tree (RFC-056 slice 056-A / issue #578).
+//! cfdb's own tree.
 //!
-//! Unlike `enrich_deprecation_cli.rs` (056-0's CLI test, which is safe to
-//! run against a minimal synthetic fixture because `enrich_deprecation`'s
-//! report is content-independent), `enrich_rfc_docs`'s report depends on
-//! real `docs/*.md` content actually referencing real `:Item`s — a
-//! synthetic single-file fixture would prove nothing about the
-//! composition-root cutover. This is the template for 056-B..F's CLI
-//! tests: self-dogfood, shelled out through the real binary, not a
-//! synthetic fixture.
+//! Unlike `enrich_deprecation_cli.rs` (safe against a minimal synthetic
+//! fixture because that report is content-independent),
+//! `enrich_rfc_docs`'s report depends on real `docs/*.md` content actually
+//! referencing real `:Item`s — a synthetic single-file fixture would prove
+//! nothing about the composition-root cutover.
 //!
 //! `self_dogfood_enrich_rfc_docs.rs` already exercises `EnrichEngine`
 //! in-process on cfdb-self; this test's only additional job is proving

@@ -1,12 +1,11 @@
 //! `cfdb enrich-git-history` end-to-end through the real binary, against
-//! cfdb's own tree (RFC-056 slice 056-D / issue #581).
+//! cfdb's own tree.
 //!
-//! Two variants, mutually exclusive by feature — RFC-056 §7's 056-D Tests
-//! block asks for both the feature-on real path AND the feature-off
-//! degraded path to be proven through the real binary, not just in-process:
+//! Two variants, mutually exclusive by feature — both the feature-on real
+//! path and the feature-off degraded path need proving through the real
+//! binary, not just in-process:
 //!
-//! - `#[cfg(feature = "git-enrich")]`: template established by
-//!   `enrich_rfc_docs_cli.rs` (056-A) — a synthetic fixture would prove
+//! - `#[cfg(feature = "git-enrich")]`: a synthetic fixture would prove
 //!   nothing about the composition-root cutover for a content-dependent
 //!   pass. `self_dogfood_enrich_git_history.rs` already exercises
 //!   `EnrichEngine` in-process; this test's only additional job is proving

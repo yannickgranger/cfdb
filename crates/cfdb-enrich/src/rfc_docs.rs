@@ -2,13 +2,6 @@
 //! on `:Item.name` / `:Item.qname` and emit `:RfcDoc { path, title }`
 //! nodes + `(:Item)-[:REFERENCED_BY]->(:RfcDoc)` edges.
 //!
-//! Moved from `cfdb-petgraph::enrich::rfc_docs` (RFC-056 slice 056-A) —
-//! rewritten against [`GraphView`] instead of `&mut KeyspaceState`. Every
-//! pure function below (file discovery, scanning, whole-word matching,
-//! graph emission) is unchanged; only `collect_items` and `run`'s
-//! node/edge access moved from direct `KeyspaceState` field/method reach-in
-//! to the port's `nodes_with_label`/`node_by_id`/`ingest_nodes`/`ingest_edges`.
-//!
 //! # Scan strategy
 //!
 //! `str::contains` + a hand-rolled `\b` boundary check (char-level, ASCII

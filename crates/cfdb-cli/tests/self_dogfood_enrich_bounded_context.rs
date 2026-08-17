@@ -1,5 +1,4 @@
-//! Self-dogfood test for `enrich_bounded_context` (issue #108 — slice 43-E;
-//! ported to `EnrichEngine` in RFC-056 slice 056-B / issue #579).
+//! Self-dogfood test for `enrich_bounded_context` (issue #108 — slice 43-E).
 //!
 //! Extracts cfdb's own worktree (which carries `.cfdb/concepts/cfdb.toml`
 //! declaring every cfdb crate → `"cfdb"` context), runs
@@ -14,12 +13,9 @@
 //! Runs as a Rust integration test using the library API — a failure
 //! surfaces as a stack trace inside `cargo test`, not CLI output.
 //!
-//! Routes through `cfdb_enrich::EnrichEngine`, not `PetgraphStore` directly
-//! — as of 056-B, `PetgraphStore::enrich_bounded_context` falls through to
-//! the `EnrichBackend` default `not_implemented` stub (RFC-056 §2
-//! composition-root cutover). This test still never exercises
-//! `crates/cfdb-cli/src/enrich.rs`'s dispatcher, though — see
-//! `enrich_bounded_context_cli.rs` for that.
+//! Routes through `cfdb_enrich::EnrichEngine`, not `PetgraphStore`
+//! directly. Still never exercises `crates/cfdb-cli/src/enrich.rs`'s
+//! dispatcher, though — see `enrich_bounded_context_cli.rs` for that.
 
 use std::path::PathBuf;
 

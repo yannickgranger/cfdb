@@ -310,12 +310,7 @@ fn no_workspace_root_returns_degraded_report() {
 
 #[test]
 fn unknown_keyspace_errs_even_when_workspace_root_is_also_missing() {
-    // Guard-ORDER characterization (RFC-056 §4 behavior-identity), same
-    // class of test as rfc_docs's (056-A), bounded_context's (056-B), and
-    // concepts's (056-C). Pre-move, PetgraphStore::enrich_git_history ran
-    // require_keyspace BEFORE require_workspace (via
-    // enrich_git_history_dispatch), so when BOTH guards fail the caller saw
-    // Err(UnknownKeyspace) — not the degraded Ok(report).
+    // The keyspace guard wins when both fail — never the degraded report.
     let mut store = PetgraphStore::new(); // no workspace root
     let ks = Keyspace::new("never"); // and no such keyspace
     let err = EnrichEngine::new(&mut store)
