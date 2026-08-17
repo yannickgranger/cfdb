@@ -80,7 +80,6 @@ fn hex_encode(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use petgraph::stable_graph::NodeIndex;
 
     fn fn_item(qname: &str, sig: Option<&str>) -> FnItem {
         FnItem {
@@ -88,7 +87,7 @@ mod tests {
             name: qname.rsplit("::").next().unwrap_or(qname).into(),
             file: "x.rs".into(),
             signature_hash: sig.map(str::to_string),
-            node_idx: NodeIndex::new(0),
+            id: format!("item:{qname}"),
         }
     }
 

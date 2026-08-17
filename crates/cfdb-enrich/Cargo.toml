@@ -7,33 +7,33 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-# The hub — GraphView/GraphBackend (the port), EnrichBackend (the trait this
-# crate's EnrichEngine implements), EnrichReport, Node/Edge/PropValue.
 cfdb-core = { path = "../cfdb-core" }
-# bounded_context (056-B) + concepts (056-C) both resolve `.cfdb/concepts/*.toml`
-# through the same `compute_bounded_context`/`load_concept_overrides` — single
-# resolution point, no split-brain. Drops from cfdb-petgraph once 056-C lands
-# (RFC-056 §2).
+# Single resolution point for `.cfdb/concepts/*.toml` — extract-time and
+# enrich-time both call the same compute_bounded_context/load_concept_overrides.
 cfdb-concepts = { path = "../cfdb-concepts" }
-# git_history (056-D). Same pin as cfdb-petgraph's own (now-unused) git2 dep
-# — default-features = false drops ssh/https/ssh_key_from_memory, the pass
-# only reads the local filesystem. Default builds (`cargo build -p cfdb-cli`)
-# MUST have zero git2 in their dep tree (issue #105 / rust-systems Q1/Q6).
+# default-features = false drops ssh/https/ssh_key_from_memory — enrichment
+# only reads the local filesystem. Default builds must have zero git2 in
+# their dep tree.
 git2 = { version = "0.20", default-features = false, optional = true }
+syn = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
 
 [features]
 default = []
-# Enables `EnrichEngine::enrich_git_history`'s real implementation; pulls
-# git2. Without this feature the method returns a clear degraded report
-# directing the caller to recompile with `--features git-enrich`.
+# Real enrich_git_history implementation. Off by default so a build never
+# links libgit2 unless asked.
 git-enrich = ["dep:git2"]
+# Real enrich_metrics implementation. Off by default so a build never links
+# syn's parse cost unless asked.
+quality-metrics = ["dep:syn", "dep:sha2", "dep:serde", "dep:serde_json"]
+# No code currently reads Config::coverage_json — this flag is a placeholder
+# until a caller sets it. test_coverage stays unpopulated regardless.
+llvm-cov = ["quality-metrics"]
 
 [dev-dependencies]
-# The moved enrichment-pass test suites need a concrete GraphBackend to run
-# against, and PetgraphStore is the only one that exists (RFC-056 §2 —
-# precedented by cfdb-petgraph's own [dev-dependencies] cfdb-query; exempt
-# from the CLEAN-3 dependency-rule gate since tests/architecture_dep_rule.rs
-# only scans [dependencies], never [dev-dependencies]). No production edge
-# cfdb-enrich -> cfdb-petgraph exists or is intended.
+# Test suites need a concrete GraphBackend to run against; PetgraphStore is
+# the only implementor. Dev-only — no production edge to cfdb-petgraph.
 cfdb-petgraph = { path = "../cfdb-petgraph" }
 tempfile.workspace = true

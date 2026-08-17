@@ -1,24 +1,20 @@
-//! Characterization tests for the `EnrichBackend::enrich_metrics` dispatch
-//! path in `enrich_backend.rs` — NOT for `metrics::run`'s own computation
-//! (see `ast_signals.rs` / `clustering.rs` / `coverage.rs` for those).
-//!
-//! Pre-strangler-fig safety net: these pin what the dispatcher does today
-//! (guard #1 `require_keyspace`, guard #2 `require_workspace`) so an
-//! enrichment-crate extraction can be verified byte-for-byte against this
-//! baseline. Correctness of the pinned shape is a separate, later question.
+//! Tests for `EnrichEngine::enrich_metrics`'s dispatch guards — NOT for
+//! `metrics::run`'s own computation (see `ast_signals.rs` / `clustering.rs`
+//! / `coverage.rs` for those).
 
 use cfdb_core::enrich::EnrichBackend;
 use cfdb_core::schema::Keyspace;
 use cfdb_core::store::StoreBackend;
+use cfdb_petgraph::PetgraphStore;
 
-use crate::PetgraphStore;
+use crate::EnrichEngine;
 
 #[test]
 fn unknown_keyspace_returns_err() {
     let tmp = tempfile::tempdir().expect("tempdir");
     let mut store = PetgraphStore::new().with_workspace(tmp.path());
     let ks = Keyspace::new("never");
-    let err = store
+    let err = EnrichEngine::new(&mut store)
         .enrich_metrics(&ks)
         .expect_err("unknown keyspace must err");
     assert!(format!("{err:?}").contains("UnknownKeyspace"));
@@ -30,7 +26,9 @@ fn no_workspace_root_returns_degraded_report() {
     let ks = Keyspace::new("test");
     store.ingest_nodes(&ks, vec![]).expect("register keyspace");
 
-    let report = store.enrich_metrics(&ks).expect("pass");
+    let report = EnrichEngine::new(&mut store)
+        .enrich_metrics(&ks)
+        .expect("pass");
 
     assert!(!report.ran, "no workspace_root → ran=false");
     assert_eq!(report.facts_scanned, 0);
@@ -46,4 +44,15 @@ fn no_workspace_root_returns_degraded_report() {
                 .to_string()
         ]
     );
+}
+
+#[test]
+fn unknown_keyspace_errs_even_when_workspace_root_is_also_missing() {
+    // The keyspace guard wins when both fail — never the degraded report.
+    let mut store = PetgraphStore::new(); // no workspace root
+    let ks = Keyspace::new("never"); // and no such keyspace
+    let err = EnrichEngine::new(&mut store)
+        .enrich_metrics(&ks)
+        .expect_err("keyspace guard must win over the workspace guard");
+    assert!(format!("{err:?}").contains("UnknownKeyspace"));
 }

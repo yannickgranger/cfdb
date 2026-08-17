@@ -325,6 +325,10 @@ dependencies = [
  "cfdb-core",
  "cfdb-petgraph",
  "git2",
+ "serde",
+ "serde_json",
+ "sha2",
+ "syn",
  "tempfile",
 ]
 
