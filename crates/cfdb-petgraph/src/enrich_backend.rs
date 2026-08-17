@@ -13,7 +13,7 @@
 //! warning naming the extractor so callers can distinguish "done upstream"
 //! from "deferred".
 
-#[cfg(any(feature = "git-enrich", feature = "quality-metrics"))]
+#[cfg(feature = "quality-metrics")]
 use std::path::PathBuf;
 
 use cfdb_core::enrich::EnrichBackend;
@@ -39,11 +39,11 @@ impl PetgraphStore {
     /// these are user-facing diagnostics that vary meaningfully per verb.
     ///
     /// Feature-gated: `enrich_rfc_docs`/`enrich_bounded_context`/
-    /// `enrich_concepts` — the only unconditional callers — moved to
-    /// `cfdb-enrich::EnrichEngine` (RFC-056 056-A/B/C), leaving only the
-    /// feature-gated `enrich_git_history`/`enrich_metrics` dispatch arms;
-    /// a default (no-features) build would otherwise flag this dead.
-    #[cfg(any(feature = "git-enrich", feature = "quality-metrics"))]
+    /// `enrich_concepts`/`enrich_git_history` — the unconditional-or-only
+    /// callers — all moved to `cfdb-enrich::EnrichEngine` (RFC-056
+    /// 056-A/B/C/D), leaving only the feature-gated `enrich_metrics`
+    /// dispatch arm; any other build would otherwise flag this dead.
+    #[cfg(feature = "quality-metrics")]
     fn require_workspace(
         &self,
         verb: &'static str,
@@ -84,13 +84,11 @@ impl EnrichBackend for PetgraphStore {
         })
     }
 
-    fn enrich_git_history(
-        &mut self,
-        keyspace: &cfdb_core::schema::Keyspace,
-    ) -> Result<cfdb_core::enrich::EnrichReport, StoreError> {
-        self.require_keyspace(keyspace)?;
-        Ok(enrich_git_history_dispatch(self, keyspace))
-    }
+    // enrich_git_history moved to cfdb-enrich::EnrichEngine (RFC-056 056-D)
+    // — falls through to EnrichBackend's default not_implemented stub on
+    // PetgraphStore now; cfdb-cli's dispatcher no longer calls this arm.
+    // git2 stays an optional dep of this crate (dead but harmless per
+    // issue #581 — 056-G prunes it once all 7 verbs have moved).
 
     // enrich_rfc_docs moved to cfdb-enrich::EnrichEngine (RFC-056 056-A) —
     // falls through to EnrichBackend's default not_implemented stub on
@@ -194,51 +192,6 @@ fn enrich_metrics_dispatch(
     crate::enrich::metrics::run(state, &root, &crate::enrich::metrics::Config::default())
 }
 
-/// Feature-off path — the real pass is gated on `git-enrich` to keep
-/// libgit2 out of default builds. Without the feature the verb still
-/// exists and dispatches here, returning a `ran: false` report whose
-/// warning names the feature flag.
-#[cfg(not(feature = "git-enrich"))]
-fn enrich_git_history_dispatch(
-    _store: &mut PetgraphStore,
-    _keyspace: &cfdb_core::schema::Keyspace,
-) -> cfdb_core::enrich::EnrichReport {
-    cfdb_core::enrich::EnrichReport {
-        verb: "enrich_git_history".into(),
-        ran: false,
-        facts_scanned: 0,
-        attrs_written: 0,
-        edges_written: 0,
-        warnings: vec![
-            "enrich_git_history: built without `git-enrich` feature — recompile `cfdb-cli` with `--features git-enrich` to populate git-history facts (RFC addendum §A2.2 row 1 / issue #105)"
-                .into(),
-        ],
-    }
-}
-
-/// Feature-on path — requires a `workspace_root` on the store. If the store
-/// was built without one (most test sites and tool-free callers), return a
-/// `ran: false` degraded report so the caller sees the configuration gap
-/// rather than silent Nulls.
-#[cfg(feature = "git-enrich")]
-fn enrich_git_history_dispatch(
-    store: &mut PetgraphStore,
-    keyspace: &cfdb_core::schema::Keyspace,
-) -> cfdb_core::enrich::EnrichReport {
-    let root = match store.require_workspace(
-        "enrich_git_history",
-        "so the pass can open a git repository",
-    ) {
-        Ok(r) => r,
-        Err(report) => return report,
-    };
-    let state = store
-        .keyspaces
-        .get_mut(keyspace)
-        .expect("keyspace presence checked by caller");
-    crate::enrich::git_history::run(state, &root)
-}
-
 // ---------------------------------------------------------------------------
 // Characterization tests — pre-strangler-fig safety net.
 //
@@ -324,26 +277,10 @@ mod tests {
         );
     }
 
-    // Same rationale as above — `git-enrich` is off in the default build.
-    #[cfg(not(feature = "git-enrich"))]
-    #[test]
-    fn enrich_git_history_feature_off_pins_degraded_report() {
-        let ks = Keyspace::new("test");
-        let mut store = store_with_empty_keyspace(&ks);
-
-        let report = store.enrich_git_history(&ks).expect("pass");
-
-        assert!(!report.ran);
-        assert_eq!(report.facts_scanned, 0);
-        assert_eq!(report.attrs_written, 0);
-        assert_eq!(report.edges_written, 0);
-        assert_eq!(
-            report.warnings,
-            vec!["enrich_git_history: built without `git-enrich` feature — \
-                 recompile `cfdb-cli` with `--features git-enrich` to \
-                 populate git-history facts (RFC addendum §A2.2 row 1 / \
-                 issue #105)"
-                .to_string()]
-        );
-    }
+    // enrich_git_history's characterization moved to
+    // cfdb-enrich::tests::git_history_feature_off_pins_degraded_report
+    // (RFC-056 056-D) — PetgraphStore no longer overrides this verb, so a
+    // test pinning ITS behavior here would be pinning the (now-generic)
+    // EnrichBackend::not_implemented stub instead, which proves nothing
+    // about git_history specifically.
 }

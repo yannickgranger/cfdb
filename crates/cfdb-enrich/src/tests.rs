@@ -54,15 +54,45 @@ fn deprecation_unknown_keyspace_returns_err() {
 #[test]
 fn unmoved_verbs_fall_through_to_not_implemented_stub() {
     // Sanity check: verbs not yet moved are still the trait's default stub.
-    // enrich_rfc_docs moved in 056-A (see rfc_docs::tests) — probe with
-    // enrich_git_history, still unmoved as of 056-A.
+    // rfc_docs (056-A), bounded_context (056-B), concepts (056-C), and
+    // git_history (056-D) have all moved — probe with enrich_reachability,
+    // still unmoved as of 056-D.
+    let ks = Keyspace::new("test");
+    let mut store = store_with_empty_keyspace(&ks);
+    let mut engine = EnrichEngine::new(&mut store);
+
+    let report = engine.enrich_reachability(&ks).expect("pass");
+    assert!(!report.ran);
+    assert!(report.warnings[0].contains("not implemented"));
+}
+
+// `git-enrich` is off in the default build (`default = []` in Cargo.toml)
+// — CI's `--all-features` run never exercises this branch, so this test
+// only compiles/runs under a plain `cargo test -p cfdb-enrich` (no extra
+// flags). Byte-identical to cfdb-petgraph::enrich_backend.rs's pre-move
+// `enrich_git_history_feature_off_pins_degraded_report` (deleted there,
+// RFC-056 056-D — PetgraphStore no longer overrides this verb).
+#[cfg(not(feature = "git-enrich"))]
+#[test]
+fn git_history_feature_off_pins_degraded_report() {
     let ks = Keyspace::new("test");
     let mut store = store_with_empty_keyspace(&ks);
     let mut engine = EnrichEngine::new(&mut store);
 
     let report = engine.enrich_git_history(&ks).expect("pass");
+
     assert!(!report.ran);
-    assert!(report.warnings[0].contains("not implemented"));
+    assert_eq!(report.facts_scanned, 0);
+    assert_eq!(report.attrs_written, 0);
+    assert_eq!(report.edges_written, 0);
+    assert_eq!(
+        report.warnings,
+        vec!["enrich_git_history: built without `git-enrich` feature — \
+             recompile `cfdb-cli` with `--features git-enrich` to \
+             populate git-history facts (RFC addendum §A2.2 row 1 / \
+             issue #105)"
+            .to_string()]
+    );
 }
 
 #[test]

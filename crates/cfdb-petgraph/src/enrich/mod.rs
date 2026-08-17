@@ -10,7 +10,6 @@
 //!
 //! | Verb | Module | Slice | Issue | Feature |
 //! |---|---|---|---|---|
-//! | `enrich_git_history` | [`git_history`] | — | — | `git-enrich` |
 //! | `enrich_reachability` | [`reachability`] | — | — | — |
 //! | `enrich_metrics` | [`metrics`] | — | — | `quality-metrics` |
 //!
@@ -18,14 +17,10 @@
 //! method is a no-op report, not a module in this directory. `enrich_rfc_docs`
 //! moved to `cfdb-enrich::rfc_docs` (RFC-056 slice 056-A). `enrich_bounded_context`
 //! moved to `cfdb-enrich::bounded_context` (RFC-056 slice 056-B). `enrich_concepts`
-//! moved to `cfdb-enrich::concepts` (RFC-056 slice 056-C).
-
-// The module is compiled only with the `git-enrich` feature — libgit2 is a
-// heavy dep. The feature-off path is handled entirely in
-// `crate::enrich_git_history_impl` (no `git2` references → compiles cleanly
-// without the feature).
-#[cfg(feature = "git-enrich")]
-pub(crate) mod git_history;
+//! moved to `cfdb-enrich::concepts` (RFC-056 slice 056-C). `enrich_git_history`
+//! moved to `cfdb-enrich::git_history` (RFC-056 slice 056-D) — this crate's
+//! own `git-enrich` feature (and its `git2` optional dep) remains declared
+//! but now unused, pruned at 056-G once all 7 verbs have moved.
 
 // BFS from every `:EntryPoint` over `CALLS*` edges, writing
 // `:Item.reachable_from_entry` + `reachable_entry_count`. Degraded path when

@@ -324,6 +324,7 @@ dependencies = [
  "cfdb-concepts",
  "cfdb-core",
  "cfdb-petgraph",
+ "git2",
  "tempfile",
 ]
 

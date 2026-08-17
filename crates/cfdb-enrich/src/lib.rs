@@ -23,6 +23,8 @@ use cfdb_core::store::StoreError;
 
 mod bounded_context;
 mod concepts;
+#[cfg(feature = "git-enrich")]
+mod git_history;
 mod rfc_docs;
 
 /// Wraps any [`GraphBackend`] implementor and dispatches the 7 `enrich_*`
@@ -149,10 +151,47 @@ impl<'s, S: GraphBackend> EnrichBackend for EnrichEngine<'s, S> {
         Ok(concepts::run(view, &root))
     }
 
-    // The other 3 verbs (enrich_git_history, enrich_reachability,
-    // enrich_metrics) are not overridden here — they fall through to
-    // EnrichBackend's default `EnrichReport::not_implemented(...)` stub
-    // until their slice (056-D through 056-F) moves the real pass in.
+    /// Feature-on: resolves the workspace root and dispatches to
+    /// `git_history::run`. Guard order (require_keyspace before
+    /// require_workspace) matches the other moved verbs.
+    #[cfg(feature = "git-enrich")]
+    fn enrich_git_history(&mut self, keyspace: &Keyspace) -> Result<EnrichReport, StoreError> {
+        let _ = self.store.graph_view(keyspace)?;
+        let root = match self.require_workspace(
+            "enrich_git_history",
+            "so the pass can open a git repository",
+        ) {
+            Ok(root) => root,
+            Err(report) => return Ok(report),
+        };
+        let view = self.store.graph_view(keyspace)?;
+        Ok(git_history::run(view, &root))
+    }
+
+    /// Feature-off: identical to `PetgraphStore`'s pre-move
+    /// `enrich_git_history_dispatch` feature-off variant — no workspace
+    /// check at all, just the fixed "recompile with --features git-enrich"
+    /// warning, byte-identical text (RFC-056 §4).
+    #[cfg(not(feature = "git-enrich"))]
+    fn enrich_git_history(&mut self, keyspace: &Keyspace) -> Result<EnrichReport, StoreError> {
+        let _ = self.store.graph_view(keyspace)?;
+        Ok(EnrichReport {
+            verb: "enrich_git_history".into(),
+            ran: false,
+            facts_scanned: 0,
+            attrs_written: 0,
+            edges_written: 0,
+            warnings: vec![
+                "enrich_git_history: built without `git-enrich` feature — recompile `cfdb-cli` with `--features git-enrich` to populate git-history facts (RFC addendum §A2.2 row 1 / issue #105)"
+                    .into(),
+            ],
+        })
+    }
+
+    // The other 2 verbs (enrich_reachability, enrich_metrics) are not
+    // overridden here — they fall through to EnrichBackend's default
+    // `EnrichReport::not_implemented(...)` stub until their slice
+    // (056-E/056-F) moves the real pass in.
 }
 
 #[cfg(test)]

@@ -100,7 +100,11 @@ hir = ["dep:cfdb-hir-extractor", "dep:cfdb-hir-petgraph-adapter"]
 # Enables `cfdb enrich-git-history` real implementation — pulls libgit2 via
 # `git2`. Default builds (`cargo build -p cfdb-cli`) MUST have zero `git2`
 # in their dep tree (issue #105 / slice 43-B / rust-systems Q1).
-git-enrich = ["cfdb-petgraph/git-enrich"]
+# RFC-056 056-D: the real implementation now lives in cfdb-enrich, forwarded
+# via cfdb-enrich/git-enrich. cfdb-petgraph/git-enrich stays forwarded too —
+# dead but harmless (cfdb-petgraph's own git_history module + dispatch are
+# gone, the feature only pulls an unused git2 dep) — until 056-G prunes it.
+git-enrich = ["cfdb-petgraph/git-enrich", "cfdb-enrich/git-enrich"]
 # Enables `cfdb enrich-metrics` real implementation — pulls syn + sha2.
 # Default builds (`cargo build -p cfdb-cli`) MUST have zero `syn` in their
 # dep tree (issue #203 / RFC-036 §3.3 / CP6).

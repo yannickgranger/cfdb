@@ -4,8 +4,9 @@ use cfdb_core::enrich::EnrichBackend;
 use cfdb_core::fact::{Node, PropValue, Props};
 use cfdb_core::schema::{Keyspace, Label};
 use cfdb_core::store::StoreBackend;
+use cfdb_petgraph::PetgraphStore;
 
-use crate::PetgraphStore;
+use crate::EnrichEngine;
 
 // ------------------------------------------------------------------
 // Fixture builders — a tempdir + a fresh git repo + one or more files
@@ -105,7 +106,9 @@ fn ac2_two_commit_fixture_writes_correct_attrs() {
 
     let mut store = store_with_item(&fx.workspace, "src/lib.rs", "crate::v2");
     let ks = Keyspace::new("test");
-    let report = store.enrich_git_history(&ks).expect("pass");
+    let report = EnrichEngine::new(&mut store)
+        .enrich_git_history(&ks)
+        .expect("pass");
 
     assert!(report.ran, "pass should run: {:?}", report.warnings);
     assert_eq!(report.attrs_written, 3, "one :Item × three attrs");
@@ -155,7 +158,9 @@ fn absolute_file_path_strips_workspace_prefix_and_matches_git_info() {
         "crate::v1",
     );
     let ks = Keyspace::new("test");
-    let report = store.enrich_git_history(&ks).expect("pass");
+    let report = EnrichEngine::new(&mut store)
+        .enrich_git_history(&ks)
+        .expect("pass");
 
     assert!(report.ran);
     let props = get_item_props(&store, &ks, "crate::v1");
@@ -181,7 +186,9 @@ fn ac3_untracked_file_gets_null_attrs() {
 
     let mut store = store_with_item(&fx.workspace, "src/untracked.rs", "crate::untracked");
     let ks = Keyspace::new("test");
-    let report = store.enrich_git_history(&ks).expect("pass");
+    let report = EnrichEngine::new(&mut store)
+        .enrich_git_history(&ks)
+        .expect("pass");
 
     assert!(report.ran);
     let props = get_item_props(&store, &ks, "crate::untracked");
@@ -208,8 +215,12 @@ fn ac6_two_runs_produce_identical_canonical_dumps() {
     let mut store2 = store_with_item(&fx.workspace, "src/a.rs", "crate::a");
     let ks = Keyspace::new("test");
 
-    store1.enrich_git_history(&ks).expect("run 1");
-    store2.enrich_git_history(&ks).expect("run 2");
+    EnrichEngine::new(&mut store1)
+        .enrich_git_history(&ks)
+        .expect("run 1");
+    EnrichEngine::new(&mut store2)
+        .enrich_git_history(&ks)
+        .expect("run 2");
 
     let dump1 = store1.canonical_dump(&ks).expect("dump 1");
     let dump2 = store2.canonical_dump(&ks).expect("dump 2");
@@ -225,7 +236,9 @@ fn workspace_not_a_git_repo_writes_nulls_with_warning() {
     let tmp = tempfile::tempdir().expect("tempdir");
     let mut store = store_with_item(tmp.path(), "src/lib.rs", "crate::x");
     let ks = Keyspace::new("test");
-    let report = store.enrich_git_history(&ks).expect("pass");
+    let report = EnrichEngine::new(&mut store)
+        .enrich_git_history(&ks)
+        .expect("pass");
 
     assert!(report.ran, "still ran — not an error, just degraded");
     assert!(
@@ -249,7 +262,9 @@ fn empty_keyspace_returns_ran_true_with_zero_counters() {
     let mut store = PetgraphStore::new().with_workspace(&fx.workspace);
     let ks = Keyspace::new("test");
     store.ingest_nodes(&ks, Vec::new()).expect("ingest empty");
-    let report = store.enrich_git_history(&ks).expect("pass");
+    let report = EnrichEngine::new(&mut store)
+        .enrich_git_history(&ks)
+        .expect("pass");
 
     assert!(report.ran);
     assert_eq!(report.attrs_written, 0);
@@ -261,7 +276,7 @@ fn unknown_keyspace_returns_err() {
     let fx = GitFixture::new();
     let mut store = PetgraphStore::new().with_workspace(&fx.workspace);
     let ks = Keyspace::new("never_ingested");
-    let err = store
+    let err = EnrichEngine::new(&mut store)
         .enrich_git_history(&ks)
         .expect_err("unknown keyspace must error");
     let msg = format!("{err:?}");
@@ -281,7 +296,9 @@ fn no_workspace_root_returns_degraded_report() {
         props,
     };
     store.ingest_nodes(&ks, vec![node]).expect("ingest");
-    let report = store.enrich_git_history(&ks).expect("pass");
+    let report = EnrichEngine::new(&mut store)
+        .enrich_git_history(&ks)
+        .expect("pass");
 
     assert!(!report.ran, "no workspace_root → ran=false");
     assert!(
@@ -289,4 +306,20 @@ fn no_workspace_root_returns_degraded_report() {
         "warning must name the missing root: {:?}",
         report.warnings
     );
+}
+
+#[test]
+fn unknown_keyspace_errs_even_when_workspace_root_is_also_missing() {
+    // Guard-ORDER characterization (RFC-056 §4 behavior-identity), same
+    // class of test as rfc_docs's (056-A), bounded_context's (056-B), and
+    // concepts's (056-C). Pre-move, PetgraphStore::enrich_git_history ran
+    // require_keyspace BEFORE require_workspace (via
+    // enrich_git_history_dispatch), so when BOTH guards fail the caller saw
+    // Err(UnknownKeyspace) — not the degraded Ok(report).
+    let mut store = PetgraphStore::new(); // no workspace root
+    let ks = Keyspace::new("never"); // and no such keyspace
+    let err = EnrichEngine::new(&mut store)
+        .enrich_git_history(&ks)
+        .expect_err("keyspace guard must win over the workspace guard");
+    assert!(format!("{err:?}").contains("UnknownKeyspace"));
 }
