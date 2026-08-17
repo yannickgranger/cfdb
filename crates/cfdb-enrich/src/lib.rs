@@ -1,18 +1,13 @@
-//! `EnrichEngine` — the strangler-fig destination for `cfdb-petgraph`'s 7
-//! enrichment passes (RFC-056).
+//! `EnrichEngine` implements [`cfdb_core::enrich::EnrichBackend`]
+//! generically over any [`cfdb_core::graph::GraphBackend`] implementor, so
+//! this crate never depends on `cfdb-petgraph` (or any concrete storage
+//! engine) in production — only in `[dev-dependencies]`, for the pass test
+//! suites, which need a concrete backend to run against.
 //!
-//! Implements [`cfdb_core::enrich::EnrichBackend`] generically over any
-//! [`cfdb_core::graph::GraphBackend`] implementor, so this crate never
-//! depends on `cfdb-petgraph` (or any concrete storage engine) in
-//! production — only in `[dev-dependencies]`, for the moved passes' own
-//! test suites.
-//!
-//! Pure dispatch + the two guards every `EnrichBackend` verb already needs
+//! Pure dispatch + the two guards every `EnrichBackend` verb needs
 //! (keyspace existence, workspace-root presence) — no pass-level logic
-//! lives here. As of slice 056-0, no pass has moved yet; every verb except
-//! `enrich_deprecation` still falls through to `EnrichBackend`'s default
-//! `not_implemented` stub. Slices 056-A through 056-F each add one real
-//! dispatch arm as their pass moves in.
+//! lives here. A verb with no real implementation falls through to
+//! `EnrichBackend`'s default `not_implemented` stub.
 
 use std::path::PathBuf;
 
@@ -25,6 +20,8 @@ mod bounded_context;
 mod concepts;
 #[cfg(feature = "git-enrich")]
 mod git_history;
+#[cfg(feature = "quality-metrics")]
+mod metrics;
 mod rfc_docs;
 
 /// Wraps any [`GraphBackend`] implementor and dispatches the 7 `enrich_*`
@@ -42,20 +39,10 @@ impl<'s, S: GraphBackend> EnrichEngine<'s, S> {
     /// Guard #2 — `workspace_root` presence. Returns `Ok(root)` if the
     /// wrapped store has a workspace_root attached, otherwise
     /// `Err(degraded report)` so the caller can early-return the degraded
-    /// report unchanged. Moved verbatim from
-    /// `cfdb-petgraph::enrich_backend.rs`'s `require_workspace` (RFC-056
-    /// §3.2) — same warning text, so a pass's characterization test stays
-    /// byte-identical once it moves here.
+    /// report unchanged.
     ///
-    /// Byte-identity with the pre-move warning text is pinned by
-    /// `require_workspace_degraded_report_pins_exact_warning_text`
-    /// (`tests.rs`) as of 056-0 itself — no need to wait for 056-A to
-    /// discover a mismatch. TODO(056-G): the message names `PetgraphStore`
-    /// by name, which stops being generically true once a second
-    /// `GraphBackend` implementor exists; revisit the wording when this
-    /// crate's last caller-facing tie to the concrete backend is cut.
-    ///
-    /// First production caller lands in slice 056-A (`enrich_rfc_docs`).
+    /// The message names `PetgraphStore` explicitly, which is only
+    /// accurate while it's the sole `GraphBackend` implementor.
     fn require_workspace(
         &self,
         verb: &'static str,
@@ -79,11 +66,8 @@ impl<'s, S: GraphBackend> EnrichEngine<'s, S> {
 
 impl<'s, S: GraphBackend> EnrichBackend for EnrichEngine<'s, S> {
     fn enrich_deprecation(&mut self, keyspace: &Keyspace) -> Result<EnrichReport, StoreError> {
-        // No port access needed — deprecation facts are extractor-time, not
-        // an enrichment pass. Still resolve the keyspace via graph_view
-        // (discarding the view) so an unknown keyspace still errs, matching
-        // PetgraphStore::enrich_deprecation's pre-existing behavior
-        // (characterized in PR #575's deprecation_unknown_keyspace_returns_err).
+        // Deprecation facts are populated at extraction time, not by this
+        // pass — but an unknown keyspace must still error.
         let _ = self.store.graph_view(keyspace)?;
         Ok(EnrichReport {
             verb: "enrich_deprecation".into(),
@@ -99,14 +83,8 @@ impl<'s, S: GraphBackend> EnrichBackend for EnrichEngine<'s, S> {
     }
 
     fn enrich_rfc_docs(&mut self, keyspace: &Keyspace) -> Result<EnrichReport, StoreError> {
-        // Guard order is load-bearing, not incidental: pre-move,
-        // PetgraphStore::enrich_rfc_docs ran require_keyspace BEFORE
-        // require_workspace, so when both fail the caller gets
-        // Err(UnknownKeyspace) rather than the degraded Ok(report).
-        // Resolving the view here (and discarding it) reproduces that
-        // ordering; the borrow ends with this statement, so
-        // require_workspace's &self borrow below is free to run.
-        // Pinned by unknown_keyspace_errs_even_when_workspace_root_is_also_missing.
+        // Guard order is load-bearing: an unknown keyspace must error even
+        // when workspace_root is also missing, not degrade silently.
         let _ = self.store.graph_view(keyspace)?;
         let root = match self.require_workspace(
             "enrich_rfc_docs",
@@ -120,9 +98,7 @@ impl<'s, S: GraphBackend> EnrichBackend for EnrichEngine<'s, S> {
     }
 
     fn enrich_bounded_context(&mut self, keyspace: &Keyspace) -> Result<EnrichReport, StoreError> {
-        // Guard order (require_keyspace before require_workspace) is
-        // load-bearing — see enrich_rfc_docs's comment above and
-        // unknown_keyspace_errs_even_when_workspace_root_is_also_missing.
+        // See enrich_rfc_docs — same guard-order invariant.
         let _ = self.store.graph_view(keyspace)?;
         let root = match self.require_workspace(
             "enrich_bounded_context",
@@ -136,9 +112,7 @@ impl<'s, S: GraphBackend> EnrichBackend for EnrichEngine<'s, S> {
     }
 
     fn enrich_concepts(&mut self, keyspace: &Keyspace) -> Result<EnrichReport, StoreError> {
-        // Guard order (require_keyspace before require_workspace) is
-        // load-bearing — see enrich_rfc_docs's comment above and
-        // unknown_keyspace_errs_even_when_workspace_root_is_also_missing.
+        // See enrich_rfc_docs — same guard-order invariant.
         let _ = self.store.graph_view(keyspace)?;
         let root = match self.require_workspace(
             "enrich_concepts",
@@ -151,9 +125,6 @@ impl<'s, S: GraphBackend> EnrichBackend for EnrichEngine<'s, S> {
         Ok(concepts::run(view, &root))
     }
 
-    /// Feature-on: resolves the workspace root and dispatches to
-    /// `git_history::run`. Guard order (require_keyspace before
-    /// require_workspace) matches the other moved verbs.
     #[cfg(feature = "git-enrich")]
     fn enrich_git_history(&mut self, keyspace: &Keyspace) -> Result<EnrichReport, StoreError> {
         let _ = self.store.graph_view(keyspace)?;
@@ -168,10 +139,7 @@ impl<'s, S: GraphBackend> EnrichBackend for EnrichEngine<'s, S> {
         Ok(git_history::run(view, &root))
     }
 
-    /// Feature-off: identical to `PetgraphStore`'s pre-move
-    /// `enrich_git_history_dispatch` feature-off variant — no workspace
-    /// check at all, just the fixed "recompile with --features git-enrich"
-    /// warning, byte-identical text (RFC-056 §4).
+    /// No workspace check — feature absence alone determines the report.
     #[cfg(not(feature = "git-enrich"))]
     fn enrich_git_history(&mut self, keyspace: &Keyspace) -> Result<EnrichReport, StoreError> {
         let _ = self.store.graph_view(keyspace)?;
@@ -188,10 +156,38 @@ impl<'s, S: GraphBackend> EnrichBackend for EnrichEngine<'s, S> {
         })
     }
 
-    // The other 2 verbs (enrich_reachability, enrich_metrics) are not
-    // overridden here — they fall through to EnrichBackend's default
-    // `EnrichReport::not_implemented(...)` stub until their slice
-    // (056-E/056-F) moves the real pass in.
+    /// Always the default `Config` — nothing surfaces a coverage-JSON path
+    /// yet, so `test_coverage` never populates through this call site.
+    #[cfg(feature = "quality-metrics")]
+    fn enrich_metrics(&mut self, keyspace: &Keyspace) -> Result<EnrichReport, StoreError> {
+        let _ = self.store.graph_view(keyspace)?;
+        let root = match self.require_workspace(
+            "enrich_metrics",
+            "so the pass can re-parse source files referenced by :Item{kind:Fn}.file",
+        ) {
+            Ok(root) => root,
+            Err(report) => return Ok(report),
+        };
+        let view = self.store.graph_view(keyspace)?;
+        Ok(metrics::run(view, &root, &metrics::Config::default()))
+    }
+
+    /// No workspace check — feature absence alone determines the report.
+    #[cfg(not(feature = "quality-metrics"))]
+    fn enrich_metrics(&mut self, keyspace: &Keyspace) -> Result<EnrichReport, StoreError> {
+        let _ = self.store.graph_view(keyspace)?;
+        Ok(EnrichReport {
+            verb: "enrich_metrics".into(),
+            ran: false,
+            facts_scanned: 0,
+            attrs_written: 0,
+            edges_written: 0,
+            warnings: vec![
+                "enrich_metrics: built without `quality-metrics` feature — recompile `cfdb-cli` with `--features quality-metrics` to populate unwrap_count + cyclomatic + dup_cluster_id (and additionally `--features llvm-cov` for test_coverage) per RFC-036 §3.3 / issue #203"
+                    .into(),
+            ],
+        })
+    }
 }
 
 #[cfg(test)]

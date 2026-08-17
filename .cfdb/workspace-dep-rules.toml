@@ -131,8 +131,12 @@ forbidden = [
 # of the port (an enrichment pass swappable across backends).
 allowed = [
   "cfdb-core",      # the hub — GraphBackend/GraphView port + EnrichBackend trait
-  "cfdb-concepts",  # 056-B/C: bounded_context + concepts resolve .cfdb/concepts/*.toml via cfdb_concepts
-  "git2",           # 056-D: git_history (feature git-enrich, #105) — same pin as cfdb-petgraph's
+  "cfdb-concepts",  # .cfdb/concepts/*.toml resolution (bounded_context, concepts)
+  "git2",           # git_history, feature-gated (git-enrich)
+  "syn",            # metrics AST re-parse, feature-gated (quality-metrics)
+  "sha2",           # metrics dup_cluster_id hash, feature-gated (quality-metrics)
+  "serde",          # metrics coverage JSON deserialize, feature-gated (quality-metrics)
+  "serde_json",     # metrics coverage JSON deserialize, feature-gated (quality-metrics)
 ]
 forbidden = [
   "cfdb-petgraph",        # RFC-056: the port exists so this crate never needs the concrete backend

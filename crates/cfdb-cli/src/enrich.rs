@@ -41,28 +41,19 @@ pub fn enrich(
     let (mut store, ks) = compose::load_store_with_workspace(&db, &keyspace, workspace)?;
 
     let report: EnrichReport = match verb {
-        // RFC-056 056-D: git_history pass moved to cfdb-enrich::EnrichEngine.
         EnrichVerb::GitHistory => {
             cfdb_enrich::EnrichEngine::new(&mut store).enrich_git_history(&ks)?
         }
-        // RFC-056 056-A: rfc_docs pass moved to cfdb-enrich::EnrichEngine.
         EnrichVerb::RfcDocs => cfdb_enrich::EnrichEngine::new(&mut store).enrich_rfc_docs(&ks)?,
-        // RFC-056: the only verb whose dispatch already moved to
-        // EnrichEngine as of slice 056-0 — its "pass" is a trivial
-        // extractor-time no-op report, so 056-0 closed its composition-root
-        // cutover immediately rather than leaving it unassigned across
-        // 056-A..G (no later slice claims this verb).
         EnrichVerb::Deprecation => {
             cfdb_enrich::EnrichEngine::new(&mut store).enrich_deprecation(&ks)?
         }
-        // RFC-056 056-B: bounded_context pass moved to cfdb-enrich::EnrichEngine.
         EnrichVerb::BoundedContext => {
             cfdb_enrich::EnrichEngine::new(&mut store).enrich_bounded_context(&ks)?
         }
-        // RFC-056 056-C: concepts pass moved to cfdb-enrich::EnrichEngine.
         EnrichVerb::Concepts => cfdb_enrich::EnrichEngine::new(&mut store).enrich_concepts(&ks)?,
         EnrichVerb::Reachability => store.enrich_reachability(&ks)?,
-        EnrichVerb::Metrics => store.enrich_metrics(&ks)?,
+        EnrichVerb::Metrics => cfdb_enrich::EnrichEngine::new(&mut store).enrich_metrics(&ks)?,
     };
 
     // Persist enrichment back to disk when the pass actually ran AND mutated

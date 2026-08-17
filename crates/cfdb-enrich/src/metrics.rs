@@ -35,9 +35,8 @@ use std::path::Path;
 
 use cfdb_core::enrich::EnrichReport;
 use cfdb_core::fact::PropValue;
+use cfdb_core::graph::GraphView;
 use cfdb_core::schema::Label;
-
-use crate::graph::KeyspaceState;
 
 pub(crate) const VERB: &str = "enrich_metrics";
 
@@ -55,17 +54,17 @@ pub struct Config {
     pub coverage_json: Option<std::path::PathBuf>,
 }
 
-/// Entry point called by `impl EnrichBackend for PetgraphStore` in
-/// `enrich_backend.rs`. Returns `EnrichReport` by value — never `Err`.
-/// Keyspace-not-found and workspace-root-missing are handled upstream.
+/// Entry point called by [`crate::EnrichEngine`]. Returns `EnrichReport` by
+/// value — never `Err`. Keyspace-not-found and workspace-root-missing are
+/// handled upstream.
 pub(crate) fn run(
-    state: &mut KeyspaceState,
+    view: &mut dyn GraphView,
     workspace_root: &Path,
     config: &Config,
 ) -> EnrichReport {
     let mut warnings: Vec<String> = Vec::new();
 
-    let items = collect_fn_items(state);
+    let items = collect_fn_items(view);
     let facts_scanned = u64::try_from(items.len()).unwrap_or(u64::MAX);
 
     if items.is_empty() {
@@ -97,7 +96,7 @@ pub(crate) fn run(
     // Apply all three signal maps to the graph. One pass per item;
     // props written in sorted-qname order (items is already sorted).
     let attrs_written = apply_attrs(
-        state,
+        view,
         &items,
         &signals_by_qname,
         &coverage_by_qname,
@@ -123,16 +122,16 @@ pub(crate) struct FnItem {
     pub(crate) name: String,
     pub(crate) file: String,
     pub(crate) signature_hash: Option<String>,
-    pub(crate) node_idx: petgraph::stable_graph::NodeIndex,
+    pub(crate) id: String,
 }
 
-fn collect_fn_items(state: &KeyspaceState) -> Vec<FnItem> {
+fn collect_fn_items(view: &dyn GraphView) -> Vec<FnItem> {
     let item_label = Label::new(Label::ITEM);
-    let mut out: Vec<FnItem> = state
+    let mut out: Vec<FnItem> = view
         .nodes_with_label(&item_label)
         .into_iter()
-        .filter_map(|idx| {
-            let node = state.graph.node_weight(idx)?;
+        .filter_map(|id| {
+            let node = view.node_by_id(&id)?;
             let kind = node.props.get("kind").and_then(PropValue::as_str)?;
             // Extractor emits lowercase `"fn"` per
             // cfdb-extractor::item_visitor::visits.rs:61. The schema
@@ -154,7 +153,7 @@ fn collect_fn_items(state: &KeyspaceState) -> Vec<FnItem> {
                 name: name.to_string(),
                 file: file.to_string(),
                 signature_hash,
-                node_idx: idx,
+                id,
             })
         })
         .collect();
@@ -163,7 +162,7 @@ fn collect_fn_items(state: &KeyspaceState) -> Vec<FnItem> {
 }
 
 fn apply_attrs(
-    state: &mut KeyspaceState,
+    view: &mut dyn GraphView,
     items: &[FnItem],
     signals: &BTreeMap<String, ast_signals::AstSignals>,
     coverage: &BTreeMap<String, f64>,
@@ -171,7 +170,7 @@ fn apply_attrs(
 ) -> u64 {
     let mut count: u64 = 0;
     for item in items {
-        count = count.saturating_add(apply_item_attrs(state, item, signals, coverage, clusters));
+        count = count.saturating_add(apply_item_attrs(view, item, signals, coverage, clusters));
     }
     count
 }
@@ -180,35 +179,39 @@ fn apply_attrs(
 /// [`apply_attrs`] so the `cluster_id.clone()` below lives outside any
 /// `for`/`while` loop (quality-metrics clone-in-loop rule).
 fn apply_item_attrs(
-    state: &mut KeyspaceState,
+    view: &mut dyn GraphView,
     item: &FnItem,
     signals: &BTreeMap<String, ast_signals::AstSignals>,
     coverage: &BTreeMap<String, f64>,
     clusters: &BTreeMap<String, String>,
 ) -> u64 {
-    let Some(node) = state.graph.node_weight_mut(item.node_idx) else {
+    if view.node_by_id(&item.id).is_none() {
         return 0;
-    };
+    }
     let mut count: u64 = 0;
     if let Some(sig) = signals.get(&item.qname) {
-        node.props.insert(
-            "unwrap_count".into(),
+        view.set_attr(
+            &item.id,
+            "unwrap_count",
             PropValue::Int(i64::try_from(sig.unwrap_count).unwrap_or(i64::MAX)),
         );
-        node.props.insert(
-            "cyclomatic".into(),
+        view.set_attr(
+            &item.id,
+            "cyclomatic",
             PropValue::Int(i64::try_from(sig.cyclomatic).unwrap_or(i64::MAX)),
         );
         count = count.saturating_add(2);
     }
     if let Some(&cov) = coverage.get(&item.qname) {
-        node.props
-            .insert("test_coverage".into(), PropValue::Float(cov));
+        view.set_attr(&item.id, "test_coverage", PropValue::Float(cov));
         count = count.saturating_add(1);
     }
     if let Some(cluster_id) = clusters.get(&item.qname) {
-        node.props
-            .insert("dup_cluster_id".into(), PropValue::Str(cluster_id.clone()));
+        view.set_attr(
+            &item.id,
+            "dup_cluster_id",
+            PropValue::Str(cluster_id.clone()),
+        );
         count = count.saturating_add(1);
     }
     count
