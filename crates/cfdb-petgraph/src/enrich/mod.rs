@@ -11,14 +11,14 @@
 //! | Verb | Module | Slice | Issue | Feature |
 //! |---|---|---|---|---|
 //! | `enrich_git_history` | [`git_history`] | — | — | `git-enrich` |
-//! | `enrich_concepts` | [`concepts`] | — | — | — |
 //! | `enrich_reachability` | [`reachability`] | — | — | — |
 //! | `enrich_metrics` | [`metrics`] | — | — | `quality-metrics` |
 //!
 //! `enrich_deprecation` ships as an extractor-time fact — its EnrichBackend
 //! method is a no-op report, not a module in this directory. `enrich_rfc_docs`
 //! moved to `cfdb-enrich::rfc_docs` (RFC-056 slice 056-A). `enrich_bounded_context`
-//! moved to `cfdb-enrich::bounded_context` (RFC-056 slice 056-B).
+//! moved to `cfdb-enrich::bounded_context` (RFC-056 slice 056-B). `enrich_concepts`
+//! moved to `cfdb-enrich::concepts` (RFC-056 slice 056-C).
 
 // The module is compiled only with the `git-enrich` feature — libgit2 is a
 // heavy dep. The feature-off path is handled entirely in
@@ -26,10 +26,6 @@
 // without the feature).
 #[cfg(feature = "git-enrich")]
 pub(crate) mod git_history;
-
-// Materialises `:Concept` nodes from `.cfdb/concepts/*.toml` and emits
-// `LABELED_AS` + `CANONICAL_FOR` edges.
-pub(crate) mod concepts;
 
 // BFS from every `:EntryPoint` over `CALLS*` edges, writing
 // `:Item.reachable_from_entry` + `reachable_entry_count`. Degraded path when

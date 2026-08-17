@@ -56,7 +56,8 @@ pub fn enrich(
         EnrichVerb::BoundedContext => {
             cfdb_enrich::EnrichEngine::new(&mut store).enrich_bounded_context(&ks)?
         }
-        EnrichVerb::Concepts => store.enrich_concepts(&ks)?,
+        // RFC-056 056-C: concepts pass moved to cfdb-enrich::EnrichEngine.
+        EnrichVerb::Concepts => cfdb_enrich::EnrichEngine::new(&mut store).enrich_concepts(&ks)?,
         EnrichVerb::Reachability => store.enrich_reachability(&ks)?,
         EnrichVerb::Metrics => store.enrich_metrics(&ks)?,
     };

@@ -99,7 +99,6 @@ allowed = [
   "regex",          # predicate evaluator (regexp_extract)
   "indexmap",       # stable-order binding tables (determinism G1)
   "git2",           # enrich_git_history (feature git-enrich, #105)
-  "cfdb-concepts",  # enrich_bounded_context shares compute_bounded_context
   "toml",           # .cfdb/indexes.toml loader (RFC-035 #180)
   "syn",            # enrich_metrics re-parse (feature quality-metrics, #203 / CP6)
   "sha2",           # dup_cluster_id hash (feature quality-metrics, #203)
@@ -132,7 +131,7 @@ forbidden = [
 # of the port (an enrichment pass swappable across backends).
 allowed = [
   "cfdb-core",      # the hub — GraphBackend/GraphView port + EnrichBackend trait
-  "cfdb-concepts",  # 056-B: bounded_context resolves .cfdb/concepts/*.toml via compute_bounded_context
+  "cfdb-concepts",  # 056-B/C: bounded_context + concepts resolve .cfdb/concepts/*.toml via cfdb_concepts
 ]
 forbidden = [
   "cfdb-petgraph",        # RFC-056: the port exists so this crate never needs the concrete backend

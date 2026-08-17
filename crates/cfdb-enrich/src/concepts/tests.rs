@@ -4,8 +4,9 @@ use cfdb_core::enrich::EnrichBackend;
 use cfdb_core::fact::{Node, PropValue, Props};
 use cfdb_core::schema::{EdgeLabel, Keyspace, Label};
 use cfdb_core::store::StoreBackend;
+use cfdb_petgraph::PetgraphStore;
 
-use crate::PetgraphStore;
+use crate::EnrichEngine;
 
 fn write(root: &Path, rel: &str, contents: &str) {
     let path = root.join(rel);
@@ -73,7 +74,9 @@ crates = ["domain-trading", "ports-trading"]
         ],
     );
     let ks = Keyspace::new("test");
-    let report = store.enrich_concepts(&ks).expect("pass");
+    let report = EnrichEngine::new(&mut store)
+        .enrich_concepts(&ks)
+        .expect("pass");
 
     assert!(report.ran);
     assert_eq!(report.facts_scanned, 1, "one declared concept");
@@ -103,7 +106,9 @@ fn ac2_empty_concepts_dir_is_graceful_noop() {
     std::fs::create_dir_all(tmp.path().join(".cfdb/concepts")).expect("mkdir");
     let mut store = store_with_items(tmp.path(), &[("A", "domain-x")]);
     let ks = Keyspace::new("test");
-    let report = store.enrich_concepts(&ks).expect("pass");
+    let report = EnrichEngine::new(&mut store)
+        .enrich_concepts(&ks)
+        .expect("pass");
 
     assert!(report.ran, "empty concepts dir is a valid workspace shape");
     assert_eq!(report.facts_scanned, 0);
@@ -121,7 +126,9 @@ fn no_concepts_dir_is_graceful_noop() {
     // No .cfdb directory at all.
     let mut store = store_with_items(tmp.path(), &[("A", "domain-x")]);
     let ks = Keyspace::new("test");
-    let report = store.enrich_concepts(&ks).expect("pass");
+    let report = EnrichEngine::new(&mut store)
+        .enrich_concepts(&ks)
+        .expect("pass");
 
     assert!(report.ran);
     assert_eq!(report.facts_scanned, 0);
@@ -142,7 +149,9 @@ fn ac3_malformed_toml_returns_ran_false_with_warning() {
     );
     let mut store = store_with_items(tmp.path(), &[("A", "domain-x")]);
     let ks = Keyspace::new("test");
-    let report = store.enrich_concepts(&ks).expect("pass");
+    let report = EnrichEngine::new(&mut store)
+        .enrich_concepts(&ks)
+        .expect("pass");
 
     assert!(!report.ran, "TOML load error → ran=false");
     assert_eq!(report.edges_written, 0);
@@ -209,9 +218,13 @@ crates = ["domain-risk"]
 
     let ks = Keyspace::new("test");
     let mut s1 = build(tmp.path());
-    s1.enrich_concepts(&ks).expect("run 1");
+    EnrichEngine::new(&mut s1)
+        .enrich_concepts(&ks)
+        .expect("run 1");
     let mut s2 = build(tmp.path());
-    s2.enrich_concepts(&ks).expect("run 2");
+    EnrichEngine::new(&mut s2)
+        .enrich_concepts(&ks)
+        .expect("run 2");
     let d1 = s1.canonical_dump(&ks).expect("dump 1");
     let d2 = s2.canonical_dump(&ks).expect("dump 2");
     assert_eq!(d1, d2, "two runs must be byte-identical (AC-5)");
@@ -248,7 +261,9 @@ fn ac7_three_toml_files_emit_three_concept_nodes() {
         ],
     );
     let ks = Keyspace::new("test");
-    store.enrich_concepts(&ks).expect("pass");
+    EnrichEngine::new(&mut store)
+        .enrich_concepts(&ks)
+        .expect("pass");
 
     assert_eq!(
         count_nodes_by_label(&store, &ks, Label::CONCEPT),
@@ -271,7 +286,9 @@ fn concept_nodes_have_assigned_by_manual() {
     );
     let mut store = store_with_items(tmp.path(), &[("A", "domain-trading")]);
     let ks = Keyspace::new("test");
-    store.enrich_concepts(&ks).expect("pass");
+    EnrichEngine::new(&mut store)
+        .enrich_concepts(&ks)
+        .expect("pass");
 
     let (nodes, _) = store.export(&ks).expect("export");
     let concept = nodes
@@ -297,7 +314,7 @@ fn unknown_keyspace_returns_err() {
     let tmp = tempfile::tempdir().expect("tempdir");
     let mut store = PetgraphStore::new().with_workspace(tmp.path());
     let ks = Keyspace::new("never");
-    let err = store
+    let err = EnrichEngine::new(&mut store)
         .enrich_concepts(&ks)
         .expect_err("unknown keyspace must err");
     assert!(format!("{err:?}").contains("UnknownKeyspace"));
@@ -320,7 +337,9 @@ fn no_workspace_root_returns_degraded_report() {
             }],
         )
         .expect("ingest");
-    let report = store.enrich_concepts(&ks).expect("pass");
+    let report = EnrichEngine::new(&mut store)
+        .enrich_concepts(&ks)
+        .expect("pass");
     assert!(!report.ran);
     assert!(report.warnings.iter().any(|w| w.contains("workspace_root")));
 }
@@ -348,9 +367,28 @@ fn items_without_crate_prop_are_ignored() {
             }],
         )
         .expect("ingest");
-    let report = store.enrich_concepts(&ks).expect("pass");
+    let report = EnrichEngine::new(&mut store)
+        .enrich_concepts(&ks)
+        .expect("pass");
 
     assert!(report.ran);
     // :Concept still emitted, but no edges to the item.
     assert_eq!(report.edges_written, 0);
+}
+
+#[test]
+fn unknown_keyspace_errs_even_when_workspace_root_is_also_missing() {
+    // Guard-ORDER characterization (RFC-056 §4 behavior-identity), same
+    // class of test as rfc_docs's (056-A) and bounded_context's (056-B).
+    // Pre-move, PetgraphStore::enrich_concepts ran require_keyspace BEFORE
+    // require_workspace, so when BOTH guards fail the caller saw
+    // Err(UnknownKeyspace) — not the degraded Ok(report). No pre-existing
+    // fixture exercised both-failing at once, so the ordering was unpinned
+    // and a move could silently invert it.
+    let mut store = PetgraphStore::new(); // no workspace root
+    let ks = Keyspace::new("never"); // and no such keyspace
+    let err = EnrichEngine::new(&mut store)
+        .enrich_concepts(&ks)
+        .expect_err("keyspace guard must win over the workspace guard");
+    assert!(format!("{err:?}").contains("UnknownKeyspace"));
 }

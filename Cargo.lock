@@ -431,7 +431,6 @@ dependencies = [
 name = "cfdb-petgraph"
 version = "0.7.0"
 dependencies = [
- "cfdb-concepts",
  "cfdb-core",
  "cfdb-query",
  "git2",
