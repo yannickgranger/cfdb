@@ -5,12 +5,13 @@
 //! missing / `Null` bindings propagate cleanly into comparisons.
 
 use cfdb_core::fact::PropValue;
+use cfdb_core::graph::GraphReader;
 use cfdb_core::query::{CompareOp, Expr, ParamBinding, Predicate};
 use cfdb_core::result::RowValue;
 
 use super::{Binding, Bindings, Evaluator};
 
-impl<'a> Evaluator<'a> {
+impl<'a, G: GraphReader + ?Sized> Evaluator<'a, G> {
     pub(super) fn eval_predicate(&self, predicate: &Predicate, bindings: &Bindings) -> bool {
         match predicate {
             Predicate::Compare { left, op, right } => {
@@ -60,9 +61,9 @@ impl<'a> Evaluator<'a> {
             Expr::Property { var, prop } => {
                 let binding = bindings.get(var)?;
                 match binding {
-                    Binding::NodeRef(idx) => self.state.graph[*idx].props.get(prop).cloned(),
-                    Binding::EdgeRef(idx) => {
-                        let edge = self.state.graph.edge_weight(*idx)?;
+                    Binding::NodeRef(h) => self.state.node(*h)?.props.get(prop).cloned(),
+                    Binding::EdgeRef(h) => {
+                        let edge = self.state.edge(*h)?;
                         match prop.as_str() {
                             "label" => Some(PropValue::Str(edge.label.as_str().to_string())),
                             "src" => Some(PropValue::Str(edge.src.clone())),
@@ -82,11 +83,13 @@ impl<'a> Evaluator<'a> {
             }
             Expr::Var(name) => bindings.get(name).and_then(|b| match b {
                 Binding::Value(RowValue::Scalar(p)) => Some(p.clone()),
-                Binding::NodeRef(idx) => Some(PropValue::Str(self.state.graph[*idx].id.clone())),
-                Binding::EdgeRef(idx) => self
+                Binding::NodeRef(h) => self
                     .state
-                    .graph
-                    .edge_weight(*idx)
+                    .node(*h)
+                    .map(|node| PropValue::Str(node.id.clone())),
+                Binding::EdgeRef(h) => self
+                    .state
+                    .edge(*h)
                     .map(|edge| PropValue::Str(edge.label.as_str().to_string())),
                 _ => None,
             }),
@@ -192,9 +195,9 @@ impl<'a> Evaluator<'a> {
     /// invariant-owner of the qname `last_segment` formula.
     ///
     /// Every consumer of the formula in the workspace routes through
-    /// the canonical owner: the index-build write side via
-    /// [`crate::index::ComputedKey::evaluate`] (slice 3), and this
-    /// query-time read side (slice 4). The
+    /// the canonical owner: the index-build write side
+    /// (`ComputedKey::evaluate` in the store's index subsystem), and this
+    /// query-time read side. The
     /// `call_last_segment_agrees_with_canonical_owner_byte_for_byte`
     /// test in this module's `#[cfg(test)]` block pins the dispatch
     /// against the canonical helper on the canary set used by the

@@ -3,9 +3,9 @@
 //! These helpers are private to the `pattern` module — kept `pub(super)` so
 //! the `impl Evaluator` block in `pattern.rs` can reach them.
 
+use cfdb_core::graph::{GraphReader, NodeHandle};
 use cfdb_core::query::{EdgePattern, NodePattern, Pattern, Predicate};
 use cfdb_core::result::RowValue;
-use petgraph::stable_graph::NodeIndex;
 
 use super::super::{Binding, Bindings};
 
@@ -44,7 +44,7 @@ pub(super) fn unwind_row(
 /// 2. **Coupling, but provably empty in this keyspace** — a leaf like
 ///    `a.dup_cluster_id = b.dup_cluster_id` IS narrow-eligible by
 ///    shape (`lookup::candidates_from_index` slice-6), but if the
-///    `(label, prop)` bucket in `state.by_prop` is missing or empty,
+///    `(label, prop)` index bucket is missing or empty,
 ///    the narrow can never fire on any row in this keyspace. The
 ///    lookup falls back to `nodes_with_label`, which IS
 ///    binding-independent. Cache is safe.
@@ -68,10 +68,10 @@ pub(super) fn unwind_row(
 /// a fallback if the second row's binding diverged. The keyspace probe
 /// runs once per query dispatch and is exact for the AST shapes the
 /// parser produces today.
-pub(super) fn is_binding_independent_pattern(
+pub(super) fn is_binding_independent_pattern<G: GraphReader + ?Sized>(
     np: &NodePattern,
     where_clause: Option<&Predicate>,
-    state: &crate::graph::KeyspaceState,
+    state: &G,
 ) -> bool {
     let own_var: Option<&str> = np.var.as_deref();
     let label = match &np.label {
@@ -94,17 +94,17 @@ pub(super) fn is_binding_independent_pattern(
 
 /// `true` iff any leaf predicate references both `own_var` AND a foreign
 /// var AND the narrow-eligible prop (if any) is actually populated in
-/// the keyspace. A coupling leaf whose prop is empty in `state.by_prop`
+/// the keyspace. A coupling leaf whose prop has no populated index bucket
 /// can never narrow on any row, so it's safe to treat as cache-eligible.
 ///
 /// Walks `And`/`Or`/`Not` into their leaves so a compound
 /// `(a.x = b.x) AND (b.kind = 'fn')` still trips the coupling flag on
 /// the first leaf if `(Item, x)` has a populated bucket.
-pub(super) fn predicate_has_active_coupling(
+pub(super) fn predicate_has_active_coupling<G: GraphReader + ?Sized>(
     pred: &Predicate,
     own_var: Option<&str>,
     label: &cfdb_core::schema::Label,
-    state: &crate::graph::KeyspaceState,
+    state: &G,
 ) -> bool {
     match pred {
         Predicate::And(a, b) | Predicate::Or(a, b) => {
@@ -139,12 +139,12 @@ pub(super) fn predicate_has_active_coupling(
 /// can't probe an empty bucket without a var to anchor the prop). When
 /// the leaf references multiple props (e.g. an `In` with a list of
 /// foreign props), we require at least one to be populated.
-pub(super) fn coupling_prop_is_populated(
+pub(super) fn coupling_prop_is_populated<G: GraphReader + ?Sized>(
     a: &cfdb_core::query::Expr,
     b: &cfdb_core::query::Expr,
     own_var: Option<&str>,
     label: &cfdb_core::schema::Label,
-    state: &crate::graph::KeyspaceState,
+    state: &G,
 ) -> bool {
     let Some(own) = own_var else {
         return true;
@@ -158,12 +158,8 @@ pub(super) fn coupling_prop_is_populated(
         // cache fires.
         return false;
     }
-    tags.iter().any(|tag| {
-        state
-            .by_prop
-            .get(&(label.clone(), tag.clone()))
-            .is_some_and(|bucket| !bucket.is_empty())
-    })
+    tags.iter()
+        .any(|tag| state.indexed_prop_is_populated(label, tag))
 }
 
 /// Extract index tags an `Expr` could feed to `lookup::candidates_from_index`
@@ -250,8 +246,8 @@ pub(super) fn collect_expr_vars_into<'e>(expr: &'e cfdb_core::query::Expr, acc: 
     }
 }
 
-pub(super) fn matches_existing(existing: &Binding, idx: NodeIndex) -> bool {
-    matches!(existing, Binding::NodeRef(i) if *i == idx)
+pub(super) fn matches_existing(existing: &Binding, h: NodeHandle) -> bool {
+    matches!(existing, Binding::NodeRef(i) if *i == h)
 }
 
 pub(super) fn edge_label_matches(pattern: &EdgePattern, edge: &cfdb_core::fact::Edge) -> bool {

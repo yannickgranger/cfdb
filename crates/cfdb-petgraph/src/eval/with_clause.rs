@@ -5,13 +5,14 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use cfdb_core::fact::PropValue;
+use cfdb_core::graph::GraphReader;
 use cfdb_core::query::{Aggregation, Projection, ProjectionValue, WithClause};
 use cfdb_core::result::RowValue;
 
 use super::util::{projection_alias, propvalue_sort_key};
 use super::{Binding, Bindings, Evaluator};
 
-impl<'a> Evaluator<'a> {
+impl<'a, G: GraphReader + ?Sized> Evaluator<'a, G> {
     pub(super) fn apply_with(&self, table: Vec<Bindings>, with: &WithClause) -> Vec<Bindings> {
         let has_aggregation = with
             .projections

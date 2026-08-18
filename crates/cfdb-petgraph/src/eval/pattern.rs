@@ -13,17 +13,17 @@ mod path;
 
 use coupling::*;
 
+use cfdb_core::fact::PropValue;
+use cfdb_core::graph::{GraphReader, NodeHandle};
 use cfdb_core::query::{NodePattern, ParamBinding, Pattern, Predicate};
 use cfdb_core::result::{Warning, WarningKind};
-use petgraph::stable_graph::NodeIndex;
 
 use super::explain_fmt::format_node_pattern;
 use super::util::suggest_label;
 use super::{Binding, BindingStream, Bindings, Evaluator};
 use crate::explain::ExplainHit;
-use crate::index::lookup;
 
-impl<'a> Evaluator<'a> {
+impl<'a, G: GraphReader + ?Sized> Evaluator<'a, G> {
     pub(super) fn apply_node_pattern<'e>(
         &'e self,
         table: BindingStream<'e>,
@@ -67,7 +67,7 @@ impl<'a> Evaluator<'a> {
         &self,
         out: &mut Vec<Bindings>,
         bindings: Bindings,
-        candidates: &[NodeIndex],
+        candidates: &[NodeHandle],
         np: &NodePattern,
     ) {
         match np.var.as_deref() {
@@ -85,12 +85,12 @@ impl<'a> Evaluator<'a> {
         &self,
         out: &mut Vec<Bindings>,
         bindings: Bindings,
-        candidates: &[NodeIndex],
+        candidates: &[NodeHandle],
         np: &NodePattern,
     ) {
         candidates
             .iter()
-            .filter(|idx| self.node_props_match(**idx, np))
+            .filter(|h| self.node_props_match(**h, np))
             .for_each(|_| out.push(bindings.clone()));
     }
 
@@ -102,7 +102,7 @@ impl<'a> Evaluator<'a> {
         out: &mut Vec<Bindings>,
         bindings: Bindings,
         var: &str,
-        candidates: &[NodeIndex],
+        candidates: &[NodeHandle],
         np: &NodePattern,
     ) {
         let existing = match bindings.get(var) {
@@ -111,7 +111,7 @@ impl<'a> Evaluator<'a> {
         };
         let any_hit = candidates
             .iter()
-            .any(|idx| matches_existing(existing, *idx) && self.node_props_match(*idx, np));
+            .any(|h| matches_existing(existing, *h) && self.node_props_match(*h, np));
         if any_hit {
             out.push(bindings);
         }
@@ -124,15 +124,15 @@ impl<'a> Evaluator<'a> {
         out: &mut Vec<Bindings>,
         bindings: Bindings,
         var: &str,
-        candidates: &[NodeIndex],
+        candidates: &[NodeHandle],
         np: &NodePattern,
     ) {
         candidates
             .iter()
-            .filter(|idx| self.node_props_match(**idx, np))
-            .for_each(|idx| {
+            .filter(|h| self.node_props_match(**h, np))
+            .for_each(|h| {
                 let mut next = bindings.clone();
-                next.insert(var.to_string(), Binding::NodeRef(*idx));
+                next.insert(var.to_string(), Binding::NodeRef(*h));
                 out.push(next);
             });
     }
@@ -142,13 +142,11 @@ impl<'a> Evaluator<'a> {
         np: &NodePattern,
         where_clause: Option<&Predicate>,
         bindings: &Bindings,
-    ) -> Vec<NodeIndex> {
+    ) -> Vec<NodeHandle> {
         if let Some(label) = &np.label {
             if !self.state.has_label(label) {
-                let suggestion = suggest_label(
-                    label.as_str(),
-                    self.state.by_label.keys().map(|l| l.as_str()),
-                );
+                let known = self.state.labels();
+                let suggestion = suggest_label(label.as_str(), known.iter().map(|l| l.as_str()));
                 self.warnings.borrow_mut().push(Warning {
                     kind: WarningKind::UnknownLabel,
                     message: format!("unknown node label: {}", label),
@@ -159,14 +157,11 @@ impl<'a> Evaluator<'a> {
             // RFC-035 §3.6 fast paths (slices 5+6). `None` ⇒ fall back
             // to `nodes_with_label`. Slice 7 logs the decision.
             let bound_var_prop =
-                |var: &str, prop: &str| self.bound_var_index_value(bindings, var, prop);
-            if let Some(indexed) = lookup::candidates_from_index(
-                self.state,
-                np,
-                where_clause,
-                self.params,
-                &bound_var_prop,
-            ) {
+                |var: &str, prop: &str| self.bound_var_prop_value(bindings, var, prop);
+            if let Some(indexed) =
+                self.state
+                    .index_candidates(np, where_clause, self.params, &bound_var_prop)
+            {
                 self.record_explain(format_node_pattern(np), ExplainHit::Indexed);
                 return indexed;
             }
@@ -178,25 +173,25 @@ impl<'a> Evaluator<'a> {
         }
     }
 
-    /// Resolve a `NodeRef` binding's prop to an [`IndexValue`] for
-    /// the cross-MATCH fast path (RFC-035 slice 6). `None` for
-    /// unbound vars, non-`NodeRef` bindings, absent props, and
-    /// non-indexable values (`Float` / `Null` — see `index_key_of`).
-    fn bound_var_index_value(
+    /// Resolve a `NodeRef` binding's prop value for the cross-MATCH fast
+    /// path. `None` for unbound vars, non-`NodeRef` bindings and absent
+    /// props; whether the value is indexable is the reader's call.
+    fn bound_var_prop_value(
         &self,
         bindings: &Bindings,
         var: &str,
         prop: &str,
-    ) -> Option<crate::index::build::IndexValue> {
-        let Some(Binding::NodeRef(idx)) = bindings.get(var) else {
+    ) -> Option<PropValue> {
+        let Some(Binding::NodeRef(h)) = bindings.get(var) else {
             return None;
         };
-        let pv = self.state.graph[*idx].props.get(prop)?;
-        crate::index::build::index_key_of(pv)
+        self.state.node(*h)?.props.get(prop).cloned()
     }
 
-    pub(super) fn node_props_match(&self, idx: NodeIndex, np: &NodePattern) -> bool {
-        let node = &self.state.graph[idx];
+    pub(super) fn node_props_match(&self, h: NodeHandle, np: &NodePattern) -> bool {
+        let Some(node) = self.state.node(h) else {
+            return false;
+        };
         for (k, v) in &np.props {
             match node.props.get(k) {
                 Some(actual) if actual == v => {}
