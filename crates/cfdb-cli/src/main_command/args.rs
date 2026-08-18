@@ -273,8 +273,8 @@ pub(crate) enum Command {
     /// `ClassifyEnvelope` whose `findings_by_class` buckets cover only
     /// items whose `qname` appears in the diff's added/changed sets.
     /// Delegates to the same classifier plumbing as `cfdb scope` per
-    /// RFC-cfdb.md §A2.2. Routing to concrete skills is external —
-    /// `.cfdb/skill-routing.toml` + the consumer gate.
+    /// RFC-cfdb.md §A2.2. Routing to concrete skills is external to cfdb
+    /// (the consumer's concern).
     Classify {
         #[arg(long)]
         db: PathBuf,

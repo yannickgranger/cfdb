@@ -43,7 +43,7 @@
 //   cfdb query --db <dir> --keyspace <ks> "$(cat signature-divergent.cypher)"
 //
 // Expected: empty on a clean tree. Any row is a Context Homonym
-// candidate. Route per §A2.3 SkillRoutingTable → `/operate-module`.
+// candidate. Route per §A2.3 (external skill routing) → `/operate-module`.
 //
 // # Known motivating bugs (RFC §A2.1 class 2)
 //

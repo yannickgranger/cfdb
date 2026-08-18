@@ -3,10 +3,9 @@
 //!
 //! Composed of a [`ScopeInventory`] (classifier output) plus a
 //! [`DiffSourceMeta`] block that identifies the upstream `cfdb diff`
-//! envelope. Consumers deserialise this type directly — routing from
-//! `DebtClass` → concrete skill happens via the external
-//! `SkillRoutingTable`, not on the finding rows (enforced by
-//! `finding_no_skill_field`).
+//! envelope. Consumers deserialise this type directly — which skill handles
+//! a `DebtClass` is the consumer's decision, never a field on the finding
+//! rows (enforced by `finding_no_skill_field`).
 //!
 //! # Envelope schema versioning
 //!
@@ -130,7 +129,7 @@ mod tests {
             assert!(
                 !json.contains(banned),
                 "ClassifyEnvelope JSON MUST NOT contain `{banned}` — \
-                 routing is external via .cfdb/skill-routing.toml"
+                 skill routing is the consumer's concern, external to cfdb"
             );
         }
     }

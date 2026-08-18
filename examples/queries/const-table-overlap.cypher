@@ -83,7 +83,7 @@
 // # Triage
 //
 // A row is a candidate `duplicated_feature` (RFC §A2.1 class 1).
-// Route per §A2.3 SkillRoutingTable → `/sweep-epic` after manual
+// Route per §A2.3 (external skill routing) → `/sweep-epic` after manual
 // confirmation that the pair is unintentional drift rather than a
 // deliberate re-export. The `sample` column is the human-readable
 // triage aid; the `verdict` column tells the reviewer how the rule

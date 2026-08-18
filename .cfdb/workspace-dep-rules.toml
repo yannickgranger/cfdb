@@ -199,7 +199,6 @@ allowed = [
   "serde_json",
   "thiserror",
   "chumsky",     # parser combinator (RFC-029 §10.2)
-  "toml",        # SkillRoutingTable parses .cfdb/skill-routing.toml (#48)
 ]
 forbidden = [
   "cfdb-petgraph",        # must not bind query parsing to a backend

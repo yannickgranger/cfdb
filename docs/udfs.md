@@ -124,7 +124,7 @@ Given two fn / method `:Item` nodes `a` and `b`:
 - `signature_divergent(a.signature, b.signature) = true` → divergent
   calling contract despite name / bounded-context / concept overlap.
   This is the Context Homonym signal — route to `/operate-module`, NOT
-  `/sweep-epic`, per RFC §A2.3 SkillRoutingTable.
+  `/sweep-epic`, per RFC §A2.3 (skill routing is external to cfdb).
 
 ### Example — Context Homonym rule
 

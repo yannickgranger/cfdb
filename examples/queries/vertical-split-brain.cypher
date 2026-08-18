@@ -105,7 +105,7 @@
 //
 // Expected: empty on a clean tree. Any row is a vertical split-brain
 // candidate — two resolvers for one concept reachable from one entry
-// point. Route per the §A2.3 `SkillRoutingTable`:
+// point. Route per §A2.3 (external skill routing):
 //   - Same bounded context → /sweep-epic (consolidate)
 //   - Cross context        → /operate-module (context-mapping decision)
 

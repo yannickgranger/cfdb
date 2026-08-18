@@ -149,7 +149,7 @@ distinct entry points → zero rows, test-tagged resolvers excluded).
 ## Triage guidance — same as Pattern A
 
 When a row fires on a real codebase, route the finding through the
-RFC addendum §A2.3 SkillRoutingTable:
+RFC addendum §A2.3 (skill routing is external to cfdb):
 
 - **Same bounded context.** Two resolvers for one concept inside one
   context → Class 1 (Duplicated Feature) → `/sweep-epic`. Pick the

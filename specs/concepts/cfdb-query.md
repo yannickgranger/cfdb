@@ -12,7 +12,7 @@ One row of the `DiffEnvelope::changed` list — carries both the `a` (before) an
 
 ## ClassifyEnvelope
 
-The JSON wire envelope emitted by `cfdb classify` (#213) — `{schema_version, inventory: ScopeInventory, diff_source: DiffSourceMeta}`. Composes a classifier-populated `ScopeInventory` (findings restricted to qnames in the upstream diff) with a `DiffSourceMeta` that identifies the source diff. `schema_version` is `CLASSIFY_ENVELOPE_SCHEMA_VERSION` (`"v1"`) — bumped independently of `DiffEnvelope::schema_version` and `cfdb_core::SchemaVersion`. Consumed by qbot-core #3736's per-PR drift gate. Routing from `DebtClass` → skill is external (`.cfdb/skill-routing.toml`) per RFC-cfdb.md §A2.3.
+The JSON wire envelope emitted by `cfdb classify` (#213) — `{schema_version, inventory: ScopeInventory, diff_source: DiffSourceMeta}`. Composes a classifier-populated `ScopeInventory` (findings restricted to qnames in the upstream diff) with a `DiffSourceMeta` that identifies the source diff. `schema_version` is `CLASSIFY_ENVELOPE_SCHEMA_VERSION` (`"v1"`) — bumped independently of `DiffEnvelope::schema_version` and `cfdb_core::SchemaVersion`. Consumed by qbot-core #3736's per-PR drift gate. Routing from `DebtClass` → skill is external to cfdb (the consumer's concern) per RFC-cfdb.md §A2.3.
 
 ## DebtClass
 
@@ -61,18 +61,6 @@ The JSON envelope returned by `cfdb scope` — findings grouped by `DebtClass`, 
 ## ShapeLint
 
 A shape-lint finding emitted during parse — flags queries whose shape is likely a mistake (e.g. cartesian function-equality — the main v0.1 example). Non-fatal; surfaced to the caller as warnings rather than errors.
-
-## SkillRoute
-
-One routing decision loaded from `.cfdb/skill-routing.toml` — class → concrete Claude skill name, `council_required` flag, optional `mode` variant (e.g. `--mode=port`), optional free-form `notes`. DIP-clean: the classifier only emits `DebtClass`; mapping to a skill is external policy per RFC-029 addendum §A2.3.
-
-## SkillRoutingTable
-
-Parsed `.cfdb/skill-routing.toml` content — `schema_version` plus a `classes` map keyed by `DebtClass` snake-case spelling. Consumed by downstream orchestration skills (`/operate-module`, `/boy-scout --from-inventory`) to decide how to act on a `Finding`. Pinned by the `finding_no_skill_field` architecture test: `Finding` MUST NOT carry any skill-related column.
-
-## SkillRoutingLoadError
-
-Error type for `SkillRoutingTable::from_path` / `from_toml_str` — separates filesystem (`Io`) from TOML-parse (`Toml`) failures so the CLI surface can distinguish missing-file from malformed-policy.
 
 ## UnknownDebtClass
 
