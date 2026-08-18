@@ -1,6 +1,7 @@
-# RFC-056 — `DEPENDS_ON`: the crate-dependency edge
+# RFC-058 — `DEPENDS_ON`: the crate-dependency edge
 
 **Status:** RATIFIED — 2026-08-04 (architect review round 1 folded; operator-ratified).
+**Renumbered:** RFC-056 → RFC-058 on 2026-08-18 — the 056 number was also taken by `cfdb-056-enrich-port-split` (ratified 2026-08-17, implemented); the corpus id `cfdb-058-depends-on-crate-edge` is the citation key from here on. Content unchanged.
 **Raised by:** `agency:yg/agentry` #3034 (the engine-extraction arc's one
 unmet definition-of-done bullet). Upstream design authority:
 `agentry/docs/rfc/RFC-agent-execution-engine.md` §14 Amendment A1 §3
@@ -43,7 +44,7 @@ Ships:
   bump — merge order cfdb first per `docs/cross-fixture-bump.md`.
 - Extractor emission of `DEPENDS_ON` edges from the already-parsed
   workspace manifests, **unfiltered by dependency kind**.
-- The prescribed tests (§7, issue 056-A).
+- The prescribed tests (§7, issue 058-A).
 
 ## 3. Design
 
@@ -124,7 +125,7 @@ CLAUDE.md §2.2.
 
 ## 7. Issue decomposition
 
-### 056-A — `DEPENDS_ON` edge: schema vocabulary + extractor emission
+### 058-A — `DEPENDS_ON` edge: schema vocabulary + extractor emission
 
 One vertical slice: `EdgeLabel::DEPENDS_ON` + `SchemaDescribe` descriptor
 (+ attrs with the `:Context.source` distinction in the attr text) +
@@ -168,7 +169,7 @@ appears only in a comment; the full path-dependency enumeration finds no
 all-kinds cycle anywhere in the current workspace. The real dev edge is
 `cfdb-hir-extractor --dev--> cfdb-extractor` (no cycle: `cfdb-extractor`
 declares no dependency back). The tier filter's rationale survives on the
-general shape, not the false instance. 056-A carries the boy-scout
+general shape, not the false instance. 058-A carries the boy-scout
 correction of the `crate_tier.rs` header; RFC-050's text stays as history
 with this section as the correction of record.
 

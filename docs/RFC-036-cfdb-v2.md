@@ -1,12 +1,12 @@
 ---
 title: RFC-036 — cfdb v2 (closing HSB, VSB, raid validation)
-status: Draft — R1 council complete, pending R2 ratification
+status: Ratified — 2026-04-23 (cfdb #199, commit 808d6bd); implementation shipped (cfdb #86, #124, #125 closed). Header corrected 2026-08-18 (cfdb #570).
 date: 2026-04-23
 supersedes: none (extends RFC-cfdb v0.1)
 preceded_by: RFC-cfdb, RFC-032, RFC-033, RFC-034, RFC-035
 substrate: docs/PLAN-v2-solving-original-problems.md
 council_team: council-036-cfdb-v2
-tracking_issue: (to be filed after ratification)
+tracking_issue: cfdb #199 (ratification, closed); slices cfdb #86, #124, #125 (closed)
 ---
 
 # RFC-036 — cfdb v2: closing HSB, VSB, and raid validation
