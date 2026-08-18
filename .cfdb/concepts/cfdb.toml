@@ -25,8 +25,10 @@ crates = [
     # GraphReader port. Same operational bounded context as the crate it
     # came from, per council-cfdb-wiring §B.1.2.
     "cfdb-eval",
-    # The judgment layer (DebtClass taxonomy, scope/classify envelopes),
-    # carved out of cfdb-query and cfdb-cli. Same operational bounded context.
+    # The judgment layer (DebtClass taxonomy, scope/classify envelopes,
+    # the T1/T3 editorial-drift triggers), carved out of cfdb-query and
+    # cfdb-cli; optional in cfdb-cli behind the `classify` feature. Same
+    # operational bounded context.
     "cfdb-classify",
     "cfdb-extractor",
     # RFC-043 Slice A — shared syn-based argument-kind classifier used by

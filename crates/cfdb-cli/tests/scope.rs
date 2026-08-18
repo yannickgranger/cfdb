@@ -12,6 +12,8 @@
 //! - attaches per-class warnings for empty buckets
 //!   (`scope_empty_classes_warn_when_classifier_missing`)
 
+#![cfg(feature = "classify")]
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 

@@ -26,6 +26,8 @@
 //! Adding a 21st verb means adding a row to `RFC_VERBS` here AND renaming
 //! this file (the filename encodes the verb count as a tripwire).
 
+#![cfg(feature = "classify")]
+
 use std::process::Command;
 
 use assert_cmd::prelude::*;

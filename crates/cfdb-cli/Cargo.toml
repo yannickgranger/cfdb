@@ -17,7 +17,12 @@ path = "src/main.rs"
 cfdb-core = { path = "../cfdb-core" }
 cfdb-concepts = { path = "../cfdb-concepts" }
 cfdb-query = { path = "../cfdb-query" }
-cfdb-classify = { path = "../cfdb-classify" }
+# RFC-059 §3.3 — the judgment layer behind `scope` / `classify` / `check`
+# (+ the Phase-A `find-canonical` / `list-bypasses` stubs). Optional,
+# gated by the default-on `classify` feature: the facts-only binary
+# (`--no-default-features --features lang-rust`) carries no rescue verb
+# and no `cfdb-classify` in its dep tree.
+cfdb-classify = { path = "../cfdb-classify", optional = true }
 cfdb-petgraph = { path = "../cfdb-petgraph" }
 cfdb-eval = { path = "../cfdb-eval" }
 cfdb-enrich = { path = "../cfdb-enrich" }
@@ -74,7 +79,15 @@ cfdb-hir-extractor = { path = "../cfdb-hir-extractor", optional = true }
 cfdb-hir-petgraph-adapter = { path = "../cfdb-hir-petgraph-adapter", optional = true }
 
 [features]
-default = ["lang-rust"]
+default = ["lang-rust", "classify"]
+# RFC-059 §3.3 — the five rescue verbs (`scope`, `classify`, `check`,
+# `find-canonical`, `list-bypasses`), their handlers, the
+# `compose::classify_engine` factory and the `dep:cfdb-classify` edge.
+# Default-on so `cargo install cfdb-cli` is unchanged; the facts-only
+# build (`--no-default-features --features lang-rust`) keeps `extract`,
+# `query`, `violations`, `impact`, `diff`, `list-*`, `enrich-*`,
+# `check-predicate`, `schema-describe` and lists none of the five.
+classify = ["dep:cfdb-classify"]
 # RFC-041 Phase 1 / Slice 41-C — gates the Rust `LanguageProducer`
 # (`cfdb_extractor::RustProducer`). Default-on preserves backward-
 # compat for every existing consumer (`cargo install cfdb-cli`
