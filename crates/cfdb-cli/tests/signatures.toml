@@ -11,3 +11,4 @@ load_store_with_workspace = "fn load_store_with_workspace (db : & Path , keyspac
 save_store = "fn save_store (store : & PetgraphStore , keyspace : & Keyspace , db : & Path ,) -> Result < PathBuf , CfdbCliError >"
 list_keyspace_names = "fn list_keyspace_names (db : & Path) -> Result < Vec < String > , CfdbCliError >"
 query_engine = "fn query_engine (store : & PetgraphStore) -> QueryEngine < '_ , PetgraphStore >"
+classify_engine = "fn classify_engine (store : & PetgraphStore) -> ClassifyEngine < '_ , PetgraphStore >"

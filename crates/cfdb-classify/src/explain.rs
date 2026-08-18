@@ -1,43 +1,45 @@
-//! Thin interior-mutability wrapper so every `cfdb scope` helper can
-//! accept a shared `&ExplainSink` argument without threading
+//! Thin interior-mutability wrapper so every scope helper can accept a
+//! shared `&ExplainSink` argument without threading
 //! `&mut Option<Vec<ExplainRow>>` through five layers.
 //!
-//! Activated by `cfdb scope --explain`. When disabled, every method is a
-//! no-op and no allocation happens beyond the zero-sized wrapper. When
-//! enabled, each query execution pushes its collected [`ExplainRow`]s into
-//! the shared `Vec`, which the caller drains and prints to stderr once all
-//! queries have run.
+//! When disabled, every method is a no-op and no allocation happens beyond
+//! the zero-sized wrapper. When enabled, each query execution pushes its
+//! collected [`ExplainRow`]s into the shared `Vec`, which the caller drains
+//! once all queries have run.
 
 use std::cell::RefCell;
 
+use cfdb_core::graph::GraphBackend;
 use cfdb_core::query::Query;
 use cfdb_core::result::QueryResult;
 use cfdb_core::schema::Keyspace;
 use cfdb_core::store::{QueryBackend, StoreError};
 use cfdb_eval::explain::ExplainRow;
 use cfdb_eval::QueryEngine;
-use cfdb_petgraph::PetgraphStore;
 
-/// Encapsulates the `--explain` accumulator. `None` inside the cell
-/// means "disabled"; `Some(vec)` means "collecting".
-pub(crate) struct ExplainSink {
+/// The `--explain` accumulator. `None` inside the cell means "disabled";
+/// `Some(vec)` means "collecting".
+pub struct ExplainSink {
     inner: RefCell<Option<Vec<ExplainRow>>>,
 }
 
 impl ExplainSink {
-    pub(crate) fn enabled() -> Self {
+    /// A collecting sink: every query run through it appends its trace rows.
+    pub fn enabled() -> Self {
         Self {
             inner: RefCell::new(Some(Vec::new())),
         }
     }
 
-    pub(crate) fn disabled() -> Self {
+    /// A no-op sink: queries take the plain `execute` path.
+    pub fn disabled() -> Self {
         Self {
             inner: RefCell::new(None),
         }
     }
 
-    pub(crate) fn is_enabled(&self) -> bool {
+    /// Whether this sink collects.
+    pub fn is_enabled(&self) -> bool {
         self.inner.borrow().is_some()
     }
 
@@ -45,9 +47,9 @@ impl ExplainSink {
     /// the sink is enabled so the trace rows flow back into `self`.
     /// When disabled, falls through to the plain `execute` path with
     /// zero overhead.
-    pub(super) fn run(
+    pub(crate) fn run<S: GraphBackend>(
         &self,
-        engine: &QueryEngine<'_, PetgraphStore>,
+        engine: &QueryEngine<'_, S>,
         ks: &Keyspace,
         query: &Query,
     ) -> Result<QueryResult, StoreError> {
@@ -63,8 +65,8 @@ impl ExplainSink {
     }
 
     /// Drain the collected rows. Leaves the sink in the disabled
-    /// state — the CLI consumes the trace once and exits.
-    pub(super) fn drain(&self) -> Vec<ExplainRow> {
+    /// state — the trace is consumed once.
+    pub fn drain(&self) -> Vec<ExplainRow> {
         self.inner.borrow_mut().take().unwrap_or_default()
     }
 }

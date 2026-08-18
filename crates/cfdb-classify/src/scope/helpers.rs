@@ -1,37 +1,34 @@
-use cfdb_classify::{CanonicalCandidate, Finding};
 use cfdb_core::schema::Keyspace;
 use cfdb_core::store::QueryBackend;
 use cfdb_core::{ParamBinding, PropValue, Query, RowValue};
-use cfdb_eval::QueryEngine;
-use cfdb_petgraph::PetgraphStore;
+
+use crate::engine::ClassifyError;
+use crate::taxonomy::{CanonicalCandidate, Finding};
 
 /// Validate that `context` is one of the `:Context` nodes in the keyspace.
 pub(crate) fn validate_context(
-    engine: &QueryEngine<'_, PetgraphStore>,
-    ks: &cfdb_core::schema::Keyspace,
+    engine: &dyn QueryBackend,
+    ks: &Keyspace,
     context: &str,
-) -> Result<(), crate::CfdbCliError> {
-    let known_contexts = query_known_contexts(engine, ks)?;
-    if !known_contexts.iter().any(|c| c == context) {
-        return Err(format!(
-            "unknown context `{context}`; known contexts: [{}]",
-            known_contexts.join(", ")
-        )
-        .into());
+) -> Result<(), ClassifyError> {
+    let known = query_known_contexts(engine, ks)?;
+    if !known.iter().any(|c| c == context) {
+        return Err(ClassifyError::UnknownContext {
+            context: context.to_string(),
+            known,
+        });
     }
     Ok(())
 }
 
 /// Run `MATCH (c:Context) RETURN c.name` and collect the sorted list.
 ///
-/// Takes `&dyn QueryBackend` rather than a concrete engine — this helper
-/// depends only on the query-execution contract, not on the storage engine
-/// or the evaluator behind it. Keeps the composition root (PetgraphStore
-/// construction) in `compose.rs`.
+/// Takes `&dyn QueryBackend` — this helper depends only on the
+/// query-execution contract, not on the engine behind it.
 pub(super) fn query_known_contexts(
     engine: &dyn QueryBackend,
     ks: &Keyspace,
-) -> Result<Vec<String>, crate::CfdbCliError> {
+) -> Result<Vec<String>, ClassifyError> {
     use cfdb_core::query::{NodePattern, Pattern, ProjectionValue};
     use cfdb_core::{Expr, Projection, ReturnClause};
     use std::collections::BTreeMap;
@@ -79,7 +76,7 @@ pub(super) fn crates_for_context(
     engine: &dyn QueryBackend,
     ks: &Keyspace,
     context: &str,
-) -> Result<std::collections::BTreeSet<String>, crate::CfdbCliError> {
+) -> Result<std::collections::BTreeSet<String>, ClassifyError> {
     use cfdb_core::query::{NodePattern, Pattern, ProjectionValue};
     use cfdb_core::{CompareOp, Expr, Predicate, Projection, ReturnClause};
     use std::collections::BTreeMap;

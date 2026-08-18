@@ -270,9 +270,12 @@ name = "cfdb-classify"
 version = "0.7.0"
 dependencies = [
  "cfdb-core",
+ "cfdb-eval",
+ "cfdb-petgraph",
  "cfdb-query",
  "serde",
  "serde_json",
+ "thiserror",
 ]
 
 [[package]]
