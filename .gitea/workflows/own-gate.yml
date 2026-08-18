@@ -3,8 +3,9 @@ name: own-gate
 # keel measures the deployment level keel.json declares (L2) — cascade at
 # cascade.rev, the doxa corpus at doxa.rev, every ##/### heading of
 # specs/concepts carrying a verdict (zero silence); scripts/own-gate.sh refuses
-# malformed / diverged verdicts and any pub type without a concept heading; the
-# printed ungrounded count is the live worklist for step 2.
+# only what holds at every level (silence §3.2, a level not running §8,
+# could-not-run §3.3); findings stay visible at L2; the printed ungrounded
+# count is the live worklist for step 2.
 on:
   pull_request:
   push:

@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
-# cfdb's own gate, corpus-wide (keel-harness §7 step 3, §3.2, §8): keel
-# measures the deployment level keel.json declares — L2: the cascade pin present,
-# the doxa corpus checked out at doxa.rev, the whole declared root covered (the
-# instrument's own ##/### listing against its node verdicts, zero silence) — and
-# carries the corpus-wide cascade run beside the verdict. The gate then refuses
-# what an L2 claim leaves visible: silence; a malformed or diverged verdict; any
-# code-side finding (a pub type without a concept heading); any non-grounded
-# verdict or file-level finding on a document that declares a document default
-# (a grounded document runs at L3). Ungrounded documents stay at L2: their count
-# is the live worklist (keel-harness §7 step 2), printed, never refused here.
+# cfdb's own gate, corpus-wide (keel-harness §7 step 3, §3.2, §8): keel measures
+# the deployment level keel.json declares — L2, corpus-wide advisory: the cascade
+# pin present, the doxa corpus checked out at doxa.rev, the full declared root
+# every run, every ##/### heading of specs/concepts carrying a verdict (§3.2: any
+# shortfall is silence — refused regardless of how clean the visited subset is),
+# findings visible, nothing else refuses (§8, the L2 row). What refuses here holds
+# at every level: silence; a level declared but not running (§8: a repo never
+# claims a level it is not running); an instrument that could not run (§3.3:
+# unavailable, never a pass). The ungrounded count is the live worklist for
+# §7 step 2 (own concept docs 100 % grounded); when it reaches zero the
+# declaration moves to L3 and CI refuses on any corpus-wide finding (§8).
 # Exit 0 = the declared level holds on this tree; anything else refuses.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -28,11 +29,9 @@ if [ "$level_rc" -eq 1 ]; then
   echo "FATAL: keel could not measure the declared level (exit 1): $level_json" >&2
   exit 1
 fi
-grounded_docs=$(grep -lE '^<!-- doc:rfc:[a-z0-9-]+ -->$' specs/concepts/*.md 2>/dev/null | sort | tr '\n' ' ' || true)
-python3 - "$level_json" "$level_rc" $grounded_docs <<'PY'
-import json, sys
+python3 - "$level_json" "$level_rc" <<'PY'
+import json, sys, collections
 level = json.loads(sys.argv[1]); rc = int(sys.argv[2])
-grounded_docs = set(sys.argv[3:])
 errors = []
 cov = level.get("coverage")
 if cov is None:
@@ -45,25 +44,21 @@ if not level["holds"]:
         errors.append(f"declared level not running: {r}")
 if not cov["covered"]:
     errors.append(f"silence: {cov['silence']} listed heading(s) carry no verdict ({cov['listed']} listed, {cov['verdicts']} verdicts) — refused regardless of how clean the visited subset is (keel-harness §3.2)")
+for f in report["findings"]:
+    if f["class"] in ("EmptyRfc", "EmptySpecs", "EmptyCode", "DuplicateClause"):
+        errors.append(f"could not run — unavailable, never a pass (keel-harness §3.3): {json.dumps(f)}")
+classes = collections.Counter(f["class"] for f in report["findings"])
+print("    findings visible (L2 — keel-harness §8): " + (", ".join(f"{k} {v}" for k, v in sorted(classes.items())) or "none"))
 for n in report["nodes"]:
     if n["verdict"] in ("malformed", "diverged"):
-        errors.append(f"{n['file']}:{n['line']} `{n['name']}` is {n['verdict']}: {', '.join(n['findings'])}")
-    elif n["file"] in grounded_docs and n["verdict"] != "grounded":
-        errors.append(f"{n['file']}:{n['line']} `{n['name']}` is {n['verdict']} in a grounded document: {', '.join(n['findings'])}")
-for f in report["findings"]:
-    cls = f["class"]
-    if cls in ("MalformedFrontmatter", "GroundingWithoutConcept", "UnclosedFence") and f.get("file") in grounded_docs:
-        errors.append(f"{f['file']}:{f.get('line', '')} {cls} in a grounded document")
-    if cls in ("TypeWithoutHeading", "TypeOnlyIllustrative"):
-        errors.append(f"code without spec: pub type `{f['type_name']}` ({cls})")
-    if cls in ("EmptyRfc", "EmptySpecs", "EmptyCode", "DuplicateClause"):
-        errors.append(f"run-level: {json.dumps(f)}")
+        print(f"    visible: {n['file']}:{n['line']} `{n['name']}` {n['verdict']} — {', '.join(n['findings'])}")
 ungrounded_docs = sorted({n["file"] for n in report["nodes"] if n["verdict"] == "ungrounded"})
-print(f"    ungrounded documents (L2, the live worklist — keel-harness §7 step 2): {len(ungrounded_docs)} carrying {c['ungrounded']} ungrounded heading(s); grounded documents (L3): {len(grounded_docs)}")
+grounded_docs = sorted({n["file"] for n in report["nodes"] if n["verdict"] == "grounded"})
+print(f"    ungrounded documents (the live worklist for keel-harness §7 step 2): {len(ungrounded_docs)} carrying {c['ungrounded']} ungrounded heading(s); documents with a grounded heading: {len(grounded_docs)}")
 if errors:
     for e in errors:
         print("ERROR:", e, file=sys.stderr)
-    print("keel.json declares L2 corpus-wide: zero silence, no malformed or diverged verdict, no pub type without a concept; a grounded document runs at L3 (keel-harness §3.2, §8)", file=sys.stderr)
+    print("keel.json declares L2 corpus-wide: the full declared root every run, zero silence, findings visible (keel-harness §3.2, §8)", file=sys.stderr)
     sys.exit(1)
 print("    ok — the declared level holds on this tree, zero silence")
 PY
