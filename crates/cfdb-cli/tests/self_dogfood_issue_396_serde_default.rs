@@ -138,7 +138,7 @@ fn issue_396_self_dogfood_default_edge_provenance_marked_reachable() {
     store.ingest_nodes(&ks, nodes).expect("ingest nodes");
     store.ingest_edges(&ks, edges).expect("ingest edges");
 
-    let report = store
+    let report = cfdb_enrich::EnrichEngine::new(&mut store)
         .enrich_reachability(&ks)
         .expect("enrich_reachability must run with our synthetic seed");
     assert!(

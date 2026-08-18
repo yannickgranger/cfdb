@@ -96,7 +96,7 @@ fi
 # In-memory-dump determinism (two enriched stores produce identical canonical
 # dumps) is proved by the unit test
 # `ac6_two_runs_produce_identical_canonical_dumps` in
-# `cfdb-petgraph/src/enrich/git_history.rs`. This script proves the CLI path
+# `cfdb-enrich/src/git_history/tests.rs`. This script proves the CLI path
 # is equally deterministic.
 A_ENRICH="$("$CFDB_BIN" enrich-git-history --db "$DB_A" --keyspace "$KS" --workspace "$WORKSPACE")"
 B_ENRICH="$("$CFDB_BIN" enrich-git-history --db "$DB_B" --keyspace "$KS" --workspace "$WORKSPACE")"
