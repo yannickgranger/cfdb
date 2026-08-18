@@ -3,10 +3,11 @@
 //!
 //! The engine is dispatch and orchestration only: it holds a `QueryEngine`
 //! (the one way it reaches a keyspace), validates the requested context, runs
-//! the classifier rules through the `scope` primitives and assembles the
-//! typed payloads. It never loads a store, never writes output, never exits —
-//! the composition root does all of that. Rule execution and Cypher
-//! construction stay in the `scope` submodules.
+//! the classifier rules through the `scope` primitives, dispatches a trigger
+//! to its `check` runner and assembles the typed payloads. It never loads a
+//! store, never writes output, never exits — the composition root does all
+//! of that. Rule execution, Cypher construction and row projection stay in
+//! the `scope` and `check` submodules.
 
 use std::collections::BTreeSet;
 
@@ -17,6 +18,7 @@ use cfdb_eval::QueryEngine;
 use cfdb_query::DiffEnvelope;
 use thiserror::Error;
 
+use crate::check::{t1, t3, CheckReport, TriggerId};
 use crate::classify::{collect_restrict_qnames, ClassifyEnvelope, DiffSourceMeta};
 use crate::explain::ExplainSink;
 use crate::scope::{
@@ -34,9 +36,9 @@ pub struct ScopeOptions {
     pub production_only: bool,
 }
 
-/// Everything a `scope` / `classify` run can fail with. `Store` and `Parse`
-/// wrap the upstream errors verbatim; `UnknownContext` renders the exact
-/// message the CLI has always printed.
+/// Everything a `scope` / `classify` / `check` run can fail with. `Store` and
+/// `Parse` wrap the upstream errors verbatim; `UnknownContext` renders the
+/// exact message the CLI has always printed.
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum ClassifyError {
@@ -47,7 +49,8 @@ pub enum ClassifyError {
     /// An embedded rule failed to parse — a build defect, never a user error.
     #[error("parse error in embedded {rule}: {source}")]
     Parse {
-        /// Which embedded text failed (`classifier rule`, `hsb-by-name template`).
+        /// Which embedded text failed (`classifier rule`, `hsb-by-name template`,
+        /// `trigger T1 / :Context inventory`, …).
         rule: &'static str,
         #[source]
         source: cfdb_query::ParseError,
@@ -129,5 +132,21 @@ impl<'s, S: GraphBackend> ClassifyEngine<'s, S> {
         )?;
         attach_scope_warnings(&mut inventory);
         Ok(ClassifyEnvelope::new(inventory, diff_source))
+    }
+
+    /// `cfdb check --trigger <ID>` — the closed editorial-drift trigger
+    /// registry (`T1`, `T3`), one [`CheckReport`] per run. The trigger's rows
+    /// are already projected to `Row`; the composition root prints the
+    /// `violations:` line, serialises the report and maps
+    /// [`CheckReport::row_count`] to the exit code.
+    pub fn check(
+        &self,
+        keyspace: &Keyspace,
+        trigger: TriggerId,
+    ) -> Result<CheckReport, ClassifyError> {
+        match trigger {
+            TriggerId::T1 => t1::run(&self.query, keyspace),
+            TriggerId::T3 => t3::run(&self.query, keyspace),
+        }
     }
 }

@@ -4,7 +4,7 @@
 
 use std::path::PathBuf;
 
-use cfdb_cli::TriggerId;
+use cfdb_classify::TriggerId;
 use cfdb_core::ItemKind;
 use clap::Subcommand;
 

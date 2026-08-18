@@ -33,11 +33,3 @@ One row of a `cfdb check-predicate` result — mirrors the canonical three-colum
 ## PredicateRunReport
 
 Report of one `cfdb check-predicate` invocation — carries `predicate_name` (bare CLI name), `predicate_path` (absolute path of the loaded `.cypher` file), `row_count` (scalar used by the dispatch layer's exit-code contract — `> 0` → process exit 1), and `rows: Vec<PredicateRow>` sorted ascending by `(qname, line)`. Serialized to stdout when the caller passes `--format json`; the library-API return type for programmatic consumers (integration tests, future skill adapters) that read `rows` directly without parsing stdout. Landed in RFC-034 Slice 3 / #147.
-
-## TriggerId
-
-Editorial-drift trigger identifier used by the `cfdb check --trigger <ID>` verb (qbot-core council-4046 Phase 2 naming). A closed enum (currently just `T1`; `T3` reserved for issue #102). `TriggerId::variants()` is the single source of truth for valid values — the `FromStr` impl iterates it and the `UnknownTriggerId::Display` impl enumerates it, so the valid-values list in parse-error strings never diverges from the enum (global `CLAUDE.md` §7 MCP/CLI boundary-fix AC).
-
-## UnknownTriggerId
-
-Parse error for `TriggerId::from_str`. Carries the rejected input string so the `Display` impl can produce a `unknown TriggerId 'X' — valid values: T1, …` message whose valid-values list is derived live from `TriggerId::variants()` (no hardcoded enumeration). Returned by clap's `value_parser!(TriggerId)` wiring; the CLI dispatcher maps it to `CfdbCliError::Usage` at the boundary.

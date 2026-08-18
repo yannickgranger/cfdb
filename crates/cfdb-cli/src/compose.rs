@@ -53,9 +53,9 @@ pub(crate) fn query_engine(store: &PetgraphStore) -> QueryEngine<'_, PetgraphSto
     QueryEngine::new(store)
 }
 
-/// The judgment engine over a loaded store — `scope` / `classify` (and the
-/// `check` triggers once they move in) run through it. Same shape as
-/// [`query_engine`]: cheap, built per verb invocation.
+/// The judgment engine over a loaded store — `scope` / `classify` / `check`
+/// run through it. Same shape as [`query_engine`]: cheap, built per verb
+/// invocation.
 pub(crate) fn classify_engine(store: &PetgraphStore) -> ClassifyEngine<'_, PetgraphStore> {
     ClassifyEngine::new(store)
 }

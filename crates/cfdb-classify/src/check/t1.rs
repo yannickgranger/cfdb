@@ -3,31 +3,47 @@
 //! See `super` module doc for the verdict / correlation rationale.
 //! The three sub-verdicts (CONCEPT_UNWIRED, MISSING_CANONICAL_CRATE,
 //! STALE_RFC_REFERENCE) are computed in Rust against four primitive
-//! cypher reads, then projected into the merged `QueryResult` payload.
+//! cypher reads, then projected into the [`CheckReport`].
 
 use std::collections::BTreeSet;
-use std::path::Path;
 
 use cfdb_core::fact::PropValue;
-use cfdb_core::result::{QueryResult, Row, RowValue, Warning, WarningKind};
+use cfdb_core::graph::GraphBackend;
+use cfdb_core::result::{Row, RowValue, Warning, WarningKind};
+use cfdb_core::schema::Keyspace;
+use cfdb_eval::QueryEngine;
 
-use crate::commands::parse_and_execute;
-use crate::output;
+use crate::engine::ClassifyError;
 
 use super::{
-    ContextRow, Finding, T1_CONTEXT_INVENTORY_CYPHER, T1_CRATE_NAMES_CYPHER,
-    T1_ITEM_BOUNDED_CONTEXTS_CYPHER, T1_RFC_DOCS_CYPHER,
+    execute, CheckReport, ContextRow, T1Row, TriggerId, T1_CONTEXT_INVENTORY_CYPHER,
+    T1_CRATE_NAMES_CYPHER, T1_ITEM_BOUNDED_CONTEXTS_CYPHER, T1_RFC_DOCS_CYPHER,
 };
 
 /// Run the T1 trigger: fetch the four correlation sets, compute the
-/// three anti-join sub-verdicts in Rust, emit the merged payload.
-pub(super) fn run(db: &Path, keyspace: &str) -> Result<usize, crate::CfdbCliError> {
-    let contexts = fetch_contexts(db, keyspace)?;
-    let crate_names = fetch_scalar_set(db, keyspace, T1_CRATE_NAMES_CYPHER, "name")?;
-    let item_contexts = fetch_scalar_set(db, keyspace, T1_ITEM_BOUNDED_CONTEXTS_CYPHER, "bc")?;
-    let rfc_haystack = fetch_rfc_haystack(db, keyspace)?;
+/// three anti-join sub-verdicts in Rust, return the report.
+pub(crate) fn run<S: GraphBackend>(
+    engine: &QueryEngine<'_, S>,
+    ks: &Keyspace,
+) -> Result<CheckReport, ClassifyError> {
+    let contexts = fetch_contexts(engine, ks)?;
+    let crate_names = fetch_scalar_set(
+        engine,
+        ks,
+        T1_CRATE_NAMES_CYPHER,
+        "name",
+        "trigger T1 / name probe",
+    )?;
+    let item_contexts = fetch_scalar_set(
+        engine,
+        ks,
+        T1_ITEM_BOUNDED_CONTEXTS_CYPHER,
+        "bc",
+        "trigger T1 / bc probe",
+    )?;
+    let rfc_haystack = fetch_rfc_haystack(engine, ks)?;
 
-    let mut findings: Vec<Finding> = Vec::new();
+    let mut findings: Vec<T1Row> = Vec::new();
     for ctx in &contexts {
         collect_findings_for_context(
             ctx,
@@ -47,13 +63,11 @@ pub(super) fn run(db: &Path, keyspace: &str) -> Result<usize, crate::CfdbCliErro
             .then_with(|| a.verdict.cmp(b.verdict))
     });
 
-    let mut merged = QueryResult::empty();
-    for f in findings {
-        merged.rows.push(f.into_row());
-    }
+    let rows: Vec<Row> = findings.into_iter().map(T1Row::into_row).collect();
 
+    let mut warnings = Vec::new();
     if rfc_haystack.is_empty() {
-        merged.warnings.push(Warning {
+        warnings.push(Warning {
             kind: WarningKind::EmptyResult,
             message: "no :RfcDoc nodes in keyspace — STALE_RFC_REFERENCE sub-verdict is \
                       evaluated against an empty RFC document set. Any `owning_rfc` tag will \
@@ -66,12 +80,11 @@ pub(super) fn run(db: &Path, keyspace: &str) -> Result<usize, crate::CfdbCliErro
         });
     }
 
-    let row_count = merged.rows.len();
-    eprintln!("violations: {row_count} (rule: trigger T1)");
-
-    output::emit_json(&merged)?;
-
-    Ok(row_count)
+    Ok(CheckReport {
+        trigger: TriggerId::T1,
+        rows,
+        warnings,
+    })
 }
 
 /// Per-context check pipeline: probe the three sub-verdicts and push
@@ -83,7 +96,7 @@ fn collect_findings_for_context(
     item_contexts: &BTreeSet<String>,
     crate_names: &BTreeSet<String>,
     rfc_haystack: &[String],
-    out: &mut Vec<Finding>,
+    out: &mut Vec<T1Row>,
 ) {
     if let Some(f) = check_concept_unwired(ctx, item_contexts) {
         out.push(f);
@@ -98,7 +111,7 @@ fn collect_findings_for_context(
 
 /// CONCEPT_UNWIRED: a `:Context` row exists in the TOML but no `:Item`
 /// carries the matching `bounded_context` prop.
-fn check_concept_unwired(ctx: &ContextRow, item_contexts: &BTreeSet<String>) -> Option<Finding> {
+fn check_concept_unwired(ctx: &ContextRow, item_contexts: &BTreeSet<String>) -> Option<T1Row> {
     if item_contexts.contains(&ctx.name) {
         return None;
     }
@@ -110,7 +123,7 @@ fn check_concept_unwired(ctx: &ContextRow, item_contexts: &BTreeSet<String>) -> 
 fn check_missing_canonical_crate(
     ctx: &ContextRow,
     crate_names: &BTreeSet<String>,
-) -> Option<Finding> {
+) -> Option<T1Row> {
     let canonical = ctx.canonical_crate.as_deref()?;
     if canonical.is_empty() || crate_names.contains(canonical) {
         return None;
@@ -124,7 +137,7 @@ fn check_missing_canonical_crate(
 
 /// STALE_RFC_REFERENCE: the `:Context.owning_rfc` tag does not appear
 /// as a substring in any `:RfcDoc.path` or `:RfcDoc.title`.
-fn check_stale_rfc_reference(ctx: &ContextRow, rfc_haystack: &[String]) -> Option<Finding> {
+fn check_stale_rfc_reference(ctx: &ContextRow, rfc_haystack: &[String]) -> Option<T1Row> {
     let rfc = ctx.owning_rfc.as_deref()?;
     if rfc.is_empty() || rfc_haystack.iter().any(|hay| hay.contains(rfc)) {
         return None;
@@ -132,11 +145,11 @@ fn check_stale_rfc_reference(ctx: &ContextRow, rfc_haystack: &[String]) -> Optio
     Some(finding_for(ctx, "STALE_RFC_REFERENCE", rfc.to_string()))
 }
 
-/// Construct a `Finding` from `(ctx, verdict, evidence)`. Centralises
+/// Construct a `T1Row` from `(ctx, verdict, evidence)`. Centralises
 /// the per-finding field copy so the per-context loop body in `run`
 /// holds no `.clone()` calls.
-fn finding_for(ctx: &ContextRow, verdict: &'static str, evidence: String) -> Finding {
-    Finding {
+fn finding_for(ctx: &ContextRow, verdict: &'static str, evidence: String) -> T1Row {
+    T1Row {
         verdict,
         context_name: ctx.name.clone(),
         canonical_crate: ctx.canonical_crate.clone(),
@@ -149,15 +162,17 @@ fn finding_for(ctx: &ContextRow, verdict: &'static str, evidence: String) -> Fin
 /// row into a `ContextRow`. Non-string props in the returned rows are
 /// treated as null (defensive — the extractor only emits string
 /// values for these keys, but the cypher layer is untyped).
-fn fetch_contexts(db: &Path, keyspace: &str) -> Result<Vec<ContextRow>, crate::CfdbCliError> {
-    let result = parse_and_execute(
-        db,
-        keyspace,
+fn fetch_contexts<S: GraphBackend>(
+    engine: &QueryEngine<'_, S>,
+    ks: &Keyspace,
+) -> Result<Vec<ContextRow>, ClassifyError> {
+    let rows = execute(
+        engine,
+        ks,
         T1_CONTEXT_INVENTORY_CYPHER,
         "trigger T1 / :Context inventory",
     )?;
-    let contexts = result
-        .rows
+    let contexts = rows
         .into_iter()
         .filter_map(|row| {
             let name = scalar_str_owned(&row, "context_name")?;
@@ -173,17 +188,17 @@ fn fetch_contexts(db: &Path, keyspace: &str) -> Result<Vec<ContextRow>, crate::C
 
 /// Execute a simple `MATCH … RETURN col` cypher and collect the
 /// requested column's scalar-string values into a deduplicating set.
-/// Missing rows / non-string values are skipped.
-pub(super) fn fetch_scalar_set(
-    db: &Path,
-    keyspace: &str,
+/// Missing rows / non-string values are skipped. `rule` names the
+/// embedded text in a parse error.
+pub(super) fn fetch_scalar_set<S: GraphBackend>(
+    engine: &QueryEngine<'_, S>,
+    ks: &Keyspace,
     cypher: &str,
     col: &str,
-) -> Result<BTreeSet<String>, crate::CfdbCliError> {
-    let rule_tag = format!("trigger T1 / {col} probe");
-    let result = parse_and_execute(db, keyspace, cypher, &rule_tag)?;
-    Ok(result
-        .rows
+    rule: &'static str,
+) -> Result<BTreeSet<String>, ClassifyError> {
+    let rows = execute(engine, ks, cypher, rule)?;
+    Ok(rows
         .into_iter()
         .filter_map(|row| scalar_str_owned(&row, col))
         .collect())
@@ -195,15 +210,13 @@ pub(super) fn fetch_scalar_set(
 /// semantics the cypher's `r.path =~ tag OR r.title =~ tag` would have
 /// if the evaluator supported outer-bound regex in OPTIONAL MATCH
 /// (it does not, per the cypher file header).
-fn fetch_rfc_haystack(db: &Path, keyspace: &str) -> Result<Vec<String>, crate::CfdbCliError> {
-    let result = parse_and_execute(
-        db,
-        keyspace,
-        T1_RFC_DOCS_CYPHER,
-        "trigger T1 / :RfcDoc probe",
-    )?;
-    let mut out = Vec::with_capacity(result.rows.len() * 2);
-    for row in &result.rows {
+fn fetch_rfc_haystack<S: GraphBackend>(
+    engine: &QueryEngine<'_, S>,
+    ks: &Keyspace,
+) -> Result<Vec<String>, ClassifyError> {
+    let rows = execute(engine, ks, T1_RFC_DOCS_CYPHER, "trigger T1 / :RfcDoc probe")?;
+    let mut out = Vec::with_capacity(rows.len() * 2);
+    for row in &rows {
         if let Some(path) = scalar_str_owned(row, "path") {
             out.push(path);
         }

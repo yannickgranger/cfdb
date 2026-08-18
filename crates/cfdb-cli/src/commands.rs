@@ -19,5 +19,3 @@ pub use extract::{extract, keyspace_path};
 pub use impact::impact;
 pub use query::{list_callers, query};
 pub use rules::violations;
-
-pub(crate) use rules::parse_and_execute;

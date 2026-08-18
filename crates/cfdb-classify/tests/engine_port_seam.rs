@@ -58,6 +58,18 @@ fn violations() -> Vec<(PathBuf, usize, String)> {
         "expected the crate's production sources under {SRC_DIR}, found {}",
         files.len()
     );
+    let check_sources = files
+        .iter()
+        .filter(|f| {
+            f.strip_prefix(SRC_DIR)
+                .map(|p| p.starts_with("check"))
+                .unwrap_or(false)
+        })
+        .count();
+    assert!(
+        check_sources >= 2,
+        "expected the trigger runners under {SRC_DIR}/check, found {check_sources}"
+    );
     let mut out = Vec::new();
     for file in files {
         let under_check = file

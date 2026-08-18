@@ -1,6 +1,5 @@
-//! Cypher-rule command handlers — `cfdb violations` + the shared
-//! `run_cypher_rule` / `parse_and_execute` plumbing consumed by
-//! `crate::check` and `crate::check_predicate`.
+//! Cypher-rule command handlers — `cfdb violations` + the
+//! `run_cypher_rule` / `parse_and_execute` plumbing behind it.
 
 use std::path::{Path, PathBuf};
 
@@ -35,13 +34,9 @@ pub fn violations(
     run_cypher_rule(&db, &keyspace, &cypher, &rule_tag, count_only)
 }
 
-/// Shared cypher-rule plumbing — parse, shape-lint, execute, and print rows.
-/// Used by both the file-based `violations` verb and the embedded-rule
-/// `check --trigger` verb so the pipeline lives in exactly one place.
+/// Cypher-rule plumbing — parse, shape-lint, execute, and print rows.
 ///
-/// `rule_tag` appears in the stderr summary line: for file-based rules
-/// callers pass the file path; for embedded-rule triggers callers pass
-/// e.g. `"trigger T1"` so the summary reads `violations: N (rule: trigger T1)`.
+/// `rule_tag` appears in the stderr summary line — the rule file path.
 fn run_cypher_rule(
     db: &Path,
     keyspace: &str,
@@ -64,15 +59,10 @@ fn run_cypher_rule(
 
 /// Parse a cypher string, run shape-lint (logging any warnings to
 /// stderr), load the keyspace, and execute. Returns the raw
-/// [`cfdb_core::result::QueryResult`] so callers that need to merge
-/// multiple rule results before printing — e.g. the `cfdb check
-/// --trigger T1` verb — can do so without going through
-/// [`run_cypher_rule`]'s print path.
+/// [`cfdb_core::result::QueryResult`] without printing.
 ///
-/// `rule_tag` appears in the parse-error message so a malformed
-/// embedded trigger rule identifies itself the same way a file-path
-/// rule does.
-pub(crate) fn parse_and_execute(
+/// `rule_tag` appears in the parse-error message.
+fn parse_and_execute(
     db: &Path,
     keyspace: &str,
     cypher: &str,
