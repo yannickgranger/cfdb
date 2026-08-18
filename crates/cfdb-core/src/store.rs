@@ -1,9 +1,10 @@
-//! StoreBackend trait — storage, query evaluation, and lifecycle surface.
+//! StoreBackend trait — storage, query evaluation, and lifecycle surface;
+//! QueryBackend trait — the query-execution contract on its own.
 //!
-//! Every storage layer implements this trait. The cfdb-query parser/builder
-//! constructs `Query` AST values; consumers then call `backend.execute(&query)`.
-//! The trait is deliberately small (7 methods) and hides all backend-specific
-//! state behind `&self`.
+//! Every storage layer implements `StoreBackend`. The cfdb-query
+//! parser/builder constructs `Query` AST values; consumers then call
+//! `execute(&keyspace, &query)` on a `QueryBackend`. The traits are
+//! deliberately small and hide all backend-specific state behind `&self`.
 //!
 //! Enrichment (docs / metrics / history / concepts) was previously bolted on
 //! as default-stub methods here; it is now a sibling trait
@@ -83,4 +84,18 @@ pub trait StoreBackend: Send + Sync {
     /// Produce the canonical sorted dump of a keyspace (JSONL). G1 hinges on
     /// this being byte-stable across runs with the same inputs.
     fn canonical_dump(&self, keyspace: &Keyspace) -> Result<String, StoreError>;
+}
+
+/// The query-execution contract: evaluate a parsed [`Query`] against one
+/// keyspace and return its rows and warnings. Read-only (G2) — an
+/// implementor evaluates over a [`crate::graph::GraphReader`] and cannot
+/// mutate the keyspace it reads.
+///
+/// `Send + Sync` mirrors [`StoreBackend`]/[`crate::enrich::EnrichBackend`]
+/// so a generic engine over a `GraphBackend` can itself be `Send + Sync`.
+pub trait QueryBackend: Send + Sync {
+    /// Evaluate a parsed Query against the given keyspace. Read-only (G2).
+    /// `Err(StoreError::UnknownKeyspace)` if the store has never seen this
+    /// keyspace.
+    fn execute(&self, keyspace: &Keyspace, query: &Query) -> Result<QueryResult, StoreError>;
 }

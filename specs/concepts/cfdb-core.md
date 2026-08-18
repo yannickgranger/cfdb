@@ -32,6 +32,10 @@ Traversal direction for a path pattern — outgoing, incoming, or either. Graph-
 
 A directed, labelled graph edge from a source node id to a target node id.
 
+## EdgeHandle
+
+Opaque, storage-owned position of an edge inside one keyspace, handed out and consumed only through `GraphReader` (RFC-057). `Copy + Ord + Hash` over a `u32` so ordered reads and sets keyed by handles reproduce the storage's own index order (G1). Valid only for the reader it came from, for as long as that reader is borrowed. `from_raw`/`raw` exist for the storage engine; consumers never interpret the raw value.
+
 ## EdgeLabel
 
 Open newtype wrapping an edge-label string. The label vocabulary is defined by schema descriptors.
@@ -85,7 +89,11 @@ A query expression used in `WITH` and `RETURN` — literal, property access, fun
 
 ## GraphBackend
 
-The per-store factory that resolves a `Keyspace` into a `GraphView`, plus `workspace_root()` (RFC-056). `Send + Sync` so a generic `EnrichEngine<S: GraphBackend>` can itself be `Send + Sync`. `cfdb-petgraph::PetgraphStore` is the sole v0.1 implementor. Sibling of `StoreBackend`/`EnrichBackend` — narrower, id-based, dyn-safe, and deliberately ignorant of any concrete storage representation.
+The per-store factory that resolves a `Keyspace` into a `GraphView` (`graph_view`, RFC-056) or a read-only `GraphReader` (`graph_reader`, RFC-057), plus `workspace_root()`. `Send + Sync` so a generic `EnrichEngine<S: GraphBackend>` can itself be `Send + Sync`. `cfdb-petgraph::PetgraphStore` is the sole v0.1 implementor. Sibling of `StoreBackend`/`EnrichBackend` — narrower, id-based, dyn-safe, and deliberately ignorant of any concrete storage representation.
+
+## GraphReader
+
+The per-keyspace, read-only, handle-based surface the Cypher evaluator needs (RFC-057): label / edge-label existence and vocabulary, ordered node scans (`nodes_with_label`, `all_nodes_sorted`), node/edge dereference by handle, adjacency (`edges_out`/`edges_in`), the RFC-035 index-accelerated candidate lookup (`index_candidates`, `indexed_prop_is_populated`), and the keyspace's ingest diagnostics (`ingest_warnings`). Every method takes `&self`, so a query cannot mutate a keyspace (G2) by construction. Sibling of `GraphView` (read/write, id-based) — reached via `GraphBackend::graph_reader`. `cfdb-petgraph::KeyspaceState` is the sole v0.1 implementor; every ordered read wraps the storage's existing ordered accessor rather than re-deriving an order.
 
 ## GraphView
 
@@ -125,6 +133,10 @@ The descriptor at `crates/cfdb-core/src/schema/describe/nodes.rs` is authoritati
 ## Node
 
 A labelled, property-carrying graph node. Carries a stable id, one or more labels, and a property map. Homonym note (RFC-054 council DDD lens): the id and the `qname` property are related but distinct — for `:Item`s the id is the target-scoped IDENTITY (`item:<qname>` for lib-target items, `item:<qname>#bin:<target>` for bin-target items) while `qname` stays the bare display name, deliberately non-unique across cargo targets (N bins' `fn main` = N nodes sharing one qname). Pre-RFC-054 the two coincided; conflating them is the split-brain class RFC-054 §3.5 retires.
+
+## NodeHandle
+
+Opaque, storage-owned position of a node inside one keyspace, handed out and consumed only through `GraphReader` (RFC-057). Same contract as `EdgeHandle`: `Copy + Ord + Hash` over a `u32`, order ≡ storage index order (G1), valid only for the reader it came from; `from_raw`/`raw` are for the storage engine, never for consumers.
 
 ## NodeLabelDescriptor
 
@@ -184,6 +196,10 @@ Where a schema element (node attribute, edge attribute) originated. Six variants
 ## Query
 
 The root AST node for a parsed or builder-constructed Cypher-subset query.
+
+## QueryBackend
+
+The query-execution contract on its own (RFC-057): `execute(&self, &Keyspace, &Query) -> Result<QueryResult, StoreError>`, read-only (G2). Split out of `StoreBackend` so the storage port and the evaluator can live in different crates — an implementor evaluates over a `GraphReader` obtained from a `GraphBackend`. Declared ahead of its implementor: `StoreBackend::execute` remains the live path until the `cfdb-eval` engine lands and takes it over.
 
 ## QueryResult
 
