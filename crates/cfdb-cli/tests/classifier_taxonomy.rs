@@ -17,7 +17,7 @@
 //! under test was compiled with HIR support, matching the pattern used
 //! in `pattern_c_canonical_bypass.rs`.
 
-#![cfg(feature = "hir")]
+#![cfg(all(feature = "hir", feature = "classify"))]
 
 use std::fs;
 use std::path::{Path, PathBuf};

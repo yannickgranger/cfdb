@@ -4,16 +4,22 @@ The classifier wires the six-class `DebtClass` taxonomy declared in
 RFC-cfdb.md §A2.1 into the `cfdb scope` verb. Each
 `Finding` row in `ScopeInventory::findings_by_class[<class>]` is emitted
 by a dedicated Cypher rule in `examples/queries/classifier-*.cypher`
-and populated by the CLI orchestrator in `cfdb-cli/src/scope.rs`.
+and populated by `cfdb_classify::ClassifyEngine::scope` (crate
+`cfdb-classify`, RFC-059); the `cfdb-cli` handler in
+`cfdb-cli/src/scope.rs` only loads the keyspace, prints and exits. The
+whole layer rides `cfdb-cli`'s default-on `classify` cargo feature — a
+facts-only build (`--no-default-features --features lang-rust`) has no
+`scope` / `classify` / `check` verbs and no `cfdb-classify` dependency.
 
 ## DIP invariant — skill routing is external
 
 `Finding` does NOT carry a `fix_skill` field. The data layer (classifier)
 does not know about the skill layer (orchestration): which skill acts on a
 `DebtClass` is the consumer's decision, kept outside this repository. The
-architecture tests `crates/cfdb-query/tests/finding_no_skill_field.rs`
-(no routing key on `Finding`) and `skill_routing_deleted.rs` (no routing
-table or loader in the tree) pin this invariant.
+architecture tests `crates/cfdb-classify/tests/finding_no_skill_field.rs`
+(no routing key on `Finding`) and
+`crates/cfdb-query/tests/skill_routing_deleted.rs` (no routing table or
+loader in the tree) pin this invariant.
 
 ## The six classes
 
@@ -101,7 +107,7 @@ Each classifier rule projects empty rows — not errors — when its
 required inputs are absent. The CLI orchestrator surfaces per-class
 warnings on empty buckets that name the likely missing input
 (`--features hir`, `enrich-concepts`, `enrich-reachability`). See
-`class_empty_bucket_note` in `cfdb-cli/src/scope.rs`.
+`class_empty_bucket_note` in `cfdb-classify/src/scope.rs`.
 
 ## Follow-ups deferred to v0.3+
 

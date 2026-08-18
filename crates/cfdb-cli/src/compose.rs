@@ -28,6 +28,7 @@
 
 use std::path::{Path, PathBuf};
 
+#[cfg(feature = "classify")]
 use cfdb_classify::ClassifyEngine;
 use cfdb_core::schema::Keyspace;
 use cfdb_eval::QueryEngine;
@@ -55,7 +56,8 @@ pub(crate) fn query_engine(store: &PetgraphStore) -> QueryEngine<'_, PetgraphSto
 
 /// The judgment engine over a loaded store — `scope` / `classify` / `check`
 /// run through it. Same shape as [`query_engine`]: cheap, built per verb
-/// invocation.
+/// invocation. Rides the `classify` feature with the verbs it serves.
+#[cfg(feature = "classify")]
 pub(crate) fn classify_engine(store: &PetgraphStore) -> ClassifyEngine<'_, PetgraphStore> {
     ClassifyEngine::new(store)
 }

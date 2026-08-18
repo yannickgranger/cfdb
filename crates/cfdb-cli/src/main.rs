@@ -67,6 +67,8 @@ use cfdb_cli::{schema_describe_cmd, CfdbCliError};
 use clap::Parser;
 
 use crate::main_command::Command;
+#[cfg(feature = "classify")]
+use crate::main_dispatch::dispatch_classify;
 use crate::main_dispatch::{dispatch_core, dispatch_enrich, dispatch_snapshot, dispatch_typed};
 use crate::main_exit::exit_code_for;
 
@@ -98,7 +100,6 @@ fn run(cli: Cli) -> Result<(), CfdbCliError> {
         cmd @ (Command::Extract(_)
         | Command::Query(..)
         | Command::Violations { .. }
-        | Command::Check { .. }
         | Command::Dump { .. }
         | Command::Export { .. }
         | Command::ListKeyspaces { .. }) => dispatch_core(cmd)?,
@@ -109,17 +110,19 @@ fn run(cli: Cli) -> Result<(), CfdbCliError> {
         | Command::EnrichConcepts { .. }
         | Command::EnrichReachability { .. }
         | Command::EnrichMetrics { .. }) => dispatch_enrich(cmd)?,
-        cmd @ (Command::FindCanonical { .. }
-        | Command::ListCallers { .. }
+        cmd @ (Command::ListCallers { .. }
         | Command::Impact(..)
-        | Command::ListBypasses { .. }
         | Command::ListItemsMatching { .. }
-        | Command::Scope { .. }
         | Command::CheckPredicate { .. }) => dispatch_typed(cmd)?,
-        cmd @ (Command::Snapshots { .. }
-        | Command::Diff { .. }
+        cmd @ (Command::Snapshots { .. } | Command::Diff { .. } | Command::Drop { .. }) => {
+            dispatch_snapshot(cmd)?
+        }
+        #[cfg(feature = "classify")]
+        cmd @ (Command::Scope { .. }
         | Command::Classify { .. }
-        | Command::Drop { .. }) => dispatch_snapshot(cmd)?,
+        | Command::Check { .. }
+        | Command::FindCanonical { .. }
+        | Command::ListBypasses { .. }) => dispatch_classify(cmd)?,
     }
     Ok(())
 }

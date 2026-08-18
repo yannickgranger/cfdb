@@ -4,11 +4,14 @@
 
 use std::path::PathBuf;
 
+#[cfg(feature = "classify")]
 use cfdb_classify::TriggerId;
 use cfdb_core::ItemKind;
 use clap::Subcommand;
 
-use crate::main_parse::{parse_item_kind, parse_trigger_id};
+use crate::main_parse::parse_item_kind;
+#[cfg(feature = "classify")]
+use crate::main_parse::parse_trigger_id;
 
 mod extract_args;
 mod impact_args;
@@ -152,6 +155,7 @@ pub(crate) enum Command {
 
     /// Typed verb — find the canonical definition of a concept.
     /// Convenience composer over `query_raw` (RFC §6 TYPED). Phase A stub.
+    #[cfg(feature = "classify")]
     FindCanonical {
         #[arg(long)]
         db: PathBuf,
@@ -179,6 +183,7 @@ pub(crate) enum Command {
 
     /// Typed verb — list bypasses of the canonical definition of a concept.
     /// Convenience composer over `query_raw`. Phase A stub.
+    #[cfg(feature = "classify")]
     ListBypasses {
         #[arg(long)]
         db: PathBuf,
@@ -219,6 +224,7 @@ pub(crate) enum Command {
     /// (council-cfdb-wiring RATIFIED §A.17). Output is tier-3 ephemeral;
     /// consumer skills (`/operate-module`, `/boy-scout --from-inventory`)
     /// read and format it.
+    #[cfg(feature = "classify")]
     Scope {
         #[arg(long)]
         db: PathBuf,
@@ -275,6 +281,7 @@ pub(crate) enum Command {
     /// Delegates to the same classifier plumbing as `cfdb scope` per
     /// RFC-cfdb.md §A2.2. Routing to concrete skills is external to cfdb
     /// (the consumer's concern).
+    #[cfg(feature = "classify")]
     Classify {
         #[arg(long)]
         db: PathBuf,
@@ -404,6 +411,7 @@ pub(crate) enum Command {
     /// embedded rules keyed by trigger id — so consumer skills can
     /// bind to `--trigger T1` as a stable contract rather than a
     /// filesystem path.
+    #[cfg(feature = "classify")]
     Check {
         /// Directory containing per-keyspace JSON files.
         #[arg(long)]

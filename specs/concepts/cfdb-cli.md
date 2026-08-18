@@ -1,6 +1,6 @@
 # Spec: cfdb-cli
 
-The `cfdb` binary — clap subcommand dispatcher that wraps `cfdb-extractor` + `cfdb-petgraph` + `cfdb-query` behind the 16-verb API surface ratified in RFC-029. Library types re-exported through `lib.rs` so integration tests can call command logic directly.
+The `cfdb` binary — clap subcommand dispatcher and composition root that wraps `cfdb-extractor` + `cfdb-petgraph` + `cfdb-query` + `cfdb-eval` + `cfdb-enrich` + `cfdb-classify` behind the verb surface ratified in RFC-029 and its addenda. Library types re-exported through `lib.rs` so integration tests can call command logic directly. Cargo feature `classify` (default on, RFC-059 §3.3) gates the judgment layer: the `Scope` / `Classify` / `Check` / `FindCanonical` / `ListBypasses` subcommands, their `dispatch_classify` group, the `scope` / `check` / `commands::classify` handlers, `compose::classify_engine`, the `TriggerId` value parser and the `dep:cfdb-classify` edge; the facts-only build (`--no-default-features --features lang-rust`) lists none of the five verbs and has no `cfdb-classify` in its dependency tree (CI-asserted).
 
 ## CfdbCliError
 

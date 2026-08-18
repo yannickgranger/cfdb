@@ -74,6 +74,7 @@ pub enum CfdbCliError {
 /// in-crate code did: a store failure stays a store failure (exit 1); an
 /// unknown context or an unparsable embedded rule is a usage error (exit 2)
 /// with the same message text.
+#[cfg(feature = "classify")]
 impl From<cfdb_classify::ClassifyError> for CfdbCliError {
     fn from(e: cfdb_classify::ClassifyError) -> Self {
         match e {

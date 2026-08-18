@@ -188,6 +188,36 @@ jobs:
             exit 1
           fi
 
+      - name: Build facts-only cfdb-cli (no `classify` feature) — RFC-059 Slice 059-C
+        run: |
+          cd repo
+          # RFC-059 §3.3 invariant: with the `classify` feature off, the CLI
+          # builds without `cfdb-classify` and exposes none of the five
+          # judgment-layer verbs (`scope`, `classify`, `check`,
+          # `find-canonical`, `list-bypasses`). Everything else — `extract`,
+          # `query`, `violations`, `impact`, `diff`, `list-*`, `enrich-*`,
+          # `check-predicate`, `schema-describe` — is unaffected. Proof is a
+          # build + two assertions, not a compiled test (RFC-044 044-C
+          # precedent).
+          cargo build -p cfdb-cli --no-default-features --features lang-rust
+          BIN=target/debug/cfdb
+          for verb in scope classify check find-canonical list-bypasses; do
+            if "$BIN" --help | grep -qE "^\s+${verb}\s"; then
+              echo "FAIL: facts-only cfdb --help still lists \`${verb}\`"
+              "$BIN" --help
+              exit 1
+            fi
+          done
+          if cargo tree -p cfdb-cli --no-default-features --features lang-rust -e normal 2>&1 | grep -q 'cfdb-classify'; then
+            echo "FAIL: cfdb-classify leaked into the facts-only cfdb-cli dep tree"
+            cargo tree -p cfdb-cli --no-default-features --features lang-rust -e normal
+            exit 1
+          fi
+          # The verbs the facts-only build keeps must still be there.
+          for verb in extract query violations impact diff check-predicate schema-describe; do
+            "$BIN" --help | grep -qE "^\s+${verb}\s" || { echo "FAIL: facts-only cfdb --help lost \`${verb}\`"; exit 1; }
+          done
+
       - name: Test slim cfdb-enrich (default features — git-enrich/quality-metrics off)
         run: |
           cd repo
