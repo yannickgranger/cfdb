@@ -266,10 +266,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "cfdb-classify"
+version = "0.7.0"
+dependencies = [
+ "cfdb-core",
+ "cfdb-query",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cfdb-cli"
 version = "0.7.0"
 dependencies = [
  "assert_cmd",
+ "cfdb-classify",
  "cfdb-concepts",
  "cfdb-core",
  "cfdb-enrich",

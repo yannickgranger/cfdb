@@ -17,6 +17,7 @@ path = "src/main.rs"
 cfdb-core = { path = "../cfdb-core" }
 cfdb-concepts = { path = "../cfdb-concepts" }
 cfdb-query = { path = "../cfdb-query" }
+cfdb-classify = { path = "../cfdb-classify" }
 cfdb-petgraph = { path = "../cfdb-petgraph" }
 cfdb-eval = { path = "../cfdb-eval" }
 cfdb-enrich = { path = "../cfdb-enrich" }

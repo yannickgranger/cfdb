@@ -13,7 +13,7 @@
 //! round-trip, so schema drift (field rename, field add) is caught
 //! regardless of whether serde rename attributes are used.
 
-use cfdb_query::Finding;
+use cfdb_classify::Finding;
 
 /// Every field name that would be a DIP violation if present on
 /// `Finding`. If a new skill-related concept is invented, extend this

@@ -5,7 +5,7 @@
 
 use std::path::Path;
 
-use cfdb_query::ClassifyEnvelope;
+use cfdb_classify::ClassifyEnvelope;
 use serde_json::Value;
 
 /// Build the `{"op":"header", ...}` first line of a sorted-jsonl dump.
@@ -98,7 +98,7 @@ pub(super) fn emit_sorted_jsonl(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cfdb_query::{
+    use cfdb_classify::{
         ClassifyEnvelope, DebtClass, DiffSourceMeta, Finding, ScopeInventory,
         CLASSIFY_ENVELOPE_SCHEMA_VERSION,
     };

@@ -229,7 +229,7 @@ pub(super) struct ContextRow {
 /// One T3 row, after the per-row `is_cross_context` + `canonical_candidate`
 /// derivations. Kept as a local struct (not named `Finding`) to avoid
 /// collision with the two existing `Finding` types in the codebase —
-/// the pure-data `cfdb_query::Finding` (scope inventory rows) and the
+/// the pure-data `cfdb_classify::Finding` (scope inventory rows) and the
 /// T1-local `Finding` above (anti-join products). T3's semantic is
 /// different enough to warrant its own row type.
 #[derive(Clone, Debug)]

@@ -207,6 +207,7 @@ Every PR runs cfdb against itself + against the companion at a pinned SHA. The g
 | `cfdb-core` | Node/Edge fact types, Query AST, `StoreBackend` + `QueryBackend` + `EnrichBackend` traits, the `GraphBackend`/`GraphView`/`GraphReader` port family, schema vocabulary, `SchemaVersion`. Zero deps on parser / store / extractor — the dependency rule points inward. |
 | `cfdb-query` | Cypher-subset parser (chumsky) + Rust builder API. Both produce the same `cfdb_core::Query` AST. Includes shape-level lints. |
 | `cfdb-eval` | The Cypher-subset evaluator (`QueryEngine`, the sole `QueryBackend`), reading any store through the `GraphReader` port. Never depends on a storage engine. |
+| `cfdb-classify` | The judgment layer: the six-class `DebtClass` taxonomy, `Finding` rows, `ScopeInventory` / `ClassifyEnvelope` envelopes (the `scope` / `classify` / `check` engine follows in RFC-059). Never depends on a storage engine. |
 | `cfdb-petgraph` | Reference `StoreBackend` + `GraphBackend` on `petgraph::StableDiGraph`. Storage, indexes, persistence — no evaluator. |
 | `cfdb-extractor` | `syn` + `cargo_metadata` workspace walker. Emits Nodes, Edges, and name-level CallSites. |
 | `cfdb-hir-extractor` | `rust-analyzer` HIR-backed resolver extractor. Emits resolved `CALLS`, `INVOKES_AT`, `EntryPoint`. Feature-gated to isolate its compile cost. |

@@ -6,10 +6,10 @@
 use std::path::Path;
 use std::str::FromStr;
 
+use cfdb_classify::{DebtClass, ScopeInventory};
 use cfdb_core::result::{Warning, WarningKind};
 use cfdb_eval::QueryEngine;
 use cfdb_petgraph::PetgraphStore;
-use cfdb_query::{DebtClass, ScopeInventory};
 
 use crate::compose;
 use crate::output;
@@ -381,7 +381,7 @@ pub(crate) fn class_empty_bucket_note(class: DebtClass) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cfdb_query::{DebtClass, Finding};
+    use cfdb_classify::{DebtClass, Finding};
     use std::collections::BTreeSet;
 
     fn finding(qname: &str) -> Finding {

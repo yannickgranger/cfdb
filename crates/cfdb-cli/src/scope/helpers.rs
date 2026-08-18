@@ -1,9 +1,9 @@
+use cfdb_classify::{CanonicalCandidate, Finding};
 use cfdb_core::schema::Keyspace;
 use cfdb_core::store::QueryBackend;
 use cfdb_core::{ParamBinding, PropValue, Query, RowValue};
 use cfdb_eval::QueryEngine;
 use cfdb_petgraph::PetgraphStore;
-use cfdb_query::{CanonicalCandidate, Finding};
 
 /// Validate that `context` is one of the `:Context` nodes in the keyspace.
 pub(crate) fn validate_context(
