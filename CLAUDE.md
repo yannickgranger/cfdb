@@ -30,6 +30,10 @@ MIRROR of the corpus at the pin (CI refuses any divergence), because the
 mirror is deleted when that pass reads the pinned corpus (`keel-harness` §7,
 `keel-dialect` §3.3, §6.5).
 
+### §2.1b — The harness on this tree (keel-harness §7 step 3)
+
+`keel.json` declares deployment level L2 (keel-harness §8): the ancestry instrument `cascade` at `cascade.rev`, the doxa corpus at `doxa.rev`, roots `specs/concepts` + `crates`. `scripts/own-gate.sh` runs `keel level` corpus-wide in CI (workflow `own-gate`): every `##`/`###` heading of `specs/concepts/` carries a verdict (zero silence), no malformed or diverged verdict, no `pub` type without a concept heading; the printed ungrounded count is the live worklist for step 2 (own concept docs 100 % grounded — the roots are transcribed from the RFC clause each concept's own text names, `keel-dialect` §3). Bumping `cascade.rev` / `keel.rev` / `doxa.rev` is a Captain-direct act with a green own-gate run at the new pins.
+
 ### §2.2 — RFC contents
 
 Every RFC answers, in this order:

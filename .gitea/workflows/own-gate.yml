@@ -1,0 +1,50 @@
+name: own-gate
+# The harness on its own tree, corpus-wide (keel-harness §7 step 3, §3.2, §8):
+# keel measures the deployment level keel.json declares (L2) — cascade at
+# cascade.rev, the doxa corpus at doxa.rev, every ##/### heading of
+# specs/concepts carrying a verdict (zero silence); scripts/own-gate.sh refuses
+# malformed / diverged verdicts and any pub type without a concept heading; the
+# printed ungrounded count is the live worklist for step 2.
+on:
+  pull_request:
+  push:
+    branches: [develop, main]
+jobs:
+  own-gate:
+    name: Own gate (keel level, corpus-wide)
+    runs-on: rust
+    container:
+      image: docker.io/library/rust:1.93
+    steps:
+      - name: Setup
+        run: |
+          set -e
+          apt-get clean && apt-get update && apt-get install -y --no-install-recommends git build-essential ca-certificates python3
+          mkdir -p /cache/cargo/registry /cache/cargo/git ~/.cargo
+          ln -sf /cache/cargo/registry ~/.cargo/registry
+          ln -sf /cache/cargo/git ~/.cargo/git
+      - name: Clone
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}
+          git config --global url."https://oauth2:${GITHUB_TOKEN}@agency.lab:3000/".insteadOf "https://agency.lab:3000/"
+          git clone --depth=1 --branch="$BRANCH" "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" repo
+      - name: Install cascade + keel at the pinned revs
+        run: |
+          set -e
+          cd repo
+          CASCADE_REV=$(tr -d '[:space:]' < cascade.rev)
+          KEEL_REV=$(tr -d '[:space:]' < keel.rev)
+          TOOL_HOME=/cache/cargo/harness-tools
+          mkdir -p "$TOOL_HOME"
+          echo "Installing cascade @ ${CASCADE_REV}"
+          CARGO_HOME="$TOOL_HOME" cargo install --force --git https://agency.lab:3000/yg/cascade.git --rev "$CASCADE_REV" --locked --root "$TOOL_HOME" cascade
+          echo "Installing keel @ ${KEEL_REV}"
+          CARGO_HOME="$TOOL_HOME" cargo install --force --git https://agency.lab:3000/yg/keel.git --rev "$KEEL_REV" --locked --root "$TOOL_HOME" keel
+          echo "PATH=${TOOL_HOME}/bin:${PATH}" >> "$GITHUB_ENV"
+      - name: Own gate — keel level, corpus-wide, zero silence
+        run: |
+          cd repo
+          cascade --version && keel --version
+          bash scripts/own-gate.sh
