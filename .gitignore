@@ -21,3 +21,4 @@ council/
 .cfdb/current.sha
 .cfdb/db/
 examples/queries/fixtures/*/Cargo.lock
+.doxa/
