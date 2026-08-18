@@ -12,12 +12,12 @@
 //! [`ClassifyEnvelope::schema_version`] is pinned to
 //! [`CLASSIFY_ENVELOPE_SCHEMA_VERSION`] and versions the wire shape of
 //! this envelope only — NOT `cfdb_core::SchemaVersion` (on-disk
-//! keyspaces) and NOT the diff envelope's [`crate::diff::ENVELOPE_SCHEMA_VERSION`]
+//! keyspaces) and NOT the diff envelope's [`cfdb_query::diff::ENVELOPE_SCHEMA_VERSION`]
 //! (which evolves independently).
 
 use serde::{Deserialize, Serialize};
 
-use crate::inventory::ScopeInventory;
+use crate::taxonomy::ScopeInventory;
 
 /// Envelope schema version. Bumped only when the `ClassifyEnvelope` wire
 /// shape changes in a breaking way.

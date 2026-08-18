@@ -14,9 +14,8 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-use cfdb_query::{
-    ClassifyEnvelope, DiffEnvelope, DiffSourceMeta, ScopeInventory, ENVELOPE_SCHEMA_VERSION,
-};
+use cfdb_classify::{ClassifyEnvelope, DiffSourceMeta, ScopeInventory};
+use cfdb_query::{DiffEnvelope, ENVELOPE_SCHEMA_VERSION};
 use serde_json::Value;
 
 use crate::compose;

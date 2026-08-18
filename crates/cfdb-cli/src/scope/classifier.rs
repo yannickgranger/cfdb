@@ -1,10 +1,8 @@
+use cfdb_classify::{CanonicalCandidate, DebtClass, Finding};
 use cfdb_core::{ParamBinding, PropValue};
 use cfdb_eval::QueryEngine;
 use cfdb_petgraph::PetgraphStore;
-use cfdb_query::{
-    list_items_matching as compose_list_items_matching, parse, CanonicalCandidate, DebtClass,
-    Finding,
-};
+use cfdb_query::{list_items_matching as compose_list_items_matching, parse};
 
 use super::explain_sink::ExplainSink;
 use super::helpers::{canonical_candidate_from_row, crates_for_context, finding_from_row};
