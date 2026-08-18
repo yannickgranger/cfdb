@@ -1,7 +1,7 @@
 use sha2::{Digest, Sha256};
 
 use super::super::descriptors::Provenance;
-use super::super::labels::Label;
+use super::super::labels::{EdgeLabel, Label};
 use super::*;
 
 #[test]
@@ -122,6 +122,31 @@ fn schema_describe_item_deprecation_attrs_are_extractor_provenanced() {
             attr.provenance,
             Provenance::Extractor,
             "{name} is an extractor-time syntactic fact; any other provenance would mis-route the #48 classifier",
+        );
+    }
+}
+
+/// The enrichment-overlay edges are written by enrichment passes, never by
+/// the extractor: `LABELED_AS` / `CANONICAL_FOR` by `enrich_concepts`,
+/// `REFERENCED_BY` by `enrich_rfc_docs`. Their descriptor provenance must
+/// name the pass that produces them, or `schema-describe` tells an adopter
+/// the edge is available right after `extract` when it is not.
+#[test]
+fn schema_describe_overlay_edges_are_provenanced_by_their_enrich_pass() {
+    let d = schema_describe();
+    for (label, expected) in [
+        (EdgeLabel::LABELED_AS, Provenance::EnrichConcepts),
+        (EdgeLabel::CANONICAL_FOR, Provenance::EnrichConcepts),
+        (EdgeLabel::REFERENCED_BY, Provenance::EnrichRfcDocs),
+    ] {
+        let edge = d
+            .edges
+            .iter()
+            .find(|e| e.label.as_str() == label)
+            .unwrap_or_else(|| panic!("{label} edge descriptor missing"));
+        assert_eq!(
+            edge.provenance, expected,
+            "{label} is emitted by an enrichment pass, not by extract; its provenance must say so",
         );
     }
 }
