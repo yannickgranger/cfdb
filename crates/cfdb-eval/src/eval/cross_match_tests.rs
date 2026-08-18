@@ -29,11 +29,11 @@ use cfdb_core::query::{
 };
 use cfdb_core::result::RowValue;
 use cfdb_core::schema::{Keyspace, Label};
-use cfdb_core::store::StoreBackend;
+use cfdb_core::store::{QueryBackend, StoreBackend};
+use cfdb_petgraph::index::spec::{ComputedKey, IndexEntry, IndexSpec};
+use cfdb_petgraph::PetgraphStore;
 
-use crate::graph::KeyspaceState;
-use crate::index::spec::{ComputedKey, IndexEntry, IndexSpec};
-use crate::PetgraphStore;
+use crate::QueryEngine;
 
 const FIXTURE_SIZE: usize = 1_000;
 const HOMONYM_PAIR_COUNT: usize = 10;
@@ -105,10 +105,7 @@ fn build_fixture_nodes() -> Vec<Node> {
 
 fn build_store(spec: IndexSpec) -> (PetgraphStore, Keyspace) {
     let ks = Keyspace::new("slice6-cross-match");
-    let mut store = PetgraphStore::new();
-    store
-        .keyspaces
-        .insert(ks.clone(), KeyspaceState::new_with_spec(spec));
+    let mut store = PetgraphStore::new().with_indexes(spec);
     store
         .ingest_nodes(&ks, build_fixture_nodes())
         .expect("ingest");
@@ -224,7 +221,9 @@ fn build_homonym_query(ctx: &str) -> Query {
 /// comparison.
 fn collect_aqn(store: &PetgraphStore, ks: &Keyspace, ctx: &str) -> BTreeSet<String> {
     let query = build_homonym_query(ctx);
-    let result = store.execute(ks, &query).expect("execute");
+    let result = QueryEngine::new(store)
+        .execute(ks, &query)
+        .expect("execute");
     result
         .rows
         .into_iter()
@@ -276,9 +275,10 @@ fn cross_match_indexed_completes_under_100ms() {
     let query = build_homonym_query("A");
     // Warm the executor with one throwaway call; the first run
     // includes one-time lazy allocations.
-    let _ = store.execute(&ks, &query).expect("warm-up");
+    let engine = QueryEngine::new(&store);
+    let _ = engine.execute(&ks, &query).expect("warm-up");
     let start = Instant::now();
-    let _ = store.execute(&ks, &query).expect("timed run");
+    let _ = engine.execute(&ks, &query).expect("timed run");
     let elapsed = start.elapsed();
     assert!(
         elapsed.as_millis() < 100,

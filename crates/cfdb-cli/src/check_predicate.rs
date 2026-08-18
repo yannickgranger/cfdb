@@ -26,7 +26,7 @@ use std::path::{Path, PathBuf};
 
 use cfdb_core::fact::PropValue;
 use cfdb_core::result::RowValue;
-use cfdb_core::store::StoreBackend;
+use cfdb_core::store::QueryBackend;
 use cfdb_query::parse;
 use serde::Serialize;
 
@@ -117,7 +117,7 @@ pub fn check_predicate(
     parsed.params.extend(resolved);
 
     let (store, ks) = compose::load_store(db, keyspace)?;
-    let result = store.execute(&ks, &parsed)?;
+    let result = compose::query_engine(&store).execute(&ks, &parsed)?;
 
     let mut rows: Vec<PredicateRow> = result
         .rows

@@ -38,7 +38,7 @@
 // parser exposes only `NOT EXISTS { MATCH ... }` for absence
 // detection, and that subquery cannot reference outer bindings).
 // Direct equality against a sentinel value (`= 0`) does NOT detect
-// missing properties: `crates/cfdb-petgraph/src/eval/predicate.rs`'s
+// missing properties: `crates/cfdb-eval/src/eval/predicate.rs`'s
 // `compare_propvalues` (lines 514-517) returns `false` whenever
 // either side is `None`, so `i.cyclomatic = 0` against a node
 // missing the prop yields `false`, not a match.
@@ -66,7 +66,7 @@
 // may bind zero rows when every fn node carries both metrics
 // (the post-enrich happy path on cfdb-self at HEAD). Under the
 // cfdb-query subset's SQL no-group-no-row rule (see
-// `crates/cfdb-petgraph/src/eval/with_clause.rs::group_and_aggregate`),
+// `crates/cfdb-eval/src/eval/with_clause.rs::group_and_aggregate`),
 // `WITH count(i) AS missing_count` then produces ZERO output
 // rows, the outer WHERE never fires, and the harness sees zero
 // violations — the desired "invariant holds" state. When ≥1 fn

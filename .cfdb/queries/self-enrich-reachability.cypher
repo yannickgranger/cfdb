@@ -63,7 +63,7 @@
 // `MATCH (i:Item) WHERE i.kind = "fn" AND i.reachable_from_entry = false`
 // may bind zero rows on a happy-path keyspace where every fn is
 // reachable. Under the cfdb-query subset's SQL no-group-no-row rule
-// (`crates/cfdb-petgraph/src/eval/with_clause.rs::group_and_aggregate`),
+// (`crates/cfdb-eval/src/eval/with_clause.rs::group_and_aggregate`),
 // `WITH count(i) AS unreachable_fn_count` then produces ZERO output
 // rows, the WHERE never fires, and the harness sees zero violations —
 // the desired "invariant holds" state. When ≥1 fn is unreachable, the
@@ -85,7 +85,7 @@
 // absent property. An equality comparison (`= false`) matches the
 // shape used by `self-enrich-deprecation.cypher` (`= true`) and
 // stays inside the verified subset surface (`compare_propvalues` in
-// `crates/cfdb-petgraph/src/eval/predicate.rs`).
+// `crates/cfdb-eval/src/eval/predicate.rs`).
 //
 // # Degraded-path interaction
 //

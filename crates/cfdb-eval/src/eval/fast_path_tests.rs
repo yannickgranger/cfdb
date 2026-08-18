@@ -24,13 +24,14 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use cfdb_core::fact::{Node, PropValue};
-use cfdb_core::graph::NodeHandle;
+use cfdb_core::graph::{GraphBackend, GraphReader, NodeHandle};
 use cfdb_core::query::{CompareOp, Expr, NodePattern, ParamBinding, Predicate};
-use cfdb_core::schema::Label;
+use cfdb_core::schema::{Keyspace, Label};
+use cfdb_core::store::StoreBackend;
+use cfdb_petgraph::index::spec::{IndexEntry, IndexSpec};
+use cfdb_petgraph::PetgraphStore;
 
 use super::Evaluator;
-use crate::graph::KeyspaceState;
-use crate::index::spec::{IndexEntry, IndexSpec};
 
 const FIXTURE_SIZE: usize = 1_000;
 
@@ -60,10 +61,19 @@ fn build_fixture_nodes() -> Vec<Node> {
         .collect()
 }
 
-fn build_state(spec: IndexSpec) -> KeyspaceState {
-    let mut state = KeyspaceState::new_with_spec(spec);
-    state.ingest_nodes(build_fixture_nodes());
-    state
+/// A store holding one keyspace built under `spec`; read it through
+/// [`reader`]. The reader borrows the store, so the store outlives it.
+fn build_state(spec: IndexSpec) -> (PetgraphStore, Keyspace) {
+    let ks = Keyspace::new("fast-path");
+    let mut store = PetgraphStore::new().with_indexes(spec);
+    store
+        .ingest_nodes(&ks, build_fixture_nodes())
+        .expect("ingest fixture");
+    (store, ks)
+}
+
+fn reader((store, ks): &(PetgraphStore, Keyspace)) -> &dyn GraphReader {
+    store.graph_reader(ks).expect("known keyspace")
 }
 
 /// Build a [`NodePattern`] with variable `a`, label `Item`, and an
@@ -103,7 +113,7 @@ fn where_eq(prop: &str, value: &str) -> Predicate {
 /// comparable across fast-path and full-scan code paths: the fast
 /// path narrows already; the full scan narrows via the post-filter.
 fn final_set(
-    state: &KeyspaceState,
+    state: &dyn GraphReader,
     np: &NodePattern,
     where_clause: Option<&Predicate>,
 ) -> BTreeSet<NodeHandle> {
@@ -127,8 +137,8 @@ fn label_plus_literal_fast_path_matches_full_scan() {
     let bare = build_state(IndexSpec::empty());
     let np = pattern_with_prop("qname", "item::42");
 
-    let via_index = final_set(&indexed, &np, None);
-    let via_scan = final_set(&bare, &np, None);
+    let via_index = final_set(reader(&indexed), &np, None);
+    let via_scan = final_set(reader(&bare), &np, None);
 
     assert_eq!(
         via_index, via_scan,
@@ -147,8 +157,8 @@ fn label_plus_where_eq_fast_path_matches_full_scan() {
     let np = pattern_bare_label();
     let pred = where_eq("qname", "item::17");
 
-    let via_index = final_set(&indexed, &np, Some(&pred));
-    let via_scan = final_set(&bare, &np, Some(&pred));
+    let via_index = final_set(reader(&indexed), &np, Some(&pred));
+    let via_scan = final_set(reader(&bare), &np, Some(&pred));
 
     // The fast path narrows to one node; the full scan returns all
     // 1000 but `node_props_match` on a bare-label pattern matches
@@ -160,8 +170,8 @@ fn label_plus_where_eq_fast_path_matches_full_scan() {
     // through the WHERE predicate (which is what `Evaluator::run`
     // does after all pattern stages).
     let params: BTreeMap<String, ParamBinding> = BTreeMap::new();
-    let eval_indexed = Evaluator::new(&indexed, &params);
-    let eval_bare = Evaluator::new(&bare, &params);
+    let eval_indexed = Evaluator::new(reader(&indexed), &params);
+    let eval_bare = Evaluator::new(reader(&bare), &params);
     let via_index_filtered: BTreeSet<NodeHandle> = via_index
         .into_iter()
         .filter(|idx| {
@@ -195,8 +205,8 @@ fn non_indexed_prop_falls_back_to_label_scan() {
     let bare = build_state(IndexSpec::empty());
     let np = pattern_with_prop("name", "triple");
 
-    let via_index = final_set(&indexed, &np, None);
-    let via_scan = final_set(&bare, &np, None);
+    let via_index = final_set(reader(&indexed), &np, None);
+    let via_scan = final_set(reader(&bare), &np, None);
 
     assert_eq!(
         via_index, via_scan,

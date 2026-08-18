@@ -20,7 +20,7 @@ This is the user-facing guide to **named predicates** — the machine-checkable 
 
 - No new grammar beyond the Cypher subset `cfdb-query` already parses.
 - No new crate (`cfdb-query-dsl` was rejected by the council; the resolver lives in `cfdb-cli` per CRP).
-- No UDF registration mechanism. The `eval_call` dispatch table at `crates/cfdb-petgraph/src/eval/predicate.rs` is the documented extension point if a future RFC needs non-Cypher predicate forms.
+- No UDF registration mechanism. The `eval_call` dispatch table at `crates/cfdb-eval/src/eval/predicate.rs` is the documented extension point if a future RFC needs non-Cypher predicate forms.
 - No template composition / `INCLUDE` / `MACRO` / `IMPORT` — one file = one predicate.
 - **No `.cfdb/queries/` overlap.** `.cfdb/queries/*.cypher` are self-hosted ban rules run by `cfdb violations`. `.cfdb/predicates/*.cypher` are cross-repo consistency predicates run by `cfdb check-predicate`. Different consumer, different verb, different change vector.
 - **No `RE_EXPORTS` edge in the schema.** The original issue body's example shape — "re-exported FROM crate IN context-map[portfolio] WITHOUT TranslationAdapter impl" — is not expressible today. It requires HIR Phase B re-export resolution (see [RFC-032 §8.2](./RFC-032-v02-extractor.md)) + a follow-up RFC that adds the edge. Slice #146 ships a reframed seed (`context-homonym-crate-in-multiple-contexts`) that exercises the same param-resolver + composition pathway without depending on deferred edges.

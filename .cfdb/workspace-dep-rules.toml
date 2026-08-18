@@ -37,6 +37,7 @@ forbidden = [
   "cfdb-extractor",      # producers of Node/Edge facts
   "cfdb-hir-extractor",
   "cfdb-enrich",         # RFC-056: impls EnrichBackend over GraphBackend — depends on cfdb-core
+  "cfdb-eval",           # RFC-057: impls QueryBackend over GraphReader — depends on cfdb-core
   "cfdb-cli",            # wire-form / entry points
   "cfdb-http",
   "syn",                 # heavy parser/IR — extractor-only
@@ -88,15 +89,17 @@ forbidden = [
 ]
 
 [cfdb-petgraph]
-# Concrete StoreBackend. RFC-029 §8: depends ONLY on cfdb-core (trait + data
-# model) and its own infrastructure (petgraph).
+# Concrete StoreBackend + GraphBackend. RFC-029 §8: depends ONLY on cfdb-core
+# (traits + data model) and its own infrastructure (petgraph). Query
+# evaluation lives in cfdb-eval, reached through the GraphReader port — never
+# linked from here (RFC-057).
 allowed = [
-  "cfdb-core",      # the hub — impls StoreBackend defined there
+  "cfdb-core",      # the hub — impls StoreBackend / GraphBackend defined there
   "petgraph",       # the backend itself
   "serde",
   "serde_json",
   "thiserror",
-  "regex",          # predicate evaluator (regexp_extract)
+  "regex",          # index/spec.rs ComputedKey::ConversionPrefix key extraction
   "indexmap",       # stable-order binding tables (determinism G1)
   "toml",           # .cfdb/indexes.toml loader (RFC-035 #180)
 ]
@@ -105,6 +108,7 @@ forbidden = [
   "cfdb-extractor",      # different axis (code->facts); CP6 forbids this edge
   "cfdb-hir-extractor",
   "cfdb-enrich",          # enrichment lives outside the backend, never back in
+  "cfdb-eval",            # RFC-057: the evaluator reads through GraphReader; the backend never links it (dev-deps included — see tests/architecture_dep_rule.rs)
   "git2",                 # enrichment I/O belongs to cfdb-enrich; the backend
   "syn",                  #   only stores and queries facts
   "sha2",
@@ -143,6 +147,38 @@ forbidden = [
   "cfdb-store-petgraph",
   "cfdb-store-lbug",
   "cfdb-query",           # query text parsing is not an enrichment concern
+  "cfdb-eval",            # query evaluation is not an enrichment concern either
+  "cfdb-extractor",       # different axis (code->facts)
+  "cfdb-hir-extractor",
+  "cfdb-recall",          # entry points
+  "cfdb-cli",
+  "cfdb-http",
+  "tokio",
+  "axum",
+  "hyper",
+  "reqwest",
+]
+
+[cfdb-eval]
+# RFC-057 — the Cypher evaluator, split out of cfdb-petgraph behind the
+# GraphReader port. Depends ONLY on cfdb-core (the GraphBackend/GraphReader
+# port + the QueryBackend trait it implements) and its own small runtime
+# deps. Never depends on cfdb-petgraph or any concrete storage engine — the
+# port exists so the evaluator is swappable across backends.
+allowed = [
+  "cfdb-core",      # the hub — GraphReader/GraphBackend port + QueryBackend trait
+  "regex",          # regexp_extract / =~ predicate UDFs (per-run compiled cache)
+  "serde_json",     # set-relationship UDFs parse the entries_normalized JSON-array prop
+]
+forbidden = [
+  "cfdb-petgraph",        # RFC-057: the port exists so this crate never needs the concrete backend
+  "cfdb-store-petgraph",
+  "cfdb-store-lbug",
+  "petgraph",             # no storage representation leaks past GraphReader
+  "indexmap",
+  "toml",
+  "cfdb-query",           # query text parsing is upstream of evaluation, never linked from it
+  "cfdb-enrich",          # different axis (enrichment writes; evaluation reads)
   "cfdb-extractor",       # different axis (code->facts)
   "cfdb-hir-extractor",
   "cfdb-recall",          # entry points
@@ -169,6 +205,7 @@ forbidden = [
   "cfdb-petgraph",        # must not bind query parsing to a backend
   "cfdb-store-petgraph",
   "cfdb-store-lbug",
+  "cfdb-eval",            # nor to the evaluator: parser -> AST -> evaluator, never reverse
   "cfdb-extractor",       # different axis (code->facts)
   "cfdb-hir-extractor",
   "cfdb-recall",          # depend on cfdb-query, never reverse

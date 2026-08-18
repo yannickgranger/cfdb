@@ -18,6 +18,7 @@ cfdb-core = { path = "../cfdb-core" }
 cfdb-concepts = { path = "../cfdb-concepts" }
 cfdb-query = { path = "../cfdb-query" }
 cfdb-petgraph = { path = "../cfdb-petgraph" }
+cfdb-eval = { path = "../cfdb-eval" }
 cfdb-enrich = { path = "../cfdb-enrich" }
 # RFC-041 Phase 1 / Slice 41-C — `cfdb-lang` defines the
 # `LanguageProducer` trait that `crate::lang::available_producers()`

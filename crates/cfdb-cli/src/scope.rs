@@ -7,6 +7,8 @@ use std::path::Path;
 use std::str::FromStr;
 
 use cfdb_core::result::{Warning, WarningKind};
+use cfdb_eval::QueryEngine;
+use cfdb_petgraph::PetgraphStore;
 use cfdb_query::{DebtClass, ScopeInventory};
 
 use crate::compose;
@@ -113,13 +115,14 @@ pub fn scope(
         Some(ws) => compose::load_store_with_workspace(db, &ks_name, Some(ws.to_path_buf()))?,
         None => compose::load_store(db, &ks_name)?,
     };
-    validate_context(&store, &ks, context)?;
+    let engine = compose::query_engine(&store);
+    validate_context(&engine, &ks, context)?;
     let sink = if explain {
         ExplainSink::enabled()
     } else {
         ExplainSink::disabled()
     };
-    let inventory = build_scope_inventory(&store, &ks, context, &ks_name, &sink, production_only)?;
+    let inventory = build_scope_inventory(&engine, &ks, context, &ks_name, &sink, production_only)?;
     if explain {
         for row in sink.drain() {
             eprintln!("{}", row.format_line());
@@ -133,26 +136,27 @@ pub fn scope(
 /// of "query → filter → attach warnings" lives in a dedicated body with
 /// its own complexity budget.
 fn build_scope_inventory(
-    store: &cfdb_petgraph::PetgraphStore,
+    engine: &QueryEngine<'_, PetgraphStore>,
     ks: &cfdb_core::schema::Keyspace,
     context: &str,
     ks_name: &str,
     sink: &ExplainSink,
     production_only: bool,
 ) -> Result<ScopeInventory, crate::CfdbCliError> {
-    let (findings_in_context, loc_per_crate) = query_findings_in_context(store, ks, context, sink)?;
+    let (findings_in_context, loc_per_crate) =
+        query_findings_in_context(engine, ks, context, sink)?;
 
     let mut inventory = ScopeInventory::new(context, ks_name);
     inventory.loc_per_crate = loc_per_crate;
     let _ = findings_in_context; // reserved for future inventory population — see §A3.3
 
-    inventory.canonical_candidates = query_canonical_candidates(store, ks, context, sink)?;
+    inventory.canonical_candidates = query_canonical_candidates(engine, ks, context, sink)?;
     inventory.canonical_candidates.sort();
 
     // Issue #48 — populate each class bucket via its classifier rule.
     // RFC-042 042-B (#392): `production_only` swaps the Unwired classifier
     // cypher to the production-only variant.
-    populate_findings_by_class(store, ks, context, &mut inventory, sink, production_only)?;
+    populate_findings_by_class(engine, ks, context, &mut inventory, sink, production_only)?;
 
     attach_scope_warnings(&mut inventory);
     Ok(inventory)
@@ -166,7 +170,7 @@ fn build_scope_inventory(
 /// warning path in [`attach_scope_warnings`] reports dependency
 /// degradations.
 pub(crate) fn populate_findings_by_class(
-    store: &cfdb_petgraph::PetgraphStore,
+    engine: &QueryEngine<'_, PetgraphStore>,
     ks: &cfdb_core::schema::Keyspace,
     context: &str,
     inventory: &mut ScopeInventory,
@@ -174,7 +178,7 @@ pub(crate) fn populate_findings_by_class(
     production_only: bool,
 ) -> Result<(), crate::CfdbCliError> {
     for (class, cypher) in classifier::classifier_rules(production_only) {
-        let findings = run_classifier_rule(store, ks, context, cypher, sink)?;
+        let findings = run_classifier_rule(engine, ks, context, cypher, sink)?;
         if let Some(bucket) = inventory.findings_by_class.get_mut(&class) {
             bucket.extend(findings);
             bucket.sort();
@@ -197,7 +201,7 @@ pub(crate) fn populate_findings_by_class(
 /// `cfdb scope`, so consumers can distinguish "zero in-diff findings"
 /// from "classifier degraded on missing enrichment".
 pub(crate) fn populate_findings_by_class_restricted(
-    store: &cfdb_petgraph::PetgraphStore,
+    engine: &QueryEngine<'_, PetgraphStore>,
     ks: &cfdb_core::schema::Keyspace,
     context: &str,
     restrict_to: &std::collections::BTreeSet<String>,
@@ -207,7 +211,7 @@ pub(crate) fn populate_findings_by_class_restricted(
     // `cfdb classify` does not surface a --production-only flag (RFC-042 042-B
     // §3.3 scoped the flag to `cfdb scope` only). Pass `false` here to use the
     // legacy all-kinds Unwired cypher.
-    populate_findings_by_class(store, ks, context, inventory, sink, false)?;
+    populate_findings_by_class(engine, ks, context, inventory, sink, false)?;
     retain_findings_by_qname(inventory, restrict_to);
     Ok(())
 }

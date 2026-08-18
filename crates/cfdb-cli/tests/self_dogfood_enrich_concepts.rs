@@ -93,6 +93,8 @@ fn self_dogfood_cfdb_concept_and_labeled_as_coverage() {
         "cfdb-petgraph",
         // Enrichment passes' destination crate. Mirror .cfdb/concepts/cfdb.toml.
         "cfdb-enrich",
+        // The evaluator crate. Mirror .cfdb/concepts/cfdb.toml.
+        "cfdb-eval",
         "cfdb-extractor",
         // RFC-041 Phase 2 / Phase 3 — concrete `LanguageProducer`
         // impls for PHP (#264) and TypeScript (#265); same operational

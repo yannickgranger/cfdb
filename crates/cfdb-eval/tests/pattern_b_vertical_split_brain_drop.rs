@@ -36,7 +36,8 @@ use std::path::PathBuf;
 use cfdb_core::fact::{Edge, Node, PropValue};
 use cfdb_core::qname::{field_node_id, item_node_id, param_node_id};
 use cfdb_core::schema::{EdgeLabel, Keyspace, Label};
-use cfdb_core::store::StoreBackend;
+use cfdb_core::store::{QueryBackend, StoreBackend};
+use cfdb_eval::QueryEngine;
 use cfdb_petgraph::PetgraphStore;
 use cfdb_query::parse;
 
@@ -189,7 +190,7 @@ fn run_query(store: &PetgraphStore) -> Vec<BTreeMap<String, cfdb_core::result::R
     let text = load_query_text();
     let query =
         parse(&text).unwrap_or_else(|e| panic!("parse vertical-split-brain-drop.cypher: {e:?}"));
-    let result = store
+    let result = QueryEngine::new(store)
         .execute(&keyspace(), &query)
         .expect("execute vertical-split-brain-drop on fresh store");
     result.rows

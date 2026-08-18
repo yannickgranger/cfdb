@@ -64,11 +64,19 @@ pub fn classify(
         Some(ws) => compose::load_store_with_workspace(&db, &ks_name, Some(ws))?,
         None => compose::load_store(&db, &ks_name)?,
     };
-    validate_context(&store, &ks, &context)?;
+    let engine = compose::query_engine(&store);
+    validate_context(&engine, &ks, &context)?;
 
     let sink = ExplainSink::disabled();
     let mut inventory = ScopeInventory::new(&context, &ks_name);
-    populate_findings_by_class_restricted(&store, &ks, &context, &restrict, &mut inventory, &sink)?;
+    populate_findings_by_class_restricted(
+        &engine,
+        &ks,
+        &context,
+        &restrict,
+        &mut inventory,
+        &sink,
+    )?;
     attach_scope_warnings(&mut inventory);
 
     let envelope = ClassifyEnvelope::new(inventory, diff_source);

@@ -100,7 +100,7 @@
 //
 // The v0.1 Cypher subset's WITH clause projects every column to a
 // scalar `Binding::Value`; node references (`a`, `b`) are NOT carried
-// across WITH (`crates/cfdb-petgraph/src/eval/with_clause.rs`). So
+// across WITH (`crates/cfdb-eval/src/eval/with_clause.rs`). So
 // the rule materialises every output column (`a_qname`, `a_crate`,
 // `entries_sample`, ...) inside the WITH clause itself, then RETURN
 // just renames each scalar. The trailing `WHERE` on WITH consumes

@@ -17,7 +17,7 @@
 //   scanned code actually has a cross-context signature-divergent
 //   same-name fn/method pair (content-dependent, not a degradation).
 // - `signature_divergent(a, b)` UDF — issue #47, hard-wired in the
-//   petgraph evaluator.
+//   evaluator (`cfdb-eval`).
 // - `last_segment(qname)` UDF — path-tail helper.
 //
 // # Parameters

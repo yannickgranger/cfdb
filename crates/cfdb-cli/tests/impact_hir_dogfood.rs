@@ -33,7 +33,8 @@
 use std::collections::BTreeSet;
 
 use cfdb_core::schema::Keyspace;
-use cfdb_core::store::StoreBackend;
+use cfdb_core::store::QueryBackend;
+use cfdb_eval::QueryEngine;
 use cfdb_hir_extractor::emit::CallSiteEmitter;
 use cfdb_hir_extractor::{build_hir_database, extract_call_sites};
 use cfdb_hir_petgraph_adapter::PetgraphAdapter;
@@ -84,7 +85,7 @@ fn resolved_calls_keyspace() -> (PetgraphStore, Keyspace) {
 /// Collect the affected-set (transitive callers) of a single seed qname.
 fn blast_radius(store: &PetgraphStore, ks: &Keyspace, seed: &str) -> BTreeSet<String> {
     let query = impact_query(&[seed], None);
-    store
+    QueryEngine::new(store)
         .execute(ks, &query)
         .expect("execute impact query against the HIR keyspace")
         .rows

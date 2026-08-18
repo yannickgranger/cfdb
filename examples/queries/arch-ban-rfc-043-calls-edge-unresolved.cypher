@@ -33,7 +33,7 @@
 //
 // `resolved` is an EDGE property on `:CALLS`, so the rule binds the edge
 // (`-[r:CALLS]->`) and filters `r.resolved`. The evaluator supports
-// edge-attribute access in WHERE (`crates/cfdb-petgraph/src/eval/predicate.rs`
+// edge-attribute access in WHERE (`crates/cfdb-eval/src/eval/predicate.rs`
 // `Binding::EdgeRef`). Endpoints are surfaced via the edge's `src`/`dst`
 // node-id pseudo-properties for triage.
 //

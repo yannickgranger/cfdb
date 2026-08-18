@@ -36,7 +36,8 @@ use std::path::PathBuf;
 use cfdb_core::fact::{Edge, Node, PropValue};
 use cfdb_core::qname::item_node_id;
 use cfdb_core::schema::{EdgeLabel, Keyspace, Label};
-use cfdb_core::store::StoreBackend;
+use cfdb_core::store::{QueryBackend, StoreBackend};
+use cfdb_eval::QueryEngine;
 use cfdb_petgraph::PetgraphStore;
 use cfdb_query::parse;
 
@@ -190,7 +191,7 @@ fn load_query_text() -> String {
 fn run_query(store: &PetgraphStore) -> Vec<BTreeMap<String, cfdb_core::result::RowValue>> {
     let text = load_query_text();
     let query = parse(&text).unwrap_or_else(|e| panic!("parse vsb-multi-resolver.cypher: {e:?}"));
-    let result = store
+    let result = QueryEngine::new(store)
         .execute(&keyspace(), &query)
         .expect("execute vsb-multi-resolver on fresh store");
     result.rows

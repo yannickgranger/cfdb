@@ -21,6 +21,10 @@ crates = [
     # enrichment passes. Same operational bounded context as the crate it
     # is being carved out of, per council-cfdb-wiring §B.1.2.
     "cfdb-enrich",
+    # The Cypher evaluator, carved out of cfdb-petgraph behind the
+    # GraphReader port. Same operational bounded context as the crate it
+    # came from, per council-cfdb-wiring §B.1.2.
+    "cfdb-eval",
     "cfdb-extractor",
     # RFC-043 Slice A — shared syn-based argument-kind classifier used by
     # both cfdb-extractor and cfdb-hir-extractor. Same operational bounded

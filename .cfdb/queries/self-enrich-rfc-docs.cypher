@@ -36,7 +36,7 @@
 // The cfdb-query Cypher subset evaluates `WITH count(d) AS k` over an
 // empty MATCH binding by emitting ZERO output rows (the SQL/relational
 // "no group => no row" rule, see
-// `crates/cfdb-petgraph/src/eval/with_clause.rs::group_and_aggregate`).
+// `crates/cfdb-eval/src/eval/with_clause.rs::group_and_aggregate`).
 // If we anchored on `MATCH (d:RfcDoc)` and the extractor emitted zero
 // `:RfcDoc` nodes (the catastrophic regression we MUST catch), the WITH
 // would produce zero rows and the WHERE would never fire — the sentinel
