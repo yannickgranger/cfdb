@@ -1,4 +1,6 @@
 use cfdb_core::{ParamBinding, PropValue};
+use cfdb_eval::QueryEngine;
+use cfdb_petgraph::PetgraphStore;
 use cfdb_query::{
     list_items_matching as compose_list_items_matching, parse, CanonicalCandidate, DebtClass,
     Finding,
@@ -53,7 +55,7 @@ pub(super) fn classifier_rules(production_only: bool) -> [(DebtClass, &'static s
 /// empty result rows — this is the correct degradation, and the
 /// warning pass reports the dependency gap.
 pub(super) fn run_classifier_rule(
-    store: &cfdb_petgraph::PetgraphStore,
+    engine: &QueryEngine<'_, PetgraphStore>,
     ks: &cfdb_core::schema::Keyspace,
     context: &str,
     cypher: &str,
@@ -69,7 +71,7 @@ pub(super) fn run_classifier_rule(
     // missing props silently return empty rows (parser / evaluator
     // absent-prop semantics), which lets the orchestrator tolerate
     // keyspaces extracted without HIR / concepts / reachability.
-    let result = match sink.run(store, ks, &parsed) {
+    let result = match sink.run(engine, ks, &parsed) {
         Ok(r) => r,
         // A store-level execution error on a classifier rule is a
         // keyspace shape mismatch (e.g. `:EntryPoint` label absent
@@ -114,13 +116,13 @@ pub(super) fn compose_inventory_query_for_context(context: &str) -> cfdb_core::q
 /// approximation. Factored out of [`build_scope_inventory`] to keep each
 /// helper under the cognitive-complexity ceiling.
 pub(super) fn query_findings_in_context(
-    store: &cfdb_petgraph::PetgraphStore,
+    engine: &QueryEngine<'_, PetgraphStore>,
     ks: &cfdb_core::schema::Keyspace,
     context: &str,
     sink: &ExplainSink,
 ) -> Result<(Vec<Finding>, std::collections::BTreeMap<String, u64>), crate::CfdbCliError> {
     let inventory_query = compose_inventory_query_for_context(context);
-    let inventory_result = sink.run(store, ks, &inventory_query)?;
+    let inventory_result = sink.run(engine, ks, &inventory_query)?;
     let mut findings_in_context: Vec<Finding> = Vec::with_capacity(inventory_result.rows.len());
     let mut loc_per_crate: std::collections::BTreeMap<String, u64> =
         std::collections::BTreeMap::new();
@@ -137,15 +139,15 @@ pub(super) fn query_findings_in_context(
 /// Run the embedded `hsb-by-name` rule and project each matching row into
 /// a canonical candidate if at least one crate belongs to the context.
 pub(super) fn query_canonical_candidates(
-    store: &cfdb_petgraph::PetgraphStore,
+    engine: &QueryEngine<'_, PetgraphStore>,
     ks: &cfdb_core::schema::Keyspace,
     context: &str,
     sink: &ExplainSink,
 ) -> Result<Vec<CanonicalCandidate>, crate::CfdbCliError> {
     let hsb_parsed = parse(HSB_BY_NAME_CYPHER)
         .map_err(|e| format!("parse error in embedded hsb-by-name template: {e}"))?;
-    let hsb_result = sink.run(store, ks, &hsb_parsed)?;
-    let crates_in_context = crates_for_context(store, ks, context)?;
+    let hsb_result = sink.run(engine, ks, &hsb_parsed)?;
+    let crates_in_context = crates_for_context(engine, ks, context)?;
     Ok(hsb_result
         .rows
         .iter()

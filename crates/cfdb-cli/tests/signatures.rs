@@ -1,6 +1,6 @@
 //! Integration-seam signature pin (RFC-044 §3.2 / #428, slice 044-B).
 //!
-//! Freezes the six `pub(crate)` factory-function signatures in the
+//! Freezes the seven `pub(crate)` factory-function signatures in the
 //! `cfdb-cli` composition root (`src/compose.rs`) — the single place that
 //! knows which concrete `StoreBackend` is wired in — into
 //! `tests/signatures.toml`. The test re-parses `src/compose.rs` with `syn`

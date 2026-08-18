@@ -53,7 +53,8 @@ use std::time::{Duration, Instant};
 use cfdb_core::fact::{Node, PropValue};
 use cfdb_core::query::ParamBinding;
 use cfdb_core::schema::{Keyspace, Label};
-use cfdb_core::store::StoreBackend;
+use cfdb_core::store::{QueryBackend, StoreBackend};
+use cfdb_eval::QueryEngine;
 use cfdb_petgraph::index::spec::{ComputedKey, IndexEntry, IndexSpec};
 use cfdb_petgraph::PetgraphStore;
 use cfdb_query::parse;
@@ -343,7 +344,9 @@ fn run_rule(
         ParamBinding::Scalar(PropValue::Str(context.to_string())),
     );
     let start = Instant::now();
-    let result = store.execute(ks, &parsed).expect("execute classifier");
+    let result = QueryEngine::new(store)
+        .execute(ks, &parsed)
+        .expect("execute classifier");
     let elapsed = start.elapsed();
     (result.rows.len(), elapsed)
 }

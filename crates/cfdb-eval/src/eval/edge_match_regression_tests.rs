@@ -19,9 +19,10 @@
 use cfdb_core::fact::{Edge, Node, PropValue};
 use cfdb_core::result::RowValue;
 use cfdb_core::schema::{EdgeLabel, Keyspace, Label};
-use cfdb_core::store::StoreBackend;
+use cfdb_core::store::{QueryBackend, StoreBackend};
+use cfdb_petgraph::{persist, PetgraphStore};
 
-use crate::PetgraphStore;
+use crate::QueryEngine;
 
 fn ks() -> Keyspace {
     Keyspace::new("edge_match_242")
@@ -71,7 +72,7 @@ fn fresh_store_with_fixture() -> (PetgraphStore, Keyspace) {
 fn count_named_edge_var_anonymous_label() {
     let (store, k) = fresh_store_with_fixture();
     let q = parse("MATCH (a)-[r]->(b) RETURN count(r)");
-    let r = store.execute(&k, &q).expect("exec");
+    let r = QueryEngine::new(&store).execute(&k, &q).expect("exec");
     assert_eq!(
         scalar_int(&r.rows[0], "count"),
         1,
@@ -84,7 +85,7 @@ fn count_named_edge_var_anonymous_label() {
 fn count_named_edge_var_with_label() {
     let (store, k) = fresh_store_with_fixture();
     let q = parse("MATCH (a)-[r:REL]->(b) RETURN count(r)");
-    let r = store.execute(&k, &q).expect("exec");
+    let r = QueryEngine::new(&store).execute(&k, &q).expect("exec");
     assert_eq!(scalar_int(&r.rows[0], "count"), 1);
 }
 
@@ -92,7 +93,7 @@ fn count_named_edge_var_with_label() {
 fn count_named_edge_var_with_typed_endpoints() {
     let (store, k) = fresh_store_with_fixture();
     let q = parse("MATCH (a:N)-[r:REL]->(b:N) RETURN count(r)");
-    let r = store.execute(&k, &q).expect("exec");
+    let r = QueryEngine::new(&store).execute(&k, &q).expect("exec");
     assert_eq!(scalar_int(&r.rows[0], "count"), 1);
 }
 
@@ -102,7 +103,7 @@ fn count_star_also_works_as_control() {
     // that edge-traversal itself is finding the pair.
     let (store, k) = fresh_store_with_fixture();
     let q = parse("MATCH (a)-[r]->(b) RETURN count(*)");
-    let r = store.execute(&k, &q).expect("exec");
+    let r = QueryEngine::new(&store).execute(&k, &q).expect("exec");
     assert_eq!(scalar_int(&r.rows[0], "count"), 1);
 }
 
@@ -112,7 +113,7 @@ fn count_from_node_var_also_works_as_control() {
     // fix doesn't regress it.
     let (store, k) = fresh_store_with_fixture();
     let q = parse("MATCH (a)-[r]->(b) RETURN count(a)");
-    let r = store.execute(&k, &q).expect("exec");
+    let r = QueryEngine::new(&store).execute(&k, &q).expect("exec");
     assert_eq!(scalar_int(&r.rows[0], "count"), 1);
 }
 
@@ -120,7 +121,7 @@ fn count_from_node_var_also_works_as_control() {
 fn edge_var_property_access_label() {
     let (store, k) = fresh_store_with_fixture();
     let q = parse("MATCH (a)-[r:REL]->(b) RETURN r.label");
-    let r = store.execute(&k, &q).expect("exec");
+    let r = QueryEngine::new(&store).execute(&k, &q).expect("exec");
     assert_eq!(scalar_str(&r.rows[0], "r.label"), "REL");
 }
 
@@ -128,7 +129,7 @@ fn edge_var_property_access_label() {
 fn edge_var_property_access_custom_prop() {
     let (store, k) = fresh_store_with_fixture();
     let q = parse("MATCH (a)-[r:REL]->(b) RETURN r.weight");
-    let r = store.execute(&k, &q).expect("exec");
+    let r = QueryEngine::new(&store).execute(&k, &q).expect("exec");
     assert_eq!(scalar_int(&r.rows[0], "r.weight"), 7);
 }
 
@@ -159,11 +160,11 @@ fn count_chained_edges() {
         .expect("ingest edges");
 
     let q = parse("MATCH (a)-[r1:R1]->(b), (b)-[r2:R2]->(c) RETURN count(r1)");
-    let r = store.execute(&k, &q).expect("exec");
+    let r = QueryEngine::new(&store).execute(&k, &q).expect("exec");
     assert_eq!(scalar_int(&r.rows[0], "count"), 1);
 
     let q2 = parse("MATCH (a)-[r1:R1]->(b), (b)-[r2:R2]->(c) RETURN count(r2)");
-    let r2 = store.execute(&k, &q2).expect("exec");
+    let r2 = QueryEngine::new(&store).execute(&k, &q2).expect("exec");
     assert_eq!(scalar_int(&r2.rows[0], "count"), 1);
 }
 
@@ -173,10 +174,10 @@ fn roundtripped_store() -> (PetgraphStore, Keyspace, tempfile::TempDir) {
     let (source, k) = fresh_store_with_fixture();
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("edge_match_242.json");
-    crate::persist::save(&source, &k, &path).expect("save");
+    persist::save(&source, &k, &path).expect("save");
 
     let mut dest = PetgraphStore::new();
-    crate::persist::load(&mut dest, &k, &path).expect("load");
+    persist::load(&mut dest, &k, &path).expect("load");
     (dest, k, dir)
 }
 
@@ -184,7 +185,7 @@ fn roundtripped_store() -> (PetgraphStore, Keyspace, tempfile::TempDir) {
 fn roundtrip_count_named_edge_var() {
     let (store, k, _dir) = roundtripped_store();
     let q = parse("MATCH (a)-[r:REL]->(b) RETURN count(r)");
-    let r = store.execute(&k, &q).expect("exec");
+    let r = QueryEngine::new(&store).execute(&k, &q).expect("exec");
     assert_eq!(
         scalar_int(&r.rows[0], "count"),
         1,
@@ -197,7 +198,7 @@ fn roundtrip_count_named_edge_var() {
 fn roundtrip_edge_property_access() {
     let (store, k, _dir) = roundtripped_store();
     let q = parse("MATCH (a)-[r:REL]->(b) RETURN r.label");
-    let r = store.execute(&k, &q).expect("exec");
+    let r = QueryEngine::new(&store).execute(&k, &q).expect("exec");
     assert_eq!(scalar_str(&r.rows[0], "r.label"), "REL");
 }
 
@@ -231,7 +232,7 @@ fn parallel_edges_each_produce_a_row() {
         .expect("ingest edges");
 
     let q = parse("MATCH (a)-[r:REL]->(b) RETURN count(r)");
-    let r = store.execute(&k, &q).expect("exec");
+    let r = QueryEngine::new(&store).execute(&k, &q).expect("exec");
     assert_eq!(
         scalar_int(&r.rows[0], "count"),
         3,
@@ -249,7 +250,7 @@ fn anonymous_edge_pattern_still_works() {
     let (store, k) = fresh_store_with_fixture();
 
     let q = parse("MATCH (a:N)-[:REL]->(b:N) RETURN count(a)");
-    let r = store.execute(&k, &q).expect("exec");
+    let r = QueryEngine::new(&store).execute(&k, &q).expect("exec");
     assert_eq!(scalar_int(&r.rows[0], "count"), 1);
 }
 
@@ -265,7 +266,7 @@ fn unknown_edge_label_still_warns() {
     // only on the WARNING, not the row shape.
     let (store, k) = fresh_store_with_fixture();
     let q = parse("MATCH (a)-[r:NOSUCH]->(b) RETURN count(r)");
-    let r = store.execute(&k, &q).expect("exec");
+    let r = QueryEngine::new(&store).execute(&k, &q).expect("exec");
     assert!(
         r.warnings
             .iter()

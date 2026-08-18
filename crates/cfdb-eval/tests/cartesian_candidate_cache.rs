@@ -43,7 +43,8 @@ use cfdb_core::query::{NodePattern, Pattern, ProjectionValue};
 use cfdb_core::schema::{Keyspace, Label};
 use cfdb_core::store::StoreBackend;
 use cfdb_core::{CompareOp, Expr, Predicate, Projection, Query, ReturnClause};
-use cfdb_petgraph::explain::ExplainRow;
+use cfdb_eval::explain::ExplainRow;
+use cfdb_eval::QueryEngine;
 use cfdb_petgraph::PetgraphStore;
 use std::collections::BTreeMap;
 
@@ -215,7 +216,9 @@ fn issue_409_pure_cartesian_b_resolved_once_not_per_outer_row() {
     ingest_items(&mut store, &ks, 50);
 
     let q = cartesian_query_no_where();
-    let (_result, explain) = store.execute_explained(&ks, &q).expect("execute");
+    let (_result, explain) = QueryEngine::new(&store)
+        .execute_explained(&ks, &q)
+        .expect("execute");
 
     let a_count = count_lookups_for(&explain, "(a:");
     let b_count = count_lookups_for(&explain, "(b:");
@@ -236,7 +239,9 @@ fn issue_409_own_var_where_predicates_stay_cached() {
     ingest_items(&mut store, &ks, 50);
 
     let q = cartesian_query_own_var_where();
-    let (_result, explain) = store.execute_explained(&ks, &q).expect("execute");
+    let (_result, explain) = QueryEngine::new(&store)
+        .execute_explained(&ks, &q)
+        .expect("execute");
 
     let a_count = count_lookups_for(&explain, "(a:");
     let b_count = count_lookups_for(&explain, "(b:");
@@ -258,7 +263,9 @@ fn cross_binding_predicate_still_iterates_per_outer_row() {
     ingest_items(&mut store, &ks, 5);
 
     let q = cartesian_query_cross_binding_where();
-    let (_result, explain) = store.execute_explained(&ks, &q).expect("execute");
+    let (_result, explain) = QueryEngine::new(&store)
+        .execute_explained(&ks, &q)
+        .expect("execute");
 
     // Correctness guard: when WHERE has a real cross-binding equi-join
     // (`a.kind = b.kind`), the planner is permitted to narrow `b` based

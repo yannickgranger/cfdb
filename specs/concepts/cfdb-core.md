@@ -1,6 +1,6 @@
 # Spec: cfdb-core
 
-The schema vocabulary, fact types, query AST, result types, the `StoreBackend` port, the sibling `EnrichBackend` port, and — since RFC-056 — the narrower `GraphBackend`/`GraphView` port pair `cfdb-enrich`'s enrichment passes are coded against. The innermost layer that every other cfdb crate depends on and that depends on nothing in the workspace.
+The schema vocabulary, fact types, query AST, result types, the `StoreBackend` port, the sibling `EnrichBackend` and `QueryBackend` ports, and the narrower `GraphBackend`/`GraphView`/`GraphReader` port family `cfdb-enrich`'s passes and `cfdb-eval`'s evaluator are coded against. The innermost layer that every other cfdb crate depends on and that depends on nothing in the workspace.
 
 `cfdb-core` is intentionally in the **Zone of Pain** (D ≈ 0.95 — high stability, near-zero abstractness) and `cfdb-concepts` is at D = 1.00. This is accepted architectural debt: both are maximally stable zero-dep foundation crates whose vocabulary is the wire contract for every downstream keyspace. The mitigation is procedural, not structural — changes here evolve only via RFC-gated additive bumps of `SchemaVersion` with a lockstep graph-specs-rust PR per CLAUDE.md §3. Unilateral modification is the drift mode we prevent by making every schema-surface change pass through the council + dogfood gates.
 
@@ -199,11 +199,11 @@ The root AST node for a parsed or builder-constructed Cypher-subset query.
 
 ## QueryBackend
 
-The query-execution contract on its own (RFC-057): `execute(&self, &Keyspace, &Query) -> Result<QueryResult, StoreError>`, read-only (G2). Split out of `StoreBackend` so the storage port and the evaluator can live in different crates — an implementor evaluates over a `GraphReader` obtained from a `GraphBackend`. Declared ahead of its implementor: `StoreBackend::execute` remains the live path until the `cfdb-eval` engine lands and takes it over.
+The query-execution contract on its own (RFC-057): `execute(&self, &Keyspace, &Query) -> Result<QueryResult, StoreError>`, read-only (G2). Split out of `StoreBackend` so the storage port and the evaluator live in different crates — the sole implementor, `cfdb_eval::QueryEngine`, evaluates over a `GraphReader` obtained from a `GraphBackend`; no storage backend implements it.
 
 ## QueryResult
 
-The output of `StoreBackend::execute` — list of `Row` values and list of `Warning` values.
+The output of `QueryBackend::execute` — list of `Row` values and list of `Warning` values.
 
 ## ReturnClause
 
@@ -237,9 +237,9 @@ Five determinism guarantees govern the wire contract (RFC-029 §6, formalised an
 
 ## StoreBackend
 
-The graph-store port. Implementations ingest facts, execute queries, emit canonical dumps, and manage keyspace lifecycle (7 methods). Enrichment now lives on the sibling `EnrichBackend` trait (RFC-031 §2). v0.1+ has one implementor — `cfdb-petgraph::PetgraphStore` — which implements both traits.
+The graph-store port. Implementations ingest facts, emit canonical dumps, and manage keyspace lifecycle (6 methods). Enrichment lives on the sibling `EnrichBackend` trait (RFC-031 §2); query execution on the sibling `QueryBackend` trait (RFC-057). v0.1+ has one implementor — `cfdb-petgraph::PetgraphStore` — which also implements `GraphBackend`.
 
-The verb surface is **closed at seven** under the 11-verb API (RFC-036 §3 + RFC-029 §A1). New capability extends existing verbs via schema + Cypher composition, not via new trait methods. The orthogonal API's 11-verb ceiling (`StoreBackend`'s 7 + `EnrichBackend`'s 7 overlap plus the external `extract`/`schema_version`/`schema_describe` shapes) is enforced by council review on every RFC.
+The verb surface stays **closed** under the 11-verb API (RFC-036 §3 + RFC-029 §A1): `StoreBackend`'s 6 + `QueryBackend`'s 1 are the same seven verbs the pre-RFC-057 `StoreBackend` carried, split by responsibility, not grown. New capability extends existing verbs via schema + Cypher composition, not via new trait methods; the 11-verb ceiling (those 7 + `EnrichBackend`'s 7 overlap plus the external `extract`/`schema_version`/`schema_describe` shapes) is enforced by council review on every RFC.
 
 ## StoreError
 

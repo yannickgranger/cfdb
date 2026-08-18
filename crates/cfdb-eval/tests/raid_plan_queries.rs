@@ -24,7 +24,8 @@ use cfdb_core::fact::{Edge, Node, PropValue};
 use cfdb_core::qname::item_node_id;
 use cfdb_core::query::ParamBinding;
 use cfdb_core::schema::{EdgeLabel, Keyspace, Label};
-use cfdb_core::store::StoreBackend;
+use cfdb_core::store::{QueryBackend, StoreBackend};
+use cfdb_eval::QueryEngine;
 use cfdb_petgraph::PetgraphStore;
 use cfdb_query::parse;
 
@@ -285,7 +286,7 @@ fn run(
     store: &PetgraphStore,
     query: &cfdb_core::Query,
 ) -> Vec<BTreeMap<String, cfdb_core::result::RowValue>> {
-    store
+    QueryEngine::new(store)
         .execute(&keyspace(), query)
         .expect("execute raid query")
         .rows

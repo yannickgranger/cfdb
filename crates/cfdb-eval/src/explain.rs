@@ -1,6 +1,6 @@
 //! Public explain-trace types.
 //!
-//! Emitted by [`crate::PetgraphStore::execute_explained`] so the `cfdb
+//! Emitted by [`crate::QueryEngine::execute_explained`] so the `cfdb
 //! scope --explain` CLI surface can report which MATCH patterns were
 //! satisfied via the `by_prop` inverted index (slice 5 / slice 6 fast
 //! paths) and which fell back to a full label scan.
@@ -28,7 +28,7 @@
 //!
 //! **Not serialized.** This channel is side-band from `QueryResult` so
 //! no explain rows leak into the canonical dump or the keyspace wire
-//! format. The channel lives entirely inside `cfdb-petgraph`.
+//! format. The channel lives entirely inside `cfdb-eval`.
 
 /// How a single `candidate_nodes` call was satisfied.
 #[derive(Clone, Debug, PartialEq, Eq)]

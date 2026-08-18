@@ -11,7 +11,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use cfdb_core::store::StoreBackend;
+use cfdb_core::store::QueryBackend;
 use cfdb_petgraph::PetgraphStore;
 use cfdb_query::{impact_query, items_with_files_query};
 
@@ -64,7 +64,7 @@ pub fn impact(
     // `impact_query(&[], _)` is a valid query that matches nothing, so the
     // empty case flows through the same path and emits an empty result set.
     let query = impact_query(&seeds, max_depth);
-    let result = store.execute(&ks, &query)?;
+    let result = compose::query_engine(&store).execute(&ks, &query)?;
     output::emit_json(&result)
 }
 
@@ -116,7 +116,7 @@ fn resolve_seeds_from_files(
     // scanned item — the scan is over every `:Item` (40k+ on cfdb, 300k+ on
     // qbot), so a per-item `format!` would allocate millions of times.
     let suffixes: Vec<String> = changed_files.iter().map(|cf| format!("/{cf}")).collect();
-    let result = store.execute(ks, &items_with_files_query())?;
+    let result = compose::query_engine(store).execute(ks, &items_with_files_query())?;
     let mut seeds = BTreeSet::new();
     for row in &result.rows {
         let Some(file) = row.get("file").and_then(|v| v.as_str()) else {

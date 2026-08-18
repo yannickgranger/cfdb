@@ -47,7 +47,7 @@
 //
 //   * `crates/cfdb-query/src/parser/lexical.rs:152-158` parses the
 //     `null` keyword as `PropValue::Null`.
-//   * `crates/cfdb-petgraph/src/eval/predicate.rs:509-533`
+//   * `crates/cfdb-eval/src/eval/predicate.rs:509-533`
 //     (`compare_propvalues`) returns `true` for `Eq` only when both
 //     operands are `PropValue::Null` (line 531). Any `Int` vs `Null`
 //     comparison falls through to the `_ => return false` arm at
@@ -72,7 +72,7 @@
 // post-enrich happy path on cfdb-self at HEAD inside a git workspace),
 // `MATCH (i:Item) WHERE i.git_last_commit_unix_ts = null` binds zero
 // rows. Under the cfdb-query subset's SQL no-group-no-row rule
-// (`crates/cfdb-petgraph/src/eval/with_clause.rs::group_and_aggregate`),
+// (`crates/cfdb-eval/src/eval/with_clause.rs::group_and_aggregate`),
 // `WITH count(i) AS null_count` then produces ZERO output rows, the
 // downstream WHERE never fires, and the harness sees zero violations —
 // the desired "invariant holds" state. When ≥1 `:Item` carries a Null

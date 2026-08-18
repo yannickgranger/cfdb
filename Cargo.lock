@@ -273,6 +273,7 @@ dependencies = [
  "cfdb-concepts",
  "cfdb-core",
  "cfdb-enrich",
+ "cfdb-eval",
  "cfdb-extractor",
  "cfdb-extractor-php",
  "cfdb-extractor-ts",
@@ -329,6 +330,19 @@ dependencies = [
  "serde_json",
  "sha2",
  "syn",
+ "tempfile",
+]
+
+[[package]]
+name = "cfdb-eval"
+version = "0.7.0"
+dependencies = [
+ "cfdb-core",
+ "cfdb-petgraph",
+ "cfdb-query",
+ "regex",
+ "serde",
+ "serde_json",
  "tempfile",
 ]
 
@@ -437,7 +451,6 @@ name = "cfdb-petgraph"
 version = "0.7.0"
 dependencies = [
  "cfdb-core",
- "cfdb-query",
  "indexmap",
  "petgraph",
  "regex",

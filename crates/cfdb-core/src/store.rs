@@ -1,10 +1,12 @@
-//! StoreBackend trait — storage, query evaluation, and lifecycle surface;
-//! QueryBackend trait — the query-execution contract on its own.
+//! StoreBackend trait — storage and keyspace-lifecycle surface;
+//! QueryBackend trait — the query-execution contract.
 //!
-//! Every storage layer implements `StoreBackend`. The cfdb-query
-//! parser/builder constructs `Query` AST values; consumers then call
-//! `execute(&keyspace, &query)` on a `QueryBackend`. The traits are
-//! deliberately small and hide all backend-specific state behind `&self`.
+//! Every storage layer implements `StoreBackend` (six methods). The
+//! cfdb-query parser/builder constructs `Query` AST values; consumers then
+//! call `execute(&keyspace, &query)` on a `QueryBackend`, whose implementor
+//! (`cfdb-eval`'s `QueryEngine`) reads the keyspace through a `GraphReader`
+//! resolved from the store's `GraphBackend`. Both traits are deliberately
+//! small and hide all backend-specific state behind `&self`.
 //!
 //! Enrichment (docs / metrics / history / concepts) was previously bolted on
 //! as default-stub methods here; it is now a sibling trait
@@ -45,15 +47,16 @@ pub enum StoreError {
     Other(String),
 }
 
-/// The storage and query evaluation surface.
+/// The storage surface: ingest, keyspace lifecycle, canonical dump.
 ///
 /// # Determinism guarantees
 ///
 /// Implementors MUST uphold:
 /// - **G1**: same input facts + same schema version → byte-identical canonical
 ///   dump. Evaluation may parallelize but output ordering is stable.
-/// - **G2**: `execute` is read-only. No query may mutate the graph. This is a
-///   trait invariant, not merely a convention.
+/// - **G2**: query evaluation is read-only. No query may mutate the graph —
+///   the evaluator reaches a keyspace only through the `&self`-only
+///   [`crate::graph::GraphReader`], so this holds by construction.
 /// - **G3**: `ingest_*` is additive-or-replace. A single `ingest_nodes` call
 ///   never deletes a node that was not in the current batch.
 /// - **G4**: `schema_version` is monotonic within a major.
@@ -68,9 +71,6 @@ pub trait StoreBackend: Send + Sync {
     /// are reported as a warning rather than an error so bulk loads from
     /// partially-extracted sources degrade gracefully.
     fn ingest_edges(&mut self, keyspace: &Keyspace, edges: Vec<Edge>) -> Result<(), StoreError>;
-
-    /// Evaluate a parsed Query against the given keyspace. Read-only (G2).
-    fn execute(&self, keyspace: &Keyspace, query: &Query) -> Result<QueryResult, StoreError>;
 
     /// Current schema version for the keyspace.
     fn schema_version(&self, keyspace: &Keyspace) -> Result<SchemaVersion, StoreError>;
@@ -87,7 +87,7 @@ pub trait StoreBackend: Send + Sync {
 }
 
 /// The query-execution contract: evaluate a parsed [`Query`] against one
-/// keyspace and return its rows and warnings. Read-only (G2) — an
+/// keyspace and return its rows and warnings. Read-only (G2) — the
 /// implementor evaluates over a [`crate::graph::GraphReader`] and cannot
 /// mutate the keyspace it reads.
 ///

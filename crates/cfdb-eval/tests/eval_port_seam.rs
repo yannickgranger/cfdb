@@ -1,12 +1,13 @@
 //! The Cypher evaluator reaches the graph only through
 //! `cfdb_core::graph::GraphReader`. No production line under `src/eval/`
-//! may name the storage engine's own types: `petgraph`, `KeyspaceState`,
-//! the index subsystem, or a handle's raw value — the seam that lets the
-//! evaluator move to its own crate exists only while this holds.
+//! may name a storage engine (`petgraph`, `cfdb_petgraph`, `KeyspaceState`)
+//! or a handle's raw value. Cargo already forbids the crate edge; this
+//! keeps the vocabulary out too, so a future dependency cannot be smuggled
+//! in through a string, a doc link or a re-export.
 //!
 //! Test sources are exempt (`*_tests.rs`, `tests.rs`, and everything at or
 //! after a file's first `#[cfg(test)]` marker): they build concrete
-//! `KeyspaceState` fixtures on purpose to instantiate the evaluator.
+//! `PetgraphStore` fixtures on purpose to instantiate the evaluator.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -14,13 +15,7 @@ use std::path::{Path, PathBuf};
 const EVAL_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/eval");
 
 /// Every substring a production evaluator line must not contain.
-const FORBIDDEN: &[&str] = &[
-    "petgraph::",
-    "crate::graph::KeyspaceState",
-    "crate::index::",
-    ".raw()",
-    "from_raw(",
-];
+const FORBIDDEN: &[&str] = &["petgraph", "KeyspaceState", ".raw()", "from_raw("];
 
 fn is_test_source(path: &Path) -> bool {
     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");

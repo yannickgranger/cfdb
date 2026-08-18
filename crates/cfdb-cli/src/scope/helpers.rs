@@ -1,15 +1,17 @@
 use cfdb_core::schema::Keyspace;
-use cfdb_core::store::StoreBackend;
+use cfdb_core::store::QueryBackend;
 use cfdb_core::{ParamBinding, PropValue, Query, RowValue};
+use cfdb_eval::QueryEngine;
+use cfdb_petgraph::PetgraphStore;
 use cfdb_query::{CanonicalCandidate, Finding};
 
 /// Validate that `context` is one of the `:Context` nodes in the keyspace.
 pub(crate) fn validate_context(
-    store: &cfdb_petgraph::PetgraphStore,
+    engine: &QueryEngine<'_, PetgraphStore>,
     ks: &cfdb_core::schema::Keyspace,
     context: &str,
 ) -> Result<(), crate::CfdbCliError> {
-    let known_contexts = query_known_contexts(store, ks)?;
+    let known_contexts = query_known_contexts(engine, ks)?;
     if !known_contexts.iter().any(|c| c == context) {
         return Err(format!(
             "unknown context `{context}`; known contexts: [{}]",
@@ -22,11 +24,12 @@ pub(crate) fn validate_context(
 
 /// Run `MATCH (c:Context) RETURN c.name` and collect the sorted list.
 ///
-/// Takes `&dyn StoreBackend` rather than `&PetgraphStore` — this helper
-/// depends only on the port contract (`execute`), not on the concrete backend.
-/// Keeps the composition root (PetgraphStore construction) in `compose.rs`.
+/// Takes `&dyn QueryBackend` rather than a concrete engine — this helper
+/// depends only on the query-execution contract, not on the storage engine
+/// or the evaluator behind it. Keeps the composition root (PetgraphStore
+/// construction) in `compose.rs`.
 pub(super) fn query_known_contexts(
-    store: &dyn StoreBackend,
+    engine: &dyn QueryBackend,
     ks: &Keyspace,
 ) -> Result<Vec<String>, crate::CfdbCliError> {
     use cfdb_core::query::{NodePattern, Pattern, ProjectionValue};
@@ -57,7 +60,7 @@ pub(super) fn query_known_contexts(
         },
         params: BTreeMap::new(),
     };
-    let result = store.execute(ks, &q)?;
+    let result = engine.execute(ks, &q)?;
     let mut names: Vec<String> = result
         .rows
         .iter()
@@ -71,9 +74,9 @@ pub(super) fn query_known_contexts(
 /// Enumerate every `:Item.crate` whose `bounded_context` equals the
 /// requested context. Used to filter `hsb-by-name` candidate rows.
 ///
-/// Accepts `&dyn StoreBackend` for the same reason as `query_known_contexts`.
+/// Accepts `&dyn QueryBackend` for the same reason as `query_known_contexts`.
 pub(super) fn crates_for_context(
-    store: &dyn StoreBackend,
+    engine: &dyn QueryBackend,
     ks: &Keyspace,
     context: &str,
 ) -> Result<std::collections::BTreeSet<String>, crate::CfdbCliError> {
@@ -116,7 +119,7 @@ pub(super) fn crates_for_context(
             m
         },
     };
-    let result = store.execute(ks, &q)?;
+    let result = engine.execute(ks, &q)?;
     Ok(result
         .rows
         .iter()

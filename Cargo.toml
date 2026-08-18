@@ -15,6 +15,7 @@ members = [
     "crates/cfdb-cli",
     "crates/cfdb-recall",
     "crates/cfdb-enrich",
+    "crates/cfdb-eval",
     "tools/check-prelude-triggers",
     "tools/dogfood-enrich",
 ]

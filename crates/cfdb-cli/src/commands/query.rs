@@ -4,7 +4,7 @@
 
 use std::path::PathBuf;
 
-use cfdb_core::store::StoreBackend;
+use cfdb_core::store::QueryBackend;
 use cfdb_core::{ParamBinding, PropValue, Query};
 use cfdb_query::{lint_shape, parse, ShapeLint};
 
@@ -55,7 +55,7 @@ pub fn query(
 
     let (store, ks) = compose::load_store(&db, &keyspace)?;
 
-    let result = store.execute(&ks, &parsed)?;
+    let result = compose::query_engine(&store).execute(&ks, &parsed)?;
 
     output::emit_json(&result)
 }
@@ -131,7 +131,7 @@ pub fn list_callers(
     );
 
     let (store, ks) = compose::load_store(&db, &keyspace)?;
-    let result = store.execute(&ks, &parsed)?;
+    let result = compose::query_engine(&store).execute(&ks, &parsed)?;
 
     output::emit_json(&result)
 }

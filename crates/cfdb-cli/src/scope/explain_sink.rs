@@ -13,8 +13,9 @@ use std::cell::RefCell;
 use cfdb_core::query::Query;
 use cfdb_core::result::QueryResult;
 use cfdb_core::schema::Keyspace;
-use cfdb_core::store::{StoreBackend, StoreError};
-use cfdb_petgraph::explain::ExplainRow;
+use cfdb_core::store::{QueryBackend, StoreError};
+use cfdb_eval::explain::ExplainRow;
+use cfdb_eval::QueryEngine;
 use cfdb_petgraph::PetgraphStore;
 
 /// Encapsulates the `--explain` accumulator. `None` inside the cell
@@ -40,24 +41,24 @@ impl ExplainSink {
         self.inner.borrow().is_some()
     }
 
-    /// Run `query` on `store`, routing through `execute_explained` when
+    /// Run `query` on `engine`, routing through `execute_explained` when
     /// the sink is enabled so the trace rows flow back into `self`.
     /// When disabled, falls through to the plain `execute` path with
     /// zero overhead.
     pub(super) fn run(
         &self,
-        store: &PetgraphStore,
+        engine: &QueryEngine<'_, PetgraphStore>,
         ks: &Keyspace,
         query: &Query,
     ) -> Result<QueryResult, StoreError> {
         if self.is_enabled() {
-            let (result, rows) = store.execute_explained(ks, query)?;
+            let (result, rows) = engine.execute_explained(ks, query)?;
             if let Some(buf) = self.inner.borrow_mut().as_mut() {
                 buf.extend(rows);
             }
             Ok(result)
         } else {
-            store.execute(ks, query)
+            engine.execute(ks, query)
         }
     }
 

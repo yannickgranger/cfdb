@@ -1,16 +1,15 @@
-//! CLEAN-3 architecture test for cfdb-petgraph (#21).
+//! CLEAN-3 architecture test for cfdb-eval.
 //!
-//! cfdb-petgraph is a concrete `StoreBackend` implementation. RFC-029 §8
-//! mandates that backend adapters depend ONLY on cfdb-core (the trait +
-//! data model) and their own infrastructure crate (petgraph). Coupling to
-//! other adapters (parser, extractor) or entry points (CLI, recall) is
-//! forbidden — it would turn the backend fringe into a bundle.
+//! cfdb-eval hosts the Cypher evaluator, coded against the
+//! `GraphBackend`/`GraphReader` port. It depends ONLY on cfdb-core (plus
+//! its own small runtime deps) — never on cfdb-petgraph or any other
+//! concrete storage engine, which would defeat the point of the port (an
+//! evaluator swappable across backends).
 
 use std::collections::BTreeSet;
 
 const CARGO_TOML: &str = include_str!("../Cargo.toml");
 
-/// The complete allowed dependency set for cfdb-petgraph.
 /// Inert workspace dep-direction declaration — single source of truth for the
 /// allow/forbid graph (RFC-044 §3.3 / #422). Consumed via `include_str!`; the
 /// per-crate reader below is intentionally self-contained (no shared Rust
@@ -19,7 +18,7 @@ const CARGO_TOML: &str = include_str!("../Cargo.toml");
 const DEP_RULES: &str = include_str!("../../../.cfdb/workspace-dep-rules.toml");
 
 /// This crate's section name in the inert rules file.
-const CRATE_SECTION: &str = "cfdb-petgraph";
+const CRATE_SECTION: &str = "cfdb-eval";
 
 /// Read the `allowed` and `forbidden` arrays for `crate_name` from `DEP_RULES`.
 /// Line-oriented reader over hand-authored TOML (one quoted entry per array
@@ -119,13 +118,13 @@ fn workspace_dep_rules_section_loaded() {
          .cfdb/workspace-dep-rules.toml — check the include_str! path and section name"
     );
     assert!(
-        allowed.contains("cfdb-core") && forbidden.contains("cfdb-cli"),
+        allowed.contains("cfdb-core") && forbidden.contains("cfdb-petgraph"),
         "expected sentinel rows missing — rules file shape changed unexpectedly"
     );
 }
 
 #[test]
-fn cfdb_petgraph_has_no_forbidden_dependencies() {
+fn cfdb_eval_has_no_forbidden_dependencies() {
     let deps = parse_dependency_names();
     let (_, forbidden_rules) = dep_rules_for(CRATE_SECTION);
     let forbidden: Vec<&String> = forbidden_rules
@@ -135,56 +134,34 @@ fn cfdb_petgraph_has_no_forbidden_dependencies() {
 
     assert!(
         forbidden.is_empty(),
-        "cfdb-petgraph/Cargo.toml [dependencies] contains forbidden crates: {forbidden:?}\n\
-         Backend adapters must depend only on cfdb-core and their own \
-         infrastructure crate (RFC-029 §8 / CLEAN-3).\n\
+        "cfdb-eval/Cargo.toml [dependencies] contains forbidden crates: {forbidden:?}\n\
+         cfdb-eval must depend only on cfdb-core — the GraphReader port \
+         exists so this crate never needs the concrete storage engine \
+         (RFC-057).\n\
          Found dependency set: {deps:?}"
     );
 }
 
 #[test]
-fn cfdb_petgraph_dependencies_are_all_whitelisted() {
+fn cfdb_eval_dependencies_are_all_whitelisted() {
     let deps = parse_dependency_names();
     let (allowed, _) = dep_rules_for(CRATE_SECTION);
     let unknown: Vec<&String> = deps.iter().filter(|d| !allowed.contains(*d)).collect();
 
     assert!(
         unknown.is_empty(),
-        "cfdb-petgraph/Cargo.toml [dependencies] contains crates not in the CLEAN-3 whitelist: {unknown:?}\n\
+        "cfdb-eval/Cargo.toml [dependencies] contains crates not in the CLEAN-3 whitelist: {unknown:?}\n\
          Allowed: {allowed:?}\n\
-         Update the [cfdb-petgraph] section of .cfdb/workspace-dep-rules.toml AND \
-         justify why the crate is backend-layer in a comment there."
+         Update the [cfdb-eval] section of .cfdb/workspace-dep-rules.toml AND \
+         justify why the crate is evaluator-layer in a comment there."
     );
 }
 
 #[test]
-fn cfdb_petgraph_depends_on_cfdb_core_and_petgraph() {
+fn cfdb_eval_depends_on_cfdb_core() {
     let deps = parse_dependency_names();
     assert!(
         deps.contains("cfdb-core"),
-        "cfdb-petgraph must depend on cfdb-core (StoreBackend trait lives there)"
-    );
-    assert!(
-        deps.contains("petgraph"),
-        "cfdb-petgraph must depend on petgraph (the backend)"
-    );
-}
-
-/// The evaluator reads this backend through `GraphReader`; the backend never
-/// links the evaluator back — not for production, not for tests. This is the
-/// one edge with no legitimate exception in either manifest section, so it is
-/// checked over the whole file rather than `[dependencies]` alone.
-#[test]
-fn cfdb_petgraph_never_links_cfdb_eval_in_any_section() {
-    let offending: Vec<&str> = CARGO_TOML
-        .lines()
-        .filter(|l| !l.trim_start().starts_with('#'))
-        .filter(|l| l.contains("cfdb-eval"))
-        .collect();
-    assert!(
-        offending.is_empty(),
-        "cfdb-petgraph/Cargo.toml names cfdb-eval (dependencies or dev-dependencies): {offending:?}\n\
-         The evaluator depends on this backend only through cfdb-core's GraphReader port; the \
-         reverse edge is never legitimate — move the test that wants it into cfdb-eval instead."
+        "cfdb-eval must depend on cfdb-core (GraphBackend/GraphReader/QueryBackend traits live there)"
     );
 }
