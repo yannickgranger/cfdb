@@ -24,7 +24,7 @@
 // # Why a SIBLING of `hsb-by-name.cypher`, not an in-place extension
 //
 // `hsb-by-name.cypher` has exactly one consumer today: `cfdb scope`
-// (`crates/cfdb-cli/src/scope.rs:22`, embedded via `include_str!`), which
+// (`crates/cfdb-classify/src/rules.rs`, embedded via `include_str!`), which
 // projects rows into `ScopeInventory::canonical_candidates` reading the
 // columns `name, kind, crates, qnames, files`. Adding `bounded_contexts` +
 // `n_contexts` columns to hsb-by-name.cypher in place would be additive-

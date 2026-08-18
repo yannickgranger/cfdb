@@ -1,11 +1,13 @@
 //! Two bounded contexts share this crate and never import from each other:
-//! debt classification (`taxonomy`, `scope`, `classify`, `explain`, `engine`)
-//! and the editorial-drift triggers (`check`). The wall is a rule, not an
-//! accident — a `check` module naming a `DebtClass`, or a scope module
-//! naming a `TriggerId`, is a boundary breach even if it compiles.
+//! debt classification (`taxonomy`, `scope`, `classify`, `explain`) and the
+//! editorial-drift triggers (`check`). The wall is a rule, not an accident —
+//! a `check` module naming a `DebtClass`, or a scope module naming a
+//! `TriggerId`, is a boundary breach even if it compiles. `engine.rs` and
+//! `lib.rs` sit above the wall: the engine dispatches to both contexts and
+//! the crate root re-exports both, so they may name each context's entry
+//! types but never a context's internal row projections.
 //!
-//! Test sources are exempt; the trigger half is vacuous until `check` moves
-//! in, so the non-vacuity guard sits on the classification half.
+//! Test sources are exempt. Both halves carry a non-vacuity guard.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -14,9 +16,13 @@ const SRC_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src");
 
 /// Vocabulary of the trigger context — must not appear in classification sources.
 const TRIGGER_VOCABULARY: &[&str] = &["TriggerId", "ContextRow", "T1Row", "T3Row", "CheckReport"];
+/// The trigger context's internal row projections — must not appear in the
+/// shared roots either: the engine dispatches, it never projects.
+const TRIGGER_INTERNALS: &[&str] = &["ContextRow", "T1Row", "T3Row"];
 /// Vocabulary of the classification context — must not appear under `src/check/`.
 const CLASSIFICATION_VOCABULARY: &[&str] = &[
     "DebtClass",
+    "Finding",
     "ScopeInventory",
     "CanonicalCandidate",
     "ReachabilityEntry",
@@ -69,14 +75,7 @@ fn names_any(line: &str, words: &[&str]) -> bool {
 fn classification_modules_never_name_the_trigger_context() {
     let root = Path::new(SRC_DIR);
     let mut files = Vec::new();
-    for module in [
-        "taxonomy.rs",
-        "classify.rs",
-        "explain.rs",
-        "engine.rs",
-        "scope.rs",
-        "lib.rs",
-    ] {
+    for module in ["taxonomy.rs", "classify.rs", "explain.rs", "scope.rs"] {
         let p = root.join(module);
         if p.exists() {
             files.push(p);
@@ -113,8 +112,11 @@ fn trigger_modules_never_name_the_classification_context() {
         files.push(check_rs);
     }
     rust_sources(&root.join("check"), &mut files);
-    // Vacuous until the trigger context moves in; the classification half above
-    // carries the non-vacuity guard.
+    assert!(
+        files.len() >= 3,
+        "expected the trigger modules under {SRC_DIR}/check, found {}",
+        files.len()
+    );
     let mut hits = Vec::new();
     for file in &files {
         for (n, line) in production_lines(file) {
@@ -126,6 +128,26 @@ fn trigger_modules_never_name_the_classification_context() {
     assert!(
         hits.is_empty(),
         "trigger modules name the classification context:\n{}",
+        hits.join("\n")
+    );
+}
+
+#[test]
+fn shared_roots_dispatch_and_never_project_trigger_rows() {
+    let root = Path::new(SRC_DIR);
+    let files = [root.join("engine.rs"), root.join("lib.rs")];
+    let mut hits = Vec::new();
+    for file in &files {
+        assert!(file.exists(), "missing shared root {}", file.display());
+        for (n, line) in production_lines(file) {
+            if names_any(&line, TRIGGER_INTERNALS) {
+                hits.push(format!("  {}:{n}: {}", file.display(), line.trim()));
+            }
+        }
+    }
+    assert!(
+        hits.is_empty(),
+        "shared roots name a trigger-internal row projection:\n{}",
         hits.join("\n")
     );
 }

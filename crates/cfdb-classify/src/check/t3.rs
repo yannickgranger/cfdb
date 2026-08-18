@@ -6,35 +6,47 @@
 //! correlation set.
 
 use std::collections::BTreeSet;
-use std::path::Path;
 
 use cfdb_core::fact::PropValue;
-use cfdb_core::result::{QueryResult, Row, RowValue};
+use cfdb_core::graph::GraphBackend;
+use cfdb_core::result::{Row, RowValue};
+use cfdb_core::schema::Keyspace;
+use cfdb_eval::QueryEngine;
 
-use crate::commands::parse_and_execute;
-use crate::output;
+use crate::engine::ClassifyError;
 
 use super::t1::{fetch_scalar_set, scalar_str_owned};
-use super::{T3Row, T3_CANONICAL_CRATES_CYPHER, T3_CONCEPT_MULTI_CRATE_CYPHER};
+use super::{
+    execute, CheckReport, T3Row, TriggerId, T3_CANONICAL_CRATES_CYPHER,
+    T3_CONCEPT_MULTI_CRATE_CYPHER,
+};
 
 /// Run the T3 trigger: execute the embedded multi-crate cypher, fetch
 /// the canonical-crate set once, then per-row derive
 /// `is_cross_context` (`n_contexts > 1`) and `canonical_candidate`
 /// (the first element of `crates[]` that appears in any
-/// `:Context.canonical_crate`, or `null` if none). Emit the merged
-/// JSON payload with stable ordering.
-pub(super) fn run(db: &Path, keyspace: &str) -> Result<usize, crate::CfdbCliError> {
-    let raw = parse_and_execute(
-        db,
-        keyspace,
+/// `:Context.canonical_crate`, or `null` if none). Return the report
+/// with stable ordering.
+pub(crate) fn run<S: GraphBackend>(
+    engine: &QueryEngine<'_, S>,
+    ks: &Keyspace,
+) -> Result<CheckReport, ClassifyError> {
+    let raw = execute(
+        engine,
+        ks,
         T3_CONCEPT_MULTI_CRATE_CYPHER,
         "trigger T3 / Pattern A multi-crate",
     )?;
-    let canonical_crates =
-        fetch_scalar_set(db, keyspace, T3_CANONICAL_CRATES_CYPHER, "canonical_crate")?;
+    let canonical_crates = fetch_scalar_set(
+        engine,
+        ks,
+        T3_CANONICAL_CRATES_CYPHER,
+        "canonical_crate",
+        "trigger T3 / canonical_crate probe",
+    )?;
 
-    let mut rows_out: Vec<T3Row> = Vec::with_capacity(raw.rows.len());
-    for row in raw.rows {
+    let mut rows_out: Vec<T3Row> = Vec::with_capacity(raw.len());
+    for row in raw {
         if let Some(t3) = project_t3_row(&row, &canonical_crates) {
             rows_out.push(t3);
         }
@@ -46,17 +58,11 @@ pub(super) fn run(db: &Path, keyspace: &str) -> Result<usize, crate::CfdbCliErro
     // iterates in receive order. Ties on `n` resolve by `name`.
     rows_out.sort_by(|a, b| b.n.cmp(&a.n).then_with(|| a.name.cmp(&b.name)));
 
-    let mut merged = QueryResult::empty();
-    for r in rows_out {
-        merged.rows.push(r.into_row());
-    }
-
-    let row_count = merged.rows.len();
-    eprintln!("violations: {row_count} (rule: trigger T3)");
-
-    output::emit_json(&merged)?;
-
-    Ok(row_count)
+    Ok(CheckReport {
+        trigger: TriggerId::T3,
+        rows: rows_out.into_iter().map(T3Row::into_row).collect(),
+        warnings: Vec::new(),
+    })
 }
 
 /// Project one raw cypher row into a [`T3Row`], computing

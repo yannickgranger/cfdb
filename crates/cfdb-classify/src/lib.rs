@@ -3,10 +3,11 @@
 //! Two bounded contexts share this crate and never import from each other:
 //! **debt classification** (the six-class [`DebtClass`] taxonomy, [`Finding`]
 //! rows, the [`ScopeInventory`] / [`ClassifyEnvelope`] wire envelopes and the
-//! [`ClassifyEngine`] that runs the classifier rules) and the
-//! **editorial-drift triggers** (`check`, once it moves in). Which skill acts
-//! on a `DebtClass` is the consumer's decision, kept outside this repository
-//! (`tests/finding_no_skill_field.rs`).
+//! classifier rules behind `scope` / `classify`) and the **editorial-drift
+//! triggers** (the closed [`TriggerId`] registry behind `check`, reporting a
+//! [`CheckReport`]). [`ClassifyEngine`] is the shared entry point that
+//! dispatches to either. Which skill acts on a `DebtClass` is the consumer's
+//! decision, kept outside this repository (`tests/finding_no_skill_field.rs`).
 //!
 //! The engine reaches a keyspace only through `cfdb_core::graph::GraphBackend`
 //! (via `cfdb_eval::QueryEngine`) and never does I/O; the composition root
@@ -22,6 +23,7 @@
 #![allow(unknown_lints)]
 #![deny(non_exhaustive_omitted_patterns)]
 
+mod check;
 pub mod classify;
 mod engine;
 pub mod explain;
@@ -29,6 +31,7 @@ mod rules;
 mod scope;
 pub mod taxonomy;
 
+pub use check::{CheckReport, TriggerId, UnknownTriggerId};
 pub use classify::{ClassifyEnvelope, DiffSourceMeta, CLASSIFY_ENVELOPE_SCHEMA_VERSION};
 pub use engine::{ClassifyEngine, ClassifyError, ScopeOptions};
 pub use explain::ExplainSink;

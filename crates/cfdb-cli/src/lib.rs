@@ -31,7 +31,7 @@ mod profile;
 mod scope;
 mod stubs;
 
-pub use check::{check, TriggerId, UnknownTriggerId};
+pub use check::check;
 pub use check_predicate::{check_predicate, PredicateRow, PredicateRunReport};
 pub use commands::{
     classify, diff, dump, export, extract, impact, keyspace_path, list_callers, list_keyspaces,

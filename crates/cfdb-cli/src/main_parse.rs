@@ -4,7 +4,7 @@
 //! respective domain types so the CLI surface is bound to the domain
 //! vocabularies — no hardcoded string lists.
 
-use cfdb_cli::{TriggerId, UnknownTriggerId};
+use cfdb_classify::{TriggerId, UnknownTriggerId};
 use cfdb_core::{ItemKind, UnknownItemKind};
 
 /// clap value parser for a single `--kinds` entry. Delegates to
