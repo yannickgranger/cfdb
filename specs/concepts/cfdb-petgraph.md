@@ -4,7 +4,7 @@ The `StoreBackend` implementation backed by `petgraph::StableDiGraph`. The only 
 
 ## PetgraphStore
 
-The concrete `StoreBackend` implementor. Holds one `StableDiGraph` per keyspace, keyed by `Keyspace`. The five determinism guarantees (G1–G5 in RFC-029 §6) are implemented here.
+The concrete `StoreBackend` implementor. Holds one `StableDiGraph` per keyspace, keyed by `Keyspace`. The five determinism guarantees (G1–G5 in RFC-029 §6) are implemented here. Also the sole `GraphBackend` implementor: each keyspace state implements `GraphView` (read/write, id-based) and `GraphReader` (read-only, handle-based — handles wrap the `u32` petgraph indices 1:1, so handle order is index order).
 
 ## KeyspaceFile
 
