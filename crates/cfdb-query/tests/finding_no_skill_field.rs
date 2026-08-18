@@ -5,8 +5,8 @@
 //! couples the classifier (data layer) to the orchestration policy
 //! (skill layer). A skill rename or a `/port-epic`-vs-`/sweep-epic
 //! --mode=port` decision would force a graph schema migration. Skill
-//! routing lives in `SkillRoutingTable` (loaded from
-//! `.cfdb/skill-routing.toml`), a deliberately external concern.
+//! routing is a deliberately external concern — the consumer's, never
+//! cfdb's (there is no routing table in this repository).
 //!
 //! This test freezes the JSON shape of `Finding` against the set of
 //! forbidden field names. It runs via `serde_json::to_value(...)`
@@ -51,7 +51,7 @@ fn finding_has_no_forbidden_skill_fields() {
         assert!(
             !obj.contains_key(*forbidden),
             "Finding must NOT carry `{forbidden}` — skill routing is external \
-             (SkillRoutingTable, §A2.3). Keys present: {:?}",
+             to cfdb (RFC-cfdb §A2.3). Keys present: {:?}",
             obj.keys().collect::<Vec<_>>()
         );
     }

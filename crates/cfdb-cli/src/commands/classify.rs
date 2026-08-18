@@ -7,8 +7,8 @@
 //! whose `qname` appears in the diff, and emits a `ClassifyEnvelope`.
 //!
 //! The classifier is a query over an enriched graph — `--db` + `--keyspace`
-//! are mandatory. Routing hints live external to `:Finding` rows; this
-//! handler emits only the structural `DebtClass` label.
+//! are mandatory. Skill routing is external to cfdb; this handler emits
+//! only the structural `DebtClass` label.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
