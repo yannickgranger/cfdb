@@ -5,7 +5,7 @@
 // `bounded_context` after the combined extract+enrich pipeline. The
 // sentinel measures combined-pipeline coverage (RFC-039 §3.1.1) — the
 // `enrich_bounded_context` pass is a delta-patch, not a producer
-// (`crates/cfdb-petgraph/src/enrich/bounded_context.rs:12-20`), so the
+// (`crates/cfdb-enrich/src/bounded_context.rs`), so the
 // invariant is on the keyspace state AFTER the pass has materialized,
 // not on the pass's delta in isolation.
 //

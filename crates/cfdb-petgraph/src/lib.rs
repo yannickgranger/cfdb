@@ -24,7 +24,6 @@
 #![deny(non_exhaustive_omitted_patterns)]
 
 mod canonical_dump;
-mod enrich_backend;
 mod eval;
 pub mod explain;
 mod graph;
@@ -62,12 +61,10 @@ use crate::index::spec::IndexSpec;
 pub struct PetgraphStore {
     pub(crate) keyspaces: BTreeMap<Keyspace, KeyspaceState>,
     pub(crate) schema_version: SchemaVersion,
-    /// Optional workspace root for enrichment passes that read files
-    /// (`enrich_rfc_docs`, `enrich_concepts`). `None` when the store was
-    /// constructed for tests or for non-enrichment workflows. Wired by
-    /// [`crate::PetgraphStore::with_workspace`]; [`crate::PetgraphStore::new`]
-    /// remains argument-less so existing callers (30+ test sites, persist
-    /// round-trips) compile unchanged.
+    /// Optional workspace root, exposed through `GraphBackend::workspace_root`
+    /// so enrichment passes that read files (docs, `.cfdb/concepts/*.toml`,
+    /// git history, sources) can locate them. `None` when the store was
+    /// constructed for tests or for non-enrichment workflows.
     pub(crate) workspace_root: Option<PathBuf>,
 
     /// Index spec carried at the store level. Each newly-created
@@ -100,12 +97,7 @@ impl PetgraphStore {
     }
 
     /// Attach a workspace root for enrichment passes that read files.
-    /// Builder-style — returns `self` so a caller can chain
-    /// `PetgraphStore::new().with_workspace(path)` without changing the
-    /// zero-arg `::new()` signature that 30+ call sites depend on. The
-    /// composition root (`cfdb-cli::compose::load_store`) will wire this
-    /// when slices 43-D / 43-F actually need a workspace path; until then
-    /// every existing construction path returns `workspace_root = None`.
+    /// Builder-style so `PetgraphStore::new()` stays argument-less.
     pub fn with_workspace(mut self, root: impl Into<PathBuf>) -> Self {
         self.workspace_root = Some(root.into());
         self
@@ -121,10 +113,7 @@ impl PetgraphStore {
         self
     }
 
-    /// Return the attached workspace root, if any. Slices 43-D and 43-F
-    /// will consume this to locate `docs/rfc/*.md` and
-    /// `.cfdb/concepts/*.toml` without modifying the `EnrichBackend` port
-    /// signature.
+    /// Return the attached workspace root, if any.
     pub fn workspace_root(&self) -> Option<&Path> {
         self.workspace_root.as_deref()
     }

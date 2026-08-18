@@ -164,8 +164,8 @@ fn item_attrs_extractor_structural() -> Vec<AttributeDescriptor> {
 }
 
 /// `enrich_metrics`-provenance attributes on `:Item` — populated by
-/// `PetgraphStore::enrich_metrics` (RFC-036 §3.3 / issue #203) when the
-/// `quality-metrics` feature is active. Descriptors were reserved in
+/// `EnrichEngine::enrich_metrics` when the `quality-metrics` feature is
+/// active. Descriptors were reserved in
 /// V0_3_0 and became load-bearing in V0_3_1 (producer landing). G6
 /// invariant: `test_coverage` is toolchain-version-scoped (depends on
 /// `cargo-llvm-cov` output) and excluded from the G1 canonical-dump

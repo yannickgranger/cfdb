@@ -71,9 +71,9 @@ The edge component of a `PathPattern` — label filter, direction, variable-leng
 
 ## EnrichBackend
 
-The enrichment port — sibling of `StoreBackend`. Split out of the fat trait per RFC-031 §2 (ISP). The trait ships **seven** default stubs returning `EnrichReport::not_implemented` (`enrich_git_history`, `enrich_rfc_docs`, `enrich_deprecation`, `enrich_bounded_context`, `enrich_concepts`, `enrich_reachability`, `enrich_metrics`); concrete enrichment passes override methods as RFC-032 §4 / Group D issues land (#43–#48). `PetgraphStore` impls the trait with an empty body — inherited stubs only.
+The enrichment port — sibling of `StoreBackend`. Split out of the fat trait per RFC-031 §2 (ISP). The trait ships **seven** default stubs returning `EnrichReport::not_implemented` (`enrich_git_history`, `enrich_rfc_docs`, `enrich_deprecation`, `enrich_bounded_context`, `enrich_concepts`, `enrich_reachability`, `enrich_metrics`). The sole implementor is `cfdb_enrich::EnrichEngine`, generic over any `GraphBackend`; no storage backend implements the trait itself.
 
-The verb surface is **closed at seven** under the 11-verb API (RFC-036 §3.3 + RFC-031 §2). New enrichment functionality extends existing verbs via internal module decomposition (see `cfdb-petgraph` → `enrich_metrics` 3-module split under `quality-metrics` feature) rather than adding trait methods. Growing the verb count requires council approval.
+The verb surface is **closed at seven** under the 11-verb API (RFC-036 §3.3 + RFC-031 §2). New enrichment functionality extends existing verbs via internal module decomposition (see `cfdb-enrich` → `enrich_metrics` 3-module split under `quality-metrics` feature) rather than adding trait methods. Growing the verb count requires council approval.
 
 ## EnrichReport
 

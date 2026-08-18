@@ -89,7 +89,7 @@ forbidden = [
 
 [cfdb-petgraph]
 # Concrete StoreBackend. RFC-029 §8: depends ONLY on cfdb-core (trait + data
-# model) and its own infrastructure (petgraph) + feature-gated enrichment I/O.
+# model) and its own infrastructure (petgraph).
 allowed = [
   "cfdb-core",      # the hub — impls StoreBackend defined there
   "petgraph",       # the backend itself
@@ -98,23 +98,23 @@ allowed = [
   "thiserror",
   "regex",          # predicate evaluator (regexp_extract)
   "indexmap",       # stable-order binding tables (determinism G1)
-  "git2",           # enrich_git_history (feature git-enrich, #105)
   "toml",           # .cfdb/indexes.toml loader (RFC-035 #180)
-  "syn",            # enrich_metrics re-parse (feature quality-metrics, #203 / CP6)
-  "sha2",           # dup_cluster_id hash (feature quality-metrics, #203)
 ]
 forbidden = [
   "cfdb-query",          # query text parsing is not the backend's concern
   "cfdb-extractor",      # different axis (code->facts); CP6 forbids this edge
   "cfdb-hir-extractor",
-  "cfdb-enrich",          # RFC-056: enrichment moves OUT of the backend, not back in
+  "cfdb-enrich",          # enrichment lives outside the backend, never back in
+  "git2",                 # enrichment I/O belongs to cfdb-enrich; the backend
+  "syn",                  #   only stores and queries facts
+  "sha2",
   "cfdb-store-petgraph",  # sibling backends don't know each other
   "cfdb-store-lbug",
   "cfdb-recall",          # entry points
   "cfdb-cli",
   "cfdb-http",
-  "proc-macro2",          # NB: syn is ALLOWED (CP6) but its proc-macro
-  "quote",                #     siblings stay out of the backend
+  "proc-macro2",
+  "quote",
   "ra-ap-hir",
   "ra-ap-syntax",
   "tokio",

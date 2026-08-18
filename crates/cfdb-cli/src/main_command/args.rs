@@ -127,8 +127,8 @@ pub(crate) enum Command {
 
     /// Enrich a keyspace with quality-signal facts
     /// (`unwrap_count`, `cyclomatic`, `test_coverage`, `dup_cluster_id`)
-    /// on `:Item{kind:"fn"}` nodes. Populated by `PetgraphStore::enrich_metrics`
-    /// (RFC-036 §3.3 / issue #203) when the binary is built with
+    /// on `:Item{kind:"fn"}` nodes. Populated by `EnrichEngine::enrich_metrics`
+    /// when the binary is built with
     /// `--features quality-metrics`. Without the feature the verb dispatches
     /// to a `ran: false` report naming the missing feature flag.
     ///
