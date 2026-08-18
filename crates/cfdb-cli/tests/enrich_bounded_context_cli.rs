@@ -6,10 +6,9 @@
 //! `self_dogfood_enrich_bounded_context.rs` already exercises
 //! `EnrichEngine` in-process on cfdb-self; this test's only
 //! additional job is proving `crates/cfdb-cli/src/enrich.rs`'s dispatcher
-//! actually routes `EnrichVerb::BoundedContext` to it — a botched cutover
-//! (e.g. dispatcher still calling the now-stubbed
-//! `PetgraphStore::enrich_bounded_context`) shows up here as `ran: false`
-//! even though the in-process test would still pass.
+//! actually routes `EnrichVerb::BoundedContext` to it — a mis-routed
+//! dispatcher shows up here as `ran: false` even though the in-process
+//! test would still pass.
 
 use std::path::PathBuf;
 

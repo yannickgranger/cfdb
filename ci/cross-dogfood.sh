@@ -137,7 +137,7 @@ if [ -x "$DOGFOOD_BIN" ]; then
             ;;
     esac
 else
-    echo "cross-dogfood: dogfood-enrich binary not found at $DOGFOOD_BIN — skipping self-enrich-deprecation pass (build it via `cargo build -p dogfood-enrich --release` to enable)"
+    echo "cross-dogfood: dogfood-enrich binary not found at $DOGFOOD_BIN — skipping self-enrich-deprecation pass (build it via 'cargo build -p dogfood-enrich --release' to enable)"
 fi
 
 if [ "$found" -eq 0 ]; then

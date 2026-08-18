@@ -41,7 +41,7 @@ Each of the 7 passes carries a `pub const … _THRESHOLD: Option<u32>`. Four are
 
 ## I5.1 feature-presence guard
 
-Before running the dogfood sentinel, the binary invokes `cfdb enrich-<pass>` and inspects `EnrichReport.ran` in the JSON output. When `ran == false` (the off-feature dispatch path at `crates/cfdb-petgraph/src/enrich_backend.rs:178-262`), the harness exits 1 with a "feature missing" message — NOT with the sentinel result, because a binary built without the feature would silently report 100% null coverage and look like a real regression.
+Before running the dogfood sentinel, the binary invokes `cfdb enrich-<pass>` and inspects `EnrichReport.ran` in the JSON output. When `ran == false` (the feature-off dispatch variants in `crates/cfdb-enrich/src/lib.rs`), the harness exits 1 with a "feature missing" message — NOT with the sentinel result, because a binary built without the feature would silently report 100% null coverage and look like a real regression.
 
 ## See also
 

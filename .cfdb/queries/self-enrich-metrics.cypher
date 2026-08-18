@@ -4,7 +4,7 @@
 // Asserts that ≥ MIN_METRICS_COVERAGE_PCT% of `:Item{kind:"fn"}` nodes
 // carry BOTH `cyclomatic` AND `unwrap_count` after the
 // `enrich_metrics` pass. The two attrs are written together by
-// `crates/cfdb-petgraph/src/enrich/metrics/mod.rs::apply_item_attrs`
+// `crates/cfdb-enrich/src/metrics.rs::apply_item_attrs`
 // (lines 194-204 — both inserted under the same
 // `if let Some(sig) = signals.get(...)` guard), so a single
 // "missing-attr" predicate covers both. Threshold const is
@@ -47,7 +47,7 @@
 // semantics in reverse:
 //
 //   - When `cyclomatic` IS set, the value is always ≥ 1
-//     (`crates/cfdb-petgraph/src/enrich/metrics/ast_signals.rs:131`
+//     (`crates/cfdb-enrich/src/metrics/ast_signals.rs`
 //     computes `cyclomatic = branches + 1`; the trivial-fn unit
 //     test at line 193-194 asserts `cyclomatic == 1`). So
 //     `i.cyclomatic >= 1` is `true` for every enriched node, and

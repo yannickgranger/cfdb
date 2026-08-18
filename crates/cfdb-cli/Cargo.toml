@@ -96,14 +96,14 @@ hir = ["dep:cfdb-hir-extractor", "dep:cfdb-hir-petgraph-adapter"]
 # Enables `cfdb enrich-git-history` real implementation — pulls libgit2 via
 # `git2`. Default builds (`cargo build -p cfdb-cli`) MUST have zero `git2`
 # in their dep tree.
-git-enrich = ["cfdb-petgraph/git-enrich", "cfdb-enrich/git-enrich"]
+git-enrich = ["cfdb-enrich/git-enrich"]
 # Enables `cfdb enrich-metrics` real implementation — pulls syn + sha2.
 # Default builds (`cargo build -p cfdb-cli`) MUST have zero `syn` in their
 # dep tree.
-quality-metrics = ["cfdb-petgraph/quality-metrics", "cfdb-enrich/quality-metrics"]
+quality-metrics = ["cfdb-enrich/quality-metrics"]
 # Sub-feature of `quality-metrics` that additionally populates
 # `:Item.test_coverage` from cargo-llvm-cov JSON output (RFC-036 §3.3).
-llvm-cov = ["cfdb-petgraph/llvm-cov", "cfdb-enrich/llvm-cov", "quality-metrics"]
+llvm-cov = ["cfdb-enrich/llvm-cov", "quality-metrics"]
 # Slice 47-A (#489) — gates the in-process HIR impact dogfood
 # (`tests/impact_hir_dogfood.rs`), which builds a resolved `Item→Item
 # CALLS` keyspace via `cfdb_hir_extractor::{build_hir_database,

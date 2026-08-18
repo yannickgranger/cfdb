@@ -11,9 +11,9 @@
 //!   `EnrichEngine` in-process; this test's only additional job is proving
 //!   the dispatcher actually routes `EnrichVerb::GitHistory` to it.
 //! - `#[cfg(not(feature = "git-enrich"))]`: proves the degraded-report path
-//!   also survives the cutover — a botched forward in `cfdb-cli/Cargo.toml`
-//!   (e.g. still only forwarding to `cfdb-petgraph/git-enrich`) would show
-//!   up as a generic `not implemented` warning instead of the specific
+//!   also routes correctly — a botched feature forward in
+//!   `cfdb-cli/Cargo.toml` would show up as a generic `not implemented`
+//!   warning instead of the specific
 //!   `built without \`git-enrich\`` text `EnrichEngine`'s feature-off
 //!   variant pins.
 

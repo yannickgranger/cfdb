@@ -5,7 +5,7 @@
 // reachable from at least one `:EntryPoint` over the call graph after
 // the combined `cfdb extract --features hir` + `cfdb enrich-reachability`
 // pipeline. The pass writes `:Item.reachable_from_entry` (bool) per
-// `crates/cfdb-petgraph/src/enrich/reachability.rs:72,202` — that
+// `crates/cfdb-enrich/src/reachability.rs` — that
 // attribute is the gating signal here.
 //
 // # Why we read `reachable_from_entry`, not traverse `CALLS*`
