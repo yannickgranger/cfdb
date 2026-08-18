@@ -2,6 +2,92 @@
 
 All notable changes to cfdb will be documented in this file.
 
+## [0.8.0] - 2026-08-18
+
+### ✅ Compatibility & migration (for consumers)
+
+This is the **strangler-fig release**: cfdb's monolithic query/store/enrich/rescue layers are now small library crates composed by `cfdb-cli` (RFC-056 `cfdb-056-enrich-port-split`, RFC-057 `cfdb-057-eval-port-split`, RFC-059 `cfdb-059-classify-split`, all council-ratified 4/4). **Nothing on the wire changed.**
+
+If you consume the `cfdb` binary (agentry, graph-specs-rust, qbot-core CI):
+
+1. **`SchemaVersion` is unchanged (V0_8_0).** Keyspaces written by v0.7.0 load in v0.8.0 and vice versa. Measured on cfdb's own tree: `cfdb extract` produces a byte-identical keyspace and `cfdb dump` output under both binaries (sha256 equal), and 47 downstream ban rules return identical rows/stderr/exit codes through `cfdb violations`.
+2. **Every verb, flag, JSON shape and exit code is unchanged** — `scope`, `classify`, `check`, `diff`, `list-*`, `enrich-*`, `check-predicate` included (`--help` identical to v0.7.0). `cfdb check --trigger` loads the keyspace once instead of once per rule (T1 ≈ 3× faster on cfdb-self).
+3. **One visible delta:** `cfdb schema-describe` now reports the true provenance of three overlay edges — `LABELED_AS` / `CANONICAL_FOR` → `enrich_concepts`, `REFERENCED_BY` → `enrich_rfc_docs` (previously `extractor`, #610). Descriptor text only.
+4. **New cargo feature on `cfdb-cli`: `classify` (default on).** `cargo install … cfdb-cli` is unchanged. A facts-only binary — `extract`, `query`, `violations`, `impact`, `diff`, `list-*`, `enrich-*`, `check-predicate`, `schema-describe` and no judgment verbs — is `cargo build -p cfdb-cli --no-default-features --features lang-rust`; CI asserts it carries no `cfdb-classify`.
+
+If you depend on cfdb **as Rust crates** (library API — breaking within 0.x):
+
+- `StoreBackend::execute` is gone; evaluate through `cfdb_eval::QueryEngine::new(&store)` (`cfdb_core::store::QueryBackend`). `PetgraphStore` no longer implements `EnrichBackend`; the seven enrichment passes are `cfdb_enrich::EnrichEngine<S: GraphBackend>` and the `git-enrich` / `quality-metrics` / `llvm-cov` features moved from `cfdb-petgraph` to `cfdb-enrich`.
+- `DebtClass`, `Finding`, `ScopeInventory`, `ClassifyEnvelope`, `CanonicalCandidate`, `ReachabilityEntry`, `TriggerId`, `UnknownTriggerId` moved `cfdb_query::` → `cfdb_classify::`; the `scope` / `classify` / `check` logic is `cfdb_classify::ClassifyEngine<S: GraphBackend>` (`CheckReport` is the typed `check` result). `cfdb_query::SkillRoutingTable` and `.cfdb/skill-routing.toml` are deleted (nothing ever read them; skill routing is external to cfdb).
+- New crates: `cfdb-enrich`, `cfdb-eval`, `cfdb-classify`. Dependency direction is one-way and test-enforced: `cfdb-petgraph` and `cfdb-query` depend on `cfdb-core` only; `cfdb-eval` / `cfdb-enrich` / `cfdb-classify` never name a storage engine.
+
+**Not in this release:** no `DEPENDS_ON` crate edge and no V0_9_0 — the RFC-056 *DEPENDS_ON* draft listed under Documentation below was renumbered `cfdb-058` and is not implemented. RFCs now live in `yg/doxa` at `doxa.rev`; `docs/RFC-*.md` is a byte-identical mirror.
+
+**Known issue for rule authors (unchanged):** `count()` over an empty `MATCH` returns zero rows instead of one row with `0` (#564).
+
+### 🚀 Features
+
+- *(rfc-056 [#577](https://github.com/yannickgranger/cfdb/issues/577))* 056-0 — GraphView/GraphBackend port + cfdb-enrich scaffold
+- *(rfc-056 [#578](https://github.com/yannickgranger/cfdb/issues/578))* 056-A — enrich_rfc_docs pass moved to cfdb-enrich::EnrichEngine
+- *(rfc-056 [#579](https://github.com/yannickgranger/cfdb/issues/579))* 056-B — enrich_bounded_context pass moved to cfdb-enrich::EnrichEngine
+- *(rfc-056 [#580](https://github.com/yannickgranger/cfdb/issues/580))* 056-C — enrich_concepts pass moved to cfdb-enrich::EnrichEngine
+- *(rfc-056 [#581](https://github.com/yannickgranger/cfdb/issues/581))* 056-D — enrich_git_history pass moved to cfdb-enrich::EnrichEngine
+- *(rfc-056 [#582](https://github.com/yannickgranger/cfdb/issues/582))* 056-E — enrich_metrics pass moved to cfdb-enrich::EnrichEngine
+- *(rfc-056 [#583](https://github.com/yannickgranger/cfdb/issues/583))* 056-F — enrich_reachability + attr_call_resolution moved to cfdb-enrich::EnrichEngine
+- *(rfc-057 [#600](https://github.com/yannickgranger/cfdb/issues/600))* 057-0 — GraphReader port + NodeHandle/EdgeHandle + QueryBackend + impl GraphReader for KeyspaceState
+- *(rfc-057 [#602](https://github.com/yannickgranger/cfdb/issues/602))* 057-B(+C) — cfdb-eval crate: QueryEngine behind QueryBackend, StoreBackend::execute removed
+- *(rfc-059 [#611](https://github.com/yannickgranger/cfdb/issues/611))* 059-0 — delete the dead skill-routing layer; deletion guard test; two-SHA classify baseline
+- *(rfc-059 [#612](https://github.com/yannickgranger/cfdb/issues/612))* 059-A — cfdb-classify crate: taxonomy + envelope cross from cfdb-query, consumers flipped same-PR
+- *(rfc-059 [#613](https://github.com/yannickgranger/cfdb/issues/613))* 059-B1 — ClassifyEngine<'s, S: GraphBackend>: scope + classify move behind the port
+- *(rfc-059 [#614](https://github.com/yannickgranger/cfdb/issues/614))* 059-B2 — ClassifyEngine::check: T1/T3 rewritten onto the engine, CheckReport, T1Row, no per-trigger keyspace re-load
+- *(rfc-059 [#615](https://github.com/yannickgranger/cfdb/issues/615))* 059-C — cfdb-cli `classify` feature (default on): cfg-gate the five judgment-layer verbs, facts-only build proof in CI, docs
+
+### 🐛 Bug Fixes
+
+- *(ci)* Drop the shared /cache/tmp TMPDIR routing — align on agentry's CI: mold + line-tables-only debuginfo, scratch stays in the container
+- *(rfc-056 [#577](https://github.com/yannickgranger/cfdb/issues/577))* Address 056-0 review findings — specs, mutation-proof gaps, deprecation cutover
+- *(boy-scout [#585](https://github.com/yannickgranger/cfdb/issues/585))* Context_homonym is not HIR-gated — fix stale docs + fragile test
+- *(rfc-056 [#577](https://github.com/yannickgranger/cfdb/issues/577))* Register cfdb-enrich in cfdb.toml — corrects my wrong [#585](https://github.com/yannickgranger/cfdb/issues/585) root cause
+- *(rfc-056 [#577](https://github.com/yannickgranger/cfdb/issues/577))* Mirror cfdb-enrich into the concepts self-dogfood crate list
+- *(rfc-056 [#578](https://github.com/yannickgranger/cfdb/issues/578))* Restore keyspace-before-workspace guard order in enrich_rfc_docs
+- *(schema-describe)* Overlay edges are provenanced by the pass that emits them, not by the extractor
+
+### 🚜 Refactor
+
+- *(rfc-057 [#601](https://github.com/yannickgranger/cfdb/issues/601))* 057-A — evaluator speaks only GraphReader (in-place, inside cfdb-petgraph)
+
+### 📚 Documentation
+
+- *(rfc-055)* Draft — correlated NOT EXISTS, outer-scope bindings in subqueries (query-subset v0.2)
+- *(rfc-055)* Fold R1+R2 council findings — evidence corrections, e1a58e9 grammar truth, resolve_endpoint symmetry fix in-scope, WITH rescoping, correlation notice + WarningKind disclosure
+- *(rfc-055)* RATIFIED 4/4 — status flip + council record
+- *(rfc-056)* DEPENDS_ON crate-dependency edge — DRAFT
+- *(rfc-056)* Fold architect review round 1 — corrected grounding, V0_9_0 + lockstep, source vocabulary, RFC-033 structure
+- *(rfc-056)* Draft — GraphPort strangler-fig split of cfdb-petgraph enrichment
+- *(rfc-056)* Fold R1 council findings — per-slice composition-root cutover, GraphView/GraphBackend rename, Send+Sync bound, Direction relocation, metrics second coupling site, perf exception for 056-F
+- *(rfc-056)* RATIFIED 4/4 — status flip + council record
+- *(rfc-056)* Add council/RFC-056/RATIFIED.md (force-add, council/ gitignored by default like every other RFC's council dir)
+- RFCs live in doxa — cfdb's 32 imported; docs/RFC-*.md is a checked mirror at doxa.rev
+- Excise council/ — deliberation is ephemeral, the synthesis is the RFC; CI refuses a tracked council/ path
+- *(rfc-056 [#577](https://github.com/yannickgranger/cfdb/issues/577))* Amend RFC + council record for the 056-0 deviation, rename CLI-wiring test
+- *(rfc-056 [#577](https://github.com/yannickgranger/cfdb/issues/577))* Restore docs/RFC-056 to the doxa mirror — no RFC authored in this tree
+- *(rfc-056 [#577](https://github.com/yannickgranger/cfdb/issues/577))* Amend RFC + council record for the 056-0 deviation, rename CLI-wiring test
+- *(rfc-056 [#578](https://github.com/yannickgranger/cfdb/issues/578))* Record the guard-order rule for slices 056-B..F
+- *(rfc-056 [#578](https://github.com/yannickgranger/cfdb/issues/578))* Restore docs/RFC-056 to the doxa mirror — guard-order note belongs in doxa
+
+### 🧪 Testing
+
+- *(cfdb-petgraph)* Characterize EnrichBackend dispatch pre-strangler-fig
+
+### ⚙️ Miscellaneous Tasks
+
+- *(comments)* Strip doctrine provenance from code comments
+- *(cfdb-enrich)* Strip migration/issue/RFC narration from source comments
+- *(rfc-056 [#584](https://github.com/yannickgranger/cfdb/issues/584))* 056-G — cutover cleanup: delete PetgraphStore's EnrichBackend impl, prune dead enrichment deps/features
+- *(doxa)* Pin corpus rev 0d1864a — cfdb-057-eval-port-split ratified (doxa [#7](https://github.com/yannickgranger/cfdb/issues/7))
+- *(doxa)* Pin corpus rev 43d8da7 — cfdb/036 status headers, RFC-044 §3.7 (c) amendment, depends-on RFC renumbered 058
+- *(doxa)* Pin corpus rev 9c2ee18 — cfdb-059-classify-split ratified (council 4/4 R2)
+
 ## [0.7.0] - 2026-08-01
 
 ### ⚠️ Breaking changes & migration (for consumers)
