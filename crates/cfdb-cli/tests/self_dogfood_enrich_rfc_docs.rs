@@ -11,6 +11,10 @@
 //! Uses the library API (no CLI shell-out) so a failure surfaces as a
 //! Rust stack trace inside `cargo test`. Workspace root resolved from
 //! `CARGO_MANIFEST_DIR` for portability across worktrees + CI runners.
+//!
+//! Routes through `cfdb_enrich::EnrichEngine`, not `PetgraphStore`
+//! directly. Still never exercises `crates/cfdb-cli/src/enrich.rs`'s
+//! dispatcher, though — see `enrich_rfc_docs_cli.rs` for that.
 
 use std::path::PathBuf;
 
@@ -18,6 +22,7 @@ use cfdb_core::enrich::EnrichBackend;
 use cfdb_core::fact::PropValue;
 use cfdb_core::schema::{EdgeLabel, Keyspace, Label};
 use cfdb_core::store::StoreBackend;
+use cfdb_enrich::EnrichEngine;
 use cfdb_petgraph::PetgraphStore;
 
 fn cfdb_workspace_root() -> PathBuf {
@@ -39,7 +44,9 @@ fn ac3_ac4_self_dogfood_enrich_backend_references_rfc_031() {
     store.ingest_nodes(&ks, nodes).expect("ingest nodes");
     store.ingest_edges(&ks, edges).expect("ingest edges");
 
-    let report = store.enrich_rfc_docs(&ks).expect("enrich_rfc_docs");
+    let report = EnrichEngine::new(&mut store)
+        .enrich_rfc_docs(&ks)
+        .expect("enrich_rfc_docs");
 
     assert!(
         report.ran,

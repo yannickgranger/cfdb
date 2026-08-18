@@ -5,7 +5,7 @@
 
 use std::path::Path;
 
-use cfdb_query::ClassifyEnvelope;
+use cfdb_classify::ClassifyEnvelope;
 use serde_json::Value;
 
 /// Build the `{"op":"header", ...}` first line of a sorted-jsonl dump.
@@ -37,23 +37,19 @@ pub(super) fn render_sorted_jsonl(
 
     lines.push(serde_json::to_string(&build_sorted_jsonl_header(envelope))?);
 
-    for (class, class_findings) in &envelope.inventory.findings_by_class {
-        let mut findings: Vec<_> = class_findings.iter().collect();
-        findings.sort();
-        for finding in &findings {
-            let row = serde_json::json!({
-                "op": "finding",
-                "class": class.as_str(),
-                "qname": finding.qname,
-                "name": finding.name,
-                "kind": finding.kind,
-                "crate": finding.crate_name,
-                "file": finding.file,
-                "line": finding.line,
-                "bounded_context": finding.bounded_context,
-            });
-            lines.push(serde_json::to_string(&row)?);
-        }
+    for (class, finding) in envelope.sorted_rows() {
+        let row = serde_json::json!({
+            "op": "finding",
+            "class": class.as_str(),
+            "qname": finding.qname,
+            "name": finding.name,
+            "kind": finding.kind,
+            "crate": finding.crate_name,
+            "file": finding.file,
+            "line": finding.line,
+            "bounded_context": finding.bounded_context,
+        });
+        lines.push(serde_json::to_string(&row)?);
     }
 
     for warning in &envelope.inventory.warnings {
@@ -65,8 +61,9 @@ pub(super) fn render_sorted_jsonl(
 }
 
 /// Emit a `ClassifyEnvelope` as sorted-JSONL — one JSON object per line,
-/// header first, then per-finding lines ordered by `(DebtClass::Ord,
-/// Finding::Ord)`, then per-warning lines in envelope order.
+/// header first, then per-finding lines in `ClassifyEnvelope::sorted_rows`
+/// order (`DebtClass::Ord`, `Finding::Ord`), then per-warning lines in
+/// envelope order.
 ///
 /// Mirrors `cfdb diff --format sorted-jsonl` — the cfdb-wide convention for
 /// sorted-JSONL output carrying envelope scalars is a `{"op":"header",…}`
@@ -98,7 +95,7 @@ pub(super) fn emit_sorted_jsonl(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cfdb_query::{
+    use cfdb_classify::{
         ClassifyEnvelope, DebtClass, DiffSourceMeta, Finding, ScopeInventory,
         CLASSIFY_ENVELOPE_SCHEMA_VERSION,
     };

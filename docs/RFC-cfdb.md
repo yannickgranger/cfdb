@@ -1,6 +1,6 @@
 ---
 title: cfdb — code facts database (v1)
-status: Draft for council review
+status: Implemented — v0.1 shipped (cfdb v0.1.0 → v0.7.0, tag 2026-08-01) and extended by cfdb-030 … cfdb-057; the v1.0 repositioning is tracked as cfdb #279. Header corrected 2026-08-18 (cfdb #570).
 date: 2026-04-13
 supersedes: .concept-graph/PLAN-v1-code-facts-database.md (kept as background)
 audience: agent-teams council (see §1)

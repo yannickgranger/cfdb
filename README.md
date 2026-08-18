@@ -2,7 +2,7 @@
 
 A local-first, deterministic fact base for Rust workspaces. cfdb walks a Cargo workspace, extracts structural facts (crates, modules, items, fields, call sites, entry points, concepts, visibility, cfg gates) into a typed node/edge graph, and lets you query that graph with either a Cypher subset or a fluent Rust builder API.
 
-It is a library first and a CLI second. Every verb the `cfdb` binary exposes is a function call in `cfdb-query` / `cfdb-petgraph` / `cfdb-extractor` — the binary is a wire form, not the system of record.
+It is a library first and a CLI second. Every verb the `cfdb` binary exposes is a function call in `cfdb-query` / `cfdb-eval` / `cfdb-petgraph` / `cfdb-extractor` — the binary is a wire form, not the system of record.
 
 ## What it is for
 
@@ -39,6 +39,8 @@ cargo build --release -p cfdb-cli
 Minimum supported Rust version: 1.85.
 
 The `cfdb-hir-extractor` crate pins `ra-ap-*` crates at exact versions (see [`docs/ra-ap-upgrade-protocol.md`](docs/ra-ap-upgrade-protocol.md)). HIR support is feature-gated so `cfdb-cli`'s default build does not pull the full `rust-analyzer` compile tree.
+
+`cfdb-cli` cargo features: `lang-rust` (default) / `lang-php` / `lang-typescript` select the language producers behind `extract`; `classify` (default) compiles the judgment layer (`cfdb-classify`) and its five verbs — `scope`, `classify`, `check`, `find-canonical`, `list-bypasses`; `hir`, `git-enrich`, `quality-metrics`, `llvm-cov` opt into the heavier enrichment pipelines. A facts-only binary — `extract`, `query`, `violations`, `impact`, `diff`, `list-*`, `enrich-*`, `check-predicate`, `schema-describe`, nothing else — is `cargo build --release -p cfdb-cli --no-default-features --features lang-rust`; it carries no `cfdb-classify` in its dependency tree (CI asserts both).
 
 ## CLI quickstart
 
@@ -86,7 +88,7 @@ let query = Query::match_node("i", "Item")
     .limit(20)
     .build();
 
-let result = store.execute(&query, "myproj")?;
+let result = QueryEngine::new(&store).execute(&Keyspace::new("myproj"), &query)?;
 for row in result.rows {
     println!("{}", row.get("i.qname").unwrap());
 }
@@ -103,10 +105,10 @@ let query = parse_query(r#"
     RETURN i.qname LIMIT 20
 "#)?;
 
-let result = store.execute(&query, "myproj")?;
+let result = QueryEngine::new(&store).execute(&Keyspace::new("myproj"), &query)?;
 ```
 
-Both surfaces produce identical `cfdb_core::Query` values — there is exactly one evaluator, which is an architectural invariant.
+Both surfaces produce identical `cfdb_core::Query` values — there is exactly one evaluator (`cfdb_eval::QueryEngine`, the sole `QueryBackend` implementor, reading any store through the `GraphReader` port), which is an architectural invariant.
 
 ### C. Custom backend
 
@@ -204,9 +206,11 @@ Every PR runs cfdb against itself + against the companion at a pinned SHA. The g
 
 | Crate | Role |
 |---|---|
-| `cfdb-core` | Node/Edge fact types, Query AST, `StoreBackend` + `EnrichBackend` traits, schema vocabulary, `SchemaVersion`. Zero deps on parser / store / extractor — the dependency rule points inward. |
+| `cfdb-core` | Node/Edge fact types, Query AST, `StoreBackend` + `QueryBackend` + `EnrichBackend` traits, the `GraphBackend`/`GraphView`/`GraphReader` port family, schema vocabulary, `SchemaVersion`. Zero deps on parser / store / extractor — the dependency rule points inward. |
 | `cfdb-query` | Cypher-subset parser (chumsky) + Rust builder API. Both produce the same `cfdb_core::Query` AST. Includes shape-level lints. |
-| `cfdb-petgraph` | Reference `StoreBackend` on `petgraph::StableDiGraph`. Hosts the query evaluator. |
+| `cfdb-eval` | The Cypher-subset evaluator (`QueryEngine`, the sole `QueryBackend`), reading any store through the `GraphReader` port. Never depends on a storage engine. |
+| `cfdb-classify` | The judgment layer: `ClassifyEngine` behind `scope` / `classify` / `check`, the six-class `DebtClass` taxonomy, `Finding` rows, `ScopeInventory` / `ClassifyEnvelope` envelopes, the `T1` / `T3` editorial-drift triggers and their `CheckReport`. Reads any store through `QueryEngine`; never depends on a storage engine, never does I/O. Optional in `cfdb-cli` (feature `classify`, default on). |
+| `cfdb-petgraph` | Reference `StoreBackend` + `GraphBackend` on `petgraph::StableDiGraph`. Storage, indexes, persistence — no evaluator. |
 | `cfdb-extractor` | `syn` + `cargo_metadata` workspace walker. Emits Nodes, Edges, and name-level CallSites. |
 | `cfdb-hir-extractor` | `rust-analyzer` HIR-backed resolver extractor. Emits resolved `CALLS`, `INVOKES_AT`, `EntryPoint`. Feature-gated to isolate its compile cost. |
 | `cfdb-hir-petgraph-adapter` | Glue between `cfdb-hir-extractor` and `cfdb-petgraph` that keeps the `ra-ap-*` crates out of `cfdb-cli`'s default build. |

@@ -1,0 +1,22 @@
+[package]
+name = "cfdb-eval"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+cfdb-core = { path = "../cfdb-core" }
+regex.workspace = true
+# The set-relationship UDFs parse the `entries_normalized` JSON-array prop at query time.
+serde_json.workspace = true
+
+[dev-dependencies]
+# Test suites need a concrete GraphBackend to run against; PetgraphStore is
+# the only implementor. Dev-only — no production edge to cfdb-petgraph.
+cfdb-petgraph = { path = "../cfdb-petgraph" }
+# The moved suites parse Cypher text; the evaluator itself never does.
+cfdb-query = { path = "../cfdb-query" }
+serde.workspace = true
+tempfile.workspace = true

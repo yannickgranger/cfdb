@@ -1,0 +1,21 @@
+[package]
+name = "cfdb-classify"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+cfdb-core = { path = "../cfdb-core" }
+cfdb-query = { path = "../cfdb-query" }
+cfdb-eval = { path = "../cfdb-eval" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+# The classifier perf suite needs a concrete GraphBackend to run the rules
+# against; PetgraphStore is the only implementor. Dev-only — no production
+# edge to cfdb-petgraph.
+cfdb-petgraph = { path = "../cfdb-petgraph" }

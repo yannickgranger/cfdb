@@ -19,7 +19,20 @@ Repo-local methodology. Sets the contribution and review discipline for this rep
 
 ### §2.1 — Where RFCs live
 
-`docs/RFC-<topic>.md` for major RFCs (follow existing `RFC-cfdb.md` / `RFC-030-*.md` convention). Numbered-series RFCs use `RFC-NNN-<kebab-title>.md`.
+RFCs live in `yg/doxa`, the one RFC corpus, under `<subject>-<slug>` ids: this
+repo's are `cfdb-NNN-<kebab-title>` (`cfdb-056-enrich-port-split`), the v1
+master RFC is `cfdb-v1-code-facts-database`; the corpus rev this repo reads
+is pinned in `doxa.rev`. **No RFC file is authored in this tree.** A council
+synthesizes into a doxa PR against `develop`; the operator merges; slices and
+issues cite `<id>#<clause>`. `docs/RFC-*.md` remains only as a byte-identical
+MIRROR of the corpus at the pin (CI refuses any divergence), because the
+`enrich-rfc-docs` pass and its self-dogfood test still scan `docs/`; the
+mirror is deleted when that pass reads the pinned corpus (`keel-harness` §7,
+`keel-dialect` §3.3, §6.5).
+
+### §2.1b — The harness on this tree (keel-harness §7 step 3)
+
+`keel.json` declares deployment level L2 — corpus-wide advisory (keel-harness §8): the ancestry instrument `cascade` at `cascade.rev`, the doxa corpus at `doxa.rev`, roots `specs/concepts` + `crates`. `scripts/own-gate.sh` runs `keel level` corpus-wide in CI (workflow `own-gate`) on every PR: the full declared root every run, every `##`/`###` heading of `specs/concepts/` carrying a verdict (§3.2 — silence refuses regardless of how clean the visited subset is), findings visible, nothing else refuses at L2 (§8). At every level: a level declared but not running refuses (§8), and the corpus absent or unreadable at its pin refuses (keel-harness §3.1, keel-dialect §3.3 — unavailable, never a pass); run-level findings are printed, their verdict an open ruling (keel-dialect §7, §11 c). The printed ungrounded count is the live worklist for §7 step 2 (own concept docs 100 % grounded, `keel-dialect` §3); at zero the declaration moves to L3 and CI refuses on any corpus-wide finding (§8). Admission into keel's manifest waits on §7 complete (§6.4). A bump of `cascade.rev` / `keel.rev` / `doxa.rev` is a Captain-direct PR whose own-gate run at the new pins is green (the job runs on the PR).
 
 ### §2.2 — RFC contents
 
@@ -33,7 +46,7 @@ Every RFC answers, in this order:
 6. **Non-goals.** Explicit.
 7. **Issue decomposition.** Vertical slices, one issue each. Each entry carries an explicit `Tests:` line naming the test surface per §2.5 — architects prescribe, implementers execute.
 
-Ratified RFCs live alongside drafts. The `council/RATIFIED.md` and `council/verdicts/` pattern already shows how cfdb records architect verdicts.
+Ratified RFCs live alongside drafts, and the RFC's own header carries its status and ratification record. Council deliberation is ephemeral (§2.3): nothing under a `council/` tree is tracked.
 
 ### §2.3 — Architect review via agent teams
 
@@ -48,11 +61,11 @@ Every RFC is reviewed by a team of architect sub-agents, one teammate per lens:
 | SOLID + component principles | `solid-architect` | Crate granularity, SRP on evaluator vs extractor, stable abstractions for `cfdb-core` |
 | Rust systems | `rust-systems` | `syn` parsing strategy, petgraph internals, feature flags, trait object safety |
 
-Invocation is via `Agent(subagent_type=...)` or agent teams. Each lens returns a verdict (RATIFY / REJECT / REQUEST CHANGES) with evidence. The RFC is not ratified until all four verdicts are RATIFY, or a single author-documented override is recorded in `council/RATIFIED.md`.
+Invocation is via agent teams driven through the mailbox. Each lens returns a verdict (RATIFY / REJECT / REQUEST CHANGES) with evidence. The RFC is not ratified until all four verdicts are RATIFY, or a single author-documented override is recorded in the RFC's own header. **Deliberation is ephemeral scaffolding** (operator ruling 2026-08-17): mandates, per-lens verdicts, round syntheses and dry-run notes emit to the session and are never tracked; what survives a council is its synthesis, and the synthesis is the RFC — status line, verdict tally and the author fold live in the RFC header. The `council/` tree that used to hold these was excised on 2026-08-17 (last tracked at develop bd69a63) and CI refuses any tracked `council/` path (`.gitea/workflows/council-ephemeral.yml`); a `council/…` citation inside a ratified RFC is historical and resolves against git history only — never a file to restore.
 
 **Architects also prescribe tests** (§2.5). The verdict is not complete until each issue in the decomposition carries a named test surface — unit, integration, recall-corpus extension, dogfood assertion, or a documented `Tests: none` rationale. Implementers do not choose the test shape; they deliver against the prescription.
 
-The existing `council/BRIEF.md` / `council/SYNTHESIS-R1.md` / `council/RATIFIED.md` artifacts are the model for this — make the pattern mandatory for new capability, not optional.
+The pattern is mandatory for new capability, not optional; its record is the RFC, not a sidecar file.
 
 ### §2.4 — Ratification → issues
 

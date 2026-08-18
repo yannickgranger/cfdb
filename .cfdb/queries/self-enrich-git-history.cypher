@@ -8,7 +8,7 @@
 // `PropValue::Int(epoch_seconds)` for files seen by HEAD's history or as
 // `PropValue::Null` for items whose `file` is outside the git tree
 // (vendored deps, generated code, items emitted with no `file` prop).
-// See `crates/cfdb-petgraph/src/enrich/git_history.rs:213-235`
+// See `crates/cfdb-enrich/src/git_history.rs`
 // (`write_attrs_one`) — the always-3-write contract is load-bearing for
 // this template's `= null` test.
 //
@@ -17,7 +17,7 @@
 // The R1 RFC-039 draft cited `commit_age_days` as the per-item attribute.
 // That attribute does NOT exist. The actual emitted attribute is
 // `git_last_commit_unix_ts` (epoch seconds, `PropValue::Int(i64)`),
-// declared at `crates/cfdb-petgraph/src/enrich/git_history.rs:51`
+// declared at `crates/cfdb-enrich/src/git_history.rs`
 // (`pub(crate) const ATTR_TS: &str = "git_last_commit_unix_ts"`).
 // `tools/dogfood-enrich/src/thresholds.rs:61-69` records the correction
 // inline. rust-systems caught the typo during architect review.
@@ -47,7 +47,7 @@
 //
 //   * `crates/cfdb-query/src/parser/lexical.rs:152-158` parses the
 //     `null` keyword as `PropValue::Null`.
-//   * `crates/cfdb-petgraph/src/eval/predicate.rs:509-533`
+//   * `crates/cfdb-eval/src/eval/predicate.rs:509-533`
 //     (`compare_propvalues`) returns `true` for `Eq` only when both
 //     operands are `PropValue::Null` (line 531). Any `Int` vs `Null`
 //     comparison falls through to the `_ => return false` arm at
@@ -72,7 +72,7 @@
 // post-enrich happy path on cfdb-self at HEAD inside a git workspace),
 // `MATCH (i:Item) WHERE i.git_last_commit_unix_ts = null` binds zero
 // rows. Under the cfdb-query subset's SQL no-group-no-row rule
-// (`crates/cfdb-petgraph/src/eval/with_clause.rs::group_and_aggregate`),
+// (`crates/cfdb-eval/src/eval/with_clause.rs::group_and_aggregate`),
 // `WITH count(i) AS null_count` then produces ZERO output rows, the
 // downstream WHERE never fires, and the harness sees zero violations —
 // the desired "invariant holds" state. When ≥1 `:Item` carries a Null

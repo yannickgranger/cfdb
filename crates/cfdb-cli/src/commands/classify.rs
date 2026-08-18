@@ -1,31 +1,24 @@
-//! `cfdb classify` — debt-class routing of `cfdb diff` findings.
+//! `cfdb classify` — debt-class classification of `cfdb diff` findings.
 //!
-//! Reads a `DiffEnvelope` from `--restrict-to-diff`, runs the shared
-//! classifier (`populate_findings_by_class_restricted` — delegates to
-//! the same `populate_findings_by_class` that powers `cfdb scope`),
-//! filters the resulting `findings_by_class` buckets to only items
-//! whose `qname` appears in the diff, and emits a `ClassifyEnvelope`.
+//! Reads a `DiffEnvelope` from `--restrict-to-diff`, runs
+//! `cfdb_classify::ClassifyEngine::classify` (the same classifier that
+//! powers `cfdb scope`, restricted to the diff's qnames) and emits the
+//! `ClassifyEnvelope`.
 //!
 //! The classifier is a query over an enriched graph — `--db` + `--keyspace`
-//! are mandatory. Routing hints live external to `:Finding` rows; this
-//! handler emits only the structural `DebtClass` label.
+//! are mandatory. Skill routing is external to cfdb; this handler emits
+//! only the structural `DebtClass` label.
 
-use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-use cfdb_query::{
-    ClassifyEnvelope, DiffEnvelope, DiffSourceMeta, ScopeInventory, ENVELOPE_SCHEMA_VERSION,
-};
-use serde_json::Value;
+use cfdb_classify::ClassifyEnvelope;
+use cfdb_query::{DiffEnvelope, ENVELOPE_SCHEMA_VERSION};
 
 use crate::compose;
 use crate::output;
 use crate::output::OutputFormat;
-use crate::scope::{
-    attach_scope_warnings, populate_findings_by_class_restricted, resolve_keyspace_name,
-    validate_context, ExplainSink,
-};
+use crate::scope::resolve_keyspace_name;
 
 mod sorted_jsonl;
 use sorted_jsonl::emit_sorted_jsonl;
@@ -53,25 +46,13 @@ pub fn classify(
     compose::ensure_keyspace_exists(&db, &ks_name)?;
 
     let diff_envelope = load_diff_envelope(&restrict_to_diff)?;
-    let restrict = collect_restrict_qnames(&diff_envelope);
-    let diff_source = DiffSourceMeta {
-        a: diff_envelope.a.clone(),
-        b: diff_envelope.b.clone(),
-        restrict_count: restrict.len() as u64,
-    };
 
     let (store, ks) = match workspace {
         Some(ws) => compose::load_store_with_workspace(&db, &ks_name, Some(ws))?,
         None => compose::load_store(&db, &ks_name)?,
     };
-    validate_context(&store, &ks, &context)?;
-
-    let sink = ExplainSink::disabled();
-    let mut inventory = ScopeInventory::new(&context, &ks_name);
-    populate_findings_by_class_restricted(&store, &ks, &context, &restrict, &mut inventory, &sink)?;
-    attach_scope_warnings(&mut inventory);
-
-    let envelope = ClassifyEnvelope::new(inventory, diff_source);
+    let engine = compose::classify_engine(&store);
+    let envelope = engine.classify(&ks, &context, &diff_envelope)?;
     match format {
         OutputFormat::Json => emit_classify_output(&envelope, output.as_deref()),
         OutputFormat::SortedJsonl => emit_sorted_jsonl(&envelope, output.as_deref()),
@@ -104,52 +85,6 @@ fn load_diff_envelope(path: &Path) -> Result<DiffEnvelope, crate::CfdbCliError> 
     Ok(env)
 }
 
-/// Derive the restrict-qname set from a `DiffEnvelope`. Includes every
-/// node qname (props.qname with id fallback) from `added` and the two
-/// envelope sides of `changed`, plus edge endpoint qnames (src_qname +
-/// dst_qname) so classifier findings whose `:Item.qname` equals an edge
-/// endpoint on a changed relationship are retained.
-fn collect_restrict_qnames(env: &DiffEnvelope) -> BTreeSet<String> {
-    let mut out = BTreeSet::new();
-    for fact in &env.added {
-        extend_with_envelope_qnames(&mut out, &fact.envelope);
-    }
-    for fact in &env.changed {
-        extend_with_envelope_qnames(&mut out, &fact.a);
-        extend_with_envelope_qnames(&mut out, &fact.b);
-    }
-    out
-}
-
-fn extend_with_envelope_qnames(out: &mut BTreeSet<String>, envelope: &Value) {
-    if let Some(kind) = envelope.get("kind").and_then(Value::as_str) {
-        match kind {
-            "node" => {
-                // Prefer props.qname; fall back to id (matches
-                // canonical_dump's sort-key resolution).
-                if let Some(q) = envelope
-                    .get("props")
-                    .and_then(|p| p.get("qname"))
-                    .and_then(Value::as_str)
-                {
-                    out.insert(q.to_string());
-                } else if let Some(id) = envelope.get("id").and_then(Value::as_str) {
-                    out.insert(id.to_string());
-                }
-            }
-            "edge" => {
-                if let Some(src) = envelope.get("src_qname").and_then(Value::as_str) {
-                    out.insert(src.to_string());
-                }
-                if let Some(dst) = envelope.get("dst_qname").and_then(Value::as_str) {
-                    out.insert(dst.to_string());
-                }
-            }
-            _ => {}
-        }
-    }
-}
-
 /// Serialise the envelope to `output` (or stdout if `None`). Mirrors
 /// `emit_scope_output` at `crates/cfdb-cli/src/scope.rs` in shape; kept
 /// local to this module until a third caller justifies a generic emit.
@@ -180,27 +115,7 @@ fn emit_classify_output(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cfdb_query::{ChangedFact, DiffFact};
     use serde_json::json;
-
-    fn node_envelope(qname: &str) -> Value {
-        json!({
-            "id": format!("item:{qname}"),
-            "kind": "node",
-            "label": "Item",
-            "props": {"qname": qname},
-        })
-    }
-
-    fn edge_envelope(src: &str, dst: &str) -> Value {
-        json!({
-            "dst_qname": dst,
-            "kind": "edge",
-            "label": "CALLS",
-            "props": {},
-            "src_qname": src,
-        })
-    }
 
     fn empty_diff(a: &str, b: &str) -> DiffEnvelope {
         DiffEnvelope {
@@ -212,88 +127,6 @@ mod tests {
             changed: vec![],
             warnings: vec![],
         }
-    }
-
-    #[test]
-    fn collect_restrict_qnames_extracts_added_node_props_qname() {
-        let mut env = empty_diff("a", "b");
-        env.added.push(DiffFact {
-            kind: "node".into(),
-            envelope: node_envelope("foo::Bar"),
-        });
-        let set = collect_restrict_qnames(&env);
-        assert!(set.contains("foo::Bar"));
-        assert_eq!(set.len(), 1);
-    }
-
-    #[test]
-    fn collect_restrict_qnames_falls_back_to_id_when_props_qname_absent() {
-        let mut env = empty_diff("a", "b");
-        env.added.push(DiffFact {
-            kind: "node".into(),
-            envelope: json!({
-                "id": "callsite:abc123",
-                "kind": "node",
-                "label": "CallSite",
-                "props": {},
-            }),
-        });
-        let set = collect_restrict_qnames(&env);
-        assert!(set.contains("callsite:abc123"));
-    }
-
-    #[test]
-    fn collect_restrict_qnames_includes_edge_endpoints() {
-        let mut env = empty_diff("a", "b");
-        env.added.push(DiffFact {
-            kind: "edge".into(),
-            envelope: edge_envelope("caller::fn", "callee::fn"),
-        });
-        let set = collect_restrict_qnames(&env);
-        assert!(set.contains("caller::fn"));
-        assert!(set.contains("callee::fn"));
-    }
-
-    #[test]
-    fn collect_restrict_qnames_includes_both_sides_of_changed() {
-        let mut env = empty_diff("a", "b");
-        env.changed.push(ChangedFact {
-            kind: "node".into(),
-            a: node_envelope("old::Name"),
-            b: node_envelope("new::Name"),
-        });
-        let set = collect_restrict_qnames(&env);
-        assert!(set.contains("old::Name"));
-        assert!(set.contains("new::Name"));
-    }
-
-    #[test]
-    fn collect_restrict_qnames_unions_added_and_changed() {
-        let mut env = empty_diff("a", "b");
-        env.added.push(DiffFact {
-            kind: "node".into(),
-            envelope: node_envelope("added::X"),
-        });
-        env.changed.push(ChangedFact {
-            kind: "node".into(),
-            a: node_envelope("changed::Y"),
-            b: node_envelope("changed::Y"),
-        });
-        env.added.push(DiffFact {
-            kind: "edge".into(),
-            envelope: edge_envelope("edge::src", "edge::dst"),
-        });
-        let set = collect_restrict_qnames(&env);
-        assert_eq!(set.len(), 4);
-        for q in ["added::X", "changed::Y", "edge::src", "edge::dst"] {
-            assert!(set.contains(q), "missing {q}");
-        }
-    }
-
-    #[test]
-    fn collect_restrict_qnames_empty_diff_produces_empty_set() {
-        let env = empty_diff("a", "b");
-        assert!(collect_restrict_qnames(&env).is_empty());
     }
 
     #[test]

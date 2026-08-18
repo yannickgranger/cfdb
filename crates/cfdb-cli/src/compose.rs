@@ -1,7 +1,8 @@
 //! Composition root for `cfdb-cli`.
 //!
 //! This module is the **single place in cfdb-cli that knows which concrete
-//! `StoreBackend` is wired in**. Every other handler module constructs and
+//! `StoreBackend` is wired in** — and which `QueryBackend` evaluates over it
+//! (`query_engine`). Every other handler module constructs and
 //! loads its store exclusively through `compose::*` — `commands.rs`,
 //! `scope.rs`, `stubs.rs`, and `enrich.rs` never call `PetgraphStore::new()`
 //! or `persist::{load, save}` directly.
@@ -27,7 +28,10 @@
 
 use std::path::{Path, PathBuf};
 
+#[cfg(feature = "classify")]
+use cfdb_classify::ClassifyEngine;
 use cfdb_core::schema::Keyspace;
+use cfdb_eval::QueryEngine;
 use cfdb_petgraph::index::spec::IndexSpec;
 use cfdb_petgraph::{persist, PetgraphStore};
 
@@ -41,6 +45,21 @@ const INDEXES_TOML_PATH: &str = ".cfdb/indexes.toml";
 /// Construct an empty in-memory store. Used by the extract path before ingest.
 pub(crate) fn empty_store() -> PetgraphStore {
     PetgraphStore::new()
+}
+
+/// The query engine over a loaded store — the one `QueryBackend` cfdb-cli
+/// evaluates with. Zero-cost to construct; handlers build one per query
+/// batch rather than threading it alongside the store.
+pub(crate) fn query_engine(store: &PetgraphStore) -> QueryEngine<'_, PetgraphStore> {
+    QueryEngine::new(store)
+}
+
+/// The judgment engine over a loaded store — `scope` / `classify` / `check`
+/// run through it. Same shape as [`query_engine`]: cheap, built per verb
+/// invocation. Rides the `classify` feature with the verbs it serves.
+#[cfg(feature = "classify")]
+pub(crate) fn classify_engine(store: &PetgraphStore) -> ClassifyEngine<'_, PetgraphStore> {
+    ClassifyEngine::new(store)
 }
 
 /// Resolve a keyspace's on-disk path under `db` and verify it exists.

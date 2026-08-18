@@ -266,12 +266,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "cfdb-classify"
+version = "0.8.0"
+dependencies = [
+ "cfdb-core",
+ "cfdb-eval",
+ "cfdb-petgraph",
+ "cfdb-query",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "cfdb-cli"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "assert_cmd",
+ "cfdb-classify",
  "cfdb-concepts",
  "cfdb-core",
+ "cfdb-enrich",
+ "cfdb-eval",
  "cfdb-extractor",
  "cfdb-extractor-php",
  "cfdb-extractor-ts",
@@ -293,7 +309,7 @@ dependencies = [
 
 [[package]]
 name = "cfdb-concepts"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "cfdb-core",
  "serde",
@@ -304,7 +320,7 @@ dependencies = [
 
 [[package]]
 name = "cfdb-core"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "quote",
  "serde",
@@ -317,8 +333,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "cfdb-enrich"
+version = "0.8.0"
+dependencies = [
+ "cfdb-concepts",
+ "cfdb-core",
+ "cfdb-petgraph",
+ "git2",
+ "serde",
+ "serde_json",
+ "sha2",
+ "syn",
+ "tempfile",
+]
+
+[[package]]
+name = "cfdb-eval"
+version = "0.8.0"
+dependencies = [
+ "cfdb-core",
+ "cfdb-petgraph",
+ "cfdb-query",
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "cfdb-extractor"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "cargo_metadata 0.22.0",
  "cfdb-concepts",
@@ -338,7 +382,7 @@ dependencies = [
 
 [[package]]
 name = "cfdb-extractor-php"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "cfdb-core",
  "cfdb-lang",
@@ -350,14 +394,14 @@ dependencies = [
 
 [[package]]
 name = "cfdb-extractor-shared"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "syn",
 ]
 
 [[package]]
 name = "cfdb-extractor-ts"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "cfdb-core",
  "cfdb-lang",
@@ -369,7 +413,7 @@ dependencies = [
 
 [[package]]
 name = "cfdb-hir-extractor"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "cfdb-core",
  "cfdb-extractor",
@@ -396,7 +440,7 @@ dependencies = [
 
 [[package]]
 name = "cfdb-hir-petgraph-adapter"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "cfdb-core",
  "cfdb-extractor",
@@ -410,7 +454,7 @@ dependencies = [
 
 [[package]]
 name = "cfdb-lang"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "cfdb-core",
  "thiserror",
@@ -418,19 +462,14 @@ dependencies = [
 
 [[package]]
 name = "cfdb-petgraph"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
- "cfdb-concepts",
  "cfdb-core",
- "cfdb-query",
- "git2",
  "indexmap",
  "petgraph",
  "regex",
  "serde",
  "serde_json",
- "sha2",
- "syn",
  "tempfile",
  "thiserror",
  "toml 0.8.23",
@@ -438,19 +477,18 @@ dependencies = [
 
 [[package]]
 name = "cfdb-query"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "cfdb-core",
  "chumsky",
  "serde",
  "serde_json",
  "thiserror",
- "toml 0.8.23",
 ]
 
 [[package]]
 name = "cfdb-recall"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "cfdb-core",
  "cfdb-extractor",
@@ -477,7 +515,7 @@ checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
 name = "check-prelude-triggers"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -707,7 +745,7 @@ checksum = "aeda16ab4059c5fd2a83f2b9c9e9c981327b18aa8e3b313f7e6563799d4f093e"
 
 [[package]]
 name = "dogfood-enrich"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "assert_cmd",
  "cfdb-core",

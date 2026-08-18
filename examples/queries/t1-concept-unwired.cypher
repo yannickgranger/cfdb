@@ -36,7 +36,7 @@
 // check verb runs this inventory cypher + three small primitive reads
 // and applies the anti-join logic in Rust. Each of the four cypher
 // reads is self-standing and deterministic; the correlation is a
-// closed, typed computation in `cfdb_cli::check`.
+// closed, typed computation in `cfdb_classify` (`check/t1.rs`).
 //
 // The same pattern is used by `classifier-*.cypher` in this directory
 // when anti-join semantics were needed — see the README of those

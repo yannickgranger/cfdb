@@ -12,6 +12,10 @@
 //!
 //! Runs as a Rust integration test using the library API — a failure
 //! surfaces as a stack trace inside `cargo test`, not CLI output.
+//!
+//! Routes through `cfdb_enrich::EnrichEngine`, not `PetgraphStore`
+//! directly. Still never exercises `crates/cfdb-cli/src/enrich.rs`'s
+//! dispatcher, though — see `enrich_bounded_context_cli.rs` for that.
 
 use std::path::PathBuf;
 
@@ -19,6 +23,7 @@ use cfdb_core::enrich::EnrichBackend;
 use cfdb_core::fact::PropValue;
 use cfdb_core::schema::{Keyspace, Label};
 use cfdb_core::store::StoreBackend;
+use cfdb_enrich::EnrichEngine;
 use cfdb_petgraph::PetgraphStore;
 
 fn cfdb_workspace_root() -> PathBuf {
@@ -43,7 +48,7 @@ fn ac2_and_ac4_self_dogfood_cfdb_scoped_ground_truth() {
     store.ingest_nodes(&ks, nodes).expect("ingest nodes");
     store.ingest_edges(&ks, edges).expect("ingest edges");
 
-    let report = store
+    let report = EnrichEngine::new(&mut store)
         .enrich_bounded_context(&ks)
         .expect("enrich_bounded_context");
 

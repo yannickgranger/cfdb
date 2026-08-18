@@ -6,7 +6,7 @@
 //! `IN $seeds` has a path" for the forthcoming `cfdb impact` verb. The
 //! council's premise — *"no list-binding path exists today"* — was false
 //! (RFC-047a §1): the in-process path `impact` uses — `parse(template)` →
-//! `query.params.insert(name, ParamBinding::List(..))` → `store.execute` — already
+//! `query.params.insert(name, ParamBinding::List(..))` → `QueryEngine::execute` — already
 //! ships and runs in production (`check-predicate` #147, the `list:` param
 //! form #145, the raid-plan suite #205). `cfdb_core::ParamBinding::List` exists; the
 //! evaluator already resolves a list param for `IN`. So there is no
@@ -32,7 +32,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use cfdb_core::fact::{Edge, Node, PropValue};
 use cfdb_core::qname::item_node_id;
 use cfdb_core::schema::{EdgeLabel, Keyspace, Label};
-use cfdb_core::store::StoreBackend;
+use cfdb_core::store::{QueryBackend, StoreBackend};
+use cfdb_eval::QueryEngine;
 use cfdb_petgraph::PetgraphStore;
 use cfdb_query::impact_query;
 
@@ -107,7 +108,7 @@ fn fixture() -> (PetgraphStore, Keyspace) {
 /// `$seeds` as a `ParamBinding::List`) and collect the affected qnames as a set.
 fn affected_qnames(store: &PetgraphStore, ks: &Keyspace, seeds: &[&str]) -> BTreeSet<String> {
     let query = impact_query(seeds, None);
-    store
+    QueryEngine::new(store)
         .execute(ks, &query)
         .expect("execute impact query")
         .rows

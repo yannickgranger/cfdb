@@ -16,6 +16,7 @@
 #![allow(unknown_lints)]
 #![deny(non_exhaustive_omitted_patterns)]
 
+#[cfg(feature = "classify")]
 mod check;
 mod check_predicate;
 mod commands;
@@ -28,14 +29,18 @@ mod lang;
 mod output;
 mod param_resolver;
 mod profile;
+#[cfg(feature = "classify")]
 mod scope;
 mod stubs;
 
-pub use check::{check, TriggerId, UnknownTriggerId};
+#[cfg(feature = "classify")]
+pub use check::check;
 pub use check_predicate::{check_predicate, PredicateRow, PredicateRunReport};
+#[cfg(feature = "classify")]
+pub use commands::classify;
 pub use commands::{
-    classify, diff, dump, export, extract, impact, keyspace_path, list_callers, list_keyspaces,
-    query, violations,
+    diff, dump, export, extract, impact, keyspace_path, list_callers, list_keyspaces, query,
+    violations,
 };
 
 pub use enrich::{enrich, EnrichVerb};
@@ -44,6 +49,7 @@ pub use error::CfdbCliError;
 pub use hir::{extract_and_ingest_hir, HirExtractError};
 pub use output::{emit_json, OutputFormat};
 pub use profile::ExtractProfile;
+#[cfg(feature = "classify")]
 pub use scope::scope;
 pub use stubs::{
     drop_keyspace_cmd, list_items_matching, schema_describe_cmd, snapshots, typed_stub,

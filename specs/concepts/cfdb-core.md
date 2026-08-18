@@ -1,6 +1,6 @@
 # Spec: cfdb-core
 
-The schema vocabulary, fact types, query AST, result types, the `StoreBackend` port, and the sibling `EnrichBackend` port — the innermost layer that every other cfdb crate depends on and that depends on nothing in the workspace.
+The schema vocabulary, fact types, query AST, result types, the `StoreBackend` port, the sibling `EnrichBackend` and `QueryBackend` ports, and the narrower `GraphBackend`/`GraphView`/`GraphReader` port family `cfdb-enrich`'s passes and `cfdb-eval`'s evaluator are coded against. The innermost layer that every other cfdb crate depends on and that depends on nothing in the workspace.
 
 `cfdb-core` is intentionally in the **Zone of Pain** (D ≈ 0.95 — high stability, near-zero abstractness) and `cfdb-concepts` is at D = 1.00. This is accepted architectural debt: both are maximally stable zero-dep foundation crates whose vocabulary is the wire contract for every downstream keyspace. The mitigation is procedural, not structural — changes here evolve only via RFC-gated additive bumps of `SchemaVersion` with a lockstep graph-specs-rust PR per CLAUDE.md §3. Unilateral modification is the drift mode we prevent by making every schema-surface change pass through the council + dogfood gates.
 
@@ -26,11 +26,15 @@ Provenance discriminator for `:Context` nodes (RFC-038). `Declared` is author-as
 
 ## Direction
 
-Traversal direction for a path pattern — outgoing, incoming, or either.
+Traversal direction for a path pattern — outgoing, incoming, or either. Graph-topology vocabulary, not query-grammar: lives in `schema` (peer of `Label`/`EdgeLabel`), re-exported from `query::ast` for backward compat (RFC-056 §3.3). Shared by the query evaluator's pattern matching AND `GraphView::neighbors`.
 
 ## Edge
 
 A directed, labelled graph edge from a source node id to a target node id.
+
+## EdgeHandle
+
+Opaque, storage-owned position of an edge inside one keyspace, handed out and consumed only through `GraphReader` (RFC-057). `Copy + Ord + Hash` over a `u32` so ordered reads and sets keyed by handles reproduce the storage's own index order (G1). Valid only for the reader it came from, for as long as that reader is borrowed. `from_raw`/`raw` exist for the storage engine; consumers never interpret the raw value.
 
 ## EdgeLabel
 
@@ -71,9 +75,9 @@ The edge component of a `PathPattern` — label filter, direction, variable-leng
 
 ## EnrichBackend
 
-The enrichment port — sibling of `StoreBackend`. Split out of the fat trait per RFC-031 §2 (ISP). The trait ships **seven** default stubs returning `EnrichReport::not_implemented` (`enrich_git_history`, `enrich_rfc_docs`, `enrich_deprecation`, `enrich_bounded_context`, `enrich_concepts`, `enrich_reachability`, `enrich_metrics`); concrete enrichment passes override methods as RFC-032 §4 / Group D issues land (#43–#48). `PetgraphStore` impls the trait with an empty body — inherited stubs only.
+The enrichment port — sibling of `StoreBackend`. Split out of the fat trait per RFC-031 §2 (ISP). The trait ships **seven** default stubs returning `EnrichReport::not_implemented` (`enrich_git_history`, `enrich_rfc_docs`, `enrich_deprecation`, `enrich_bounded_context`, `enrich_concepts`, `enrich_reachability`, `enrich_metrics`). The sole implementor is `cfdb_enrich::EnrichEngine`, generic over any `GraphBackend`; no storage backend implements the trait itself.
 
-The verb surface is **closed at seven** under the 11-verb API (RFC-036 §3.3 + RFC-031 §2). New enrichment functionality extends existing verbs via internal module decomposition (see `cfdb-petgraph` → `enrich_metrics` 3-module split under `quality-metrics` feature) rather than adding trait methods. Growing the verb count requires council approval.
+The verb surface is **closed at seven** under the 11-verb API (RFC-036 §3.3 + RFC-031 §2). New enrichment functionality extends existing verbs via internal module decomposition (see `cfdb-enrich` → `enrich_metrics` 3-module split under `quality-metrics` feature) rather than adding trait methods. Growing the verb count requires council approval.
 
 ## EnrichReport
 
@@ -82,6 +86,18 @@ The result of an enrichment pass — verb, completed flag, optional message, fac
 ## Expr
 
 A query expression used in `WITH` and `RETURN` — literal, property access, function call, aggregation, or arithmetic combination.
+
+## GraphBackend
+
+The per-store factory that resolves a `Keyspace` into a `GraphView` (`graph_view`, RFC-056) or a read-only `GraphReader` (`graph_reader`, RFC-057), plus `workspace_root()`. `Send + Sync` so a generic `EnrichEngine<S: GraphBackend>` can itself be `Send + Sync`. `cfdb-petgraph::PetgraphStore` is the sole v0.1 implementor. Sibling of `StoreBackend`/`EnrichBackend` — narrower, id-based, dyn-safe, and deliberately ignorant of any concrete storage representation.
+
+## GraphReader
+
+The per-keyspace, read-only, handle-based surface the Cypher evaluator needs (RFC-057): label / edge-label existence and vocabulary, ordered node scans (`nodes_with_label`, `all_nodes_sorted`), node/edge dereference by handle, adjacency (`edges_out`/`edges_in`), the RFC-035 index-accelerated candidate lookup (`index_candidates`, `indexed_prop_is_populated`), and the keyspace's ingest diagnostics (`ingest_warnings`). Every method takes `&self`, so a query cannot mutate a keyspace (G2) by construction. Sibling of `GraphView` (read/write, id-based) — reached via `GraphBackend::graph_reader`. `cfdb-petgraph::KeyspaceState` is the sole v0.1 implementor; every ordered read wraps the storage's existing ordered accessor rather than re-deriving an order.
+
+## GraphView
+
+The per-keyspace read/write surface an enrichment pass needs — id-based node/edge lookup, neighbor traversal by `Direction`, single-attribute writes, and node/edge ingestion (RFC-056). `cfdb-petgraph::KeyspaceState` is the sole v0.1 implementor, reached via `GraphBackend::graph_view`. Exists so `cfdb-enrich`'s enrichment passes never depend on a concrete graph representation (`petgraph::NodeIndex`, `StableDiGraph`) — the seam the pre-RFC-056 `cfdb-petgraph` lacked.
 
 ## ItemKind
 
@@ -117,6 +133,10 @@ The descriptor at `crates/cfdb-core/src/schema/describe/nodes.rs` is authoritati
 ## Node
 
 A labelled, property-carrying graph node. Carries a stable id, one or more labels, and a property map. Homonym note (RFC-054 council DDD lens): the id and the `qname` property are related but distinct — for `:Item`s the id is the target-scoped IDENTITY (`item:<qname>` for lib-target items, `item:<qname>#bin:<target>` for bin-target items) while `qname` stays the bare display name, deliberately non-unique across cargo targets (N bins' `fn main` = N nodes sharing one qname). Pre-RFC-054 the two coincided; conflating them is the split-brain class RFC-054 §3.5 retires.
+
+## NodeHandle
+
+Opaque, storage-owned position of a node inside one keyspace, handed out and consumed only through `GraphReader` (RFC-057). Same contract as `EdgeHandle`: `Copy + Ord + Hash` over a `u32`, order ≡ storage index order (G1), valid only for the reader it came from; `from_raw`/`raw` are for the storage engine, never for consumers.
 
 ## NodeLabelDescriptor
 
@@ -177,9 +197,13 @@ Where a schema element (node attribute, edge attribute) originated. Six variants
 
 The root AST node for a parsed or builder-constructed Cypher-subset query.
 
+## QueryBackend
+
+The query-execution contract on its own (RFC-057): `execute(&self, &Keyspace, &Query) -> Result<QueryResult, StoreError>`, read-only (G2). Split out of `StoreBackend` so the storage port and the evaluator live in different crates — the sole implementor, `cfdb_eval::QueryEngine`, evaluates over a `GraphReader` obtained from a `GraphBackend`; no storage backend implements it.
+
 ## QueryResult
 
-The output of `StoreBackend::execute` — list of `Row` values and list of `Warning` values.
+The output of `QueryBackend::execute` — list of `Row` values and list of `Warning` values.
 
 ## ReturnClause
 
@@ -213,9 +237,9 @@ Five determinism guarantees govern the wire contract (RFC-029 §6, formalised an
 
 ## StoreBackend
 
-The graph-store port. Implementations ingest facts, execute queries, emit canonical dumps, and manage keyspace lifecycle (7 methods). Enrichment now lives on the sibling `EnrichBackend` trait (RFC-031 §2). v0.1+ has one implementor — `cfdb-petgraph::PetgraphStore` — which implements both traits.
+The graph-store port. Implementations ingest facts, emit canonical dumps, and manage keyspace lifecycle (6 methods). Enrichment lives on the sibling `EnrichBackend` trait (RFC-031 §2); query execution on the sibling `QueryBackend` trait (RFC-057). v0.1+ has one implementor — `cfdb-petgraph::PetgraphStore` — which also implements `GraphBackend`.
 
-The verb surface is **closed at seven** under the 11-verb API (RFC-036 §3 + RFC-029 §A1). New capability extends existing verbs via schema + Cypher composition, not via new trait methods. The orthogonal API's 11-verb ceiling (`StoreBackend`'s 7 + `EnrichBackend`'s 7 overlap plus the external `extract`/`schema_version`/`schema_describe` shapes) is enforced by council review on every RFC.
+The verb surface stays **closed** under the 11-verb API (RFC-036 §3 + RFC-029 §A1): `StoreBackend`'s 6 + `QueryBackend`'s 1 are the same seven verbs the pre-RFC-057 `StoreBackend` carried, split by responsibility, not grown. New capability extends existing verbs via schema + Cypher composition, not via new trait methods; the 11-verb ceiling (those 7 + `EnrichBackend`'s 7 overlap plus the external `extract`/`schema_version`/`schema_describe` shapes) is enforced by council review on every RFC.
 
 ## StoreError
 

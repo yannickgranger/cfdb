@@ -41,13 +41,21 @@ pub fn enrich(
     let (mut store, ks) = compose::load_store_with_workspace(&db, &keyspace, workspace)?;
 
     let report: EnrichReport = match verb {
-        EnrichVerb::GitHistory => store.enrich_git_history(&ks)?,
-        EnrichVerb::RfcDocs => store.enrich_rfc_docs(&ks)?,
-        EnrichVerb::Deprecation => store.enrich_deprecation(&ks)?,
-        EnrichVerb::BoundedContext => store.enrich_bounded_context(&ks)?,
-        EnrichVerb::Concepts => store.enrich_concepts(&ks)?,
-        EnrichVerb::Reachability => store.enrich_reachability(&ks)?,
-        EnrichVerb::Metrics => store.enrich_metrics(&ks)?,
+        EnrichVerb::GitHistory => {
+            cfdb_enrich::EnrichEngine::new(&mut store).enrich_git_history(&ks)?
+        }
+        EnrichVerb::RfcDocs => cfdb_enrich::EnrichEngine::new(&mut store).enrich_rfc_docs(&ks)?,
+        EnrichVerb::Deprecation => {
+            cfdb_enrich::EnrichEngine::new(&mut store).enrich_deprecation(&ks)?
+        }
+        EnrichVerb::BoundedContext => {
+            cfdb_enrich::EnrichEngine::new(&mut store).enrich_bounded_context(&ks)?
+        }
+        EnrichVerb::Concepts => cfdb_enrich::EnrichEngine::new(&mut store).enrich_concepts(&ks)?,
+        EnrichVerb::Reachability => {
+            cfdb_enrich::EnrichEngine::new(&mut store).enrich_reachability(&ks)?
+        }
+        EnrichVerb::Metrics => cfdb_enrich::EnrichEngine::new(&mut store).enrich_metrics(&ks)?,
     };
 
     // Persist enrichment back to disk when the pass actually ran AND mutated

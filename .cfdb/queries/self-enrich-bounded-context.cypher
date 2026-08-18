@@ -5,7 +5,7 @@
 // `bounded_context` after the combined extract+enrich pipeline. The
 // sentinel measures combined-pipeline coverage (RFC-039 §3.1.1) — the
 // `enrich_bounded_context` pass is a delta-patch, not a producer
-// (`crates/cfdb-petgraph/src/enrich/bounded_context.rs:12-20`), so the
+// (`crates/cfdb-enrich/src/bounded_context.rs`), so the
 // invariant is on the keyspace state AFTER the pass has materialized,
 // not on the pass's delta in isolation.
 //
@@ -32,7 +32,7 @@
 // every `:Item` carries a non-empty `bounded_context` (the post-enrich
 // happy path on cfdb-self at HEAD). Under the cfdb-query subset's
 // SQL no-group-no-row rule (see
-// `crates/cfdb-petgraph/src/eval/with_clause.rs::group_and_aggregate`),
+// `crates/cfdb-eval/src/eval/with_clause.rs::group_and_aggregate`),
 // `WITH count(i) AS empty_count` then produces ZERO output rows, the
 // WHERE never fires, and the harness sees zero violations — the desired
 // "invariant holds" state. When ≥1 `:Item` carries an empty string,
@@ -45,7 +45,7 @@
 // emits `bounded_context` as a `PropValue::Str` — never absent, never
 // `None`. The realistic regression mode is the empty-string sentinel
 // (the `cfdb-concepts` resolver returning `""` for an unmapped crate),
-// not an absent property. `crates/cfdb-petgraph/src/eval/predicate.rs`'s
+// not an absent property. `crates/cfdb-eval/src/eval/predicate.rs`'s
 // `compare_propvalues` returns `false` when either side of `=` is
 // `None`, so an `IS NULL` test would be a no-op against the actual
 // extractor output.

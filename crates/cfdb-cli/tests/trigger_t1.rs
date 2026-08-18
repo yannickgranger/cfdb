@@ -14,6 +14,8 @@
 //! user would run from a shell. This matches the template established
 //! by `arch_ban_utc_now.rs`.
 
+#![cfg(feature = "classify")]
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;

@@ -6,11 +6,13 @@
 //! (empty-bucket warnings preserved), and the wiring assertion that
 //! every classified row's qname is in the restrict set.
 
+#![cfg(feature = "classify")]
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use assert_cmd::prelude::*;
-use cfdb_query::{ClassifyEnvelope, CLASSIFY_ENVELOPE_SCHEMA_VERSION};
+use cfdb_classify::{ClassifyEnvelope, CLASSIFY_ENVELOPE_SCHEMA_VERSION};
 use tempfile::tempdir;
 
 mod common;

@@ -17,6 +17,19 @@ crates = [
     "cfdb-concepts",
     "cfdb-query",
     "cfdb-petgraph",
+    # RFC-056 slice 056-0 — strangler-fig destination for cfdb-petgraph's
+    # enrichment passes. Same operational bounded context as the crate it
+    # is being carved out of, per council-cfdb-wiring §B.1.2.
+    "cfdb-enrich",
+    # The Cypher evaluator, carved out of cfdb-petgraph behind the
+    # GraphReader port. Same operational bounded context as the crate it
+    # came from, per council-cfdb-wiring §B.1.2.
+    "cfdb-eval",
+    # The judgment layer (DebtClass taxonomy, scope/classify envelopes,
+    # the T1/T3 editorial-drift triggers), carved out of cfdb-query and
+    # cfdb-cli; optional in cfdb-cli behind the `classify` feature. Same
+    # operational bounded context.
+    "cfdb-classify",
     "cfdb-extractor",
     # RFC-043 Slice A — shared syn-based argument-kind classifier used by
     # both cfdb-extractor and cfdb-hir-extractor. Same operational bounded

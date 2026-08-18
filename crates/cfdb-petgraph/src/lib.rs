@@ -4,14 +4,12 @@
 //! plus an insertion-ordered id → `NodeIndex` map (`indexmap::IndexMap`) and a
 //! `BTreeMap`-based label index.
 //!
-//! Evaluation is routed through `eval::Evaluator` which ports the Gate 3 spike
-//! (`studies/spike/petgraph/src/main.rs`) onto the real
-//! `cfdb_core::Query` AST. Canonical dumping is a single sorted `Vec<String>`
-//! join so two consecutive calls are byte-identical.
-//!
-//! NOTE on pathological-shape lint: v0.1 delegates that check to
-//! `cfdb-query::shape_lint` — callers run the lint at parse time and
-//! decide whether to call `execute`. The evaluator does not re-run the lint.
+//! Storage and query are separate contracts: this crate implements
+//! `StoreBackend` (ingest, dump, keyspace lifecycle) and `GraphBackend`
+//! (per-keyspace `GraphView` / `GraphReader` ports); query evaluation is
+//! `cfdb-eval`'s `QueryEngine`, which reads a keyspace only through
+//! `GraphReader`. Canonical dumping is a single sorted `Vec<String>` join so
+//! two consecutive calls are byte-identical.
 //!
 //! cfdb-core schema enums are `#[non_exhaustive]`. Cross-crate `match` sites
 //! on those enums require a `_ =>` arm by hard compile error (E0004). The
@@ -24,11 +22,8 @@
 #![deny(non_exhaustive_omitted_patterns)]
 
 mod canonical_dump;
-mod enrich;
-mod enrich_backend;
-mod eval;
-pub mod explain;
 mod graph;
+mod graph_view_backend;
 pub mod index;
 mod ingest_contention;
 pub mod persist;
@@ -42,14 +37,12 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use cfdb_core::fact::{Edge, Node};
-use cfdb_core::query::Query;
-use cfdb_core::result::{QueryResult, Warning};
+use cfdb_core::result::Warning;
 use cfdb_core::schema::{Keyspace, SchemaVersion};
 use cfdb_core::store::{StoreBackend, StoreError};
 use petgraph::visit::IntoEdgeReferences;
 
 use crate::canonical_dump::canonical_dump;
-use crate::eval::Evaluator;
 use crate::graph::KeyspaceState;
 use crate::index::spec::IndexSpec;
 
@@ -62,12 +55,10 @@ use crate::index::spec::IndexSpec;
 pub struct PetgraphStore {
     pub(crate) keyspaces: BTreeMap<Keyspace, KeyspaceState>,
     pub(crate) schema_version: SchemaVersion,
-    /// Optional workspace root for enrichment passes that read files
-    /// (`enrich_rfc_docs`, `enrich_concepts`). `None` when the store was
-    /// constructed for tests or for non-enrichment workflows. Wired by
-    /// [`crate::PetgraphStore::with_workspace`]; [`crate::PetgraphStore::new`]
-    /// remains argument-less so existing callers (30+ test sites, persist
-    /// round-trips) compile unchanged.
+    /// Optional workspace root, exposed through `GraphBackend::workspace_root`
+    /// so enrichment passes that read files (docs, `.cfdb/concepts/*.toml`,
+    /// git history, sources) can locate them. `None` when the store was
+    /// constructed for tests or for non-enrichment workflows.
     pub(crate) workspace_root: Option<PathBuf>,
 
     /// Index spec carried at the store level. Each newly-created
@@ -100,12 +91,7 @@ impl PetgraphStore {
     }
 
     /// Attach a workspace root for enrichment passes that read files.
-    /// Builder-style — returns `self` so a caller can chain
-    /// `PetgraphStore::new().with_workspace(path)` without changing the
-    /// zero-arg `::new()` signature that 30+ call sites depend on. The
-    /// composition root (`cfdb-cli::compose::load_store`) will wire this
-    /// when slices 43-D / 43-F actually need a workspace path; until then
-    /// every existing construction path returns `workspace_root = None`.
+    /// Builder-style so `PetgraphStore::new()` stays argument-less.
     pub fn with_workspace(mut self, root: impl Into<PathBuf>) -> Self {
         self.workspace_root = Some(root.into());
         self
@@ -121,10 +107,7 @@ impl PetgraphStore {
         self
     }
 
-    /// Return the attached workspace root, if any. Slices 43-D and 43-F
-    /// will consume this to locate `docs/rfc/*.md` and
-    /// `.cfdb/concepts/*.toml` without modifying the `EnrichBackend` port
-    /// signature.
+    /// Return the attached workspace root, if any.
     pub fn workspace_root(&self) -> Option<&Path> {
         self.workspace_root.as_deref()
     }
@@ -183,34 +166,11 @@ impl PetgraphStore {
         Ok((nodes, edges))
     }
 
-    /// Slice-7 (#186) concrete sibling of [`StoreBackend::execute`].
-    /// Returns both the `QueryResult` and a trace of
-    /// [`crate::explain::ExplainRow`] describing how each
-    /// `candidate_nodes` invocation was satisfied (indexed fast path vs
-    /// full-scan fallback). NOT on `StoreBackend` — the index
-    /// observability surface stays internal to `cfdb-petgraph` per
-    /// RFC-035 §4 (StoreBackend trait is untouched).
-    pub fn execute_explained(
-        &self,
-        keyspace: &Keyspace,
-        query: &Query,
-    ) -> Result<(QueryResult, Vec<crate::explain::ExplainRow>), StoreError> {
-        let state = self
-            .keyspaces
-            .get(keyspace)
-            .ok_or_else(|| StoreError::UnknownKeyspace(keyspace.clone()))?;
-        let (mut result, explain) =
-            Evaluator::new_with_explain(state, &query.params).run_explained(query);
-        let mut prepended = state.materialized_ingest_warnings();
-        prepended.append(&mut result.warnings);
-        result.warnings = prepended;
-        Ok((result, explain))
-    }
-
-    /// Ingest-time diagnostics for one keyspace (RFC-054 §3.4, 54-A #556) —
-    /// recorded warnings plus the over-cap summary row. Deliberately an
-    /// inherent method, NOT on [`StoreBackend`] (RFC-035 §4
-    /// `execute_explained` precedent); an unknown keyspace yields empty.
+    /// Ingest-time diagnostics for one keyspace — recorded warnings plus the
+    /// over-cap summary row. Inherent, not on [`StoreBackend`]: a diagnostic
+    /// surface, not part of the storage contract. An unknown keyspace yields
+    /// empty. Query results carry the same set through
+    /// `GraphReader::ingest_warnings`.
     #[must_use]
     pub fn ingest_warnings(&self, keyspace: &Keyspace) -> Vec<Warning> {
         self.keyspaces
@@ -229,18 +189,6 @@ impl StoreBackend for PetgraphStore {
     fn ingest_edges(&mut self, keyspace: &Keyspace, edges: Vec<Edge>) -> Result<(), StoreError> {
         self.keyspace_mut(keyspace).ingest_edges(edges);
         Ok(())
-    }
-
-    fn execute(&self, keyspace: &Keyspace, query: &Query) -> Result<QueryResult, StoreError> {
-        let state = self
-            .keyspaces
-            .get(keyspace)
-            .ok_or_else(|| StoreError::UnknownKeyspace(keyspace.clone()))?;
-        let mut result = Evaluator::new(state, &query.params).run(query);
-        let mut prepended = state.materialized_ingest_warnings();
-        prepended.append(&mut result.warnings);
-        result.warnings = prepended;
-        Ok(result)
     }
 
     fn schema_version(&self, keyspace: &Keyspace) -> Result<SchemaVersion, StoreError> {

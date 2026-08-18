@@ -6,8 +6,7 @@
 # `ingest_nodes` time. See docs/RFC-035-persistent-inverted-indexes.md §3.2.
 #
 # Each `[[index]]` entry carries a REQUIRED `notes` string documenting who
-# consumes the index and why — pattern-match on `.cfdb/skill-routing.toml`
-# (R1 R2 resolution — DDD lens).
+# consumes the index and why (R1 R2 resolution — DDD lens).
 #
 # Slice 1 (#180) only loads this file; entries have no effect on evaluation
 # until slice 5 (#184) and slice 6 (#185) wire the fast paths through.

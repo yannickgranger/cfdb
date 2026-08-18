@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use cfdb_core::query::ItemKind;
 use cfdb_core::result::{Warning, WarningKind};
 use cfdb_core::schema::schema_describe;
-use cfdb_core::store::StoreBackend;
+use cfdb_core::store::{QueryBackend, StoreBackend};
 use cfdb_query::list_items_matching as compose_list_items_matching;
 
 use crate::compose;
@@ -69,7 +69,7 @@ pub fn list_items_matching(
     let (store, ks) = compose::load_store(db, keyspace)?;
 
     let query = compose_list_items_matching(name_pattern, kinds, group_by_context);
-    let mut result = store.execute(&ks, &query)?;
+    let mut result = compose::query_engine(&store).execute(&ks, &query)?;
 
     // `ImplBlock` is an accepted kind but v0.1's syn extractor does not emit
     // `:Item` nodes for impl blocks. Surface a warning so LLM/human consumers

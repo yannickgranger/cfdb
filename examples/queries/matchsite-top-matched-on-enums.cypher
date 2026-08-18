@@ -21,7 +21,7 @@
 //
 // The v0.1 Cypher subset does not carry node references (`e`) across a
 // WITH boundary — only scalar `Binding::Value`s
-// (`crates/cfdb-petgraph/src/eval/with_clause.rs`). So the enum's
+// (`crates/cfdb-eval/src/eval/with_clause.rs`). So the enum's
 // identity columns (`qname`, `crate`) are materialised as scalars in the
 // WITH clause alongside `COUNT(*)`, mirroring the
 // `arch-ban-rfc-042-duplicate-entrypoint.cypher` group-by-count shape;

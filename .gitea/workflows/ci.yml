@@ -12,7 +12,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: -Dwarnings
+  RUSTFLAGS: -Dwarnings -Clink-arg=-fuse-ld=mold
   GIT_SSL_NO_VERIFY: true
   CARGO_HOME: /cache/cargo
   CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
@@ -20,6 +20,8 @@ env:
   SCCACHE_REDIS_KEY_PREFIX: "cfdb-1.93"
   SCCACHE_REDIS_EXPIRATION: "604800"
   CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
+  CARGO_PROFILE_TEST_DEBUG: line-tables-only
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
@@ -38,15 +40,6 @@ jobs:
           apt-get clean && apt-get update && apt-get install -y --no-install-recommends git build-essential libssl-dev pkg-config curl ca-certificates jq
           mkdir -p /cache/cargo/registry /cache/cargo/git /cache/cargo/bin /cache/rustup ~/.cargo
 
-          # Route build scratch (cc/ld temp files + ld's mmap'd link buffers)
-          # to disk-backed /cache rather than the container's small /tmp
-          # tmpfs. The ra_ap-heavy test-binary links exhaust /tmp at link
-          # time — "No space left on device" writing cc's *.s, then
-          # "ld terminated with signal 7 [Bus error]" on the mmap'd region
-          # (#452). /cache (and /workspace) are disk-backed with room; /tmp
-          # is RAM-backed and small. Cleared each run so scratch can't leak.
-          rm -rf /cache/tmp && mkdir -p /cache/tmp
-          echo "TMPDIR=/cache/tmp" >> "$GITHUB_ENV"
           ln -sf /cache/cargo/registry ~/.cargo/registry
           ln -sf /cache/cargo/git ~/.cargo/git
 
@@ -67,6 +60,14 @@ jobs:
           fi
           rustc --version
           rustc +nightly --version
+
+          if [ ! -f "/cache/cargo/bin/mold" ]; then
+            MOLD_VERSION="2.40.4"
+            curl -fsSL "https://github.com/rui314/mold/releases/download/v${MOLD_VERSION}/mold-${MOLD_VERSION}-x86_64-linux.tar.gz" \
+              | tar xzf - --strip-components=2 -C /cache/cargo/bin/ "mold-${MOLD_VERSION}-x86_64-linux/bin/mold"
+            chmod +x /cache/cargo/bin/mold
+            ln -sf /cache/cargo/bin/mold /cache/cargo/bin/ld.mold
+          fi
 
           if [ ! -f "/cache/cargo/bin/sccache" ]; then
             SCCACHE_VERSION="v0.8.2"
@@ -187,19 +188,46 @@ jobs:
             exit 1
           fi
 
-      - name: Test slim cfdb-petgraph (default features — git-enrich/quality-metrics off)
+      - name: Build facts-only cfdb-cli (no `classify` feature) — RFC-059 Slice 059-C
         run: |
           cd repo
-          # `cfdb-petgraph`'s `default = []` (git-enrich, quality-metrics both
-          # opt-in). The workspace-wide `cargo nextest run --all-features`
-          # step above always compiles the feature-ON dispatch branch of
-          # `enrich_backend.rs`'s `enrich_git_history_dispatch` /
-          # `enrich_metrics_dispatch` — the `#[cfg(not(feature = ...))]`
-          # sibling branch is a separate function that only exists in the
-          # compiled test binary when the feature is OFF. Without this step
-          # that branch (and its characterization tests) never compiles in
-          # CI at all. Mirrors the slim cfdb-recall/cfdb-cli pattern above.
-          cargo test -p cfdb-petgraph
+          # RFC-059 §3.3 invariant: with the `classify` feature off, the CLI
+          # builds without `cfdb-classify` and exposes none of the five
+          # judgment-layer verbs (`scope`, `classify`, `check`,
+          # `find-canonical`, `list-bypasses`). Everything else — `extract`,
+          # `query`, `violations`, `impact`, `diff`, `list-*`, `enrich-*`,
+          # `check-predicate`, `schema-describe` — is unaffected. Proof is a
+          # build + two assertions, not a compiled test (RFC-044 044-C
+          # precedent).
+          cargo build -p cfdb-cli --no-default-features --features lang-rust
+          BIN=target/debug/cfdb
+          for verb in scope classify check find-canonical list-bypasses; do
+            if "$BIN" --help | grep -qE "^\s+${verb}\s"; then
+              echo "FAIL: facts-only cfdb --help still lists \`${verb}\`"
+              "$BIN" --help
+              exit 1
+            fi
+          done
+          if cargo tree -p cfdb-cli --no-default-features --features lang-rust -e normal 2>&1 | grep -q 'cfdb-classify'; then
+            echo "FAIL: cfdb-classify leaked into the facts-only cfdb-cli dep tree"
+            cargo tree -p cfdb-cli --no-default-features --features lang-rust -e normal
+            exit 1
+          fi
+          # The verbs the facts-only build keeps must still be there.
+          for verb in extract query violations impact diff check-predicate schema-describe; do
+            "$BIN" --help | grep -qE "^\s+${verb}\s" || { echo "FAIL: facts-only cfdb --help lost \`${verb}\`"; exit 1; }
+          done
+
+      - name: Test slim cfdb-enrich (default features — git-enrich/quality-metrics off)
+        run: |
+          cd repo
+          # `cfdb-enrich`'s `default = []`. The workspace-wide
+          # `--all-features` run only ever compiles the feature-ON
+          # `enrich_git_history` / `enrich_metrics` dispatch; the
+          # `#[cfg(not(feature = ...))]` degraded-report variants and their
+          # tests exist only in a feature-OFF build, so they need their own
+          # step to compile and run in CI at all.
+          cargo test -p cfdb-enrich
 
       - name: Producer syn-isolation guard (RFC-045 §3.1 / Invariant 6)
         run: |

@@ -172,19 +172,19 @@ pub enum ComputedKey {
 /// Vetted regex for [`ComputedKey::ConversionPrefix`]. It MUST equal the
 /// `regexp_extract` pattern literal in
 /// `examples/queries/classifier-random-scattering.cypher` BYTE-FOR-BYTE:
-/// the evaluator's cross-MATCH fast path (`index::lookup`) recognises
-/// the computed join only when the Cypher call's pattern argument is
-/// exactly this string. The Cypher lexer decodes the source
+/// the cross-MATCH fast path (`index::lookup`) recognises the computed
+/// join only when the Cypher call's pattern argument is exactly this
+/// string. The Cypher lexer decodes the source
 /// `'^(\\w+)_(?:from|to|for|as)_'` (double-backslash) to this
 /// single-backslash form, so this raw literal is the decoded pattern the
-/// AST carries.
-pub(crate) const CONVERSION_PREFIX_PATTERN: &str = r"^(\w+)_(?:from|to|for|as)_";
+/// AST carries. `pub` so the evaluator crate's test suite can pin the
+/// equality against the parsed rule file.
+pub const CONVERSION_PREFIX_PATTERN: &str = r"^(\w+)_(?:from|to|for|as)_";
 
 /// Compiled [`CONVERSION_PREFIX_PATTERN`], built once. The extractor is
 /// `regex::Regex::find` — the SAME engine + pattern the Cypher
-/// `regexp_extract` UDF uses (`eval::predicate::call_regexp_extract`) —
-/// so an index bucket key is byte-identical to the query-time join
-/// value the WHERE clause compares.
+/// `regexp_extract` UDF uses — so an index bucket key is byte-identical
+/// to the query-time join value the WHERE clause compares.
 static CONVERSION_PREFIX_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(CONVERSION_PREFIX_PATTERN).expect("vetted ConversionPrefix regex compiles")
 });

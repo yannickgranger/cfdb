@@ -110,7 +110,7 @@
 //   cfdb query --db <dir> --keyspace <ks> "$(cat vertical-split-brain-drop.cypher)"
 //
 // Expected: empty on a clean tree. Any row is a `drop` candidate —
-// route per the §A2.3 SkillRoutingTable (compound-stop layer-isolation
+// route per §A2.3 external skill routing (compound-stop layer-isolation
 // or canary-test scar) when the same bounded context owns both
 // resolvers; otherwise context-mapping decision via `/operate-module`.
 

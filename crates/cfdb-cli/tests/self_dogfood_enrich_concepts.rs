@@ -15,6 +15,10 @@
 //! succeeds gracefully with real emissions — the negative-case regression
 //! spirit is preserved by the module-level `no_concepts_dir_is_graceful_noop`
 //! unit test.
+//!
+//! Routes through `cfdb_enrich::EnrichEngine`, not `PetgraphStore`
+//! directly. Still never exercises `crates/cfdb-cli/src/enrich.rs`'s
+//! dispatcher, though — see `enrich_concepts_cli.rs` for that.
 
 use std::path::PathBuf;
 
@@ -22,6 +26,7 @@ use cfdb_core::enrich::EnrichBackend;
 use cfdb_core::fact::PropValue;
 use cfdb_core::schema::{EdgeLabel, Keyspace, Label};
 use cfdb_core::store::StoreBackend;
+use cfdb_enrich::EnrichEngine;
 use cfdb_petgraph::PetgraphStore;
 
 fn cfdb_workspace_root() -> PathBuf {
@@ -42,7 +47,9 @@ fn self_dogfood_cfdb_concept_and_labeled_as_coverage() {
     store.ingest_nodes(&ks, nodes).expect("ingest nodes");
     store.ingest_edges(&ks, edges).expect("ingest edges");
 
-    let report = store.enrich_concepts(&ks).expect("enrich_concepts");
+    let report = EnrichEngine::new(&mut store)
+        .enrich_concepts(&ks)
+        .expect("enrich_concepts");
     assert!(report.ran, "pass must run: {:?}", report.warnings);
     assert_eq!(
         report.facts_scanned, 1,
@@ -84,6 +91,12 @@ fn self_dogfood_cfdb_concept_and_labeled_as_coverage() {
         "cfdb-concepts",
         "cfdb-query",
         "cfdb-petgraph",
+        // Enrichment passes' destination crate. Mirror .cfdb/concepts/cfdb.toml.
+        "cfdb-enrich",
+        // The evaluator crate. Mirror .cfdb/concepts/cfdb.toml.
+        "cfdb-eval",
+        // The judgment layer. Mirror .cfdb/concepts/cfdb.toml.
+        "cfdb-classify",
         "cfdb-extractor",
         // RFC-041 Phase 2 / Phase 3 — concrete `LanguageProducer`
         // impls for PHP (#264) and TypeScript (#265); same operational

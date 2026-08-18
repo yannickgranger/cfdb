@@ -6,12 +6,18 @@
 // classifier's `Finding`-compatible projection.
 //
 // # Inputs
-// - `:Item.bounded_context` — populated by `enrich_bounded_context`.
-// - `:Item.signature` — populated by the HIR extractor (syn-only
-//   keyspaces do NOT carry this prop; the rule returns empty rows on
-//   such keyspaces, which is the correct degradation).
+// - `:Item.bounded_context` — populated at plain `cfdb extract` time
+//   (crates/cfdb-extractor/src/item_visitor/emit/mod.rs); `enrich_bounded_context`
+//   only re-patches it later when a crate's concepts mapping changes.
+// - `:Item.signature` — populated at plain `cfdb extract` time on every
+//   fn/method :Item (issue #47, same emit path as bounded_context above)
+//   — NOT HIR-gated, despite this rule living alongside HIR-dependent
+//   siblings in `cfdb scope`'s classifier list. A syn-only keyspace
+//   carries both inputs; the rule's rows depend entirely on whether the
+//   scanned code actually has a cross-context signature-divergent
+//   same-name fn/method pair (content-dependent, not a degradation).
 // - `signature_divergent(a, b)` UDF — issue #47, hard-wired in the
-//   petgraph evaluator.
+//   evaluator (`cfdb-eval`).
 // - `last_segment(qname)` UDF — path-tail helper.
 //
 // # Parameters

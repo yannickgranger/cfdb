@@ -1,0 +1,39 @@
+[package]
+name = "cfdb-enrich"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+cfdb-core = { path = "../cfdb-core" }
+# Single resolution point for `.cfdb/concepts/*.toml` — extract-time and
+# enrich-time both call the same compute_bounded_context/load_concept_overrides.
+cfdb-concepts = { path = "../cfdb-concepts" }
+# default-features = false drops ssh/https/ssh_key_from_memory — enrichment
+# only reads the local filesystem. Default builds must have zero git2 in
+# their dep tree.
+git2 = { version = "0.20", default-features = false, optional = true }
+syn = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+
+[features]
+default = []
+# Real enrich_git_history implementation. Off by default so a build never
+# links libgit2 unless asked.
+git-enrich = ["dep:git2"]
+# Real enrich_metrics implementation. Off by default so a build never links
+# syn's parse cost unless asked.
+quality-metrics = ["dep:syn", "dep:sha2", "dep:serde", "dep:serde_json"]
+# No code currently reads Config::coverage_json — this flag is a placeholder
+# until a caller sets it. test_coverage stays unpopulated regardless.
+llvm-cov = ["quality-metrics"]
+
+[dev-dependencies]
+# Test suites need a concrete GraphBackend to run against; PetgraphStore is
+# the only implementor. Dev-only — no production edge to cfdb-petgraph.
+cfdb-petgraph = { path = "../cfdb-petgraph" }
+tempfile.workspace = true

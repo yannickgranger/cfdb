@@ -1,14 +1,17 @@
-//! Group-dispatch helpers for the `cfdb` CLI. Each of the four helpers
+//! Group-dispatch helpers for the `cfdb` CLI. Each of the five helpers
 //! below unpacks one slice of the `Command` enum and delegates to the
-//! corresponding `cfdb_cli::*` handler.
+//! corresponding `cfdb_cli::*` handler. The judgment-layer verbs ride the
+//! `classify` feature as one group ([`dispatch_classify`]).
 
 use std::str::FromStr;
 
 use crate::main_exit::findings_exit;
+#[cfg(feature = "classify")]
+use cfdb_cli::{check, classify, scope, typed_stub};
 use cfdb_cli::{
-    check, check_predicate, classify, diff, drop_keyspace_cmd, dump, emit_json, enrich, export,
-    extract, impact, list_callers, list_items_matching, list_keyspaces, query, scope, snapshots,
-    typed_stub, violations, CfdbCliError, EnrichVerb, OutputFormat,
+    check_predicate, diff, drop_keyspace_cmd, dump, emit_json, enrich, export, extract, impact,
+    list_callers, list_items_matching, list_keyspaces, query, snapshots, violations, CfdbCliError,
+    EnrichVerb, OutputFormat,
 };
 
 use crate::main_command::{Command, ExtractArgs};
@@ -43,19 +46,6 @@ pub(crate) fn dispatch_core(cmd: Command) -> Result<(), CfdbCliError> {
             }
             Ok(())
         }
-        Command::Check {
-            db,
-            keyspace,
-            trigger,
-            no_fail,
-        } => {
-            let rows_found = check(&db, &keyspace, trigger)?;
-            if rows_found > 0 && !no_fail {
-                // Exit 30 = "rule rows returned, gate failure".
-                findings_exit();
-            }
-            Ok(())
-        }
         Command::Dump { db, keyspace } => dump(db, keyspace),
         Command::Export {
             db,
@@ -71,11 +61,6 @@ pub(crate) fn dispatch_core(cmd: Command) -> Result<(), CfdbCliError> {
 /// shortcuts. Same rationale as [`dispatch_core`].
 pub(crate) fn dispatch_typed(cmd: Command) -> Result<(), CfdbCliError> {
     match cmd {
-        Command::FindCanonical {
-            db,
-            keyspace,
-            concept,
-        } => typed_stub("find_canonical", &db, &keyspace, &[("concept", &concept)]),
         Command::ListCallers {
             db,
             keyspace,
@@ -89,11 +74,6 @@ pub(crate) fn dispatch_typed(cmd: Command) -> Result<(), CfdbCliError> {
             args.workspace,
             args.max_depth,
         ),
-        Command::ListBypasses {
-            db,
-            keyspace,
-            concept,
-        } => typed_stub("list_bypasses", &db, &keyspace, &[("concept", &concept)]),
         Command::ListItemsMatching {
             db,
             keyspace,
@@ -106,25 +86,6 @@ pub(crate) fn dispatch_typed(cmd: Command) -> Result<(), CfdbCliError> {
             &name_pattern,
             kinds.as_deref(),
             group_by_context,
-        ),
-        Command::Scope {
-            db,
-            context,
-            workspace,
-            format,
-            output,
-            keyspace,
-            explain,
-            production_only,
-        } => scope(
-            &db,
-            &context,
-            workspace.as_deref(),
-            &format,
-            output.as_deref(),
-            keyspace.as_deref(),
-            explain,
-            production_only,
         ),
         Command::CheckPredicate {
             db,
@@ -193,23 +154,6 @@ pub(crate) fn dispatch_snapshot(cmd: Command) -> Result<(), CfdbCliError> {
             kinds,
             format,
         } => diff(db, a, b, kinds, format),
-        Command::Classify {
-            db,
-            keyspace,
-            context,
-            restrict_to_diff,
-            workspace,
-            output,
-            format,
-        } => classify(
-            db,
-            keyspace,
-            context,
-            restrict_to_diff,
-            output,
-            workspace,
-            format,
-        ),
         Command::Drop { db, keyspace } => drop_keyspace_cmd(db, keyspace),
         other => unreachable!("dispatch_snapshot called with non-snapshot command: {other:?}"),
     }
@@ -268,4 +212,74 @@ pub(crate) fn dispatch_enrich(cmd: Command) -> Result<(), CfdbCliError> {
         }
     };
     enrich(db, keyspace, verb, workspace)
+}
+
+/// Dispatch helper for the judgment-layer verbs — `scope`, `classify`,
+/// `check` and the two Phase-A rescue stubs `find-canonical` /
+/// `list-bypasses`. Compiled only with the `classify` feature (RFC-059
+/// §3.3): the facts-only binary has neither the variants nor this arm.
+#[cfg(feature = "classify")]
+pub(crate) fn dispatch_classify(cmd: Command) -> Result<(), CfdbCliError> {
+    match cmd {
+        Command::Scope {
+            db,
+            context,
+            workspace,
+            format,
+            output,
+            keyspace,
+            explain,
+            production_only,
+        } => scope(
+            &db,
+            &context,
+            workspace.as_deref(),
+            &format,
+            output.as_deref(),
+            keyspace.as_deref(),
+            explain,
+            production_only,
+        ),
+        Command::Classify {
+            db,
+            keyspace,
+            context,
+            restrict_to_diff,
+            workspace,
+            output,
+            format,
+        } => classify(
+            db,
+            keyspace,
+            context,
+            restrict_to_diff,
+            output,
+            workspace,
+            format,
+        ),
+        Command::Check {
+            db,
+            keyspace,
+            trigger,
+            no_fail,
+        } => {
+            let rows_found = check(&db, &keyspace, trigger)?;
+            if rows_found > 0 && !no_fail {
+                // Exit 30 = "rule rows returned, gate failure".
+                findings_exit();
+            }
+            Ok(())
+        }
+        Command::FindCanonical {
+            db,
+            keyspace,
+            concept,
+        } => typed_stub("find_canonical", &db, &keyspace, &[("concept", &concept)]),
+        Command::ListBypasses {
+            db,
+            keyspace,
+            concept,
+        } => typed_stub("list_bypasses", &db, &keyspace, &[("concept", &concept)]),
+        other => unreachable!("dispatch_classify called with non-classify command: {other:?}"),
+    }
 }

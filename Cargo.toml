@@ -14,12 +14,15 @@ members = [
     "crates/cfdb-hir-petgraph-adapter",
     "crates/cfdb-cli",
     "crates/cfdb-recall",
+    "crates/cfdb-enrich",
+    "crates/cfdb-eval",
+    "crates/cfdb-classify",
     "tools/check-prelude-triggers",
     "tools/dogfood-enrich",
 ]
 
 [workspace.package]
-version = "0.7.0"
+version = "0.8.0"
 edition = "2021"
 rust-version = "1.85"
 license = "MIT OR Apache-2.0"

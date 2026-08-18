@@ -1,0 +1,14 @@
+{
+ "level": "L2",
+ "instruments": [
+  {
+   "name": "cascade",
+   "pin": "cascade.rev"
+  }
+ ],
+ "corpus_pin": "doxa.rev",
+ "roots": {
+  "specs": "specs/concepts",
+  "code": "crates"
+ }
+}

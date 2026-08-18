@@ -1,8 +1,9 @@
 //! Integration-seam signature pin (RFC-044 §3.2 / #428, slice 044-B).
 //!
-//! Freezes all seven `StoreBackend` trait-method signatures — the entire
-//! storage / query-evaluation / lifecycle surface every backend must
-//! implement — in `tests/signatures.toml`. The test re-parses
+//! Freezes every trait-method signature in `src/store.rs` — `StoreBackend`'s
+//! six storage / lifecycle methods every backend must implement, plus
+//! `QueryBackend::execute`, the query-execution contract `cfdb-eval`
+//! implements — in `tests/signatures.toml`. The test re-parses
 //! `src/store.rs` with `syn`, walks the trait's method items, renders each
 //! [`syn::Signature`] to a deterministic token string via `quote::quote!`,
 //! and asserts byte-equality against the frozen values. A silent change to

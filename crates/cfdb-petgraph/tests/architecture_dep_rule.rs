@@ -169,3 +169,22 @@ fn cfdb_petgraph_depends_on_cfdb_core_and_petgraph() {
         "cfdb-petgraph must depend on petgraph (the backend)"
     );
 }
+
+/// The evaluator reads this backend through `GraphReader`; the backend never
+/// links the evaluator back — not for production, not for tests. This is the
+/// one edge with no legitimate exception in either manifest section, so it is
+/// checked over the whole file rather than `[dependencies]` alone.
+#[test]
+fn cfdb_petgraph_never_links_cfdb_eval_in_any_section() {
+    let offending: Vec<&str> = CARGO_TOML
+        .lines()
+        .filter(|l| !l.trim_start().starts_with('#'))
+        .filter(|l| l.contains("cfdb-eval"))
+        .collect();
+    assert!(
+        offending.is_empty(),
+        "cfdb-petgraph/Cargo.toml names cfdb-eval (dependencies or dev-dependencies): {offending:?}\n\
+         The evaluator depends on this backend only through cfdb-core's GraphReader port; the \
+         reverse edge is never legitimate — move the test that wants it into cfdb-eval instead."
+    );
+}

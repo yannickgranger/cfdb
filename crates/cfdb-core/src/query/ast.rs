@@ -110,12 +110,12 @@ pub struct EdgePattern {
     pub var_length: Option<(u32, u32)>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Direction {
-    Out,
-    In,
-    Undirected,
-}
+/// Graph-topology vocabulary, not query-grammar — lives in `crate::schema`
+/// (peer of `Label`/`EdgeLabel`) so `cfdb-enrich`'s `GraphView` port can
+/// depend on it without pulling in the query grammar (RFC-056 §3.3).
+/// Re-exported here so every existing `cfdb_core::query::ast::Direction` /
+/// `cfdb_core::query::Direction` caller keeps compiling unchanged.
+pub use crate::schema::Direction;
 
 /// WHERE clause predicate tree.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

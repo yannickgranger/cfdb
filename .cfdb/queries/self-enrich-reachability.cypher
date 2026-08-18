@@ -5,7 +5,7 @@
 // reachable from at least one `:EntryPoint` over the call graph after
 // the combined `cfdb extract --features hir` + `cfdb enrich-reachability`
 // pipeline. The pass writes `:Item.reachable_from_entry` (bool) per
-// `crates/cfdb-petgraph/src/enrich/reachability.rs:72,202` — that
+// `crates/cfdb-enrich/src/reachability.rs` — that
 // attribute is the gating signal here.
 //
 // # Why we read `reachable_from_entry`, not traverse `CALLS*`
@@ -63,7 +63,7 @@
 // `MATCH (i:Item) WHERE i.kind = "fn" AND i.reachable_from_entry = false`
 // may bind zero rows on a happy-path keyspace where every fn is
 // reachable. Under the cfdb-query subset's SQL no-group-no-row rule
-// (`crates/cfdb-petgraph/src/eval/with_clause.rs::group_and_aggregate`),
+// (`crates/cfdb-eval/src/eval/with_clause.rs::group_and_aggregate`),
 // `WITH count(i) AS unreachable_fn_count` then produces ZERO output
 // rows, the WHERE never fires, and the harness sees zero violations —
 // the desired "invariant holds" state. When ≥1 fn is unreachable, the
@@ -85,7 +85,7 @@
 // absent property. An equality comparison (`= false`) matches the
 // shape used by `self-enrich-deprecation.cypher` (`= true`) and
 // stays inside the verified subset surface (`compare_propvalues` in
-// `crates/cfdb-petgraph/src/eval/predicate.rs`).
+// `crates/cfdb-eval/src/eval/predicate.rs`).
 //
 // # Degraded-path interaction
 //

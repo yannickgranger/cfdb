@@ -190,7 +190,7 @@ pub(super) fn edge_descriptors() -> Vec<EdgeLabelDescriptor> {
             attributes: vec![],
             from: vec![Label::new(Label::ITEM)],
             to: vec![Label::new(Label::CONCEPT)],
-            provenance: Provenance::Extractor,
+            provenance: Provenance::EnrichConcepts,
         },
         EdgeLabelDescriptor {
             label: EdgeLabel::new(EdgeLabel::CANONICAL_FOR),
@@ -199,7 +199,7 @@ pub(super) fn edge_descriptors() -> Vec<EdgeLabelDescriptor> {
             attributes: vec![],
             from: vec![Label::new(Label::ITEM)],
             to: vec![Label::new(Label::CONCEPT)],
-            provenance: Provenance::Extractor,
+            provenance: Provenance::EnrichConcepts,
         },
         EdgeLabelDescriptor {
             label: EdgeLabel::new(EdgeLabel::EQUIVALENT_TO),
@@ -219,7 +219,7 @@ pub(super) fn edge_descriptors() -> Vec<EdgeLabelDescriptor> {
             attributes: vec![],
             from: vec![Label::new(Label::ITEM)],
             to: vec![Label::new(Label::RFC_DOC)],
-            provenance: Provenance::Extractor,
+            provenance: Provenance::EnrichRfcDocs,
         },
     ]
 }

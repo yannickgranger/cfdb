@@ -1,4 +1,4 @@
-# RFC-044 §3.2 / #428 — frozen composition-root factory signatures for cfdb-cli.
+# Frozen composition-root factory signatures for cfdb-cli.
 # Each value is the deterministic `quote::quote!(#sig).to_string()` rendering of
 # the named `pub(crate) fn`'s `syn::Signature` in src/compose.rs. Captured by
 # running tests/signatures.rs — do NOT hand-edit. The pinned-key count MUST equal
@@ -10,3 +10,5 @@ load_store = "fn load_store (db : & Path , keyspace : & str ,) -> Result < (Petg
 load_store_with_workspace = "fn load_store_with_workspace (db : & Path , keyspace : & str , workspace_root : Option < PathBuf > ,) -> Result < (PetgraphStore , Keyspace) , CfdbCliError >"
 save_store = "fn save_store (store : & PetgraphStore , keyspace : & Keyspace , db : & Path ,) -> Result < PathBuf , CfdbCliError >"
 list_keyspace_names = "fn list_keyspace_names (db : & Path) -> Result < Vec < String > , CfdbCliError >"
+query_engine = "fn query_engine (store : & PetgraphStore) -> QueryEngine < '_ , PetgraphStore >"
+classify_engine = "fn classify_engine (store : & PetgraphStore) -> ClassifyEngine < '_ , PetgraphStore >"

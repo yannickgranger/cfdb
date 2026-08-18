@@ -169,3 +169,19 @@ fn cfdb_query_depends_on_cfdb_core() {
         "cfdb-query must depend on cfdb-core (Query AST types live there)"
     );
 }
+
+/// The taxonomy moved out of this crate into cfdb-classify; the parser must
+/// never grow an edge back to it in any Cargo section — the direction is
+/// parser → AST → judgments, never reverse.
+#[test]
+fn cfdb_query_never_links_cfdb_classify_in_any_section() {
+    let offending: Vec<&str> = CARGO_TOML
+        .lines()
+        .filter(|l| !l.trim_start().starts_with('#'))
+        .filter(|l| l.contains("cfdb-classify"))
+        .collect();
+    assert!(
+        offending.is_empty(),
+        "cfdb-query/Cargo.toml names cfdb-classify (dependencies or dev-dependencies): {offending:?}"
+    );
+}

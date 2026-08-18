@@ -1,4 +1,4 @@
-//! Self-dogfood test for `enrich_metrics` (issue #203 — RFC-036 §3.3).
+//! Self-dogfood test for `enrich_metrics`.
 //!
 //! Extracts cfdb's own source tree, attaches the workspace root to the
 //! store, runs `enrich_metrics` twice, and asserts:
@@ -11,11 +11,15 @@
 //! dispatcher returns `ran: false` and nothing is populated, so no
 //! assertions would hold.
 //!
-//! G6 invariant (RFC-036 §3.3): `test_coverage` depends on
-//! `cargo-llvm-cov` toolchain version and is therefore excluded from G1.
+//! G6 invariant: `test_coverage` depends on the `cargo-llvm-cov` toolchain
+//! version and is therefore excluded from G1.
 //! This test does NOT exercise the `llvm-cov` subfeature — the default
 //! `Config { coverage_json: None }` leaves `test_coverage` unpopulated,
 //! so the exclusion is observed trivially.
+//!
+//! Routes through `cfdb_enrich::EnrichEngine`, not `PetgraphStore`
+//! directly. Still never exercises `crates/cfdb-cli/src/enrich.rs`'s
+//! dispatcher, though — see `enrich_metrics_cli.rs` for that.
 
 #![cfg(feature = "quality-metrics")]
 
@@ -25,6 +29,7 @@ use cfdb_core::enrich::EnrichBackend;
 use cfdb_core::fact::PropValue;
 use cfdb_core::schema::{Keyspace, Label};
 use cfdb_core::store::StoreBackend;
+use cfdb_enrich::EnrichEngine;
 use cfdb_petgraph::PetgraphStore;
 
 fn cfdb_workspace_root() -> PathBuf {
@@ -49,7 +54,9 @@ fn build_enriched_store() -> (PetgraphStore, Keyspace, usize) {
         .ingest_edges(&ks, edges)
         .expect("ingest extractor edges");
 
-    let report = store.enrich_metrics(&ks).expect("enrich_metrics dispatch");
+    let report = EnrichEngine::new(&mut store)
+        .enrich_metrics(&ks)
+        .expect("enrich_metrics dispatch");
     assert!(
         report.ran,
         "enrich_metrics must run with `quality-metrics` feature: {:?}",

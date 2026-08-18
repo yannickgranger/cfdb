@@ -110,9 +110,9 @@ pub trait EnrichBackend: Send + Sync {
     /// lands in slice 43-C (issue #106) as an **extractor extension** in
     /// `cfdb-extractor/src/attrs.rs`, not as a Phase D enrichment — the
     /// `#[deprecated]` attribute is a syntactic fact and the extractor
-    /// already walks attributes. The `PetgraphStore::enrich_deprecation`
-    /// override will return a `ran: true, attrs_written: 0` report naming
-    /// the extractor as the real source.
+    /// already walks attributes. `EnrichEngine::enrich_deprecation`
+    /// returns a `ran: true, attrs_written: 0` report naming the
+    /// extractor as the real source.
     fn enrich_deprecation(&mut self, _keyspace: &Keyspace) -> Result<EnrichReport, StoreError> {
         Ok(EnrichReport::not_implemented("enrich_deprecation"))
     }

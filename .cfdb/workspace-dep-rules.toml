@@ -36,6 +36,9 @@ forbidden = [
   "cfdb-query",          # parser: cfdb-query -> cfdb-core, never reverse
   "cfdb-extractor",      # producers of Node/Edge facts
   "cfdb-hir-extractor",
+  "cfdb-enrich",         # RFC-056: impls EnrichBackend over GraphBackend — depends on cfdb-core
+  "cfdb-eval",           # RFC-057: impls QueryBackend over GraphReader — depends on cfdb-core
+  "cfdb-classify",        # RFC-059: the judgment layer sits above; never linked from below
   "cfdb-cli",            # wire-form / entry points
   "cfdb-http",
   "syn",                 # heavy parser/IR — extractor-only
@@ -87,33 +90,37 @@ forbidden = [
 ]
 
 [cfdb-petgraph]
-# Concrete StoreBackend. RFC-029 §8: depends ONLY on cfdb-core (trait + data
-# model) and its own infrastructure (petgraph) + feature-gated enrichment I/O.
+# Concrete StoreBackend + GraphBackend. RFC-029 §8: depends ONLY on cfdb-core
+# (traits + data model) and its own infrastructure (petgraph). Query
+# evaluation lives in cfdb-eval, reached through the GraphReader port — never
+# linked from here (RFC-057).
 allowed = [
-  "cfdb-core",      # the hub — impls StoreBackend defined there
+  "cfdb-core",      # the hub — impls StoreBackend / GraphBackend defined there
   "petgraph",       # the backend itself
   "serde",
   "serde_json",
   "thiserror",
-  "regex",          # predicate evaluator (regexp_extract)
+  "regex",          # index/spec.rs ComputedKey::ConversionPrefix key extraction
   "indexmap",       # stable-order binding tables (determinism G1)
-  "git2",           # enrich_git_history (feature git-enrich, #105)
-  "cfdb-concepts",  # enrich_bounded_context shares compute_bounded_context
   "toml",           # .cfdb/indexes.toml loader (RFC-035 #180)
-  "syn",            # enrich_metrics re-parse (feature quality-metrics, #203 / CP6)
-  "sha2",           # dup_cluster_id hash (feature quality-metrics, #203)
 ]
 forbidden = [
   "cfdb-query",          # query text parsing is not the backend's concern
   "cfdb-extractor",      # different axis (code->facts); CP6 forbids this edge
   "cfdb-hir-extractor",
+  "cfdb-enrich",          # enrichment lives outside the backend, never back in
+  "cfdb-eval",            # RFC-057: the evaluator reads through GraphReader; the backend never links it (dev-deps included — see tests/architecture_dep_rule.rs)
+  "cfdb-classify",        # RFC-059: the judgment layer sits above; never linked from below
+  "git2",                 # enrichment I/O belongs to cfdb-enrich; the backend
+  "syn",                  #   only stores and queries facts
+  "sha2",
   "cfdb-store-petgraph",  # sibling backends don't know each other
   "cfdb-store-lbug",
   "cfdb-recall",          # entry points
   "cfdb-cli",
   "cfdb-http",
-  "proc-macro2",          # NB: syn is ALLOWED (CP6) but its proc-macro
-  "quote",                #     siblings stay out of the backend
+  "proc-macro2",
+  "quote",
   "ra-ap-hir",
   "ra-ap-syntax",
   "tokio",
@@ -122,6 +129,113 @@ forbidden = [
   "reqwest",
 ]
 
+[cfdb-enrich]
+# RFC-056 — strangler-fig destination for cfdb-petgraph's 7 enrichment
+# passes. Depends ONLY on cfdb-core (the GraphBackend port + EnrichBackend
+# trait it implements). Never depends on cfdb-petgraph or any other
+# concrete storage engine — that dependency would defeat the whole point
+# of the port (an enrichment pass swappable across backends).
+allowed = [
+  "cfdb-core",      # the hub — GraphBackend/GraphView port + EnrichBackend trait
+  "cfdb-concepts",  # .cfdb/concepts/*.toml resolution (bounded_context, concepts)
+  "git2",           # git_history, feature-gated (git-enrich)
+  "syn",            # metrics AST re-parse, feature-gated (quality-metrics)
+  "sha2",           # metrics dup_cluster_id hash, feature-gated (quality-metrics)
+  "serde",          # metrics coverage JSON deserialize, feature-gated (quality-metrics)
+  "serde_json",     # metrics coverage JSON deserialize, feature-gated (quality-metrics)
+]
+forbidden = [
+  "cfdb-petgraph",        # RFC-056: the port exists so this crate never needs the concrete backend
+  "cfdb-store-petgraph",
+  "cfdb-store-lbug",
+  "cfdb-query",           # query text parsing is not an enrichment concern
+  "cfdb-eval",            # query evaluation is not an enrichment concern either
+  "cfdb-classify",        # RFC-059: the judgment layer sits above; never linked from below
+  "cfdb-extractor",       # different axis (code->facts)
+  "cfdb-hir-extractor",
+  "cfdb-recall",          # entry points
+  "cfdb-cli",
+  "cfdb-http",
+  "tokio",
+  "axum",
+  "hyper",
+  "reqwest",
+]
+
+[cfdb-eval]
+# RFC-057 — the Cypher evaluator, split out of cfdb-petgraph behind the
+# GraphReader port. Depends ONLY on cfdb-core (the GraphBackend/GraphReader
+# port + the QueryBackend trait it implements) and its own small runtime
+# deps. Never depends on cfdb-petgraph or any concrete storage engine — the
+# port exists so the evaluator is swappable across backends.
+allowed = [
+  "cfdb-core",      # the hub — GraphReader/GraphBackend port + QueryBackend trait
+  "regex",          # regexp_extract / =~ predicate UDFs (per-run compiled cache)
+  "serde_json",     # set-relationship UDFs parse the entries_normalized JSON-array prop
+]
+forbidden = [
+  "cfdb-petgraph",        # RFC-057: the port exists so this crate never needs the concrete backend
+  "cfdb-store-petgraph",
+  "cfdb-store-lbug",
+  "petgraph",             # no storage representation leaks past GraphReader
+  "indexmap",
+  "toml",
+  "cfdb-classify",        # RFC-059: judgments sit above the evaluator; never linked from it
+  "cfdb-query",           # query text parsing is upstream of evaluation, never linked from it
+  "cfdb-enrich",          # different axis (enrichment writes; evaluation reads)
+  "cfdb-extractor",       # different axis (code->facts)
+  "cfdb-hir-extractor",
+  "cfdb-recall",          # entry points
+  "cfdb-cli",
+  "cfdb-http",
+  "tokio",
+  "axum",
+  "hyper",
+  "reqwest",
+]
+
+
+[cfdb-classify]
+# The judgment layer: DebtClass taxonomy, Finding rows, scope/classify
+# envelopes and (from 059-B) the ClassifyEngine that runs the classifier rules
+# and the T1/T3 triggers. Sits above the evaluator: reads a keyspace only
+# through cfdb-core's GraphBackend port via cfdb-eval's QueryEngine, parses
+# rule text through cfdb-query. Never names a concrete storage engine, an
+# extractor, or an entry point.
+allowed = [
+  "cfdb-core",      # schema vocabulary + GraphBackend port + Warning/Row types
+  "cfdb-query",     # parse / lint_shape / list_items_matching / DiffEnvelope
+  "cfdb-eval",      # QueryEngine — the QueryBackend implementor and the explain source
+  "cfdb-classify",        # RFC-059: the judgment layer sits above; never linked from below
+  "serde",
+  "serde_json",
+  "thiserror",      # ClassifyError
+]
+forbidden = [
+  "cfdb-petgraph",        # storage is reached through the GraphBackend port only
+  "cfdb-store-petgraph",
+  "cfdb-store-lbug",
+  "petgraph",
+  "indexmap",
+  "toml",                 # skill routing left with its TOML; no policy file is read here
+  "cfdb-enrich",          # judgments read enriched facts; they never run enrichment
+  "cfdb-extractor",       # different axis (code->facts)
+  "cfdb-extractor-shared",
+  "cfdb-extractor-php",
+  "cfdb-extractor-ts",
+  "cfdb-hir-extractor",
+  "cfdb-hir-petgraph-adapter",
+  "cfdb-recall",          # entry points
+  "cfdb-cli",
+  "cfdb-lang",
+  "cfdb-concepts",
+  "clap",
+  "cfdb-http",
+  "tokio",
+  "axum",
+  "hyper",
+  "reqwest",
+]
 [cfdb-query]
 # Parser + builder layer. RFC-029 §8: depends on cfdb-core to produce a Query
 # AST; MUST NOT depend on any sibling adapter or entry-point crate.
@@ -131,12 +245,13 @@ allowed = [
   "serde_json",
   "thiserror",
   "chumsky",     # parser combinator (RFC-029 §10.2)
-  "toml",        # SkillRoutingTable parses .cfdb/skill-routing.toml (#48)
 ]
 forbidden = [
   "cfdb-petgraph",        # must not bind query parsing to a backend
   "cfdb-store-petgraph",
   "cfdb-store-lbug",
+  "cfdb-eval",            # nor to the evaluator: parser -> AST -> evaluator, never reverse
+  "cfdb-classify",        # RFC-059: the judgment layer sits above; never linked from below
   "cfdb-extractor",       # different axis (code->facts)
   "cfdb-hir-extractor",
   "cfdb-recall",          # depend on cfdb-query, never reverse

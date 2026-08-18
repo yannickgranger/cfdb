@@ -1,12 +1,12 @@
 # cfdb Cypher UDFs — reference
 
 **Status:** nine built-in functions, hard-wired in the evaluator
-(`crates/cfdb-petgraph/src/eval/predicate.rs::eval_call`). There is no
+(`crates/cfdb-eval/src/eval/predicate.rs::eval_call`). There is no
 user-facing registry — adding a new UDF is an RFC-gated change.
 
 Related:
 - RFC specification: `docs/RFC-cfdb.md` §A1.5
-- Implementation: `crates/cfdb-petgraph/src/eval/predicate.rs`
+- Implementation: `crates/cfdb-eval/src/eval/predicate.rs`
 - Parser: `crates/cfdb-query/src/parser/expression.rs` (`Expr::Call`)
 
 Every UDF appears in the Cypher `WHERE` clause as a first-class
@@ -124,7 +124,7 @@ Given two fn / method `:Item` nodes `a` and `b`:
 - `signature_divergent(a.signature, b.signature) = true` → divergent
   calling contract despite name / bounded-context / concept overlap.
   This is the Context Homonym signal — route to `/operate-module`, NOT
-  `/sweep-epic`, per RFC §A2.3 SkillRoutingTable.
+  `/sweep-epic`, per RFC §A2.3 (skill routing is external to cfdb).
 
 ### Example — Context Homonym rule
 
@@ -224,7 +224,7 @@ The full rule with test filters and triage columns ships at
 Adding a new built-in is an RFC-gated change per `CLAUDE.md` §3. The
 change lands as one atomic PR touching:
 
-1. `crates/cfdb-petgraph/src/eval/predicate.rs` — new arm in
+1. `crates/cfdb-eval/src/eval/predicate.rs` — new arm in
    `eval_call` + a `call_<name>` helper mirroring the existing shape.
 2. `docs/udfs.md` — this file, with a section following the above
    template (inputs, output, type-mismatch, normalization, example).

@@ -18,6 +18,8 @@
 //! Template follows `arch_ban_utc_now.rs` + `trigger_t1.rs` —
 //! `Command::cargo_bin("cfdb")` + tempdir + real keyspace. No mocks.
 
+#![cfg(feature = "classify")]
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
