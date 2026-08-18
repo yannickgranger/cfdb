@@ -6,13 +6,14 @@
 use std::collections::BTreeSet;
 
 use cfdb_core::fact::PropValue;
+use cfdb_core::graph::GraphReader;
 use cfdb_core::query::{Expr, ProjectionValue, ReturnClause};
 use cfdb_core::result::{Row, RowValue};
 
 use super::util::{expr_alias, projection_alias, row_sort_key, row_value_cmp};
 use super::{Binding, Bindings, Evaluator};
 
-impl<'a> Evaluator<'a> {
+impl<'a, G: GraphReader + ?Sized> Evaluator<'a, G> {
     pub(super) fn apply_return(&self, table: &[Bindings], ret: &ReturnClause) -> Vec<Row> {
         let has_aggregation = ret
             .projections

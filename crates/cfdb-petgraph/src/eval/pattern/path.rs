@@ -5,16 +5,15 @@
 
 use std::collections::{BTreeSet, VecDeque};
 
+use cfdb_core::graph::{EdgeHandle, GraphReader, NodeHandle};
 use cfdb_core::query::{Direction, EdgePattern, NodePattern, PathPattern, Predicate};
 use cfdb_core::result::{Warning, WarningKind};
-use petgraph::stable_graph::{EdgeIndex, NodeIndex};
-use petgraph::visit::EdgeRef;
 
 use super::coupling::{edge_label_matches, matches_existing};
 use crate::eval::util::suggest_label;
 use crate::eval::{Binding, BindingStream, Bindings, Evaluator, DEFAULT_VAR_LENGTH_MAX};
 
-impl<'a> Evaluator<'a> {
+impl<'a, G: GraphReader + ?Sized> Evaluator<'a, G> {
     pub(in crate::eval) fn apply_path_pattern<'e>(
         &'e self,
         table: BindingStream<'e>,
@@ -41,10 +40,8 @@ impl<'a> Evaluator<'a> {
         if self.state.has_edge_label(label) {
             return false;
         }
-        let suggestion = suggest_label(
-            label.as_str(),
-            self.state.edge_labels.iter().map(|l| l.as_str()),
-        );
+        let known = self.state.edge_labels();
+        let suggestion = suggest_label(label.as_str(), known.iter().map(|l| l.as_str()));
         self.warnings.borrow_mut().push(Warning {
             kind: WarningKind::UnknownEdgeLabel,
             message: format!("unknown edge label: {}", label),
@@ -54,7 +51,7 @@ impl<'a> Evaluator<'a> {
     }
 
     /// Expand one binding row by enumerating src candidates, walking edges,
-    /// and emitting new rows for each `(src_idx, dst_idx)` pair that passes
+    /// and emitting new rows for each `(src, dst)` pair that passes
     /// [`Self::build_path_binding`].
     fn emit_path_bindings(
         &self,
@@ -64,57 +61,55 @@ impl<'a> Evaluator<'a> {
         where_clause: Option<&Predicate>,
     ) {
         let from_candidates = self.resolve_endpoint(bindings, &pp.from, where_clause);
-        for src_idx in from_candidates {
-            if !self.node_props_match(src_idx, &pp.from) {
+        for src in from_candidates {
+            if !self.node_props_match(src, &pp.from) {
                 continue;
             }
-            let reached = self.traverse(src_idx, &pp.edge);
-            for (dst_idx, edge_idx) in reached {
-                if let Some(next) =
-                    self.build_path_binding(bindings, src_idx, dst_idx, edge_idx, pp)
-                {
+            let reached = self.traverse(src, &pp.edge);
+            for (dst, edge_h) in reached {
+                if let Some(next) = self.build_path_binding(bindings, src, dst, edge_h, pp) {
                     out.push(next);
                 }
             }
         }
     }
 
-    /// Assemble a single output binding for a `(src_idx, dst_idx)` path. Runs
+    /// Assemble a single output binding for a `(src, dst)` path. Runs
     /// the destination-side filters, clones the carrying bindings, inserts
     /// `from.var` / `to.var` / `edge.var` (or fails if a pre-bound `to.var`
-    /// disagrees with `dst_idx`). `edge_idx` is `Some` for single-hop
+    /// disagrees with `dst`). `edge_h` is `Some` for single-hop
     /// traversals and `None` for variable-length paths where `r` would
     /// otherwise need to bind to a list of edges — that shape is deferred
     /// (issue #242). Returns `None` when any filter rejects the pair.
     fn build_path_binding(
         &self,
         bindings: &Bindings,
-        src_idx: NodeIndex,
-        dst_idx: NodeIndex,
-        edge_idx: Option<EdgeIndex>,
+        src: NodeHandle,
+        dst: NodeHandle,
+        edge_h: Option<EdgeHandle>,
         pp: &PathPattern,
     ) -> Option<Bindings> {
-        if !self.matches_node_pattern_for_endpoint(dst_idx, &pp.to) {
+        if !self.matches_node_pattern_for_endpoint(dst, &pp.to) {
             return None;
         }
-        if !self.node_props_match(dst_idx, &pp.to) {
+        if !self.node_props_match(dst, &pp.to) {
             return None;
         }
         let mut next = bindings.clone();
         if let Some(var) = &pp.from.var {
-            next.insert(var.clone(), Binding::NodeRef(src_idx));
+            next.insert(var.clone(), Binding::NodeRef(src));
         }
         if let Some(var) = &pp.to.var {
             match next.get(var) {
-                Some(existing) if !matches_existing(existing, dst_idx) => return None,
+                Some(existing) if !matches_existing(existing, dst) => return None,
                 Some(_) => {}
                 None => {
-                    next.insert(var.clone(), Binding::NodeRef(dst_idx));
+                    next.insert(var.clone(), Binding::NodeRef(dst));
                 }
             }
         }
-        if let (Some(var), Some(idx)) = (&pp.edge.var, edge_idx) {
-            next.insert(var.clone(), Binding::EdgeRef(idx));
+        if let (Some(var), Some(h)) = (&pp.edge.var, edge_h) {
+            next.insert(var.clone(), Binding::EdgeRef(h));
         }
         Some(next)
     }
@@ -127,10 +122,10 @@ impl<'a> Evaluator<'a> {
         bindings: &Bindings,
         np: &NodePattern,
         where_clause: Option<&Predicate>,
-    ) -> Vec<NodeIndex> {
+    ) -> Vec<NodeHandle> {
         if let Some(var) = &np.var {
-            if let Some(Binding::NodeRef(idx)) = bindings.get(var) {
-                return vec![*idx];
+            if let Some(Binding::NodeRef(h)) = bindings.get(var) {
+                return vec![*h];
             }
         }
         self.candidate_nodes(np, where_clause, bindings)
@@ -140,19 +135,17 @@ impl<'a> Evaluator<'a> {
     /// We don't emit UnknownLabel warnings from here — the outer
     /// `candidate_nodes` already warns on `from`; a `to` label is informational
     /// and we simply filter.
-    fn matches_node_pattern_for_endpoint(&self, idx: NodeIndex, np: &NodePattern) -> bool {
-        if let Some(label) = &np.label {
-            if &self.state.graph[idx].label != label {
-                return false;
-            }
+    fn matches_node_pattern_for_endpoint(&self, h: NodeHandle, np: &NodePattern) -> bool {
+        match &np.label {
+            Some(label) => self.state.node(h).is_some_and(|n| &n.label == label),
+            None => true,
         }
-        true
     }
 
-    /// Traverse edges from `src_idx` according to `edge`. Honors direction
-    /// and variable-length quantifier. Returns `(dst_idx, edge_idx)` pairs
-    /// for destinations reached. `edge_idx` is `Some` only for single-hop
-    /// emissions; for variable-length paths `edge_idx` is `None` — the
+    /// Traverse edges from `src` according to `edge`. Honors direction
+    /// and variable-length quantifier. Returns `(dst, edge)` pairs
+    /// for destinations reached. `edge` is `Some` only for single-hop
+    /// emissions; for variable-length paths `edge` is `None` — the
     /// edge variable would otherwise need to bind to a list of edges, and
     /// list-of-edges binding is deferred (issue #242).
     ///
@@ -164,30 +157,30 @@ impl<'a> Evaluator<'a> {
     /// reachability semantics.
     fn traverse(
         &self,
-        src_idx: NodeIndex,
+        src: NodeHandle,
         edge: &EdgePattern,
-    ) -> Vec<(NodeIndex, Option<EdgeIndex>)> {
+    ) -> Vec<(NodeHandle, Option<EdgeHandle>)> {
         if edge.var_length.is_none() {
-            return self.traverse_single_hop(src_idx, edge);
+            return self.traverse_single_hop(src, edge);
         }
-        self.traverse_bfs(src_idx, edge)
+        self.traverse_bfs(src, edge)
     }
 
     /// Single-hop traversal — emits one row per matching edge at depth=1.
     /// No BFS, no visited-set, no parallel-edge dedup (each edge counts).
     fn traverse_single_hop(
         &self,
-        src_idx: NodeIndex,
+        src: NodeHandle,
         edge: &EdgePattern,
-    ) -> Vec<(NodeIndex, Option<EdgeIndex>)> {
+    ) -> Vec<(NodeHandle, Option<EdgeHandle>)> {
         let edges = match edge.direction {
-            Direction::Out => self.collect_directed_edges(src_idx, edge, true, false),
-            Direction::In => self.collect_directed_edges(src_idx, edge, false, true),
-            Direction::Undirected => self.collect_directed_edges(src_idx, edge, true, true),
+            Direction::Out => self.collect_directed_edges(src, edge, true, false),
+            Direction::In => self.collect_directed_edges(src, edge, false, true),
+            Direction::Undirected => self.collect_directed_edges(src, edge, true, true),
         };
-        let mut out: Vec<(NodeIndex, Option<EdgeIndex>)> =
+        let mut out: Vec<(NodeHandle, Option<EdgeHandle>)> =
             edges.into_iter().map(|(n, e)| (n, Some(e))).collect();
-        out.sort_by_key(|(n, e)| (*n, e.map(|i| i.index())));
+        out.sort_by_key(|(n, e)| (*n, *e));
         out
     }
 
@@ -196,9 +189,9 @@ impl<'a> Evaluator<'a> {
     /// since the edge variable cannot bind to a list in this subset.
     fn traverse_bfs(
         &self,
-        src_idx: NodeIndex,
+        src: NodeHandle,
         edge: &EdgePattern,
-    ) -> Vec<(NodeIndex, Option<EdgeIndex>)> {
+    ) -> Vec<(NodeHandle, Option<EdgeHandle>)> {
         // Resolve the BFS frontier ceiling from the var-length quantifier.
         // The ceiling is honoured for explicit bounds and is unbounded for
         // the open form — it was previously clamped to `DEFAULT_VAR_LENGTH_MAX`
@@ -219,26 +212,26 @@ impl<'a> Evaluator<'a> {
             None => (1, DEFAULT_VAR_LENGTH_MAX),
         };
 
-        let mut out: Vec<(NodeIndex, Option<EdgeIndex>)> = Vec::new();
-        let mut visited: BTreeSet<NodeIndex> = BTreeSet::new();
-        let mut queue: VecDeque<(NodeIndex, u32)> = VecDeque::new();
-        queue.push_back((src_idx, 0));
-        visited.insert(src_idx);
+        let mut out: Vec<(NodeHandle, Option<EdgeHandle>)> = Vec::new();
+        let mut visited: BTreeSet<NodeHandle> = BTreeSet::new();
+        let mut queue: VecDeque<(NodeHandle, u32)> = VecDeque::new();
+        queue.push_back((src, 0));
+        visited.insert(src);
 
-        while let Some((idx, depth)) = queue.pop_front() {
+        while let Some((h, depth)) = queue.pop_front() {
             if depth >= min_depth && depth > 0 {
-                out.push((idx, None));
+                out.push((h, None));
             }
             if depth >= max_depth {
                 continue;
             }
             let next_depth = depth + 1;
             let edges_iter = match edge.direction {
-                Direction::Out => self.collect_directed_edges(idx, edge, true, false),
-                Direction::In => self.collect_directed_edges(idx, edge, false, true),
-                Direction::Undirected => self.collect_directed_edges(idx, edge, true, true),
+                Direction::Out => self.collect_directed_edges(h, edge, true, false),
+                Direction::In => self.collect_directed_edges(h, edge, false, true),
+                Direction::Undirected => self.collect_directed_edges(h, edge, true, true),
             };
-            for (target, _edge_idx) in edges_iter {
+            for (target, _edge_h) in edges_iter {
                 if visited.insert(target) {
                     queue.push_back((target, next_depth));
                 }
@@ -248,31 +241,41 @@ impl<'a> Evaluator<'a> {
         out
     }
 
+    /// `(other endpoint, edge)` for every edge at `h` in the requested
+    /// direction(s) whose label satisfies `edge`. An unlabelled pattern
+    /// keeps every edge without dereferencing it.
     fn collect_directed_edges(
         &self,
-        idx: NodeIndex,
+        h: NodeHandle,
         edge: &EdgePattern,
         outgoing: bool,
         incoming: bool,
-    ) -> Vec<(NodeIndex, EdgeIndex)> {
-        let mut targets: Vec<(NodeIndex, EdgeIndex)> = Vec::new();
+    ) -> Vec<(NodeHandle, EdgeHandle)> {
+        let keep = |eh: EdgeHandle| {
+            edge.label.is_none()
+                || self
+                    .state
+                    .edge(eh)
+                    .is_some_and(|e| edge_label_matches(edge, e))
+        };
+        let mut targets: Vec<(NodeHandle, EdgeHandle)> = Vec::new();
         if outgoing {
-            for e in self.state.graph.edges(idx) {
-                if edge_label_matches(edge, e.weight()) {
-                    targets.push((e.target(), e.id()));
-                }
-            }
+            targets.extend(
+                self.state
+                    .edges_out(h)
+                    .into_iter()
+                    .filter(|(eh, _)| keep(*eh))
+                    .map(|(eh, other)| (other, eh)),
+            );
         }
         if incoming {
-            for e in self
-                .state
-                .graph
-                .edges_directed(idx, petgraph::Direction::Incoming)
-            {
-                if edge_label_matches(edge, e.weight()) {
-                    targets.push((e.source(), e.id()));
-                }
-            }
+            targets.extend(
+                self.state
+                    .edges_in(h)
+                    .into_iter()
+                    .filter(|(eh, _)| keep(*eh))
+                    .map(|(eh, other)| (other, eh)),
+            );
         }
         targets
     }

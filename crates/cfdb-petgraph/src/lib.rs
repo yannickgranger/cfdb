@@ -41,6 +41,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use cfdb_core::fact::{Edge, Node};
+use cfdb_core::graph::GraphReader;
 use cfdb_core::query::Query;
 use cfdb_core::result::{QueryResult, Warning};
 use cfdb_core::schema::{Keyspace, SchemaVersion};
@@ -188,8 +189,9 @@ impl PetgraphStore {
             .keyspaces
             .get(keyspace)
             .ok_or_else(|| StoreError::UnknownKeyspace(keyspace.clone()))?;
+        let reader: &dyn GraphReader = state;
         let (mut result, explain) =
-            Evaluator::new_with_explain(state, &query.params).run_explained(query);
+            Evaluator::new_with_explain(reader, &query.params).run_explained(query);
         let mut prepended = state.materialized_ingest_warnings();
         prepended.append(&mut result.warnings);
         result.warnings = prepended;
@@ -225,7 +227,8 @@ impl StoreBackend for PetgraphStore {
             .keyspaces
             .get(keyspace)
             .ok_or_else(|| StoreError::UnknownKeyspace(keyspace.clone()))?;
-        let mut result = Evaluator::new(state, &query.params).run(query);
+        let reader: &dyn GraphReader = state;
+        let mut result = Evaluator::new(reader, &query.params).run(query);
         let mut prepended = state.materialized_ingest_warnings();
         prepended.append(&mut result.warnings);
         result.warnings = prepended;

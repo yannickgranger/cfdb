@@ -14,11 +14,12 @@
 //! 6. Apply `RETURN` — project, distinct, order, limit.
 //!
 //! Throughout, variable bindings are keyed by the user's variable names. A
-//! binding holds either a `NodeRef` (a `NodeIndex` we can dereference on
-//! demand) or a `Value` (a scalar literal from `UNWIND` or a WITH projection).
+//! binding holds either a `NodeRef` (a `NodeHandle` we can dereference on
+//! demand through the `GraphReader`) or a `Value` (a scalar literal from
+//! `UNWIND` or a WITH projection).
 //!
 //! Determinism: every join expansion iterates in the sorted order produced by
-//! `KeyspaceState::nodes_with_label` or `all_nodes_sorted`. Stream order is
+//! `GraphReader::nodes_with_label` or `all_nodes_sorted`. Stream order is
 //! preserved — `flat_map` consumes the input iterator in order and emits each
 //! per-row expansion in the order `candidate_nodes` produced. Collected rows
 //! in the final WHERE-filtered `Vec` therefore carry the same determinism as
@@ -30,11 +31,9 @@
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 
+use cfdb_core::graph::{EdgeHandle, GraphReader, NodeHandle};
 use cfdb_core::query::{ParamBinding, Pattern, Predicate, Query};
 use cfdb_core::result::{QueryResult, RowValue, Warning, WarningKind};
-use petgraph::stable_graph::{EdgeIndex, NodeIndex};
-
-use crate::graph::KeyspaceState;
 
 #[cfg(test)]
 mod cross_match_tests;
@@ -67,7 +66,7 @@ pub(super) const DEFAULT_VAR_LENGTH_MAX: u32 = 5;
 pub(super) enum Binding {
     /// A reference to a graph node. Dereferenced when a property access or
     /// projection needs concrete values.
-    NodeRef(NodeIndex),
+    NodeRef(NodeHandle),
     /// A reference to a graph edge. Bound by `build_path_binding` when a
     /// single-hop `PathPattern` names its edge variable (e.g. `-[r]->` or
     /// `-[r:LABEL]->`). Dereferenced by `eval_expr` for property access
@@ -75,7 +74,7 @@ pub(super) enum Binding {
     /// references in aggregations (`count(r)`). Unset for variable-length
     /// patterns where `r` would otherwise need to bind to a list of edges
     /// — variable-length edge binding is deferred.
-    EdgeRef(EdgeIndex),
+    EdgeRef(EdgeHandle),
     /// A concrete value — used for `UNWIND $list AS var` cross-joins and for
     /// projection aliases in `WITH`.
     Value(RowValue),
@@ -93,15 +92,16 @@ pub(super) type Bindings = BTreeMap<String, Binding>;
 /// iterator types that must unify at the match dispatch site.
 pub(super) type BindingStream<'e> = Box<dyn Iterator<Item = Bindings> + 'e>;
 
-/// Evaluator context. Holds the graph plus accumulating warnings and the
-/// query's param bag (so nested `NOT EXISTS { MATCH ... }` shares params).
+/// Evaluator context. Holds the graph (through its read-only port) plus
+/// accumulating warnings and the query's param bag (so nested
+/// `NOT EXISTS { MATCH ... }` shares params).
 ///
 /// `warnings` is wrapped in `RefCell` so streaming `apply_*` methods can
 /// take `&self` (not `&mut self`) and still accumulate warnings — this is
 /// what lets the pipeline chain through `Iterator::flat_map` without
 /// running into borrow-checker conflicts against a mutable receiver.
-pub(crate) struct Evaluator<'a> {
-    pub(crate) state: &'a KeyspaceState,
+pub(crate) struct Evaluator<'a, G: ?Sized> {
+    pub(crate) state: &'a G,
     pub(crate) params: &'a BTreeMap<String, ParamBinding>,
     pub(crate) warnings: RefCell<Vec<Warning>>,
     /// Explain-trace collector. `None` for the regular `execute` path (zero
@@ -120,11 +120,8 @@ pub(crate) struct Evaluator<'a> {
     pub(crate) regex_cache: RefCell<BTreeMap<String, regex::Regex>>,
 }
 
-impl<'a> Evaluator<'a> {
-    pub(crate) fn new(
-        state: &'a KeyspaceState,
-        params: &'a BTreeMap<String, ParamBinding>,
-    ) -> Self {
+impl<'a, G: GraphReader + ?Sized> Evaluator<'a, G> {
+    pub(crate) fn new(state: &'a G, params: &'a BTreeMap<String, ParamBinding>) -> Self {
         Self {
             state,
             params,
@@ -137,7 +134,7 @@ impl<'a> Evaluator<'a> {
     /// Enable explain-trace collection. Caller drains rows via
     /// [`Self::run_explained`].
     pub(crate) fn new_with_explain(
-        state: &'a KeyspaceState,
+        state: &'a G,
         params: &'a BTreeMap<String, ParamBinding>,
     ) -> Self {
         Self {

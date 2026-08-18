@@ -1,5 +1,5 @@
 //! Prescribed-test surface — asserts `candidate_nodes` returns the same
-//! `BTreeSet<NodeIndex>` with the index fast paths enabled and with a bare
+//! `BTreeSet<NodeHandle>` with the index fast paths enabled and with a bare
 //! `IndexSpec` (fallback to the full `by_label` scan).
 //!
 //! Three shapes are covered per the issue body:
@@ -13,7 +13,7 @@
 //! The equality test is: filter both sides through the same
 //! [`Evaluator::node_props_match`] post-filter (which is what the
 //! caller `apply_node_pattern` does) and assert the resulting
-//! `BTreeSet<NodeIndex>` is identical. That captures the contract
+//! `BTreeSet<NodeHandle>` is identical. That captures the contract
 //! "indexed lookup is equivalent to full scan + prop filter".
 //!
 //! A sibling `#[cfg(test)] mod` sits under `eval/` so these tests
@@ -24,9 +24,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use cfdb_core::fact::{Node, PropValue};
+use cfdb_core::graph::NodeHandle;
 use cfdb_core::query::{CompareOp, Expr, NodePattern, ParamBinding, Predicate};
 use cfdb_core::schema::Label;
-use petgraph::stable_graph::NodeIndex;
 
 use super::Evaluator;
 use crate::graph::KeyspaceState;
@@ -106,7 +106,7 @@ fn final_set(
     state: &KeyspaceState,
     np: &NodePattern,
     where_clause: Option<&Predicate>,
-) -> BTreeSet<NodeIndex> {
+) -> BTreeSet<NodeHandle> {
     let params: BTreeMap<String, ParamBinding> = BTreeMap::new();
     let eval = Evaluator::new(state, &params);
     // Slice-5 surface: no incoming bindings (single-MATCH). Slice-6
@@ -162,14 +162,14 @@ fn label_plus_where_eq_fast_path_matches_full_scan() {
     let params: BTreeMap<String, ParamBinding> = BTreeMap::new();
     let eval_indexed = Evaluator::new(&indexed, &params);
     let eval_bare = Evaluator::new(&bare, &params);
-    let via_index_filtered: BTreeSet<NodeIndex> = via_index
+    let via_index_filtered: BTreeSet<NodeHandle> = via_index
         .into_iter()
         .filter(|idx| {
             let row = one_row_with_a(*idx);
             eval_indexed.eval_predicate(&pred, &row)
         })
         .collect();
-    let via_scan_filtered: BTreeSet<NodeIndex> = via_scan
+    let via_scan_filtered: BTreeSet<NodeHandle> = via_scan
         .into_iter()
         .filter(|idx| {
             let row = one_row_with_a(*idx);
@@ -211,10 +211,10 @@ fn non_indexed_prop_falls_back_to_label_scan() {
 }
 
 /// Helper: manufacture a one-entry `Bindings` row with `a ->
-/// NodeRef(idx)` so we can reuse `Evaluator::eval_predicate` to
+/// NodeRef(h)` so we can reuse `Evaluator::eval_predicate` to
 /// post-filter a candidate set by the WHERE predicate.
-fn one_row_with_a(idx: NodeIndex) -> crate::eval::Bindings {
+fn one_row_with_a(h: NodeHandle) -> crate::eval::Bindings {
     let mut row = crate::eval::Bindings::new();
-    row.insert("a".into(), crate::eval::Binding::NodeRef(idx));
+    row.insert("a".into(), crate::eval::Binding::NodeRef(h));
     row
 }
