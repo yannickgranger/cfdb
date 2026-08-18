@@ -47,17 +47,6 @@ fn deprecation_unknown_keyspace_returns_err() {
     assert!(format!("{err:?}").contains("UnknownKeyspace"));
 }
 
-#[test]
-fn unmoved_verbs_fall_through_to_not_implemented_stub() {
-    let ks = Keyspace::new("test");
-    let mut store = store_with_empty_keyspace(&ks);
-    let mut engine = EnrichEngine::new(&mut store);
-
-    let report = engine.enrich_reachability(&ks).expect("pass");
-    assert!(!report.ran);
-    assert!(report.warnings[0].contains("not implemented"));
-}
-
 // `git-enrich` is off in the default build — CI's `--all-features` run
 // never exercises this branch, so this only compiles/runs under a plain
 // `cargo test -p cfdb-enrich`.

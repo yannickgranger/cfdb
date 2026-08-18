@@ -63,7 +63,9 @@ fn ac5_v02_9_accuracy_gate_on_qbot_core() {
     let ks = Keyspace::new("qbot");
     store.ingest_nodes(&ks, nodes).expect("ingest nodes");
     store.ingest_edges(&ks, edges).expect("ingest edges");
-    let report = store.enrich_bounded_context(&ks).expect("enrich");
+    let report = cfdb_enrich::EnrichEngine::new(&mut store)
+        .enrich_bounded_context(&ks)
+        .expect("enrich");
     assert!(
         report.ran,
         "pass must run on qbot-core: {:?}",

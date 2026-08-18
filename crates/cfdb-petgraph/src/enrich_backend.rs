@@ -1,8 +1,8 @@
 //! `EnrichBackend` implementation for `PetgraphStore`.
 //!
 //! Enrichment is a sibling trait. PetgraphStore inherits the
-//! seven stubs (`EnrichReport::not_implemented`); concrete enrichment
-//! passes override individual methods.
+//! seven stubs (`EnrichReport::not_implemented`); only
+//! `enrich_deprecation` is overridden here.
 //!
 //! `enrich_deprecation` overridden to report the real
 //! source as the extractor rather than deflecting to `not_implemented`. The
@@ -45,42 +45,6 @@ impl EnrichBackend for PetgraphStore {
                 "enrich_deprecation: facts populated at extraction time by cfdb-extractor::extract_deprecated_attr (#43-C / RFC addendum §A2.2 row 3); no enrichment work to do"
                     .into(),
             ],
-        })
-    }
-
-    fn enrich_reachability(
-        &mut self,
-        keyspace: &cfdb_core::schema::Keyspace,
-    ) -> Result<cfdb_core::enrich::EnrichReport, StoreError> {
-        self.require_keyspace(keyspace)?;
-        // Reachability is purely graph-internal — no filesystem access, so
-        // no `workspace_root` check (unlike the TOML/git/rfc-scanning passes).
-        let state = self
-            .keyspaces
-            .get_mut(keyspace)
-            .expect("keyspace presence checked above");
-        // Two passes — first the All-kinds BFS that writes
-        // `reachable_from_entry`, then the ProductionOnly BFS that excludes
-        // `kind ∈ {test, bench}` and writes `reachable_from_production_entry`.
-        // The trait surface stays single-call; the dual-pass orchestration
-        // is encapsulated here.
-        use crate::enrich::reachability::ReachabilityFilter;
-        let pass_all = crate::enrich::reachability::run(state, ReachabilityFilter::All);
-        if !pass_all.ran {
-            // Degraded path (zero entry points) — Pass 2 would degrade the
-            // same way; surface the single warning and skip.
-            return Ok(pass_all);
-        }
-        let pass_prod = crate::enrich::reachability::run(state, ReachabilityFilter::ProductionOnly);
-        let mut warnings = pass_all.warnings;
-        warnings.extend(pass_prod.warnings);
-        Ok(cfdb_core::enrich::EnrichReport {
-            verb: pass_all.verb,
-            ran: pass_all.ran && pass_prod.ran,
-            facts_scanned: pass_all.facts_scanned,
-            attrs_written: pass_all.attrs_written + pass_prod.attrs_written,
-            edges_written: 0,
-            warnings,
         })
     }
 }

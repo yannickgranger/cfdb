@@ -52,7 +52,9 @@ pub fn enrich(
             cfdb_enrich::EnrichEngine::new(&mut store).enrich_bounded_context(&ks)?
         }
         EnrichVerb::Concepts => cfdb_enrich::EnrichEngine::new(&mut store).enrich_concepts(&ks)?,
-        EnrichVerb::Reachability => store.enrich_reachability(&ks)?,
+        EnrichVerb::Reachability => {
+            cfdb_enrich::EnrichEngine::new(&mut store).enrich_reachability(&ks)?
+        }
         EnrichVerb::Metrics => cfdb_enrich::EnrichEngine::new(&mut store).enrich_metrics(&ks)?,
     };
 

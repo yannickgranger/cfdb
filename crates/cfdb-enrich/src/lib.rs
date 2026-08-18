@@ -6,8 +6,7 @@
 //!
 //! Pure dispatch + the two guards every `EnrichBackend` verb needs
 //! (keyspace existence, workspace-root presence) — no pass-level logic
-//! lives here. A verb with no real implementation falls through to
-//! `EnrichBackend`'s default `not_implemented` stub.
+//! lives here.
 
 use std::path::PathBuf;
 
@@ -16,12 +15,14 @@ use cfdb_core::graph::GraphBackend;
 use cfdb_core::schema::Keyspace;
 use cfdb_core::store::StoreError;
 
+mod attr_call_resolution;
 mod bounded_context;
 mod concepts;
 #[cfg(feature = "git-enrich")]
 mod git_history;
 #[cfg(feature = "quality-metrics")]
 mod metrics;
+mod reachability;
 mod rfc_docs;
 
 /// Wraps any [`GraphBackend`] implementor and dispatches the 7 `enrich_*`
@@ -79,6 +80,35 @@ impl<'s, S: GraphBackend> EnrichBackend for EnrichEngine<'s, S> {
                 "enrich_deprecation: facts populated at extraction time by cfdb-extractor::extract_deprecated_attr (#43-C / RFC addendum §A2.2 row 3); no enrichment work to do"
                     .into(),
             ],
+        })
+    }
+
+    /// Purely graph-internal — no filesystem access, so no workspace_root
+    /// guard (unlike the TOML/git/rfc-scanning passes).
+    ///
+    /// Two passes behind one trait call: the All-kinds BFS writes
+    /// `reachable_from_entry`, then the ProductionOnly BFS (excluding
+    /// `kind ∈ {test, bench}` entry points) writes
+    /// `reachable_from_production_entry`.
+    fn enrich_reachability(&mut self, keyspace: &Keyspace) -> Result<EnrichReport, StoreError> {
+        use reachability::ReachabilityFilter;
+        let view = self.store.graph_view(keyspace)?;
+        let pass_all = reachability::run(view, ReachabilityFilter::All);
+        if !pass_all.ran {
+            // Degraded path (zero entry points) — Pass 2 would degrade the
+            // same way; surface the single warning and skip.
+            return Ok(pass_all);
+        }
+        let pass_prod = reachability::run(view, ReachabilityFilter::ProductionOnly);
+        let mut warnings = pass_all.warnings;
+        warnings.extend(pass_prod.warnings);
+        Ok(EnrichReport {
+            verb: pass_all.verb,
+            ran: pass_all.ran && pass_prod.ran,
+            facts_scanned: pass_all.facts_scanned,
+            attrs_written: pass_all.attrs_written + pass_prod.attrs_written,
+            edges_written: 0,
+            warnings,
         })
     }
 

@@ -24,7 +24,6 @@
 #![deny(non_exhaustive_omitted_patterns)]
 
 mod canonical_dump;
-mod enrich;
 mod enrich_backend;
 mod eval;
 pub mod explain;

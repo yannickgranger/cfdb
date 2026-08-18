@@ -3,7 +3,9 @@ use cfdb_core::fact::{Edge, Node, PropValue, Props};
 use cfdb_core::schema::{EdgeLabel, Keyspace, Label};
 use cfdb_core::store::StoreBackend;
 
-use crate::PetgraphStore;
+use cfdb_petgraph::PetgraphStore;
+
+use crate::EnrichEngine;
 
 /// Build an `:Item` node with given qname + crate. `id` = `item:{qname}`.
 fn item_node(qname: &str, crate_name: &str) -> Node {
@@ -143,13 +145,15 @@ fn ac1_three_item_fixture_reachability() {
         )
         .expect("ingest edges");
 
-    let report = store.enrich_reachability(&ks).expect("pass");
+    let report = EnrichEngine::new(&mut store)
+        .enrich_reachability(&ks)
+        .expect("pass");
 
     assert!(report.ran);
     assert_eq!(report.facts_scanned, 1, "one entry point");
     assert_eq!(
         report.attrs_written, 12,
-        "3 items × 4 attrs (All pass + ProductionOnly pass, RFC-042 §3.2)"
+        "3 items × 4 attrs (All pass writes reach+count, ProductionOnly pass writes production reach+count)"
     );
 
     assert_eq!(
@@ -206,7 +210,9 @@ fn ac2_multi_entry_attribution_counts_distinct_origins() {
         )
         .expect("ingest edges");
 
-    store.enrich_reachability(&ks).expect("pass");
+    EnrichEngine::new(&mut store)
+        .enrich_reachability(&ks)
+        .expect("pass");
 
     assert_eq!(get_reachability(&store, &ks, "A1"), (true, 1));
     assert_eq!(get_reachability(&store, &ks, "A2"), (true, 1));
@@ -230,7 +236,9 @@ fn ac3_zero_entry_points_returns_ran_false_with_warning() {
         .expect("ingest");
     // No :EntryPoint nodes ingested.
 
-    let report = store.enrich_reachability(&ks).expect("pass");
+    let report = EnrichEngine::new(&mut store)
+        .enrich_reachability(&ks)
+        .expect("pass");
 
     assert!(!report.ran, "zero entry points → ran=false");
     assert_eq!(report.attrs_written, 0, "no items touched");
@@ -276,7 +284,9 @@ fn ac5_call_cycle_does_not_loop_forever() {
         )
         .expect("ingest");
 
-    let report = store.enrich_reachability(&ks).expect("pass");
+    let report = EnrichEngine::new(&mut store)
+        .enrich_reachability(&ks)
+        .expect("pass");
 
     assert!(report.ran);
     assert_eq!(get_reachability(&store, &ks, "A"), (true, 1));
@@ -320,9 +330,13 @@ fn ac6_two_runs_produce_identical_canonical_dumps() {
 
     let ks = Keyspace::new("test");
     let mut s1 = build();
-    s1.enrich_reachability(&ks).expect("run 1");
+    EnrichEngine::new(&mut s1)
+        .enrich_reachability(&ks)
+        .expect("run 1");
     let mut s2 = build();
-    s2.enrich_reachability(&ks).expect("run 2");
+    EnrichEngine::new(&mut s2)
+        .enrich_reachability(&ks)
+        .expect("run 2");
     let d1 = s1.canonical_dump(&ks).expect("dump 1");
     let d2 = s2.canonical_dump(&ks).expect("dump 2");
     assert_eq!(d1, d2, "two runs must be byte-identical (AC-6)");
@@ -349,7 +363,9 @@ fn entry_point_without_exposes_is_ignored() {
         .expect("ingest");
     // No edges.
 
-    let report = store.enrich_reachability(&ks).expect("pass");
+    let report = EnrichEngine::new(&mut store)
+        .enrich_reachability(&ks)
+        .expect("pass");
 
     assert!(report.ran, "pass still runs when EP is dangling");
     assert_eq!(get_reachability(&store, &ks, "A"), (false, 0));
@@ -389,7 +405,9 @@ fn bfs_ignores_non_calls_edges() {
         )
         .expect("ingest");
 
-    store.enrich_reachability(&ks).expect("pass");
+    EnrichEngine::new(&mut store)
+        .enrich_reachability(&ks)
+        .expect("pass");
 
     assert_eq!(get_reachability(&store, &ks, "A"), (true, 1));
     assert_eq!(
@@ -403,7 +421,7 @@ fn bfs_ignores_non_calls_edges() {
 fn unknown_keyspace_returns_err() {
     let mut store = PetgraphStore::new();
     let ks = Keyspace::new("never");
-    let err = store
+    let err = EnrichEngine::new(&mut store)
         .enrich_reachability(&ks)
         .expect_err("unknown keyspace must err");
     assert!(format!("{err:?}").contains("UnknownKeyspace"));
@@ -413,9 +431,8 @@ fn unknown_keyspace_returns_err() {
 // ReachabilityFilter::ProductionOnly
 // ==================================================================
 //
-// Two EntryPoints — one
-// kind=mcp_tool, one kind=test — each EXPOSES a distinct :Item. After
-// `store.enrich_reachability(&ks)` the trait method runs BOTH passes
+// Two EntryPoints — one kind=mcp_tool, one kind=test — each EXPOSES a
+// distinct :Item. One `enrich_reachability(&ks)` call runs BOTH passes
 // (All then ProductionOnly). Pass 1 writes `reachable_from_entry`;
 // Pass 2 writes `reachable_from_production_entry`. ProductionOnly
 // excludes kind ∈ {test, bench} from the seed set.
@@ -445,7 +462,9 @@ fn prod1_test_entry_excluded_from_production_pass() {
         )
         .expect("ingest edges");
 
-    let report = store.enrich_reachability(&ks).expect("pass");
+    let report = EnrichEngine::new(&mut store)
+        .enrich_reachability(&ks)
+        .expect("pass");
 
     assert!(report.ran);
     assert_eq!(
@@ -491,7 +510,9 @@ fn prod2_bench_entry_excluded_from_production_pass() {
         )
         .expect("ingest");
 
-    store.enrich_reachability(&ks).expect("pass");
+    EnrichEngine::new(&mut store)
+        .enrich_reachability(&ks)
+        .expect("pass");
 
     assert_eq!(get_reachability(&store, &ks, "A"), (true, 1));
     assert_eq!(get_reachability(&store, &ks, "B"), (true, 1));
@@ -535,7 +556,9 @@ fn prod3_shared_item_counts_only_production_entries_in_prod_pass() {
         )
         .expect("ingest");
 
-    store.enrich_reachability(&ks).expect("pass");
+    EnrichEngine::new(&mut store)
+        .enrich_reachability(&ks)
+        .expect("pass");
 
     assert_eq!(
         get_reachability(&store, &ks, "Shared"),
@@ -581,7 +604,9 @@ fn prod4_all_test_entries_writes_explicit_false_for_all_items() {
         )
         .expect("ingest");
 
-    let report = store.enrich_reachability(&ks).expect("pass");
+    let report = EnrichEngine::new(&mut store)
+        .enrich_reachability(&ks)
+        .expect("pass");
 
     assert!(
         report.ran,
@@ -633,9 +658,13 @@ fn prod5_two_runs_with_mixed_kinds_are_byte_identical() {
 
     let ks = Keyspace::new("test");
     let mut s1 = build();
-    s1.enrich_reachability(&ks).expect("run 1");
+    EnrichEngine::new(&mut s1)
+        .enrich_reachability(&ks)
+        .expect("run 1");
     let mut s2 = build();
-    s2.enrich_reachability(&ks).expect("run 2");
+    EnrichEngine::new(&mut s2)
+        .enrich_reachability(&ks)
+        .expect("run 2");
     let d1 = s1.canonical_dump(&ks).expect("dump 1");
     let d2 = s2.canonical_dump(&ks).expect("dump 2");
     assert_eq!(
@@ -724,7 +753,9 @@ fn issue_396_serde_default_callee_with_exact_qname_match_becomes_reachable() {
         )
         .expect("ingest edges");
 
-    store.enrich_reachability(&ks).expect("pass");
+    EnrichEngine::new(&mut store)
+        .enrich_reachability(&ks)
+        .expect("pass");
 
     assert_eq!(
         get_reachability(&store, &ks, "myapp::load_config"),
@@ -783,7 +814,9 @@ fn issue_396_serde_default_callee_with_same_module_short_form_becomes_reachable(
         )
         .expect("ingest edges");
 
-    store.enrich_reachability(&ks).expect("pass");
+    EnrichEngine::new(&mut store)
+        .enrich_reachability(&ks)
+        .expect("pass");
 
     let (reachable, _) = get_reachability(&store, &ks, "myapp::config::default_url");
     assert!(
@@ -825,7 +858,9 @@ fn issue_396_serde_default_callee_unresolvable_does_not_panic() {
         .expect("ingest");
 
     // Must not panic. AppConfig stays unreachable (no caller).
-    store.enrich_reachability(&ks).expect("pass");
+    EnrichEngine::new(&mut store)
+        .enrich_reachability(&ks)
+        .expect("pass");
     assert_eq!(
         get_reachability(&store, &ks, "myapp::config::AppConfig"),
         (false, 0)
@@ -868,7 +903,9 @@ fn issue_396_non_serde_default_callsite_is_ignored() {
         .ingest_edges(&ks, vec![exposes_edge("ep:E", "item:myapp::load_config")])
         .expect("ingest");
 
-    store.enrich_reachability(&ks).expect("pass");
+    EnrichEngine::new(&mut store)
+        .enrich_reachability(&ks)
+        .expect("pass");
 
     // dead_fn must stay unreachable — its callsite kind is "call",
     // not "serde_default", so the post-pass must not touch it.
@@ -876,5 +913,112 @@ fn issue_396_non_serde_default_callsite_is_ignored() {
         get_reachability(&store, &ks, "myapp::dead_fn"),
         (false, 0),
         "post-pass must scope its writes to kind=serde_default callsites"
+    );
+}
+
+// ------------------------------------------------------------------
+// HIR dispatch shape: (:Item)-[:INVOKES_AT]->(:CallSite)-[:CALLS]->(:Item).
+// The BFS must cross the callsite hop; the callsite itself is never
+// attributed (only `:Item` nodes carry reach attrs).
+// ------------------------------------------------------------------
+
+#[test]
+fn bfs_traverses_hir_two_hop_invokes_at_then_calls_shape() {
+    let mut store = PetgraphStore::new();
+    let ks = Keyspace::new("test");
+    store
+        .ingest_nodes(
+            &ks,
+            vec![
+                entry_point_node("ep:E"),
+                item_node("myapp::handler", "myapp"),
+                item_node("myapp::callee", "myapp"),
+                Node {
+                    id: "callsite:myapp::handler:myapp::callee:0".into(),
+                    label: Label::new(Label::CALL_SITE),
+                    props: Props::new(),
+                },
+            ],
+        )
+        .expect("ingest");
+    store
+        .ingest_edges(
+            &ks,
+            vec![
+                exposes_edge("ep:E", "item:myapp::handler"),
+                invokes_at_edge(
+                    "item:myapp::handler",
+                    "callsite:myapp::handler:myapp::callee:0",
+                ),
+                calls_edge(
+                    "callsite:myapp::handler:myapp::callee:0",
+                    "item:myapp::callee",
+                ),
+            ],
+        )
+        .expect("ingest");
+
+    let report = EnrichEngine::new(&mut store)
+        .enrich_reachability(&ks)
+        .expect("pass");
+
+    assert_eq!(get_reachability(&store, &ks, "myapp::handler"), (true, 1));
+    assert_eq!(
+        get_reachability(&store, &ks, "myapp::callee"),
+        (true, 1),
+        "callee reached through INVOKES_AT -> CallSite -> CALLS"
+    );
+    assert_eq!(
+        report.attrs_written, 8,
+        "2 items × 4 attrs; the transited :CallSite gets none"
+    );
+}
+
+// ------------------------------------------------------------------
+// `attrs_written` counts the serde-default post-pass writes too: one per
+// resolved callsite per pass, on top of the per-item BFS attrs.
+// ------------------------------------------------------------------
+
+#[test]
+fn attrs_written_includes_one_serde_default_resolution_per_pass() {
+    let mut store = PetgraphStore::new();
+    let ks = Keyspace::new("test");
+    store
+        .ingest_nodes(
+            &ks,
+            vec![
+                entry_point_node("ep:E"),
+                item_node("myapp::load_config", "myapp"),
+                item_node("myapp::config::AppConfig", "myapp"),
+                item_node("myapp::config::default_url", "myapp"),
+                serde_default_callsite(
+                    "myapp::config::AppConfig",
+                    "url",
+                    "myapp::config::default_url",
+                ),
+            ],
+        )
+        .expect("ingest nodes");
+    store
+        .ingest_edges(
+            &ks,
+            vec![
+                exposes_edge("ep:E", "item:myapp::load_config"),
+                invokes_at_edge(
+                    "item:myapp::config::AppConfig",
+                    "callsite:myapp::config::AppConfig.url:myapp::config::default_url:0",
+                ),
+            ],
+        )
+        .expect("ingest edges");
+
+    let report = EnrichEngine::new(&mut store)
+        .enrich_reachability(&ks)
+        .expect("pass");
+
+    assert_eq!(
+        report.attrs_written,
+        3 * 4 + 2,
+        "3 items × 4 BFS attrs + 1 serde-default resolution written by each of the two passes"
     );
 }
