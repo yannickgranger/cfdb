@@ -1,17 +1,19 @@
-use cfdb_classify::{CanonicalCandidate, DebtClass, Finding};
+use cfdb_core::graph::GraphBackend;
+use cfdb_core::schema::Keyspace;
 use cfdb_core::{ParamBinding, PropValue};
 use cfdb_eval::QueryEngine;
-use cfdb_petgraph::PetgraphStore;
 use cfdb_query::{list_items_matching as compose_list_items_matching, parse};
 
-use super::explain_sink::ExplainSink;
 use super::helpers::{canonical_candidate_from_row, crates_for_context, finding_from_row};
-use super::{
+use crate::engine::ClassifyError;
+use crate::explain::ExplainSink;
+use crate::rules::{
     CLASSIFIER_CANONICAL_BYPASS_CYPHER, CLASSIFIER_CONTEXT_HOMONYM_CYPHER,
     CLASSIFIER_DUPLICATED_FEATURE_CYPHER, CLASSIFIER_RANDOM_SCATTERING_CYPHER,
     CLASSIFIER_UNFINISHED_REFACTOR_CYPHER, CLASSIFIER_UNWIRED_CYPHER,
     CLASSIFIER_UNWIRED_PRODUCTION_CYPHER, HSB_BY_NAME_CYPHER,
 };
+use crate::taxonomy::{CanonicalCandidate, DebtClass, Finding};
 
 /// Static list of (class, cypher source) pairs. Iteration order matches
 /// [`DebtClass::variants`] so the orchestrator run order is deterministic.
@@ -52,15 +54,17 @@ pub(super) fn classifier_rules(production_only: bool) -> [(DebtClass, &'static s
 /// (absent HIR enrichment, absent concept TOML, etc.) surface as
 /// empty result rows — this is the correct degradation, and the
 /// warning pass reports the dependency gap.
-pub(super) fn run_classifier_rule(
-    engine: &QueryEngine<'_, PetgraphStore>,
-    ks: &cfdb_core::schema::Keyspace,
+pub(super) fn run_classifier_rule<S: GraphBackend>(
+    engine: &QueryEngine<'_, S>,
+    ks: &Keyspace,
     context: &str,
     cypher: &str,
     sink: &ExplainSink,
-) -> Result<Vec<Finding>, crate::CfdbCliError> {
-    let mut parsed =
-        parse(cypher).map_err(|e| format!("parse error in embedded classifier rule: {e}"))?;
+) -> Result<Vec<Finding>, ClassifyError> {
+    let mut parsed = parse(cypher).map_err(|source| ClassifyError::Parse {
+        rule: "classifier rule",
+        source,
+    })?;
     parsed.params.insert(
         "context".to_string(),
         ParamBinding::Scalar(PropValue::Str(context.to_string())),
@@ -113,12 +117,12 @@ pub(super) fn compose_inventory_query_for_context(context: &str) -> cfdb_core::q
 /// Pull the context-filtered inventory rows + derive the per-crate LOC
 /// approximation. Factored out of [`build_scope_inventory`] to keep each
 /// helper under the cognitive-complexity ceiling.
-pub(super) fn query_findings_in_context(
-    engine: &QueryEngine<'_, PetgraphStore>,
-    ks: &cfdb_core::schema::Keyspace,
+pub(super) fn query_findings_in_context<S: GraphBackend>(
+    engine: &QueryEngine<'_, S>,
+    ks: &Keyspace,
     context: &str,
     sink: &ExplainSink,
-) -> Result<(Vec<Finding>, std::collections::BTreeMap<String, u64>), crate::CfdbCliError> {
+) -> Result<(Vec<Finding>, std::collections::BTreeMap<String, u64>), ClassifyError> {
     let inventory_query = compose_inventory_query_for_context(context);
     let inventory_result = sink.run(engine, ks, &inventory_query)?;
     let mut findings_in_context: Vec<Finding> = Vec::with_capacity(inventory_result.rows.len());
@@ -136,14 +140,16 @@ pub(super) fn query_findings_in_context(
 
 /// Run the embedded `hsb-by-name` rule and project each matching row into
 /// a canonical candidate if at least one crate belongs to the context.
-pub(super) fn query_canonical_candidates(
-    engine: &QueryEngine<'_, PetgraphStore>,
-    ks: &cfdb_core::schema::Keyspace,
+pub(super) fn query_canonical_candidates<S: GraphBackend>(
+    engine: &QueryEngine<'_, S>,
+    ks: &Keyspace,
     context: &str,
     sink: &ExplainSink,
-) -> Result<Vec<CanonicalCandidate>, crate::CfdbCliError> {
-    let hsb_parsed = parse(HSB_BY_NAME_CYPHER)
-        .map_err(|e| format!("parse error in embedded hsb-by-name template: {e}"))?;
+) -> Result<Vec<CanonicalCandidate>, ClassifyError> {
+    let hsb_parsed = parse(HSB_BY_NAME_CYPHER).map_err(|source| ClassifyError::Parse {
+        rule: "hsb-by-name template",
+        source,
+    })?;
     let hsb_result = sink.run(engine, ks, &hsb_parsed)?;
     let crates_in_context = crates_for_context(engine, ks, context)?;
     Ok(hsb_result

@@ -28,6 +28,7 @@
 
 use std::path::{Path, PathBuf};
 
+use cfdb_classify::ClassifyEngine;
 use cfdb_core::schema::Keyspace;
 use cfdb_eval::QueryEngine;
 use cfdb_petgraph::index::spec::IndexSpec;
@@ -50,6 +51,13 @@ pub(crate) fn empty_store() -> PetgraphStore {
 /// batch rather than threading it alongside the store.
 pub(crate) fn query_engine(store: &PetgraphStore) -> QueryEngine<'_, PetgraphStore> {
     QueryEngine::new(store)
+}
+
+/// The judgment engine over a loaded store — `scope` / `classify` (and the
+/// `check` triggers once they move in) run through it. Same shape as
+/// [`query_engine`]: cheap, built per verb invocation.
+pub(crate) fn classify_engine(store: &PetgraphStore) -> ClassifyEngine<'_, PetgraphStore> {
+    ClassifyEngine::new(store)
 }
 
 /// Resolve a keyspace's on-disk path under `db` and verify it exists.

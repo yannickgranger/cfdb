@@ -70,6 +70,19 @@ pub enum CfdbCliError {
     Usage(String),
 }
 
+/// The judgment engine's errors map onto the CLI's contract exactly as the
+/// in-crate code did: a store failure stays a store failure (exit 1); an
+/// unknown context or an unparsable embedded rule is a usage error (exit 2)
+/// with the same message text.
+impl From<cfdb_classify::ClassifyError> for CfdbCliError {
+    fn from(e: cfdb_classify::ClassifyError) -> Self {
+        match e {
+            cfdb_classify::ClassifyError::Store(s) => CfdbCliError::Store(s),
+            other => CfdbCliError::Usage(other.to_string()),
+        }
+    }
+}
+
 impl From<String> for CfdbCliError {
     fn from(s: String) -> Self {
         CfdbCliError::Usage(s)
