@@ -80,7 +80,11 @@ Once ratified, the RFC's "Issue decomposition" section becomes the concrete back
 1. **Dogfood / self-integration.** Exercise the change against cfdb's own source tree via `cfdb extract --workspace .` and assert an invariant (e.g. "the new `:Visibility` attribute is emitted for ≥ N% of pub items in our own crates"). This is the strongest signal because it uses real data flowing through the real pipeline.
 2. **Integration against real inputs.** Construct a small real-shaped input (a synthetic cargo workspace fixture, a concrete `.cypher` rule file) and run the full pipeline end-to-end. Assert on the observable output.
 3. **Unit tests on pure functions.** Fine when the function is genuinely pure (values in → values out, zero I/O). Do not stub out I/O that could be exercised via option 2.
-4. **Mocks / doubles.** Last resort. Must carry an inline comment naming why real infra was unavailable (e.g. nightly-only ground truth absent in CI).
+4. **Mocks / doubles.** Last resort. The PR body names why real infra
+   was unavailable (e.g. nightly-only ground truth absent in CI) —
+   never an inline comment (operator ruling 2026-08-19: no comment in
+   code that is not gate-read data; enforced by
+   `scripts/comment_fence.py` in CI).
 
 **Prescribed test categories by work type:**
 
