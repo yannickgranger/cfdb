@@ -1,16 +1,3 @@
-//! Round-trip test for `persist::load` rebuilding the index from in-memory facts.
-//!
-//! Lives in its own `#[cfg(test)] mod` file to keep
-//! `crates/cfdb-petgraph/src/graph.rs` under the workspace god-file ceiling —
-//! the test wants visibility into `pub(crate)` `KeyspaceState` +
-//! `PetgraphStore::keyspaces`, both of which are crate-visible by construction
-//! so a sibling test module reaches them without any new public surface.
-//!
-//! Test-helper duplication (`item`, `three_index_spec`) is acceptable
-//! here because it is intentionally inert — these helpers exist only
-//! to construct fixture nodes for this one round-trip assertion. They
-//! mirror the equivalent helpers in `graph::index_build_tests`.
-
 use cfdb_core::fact::Node;
 use cfdb_core::schema::{Keyspace, Label};
 use cfdb_core::store::StoreBackend;
@@ -47,18 +34,6 @@ fn item(id: &str, qname: &str, ctx: &str) -> Node {
         .with_prop("bounded_context", ctx)
 }
 
-/// `persist::load` rebuilds `by_prop` from the in-memory fact content via
-/// `ingest_nodes` chain. The rebuild MUST be byte-for-byte identical to the
-/// ingest-time `by_prop` when the destination keyspace carries the same
-/// `IndexSpec` as the source.
-///
-/// Mechanism: `persist::load → PetgraphStore::ingest_nodes → keyspace_mut →
-/// KeyspaceState::ingest_one_node → compute_index_entries` populates `by_prop`
-/// from `self.index_spec`.
-///
-/// Non-empty-spec test surface: we pre-seed `store.keyspaces` directly via
-/// the `pub(crate) keyspaces` field — this stays inside `#[cfg(test)] mod`
-/// access without any new public surface.
 #[test]
 fn by_prop_rebuilt_on_load_matches_ingest_time_state() {
     let spec = three_index_spec();
@@ -71,7 +46,6 @@ fn by_prop_rebuilt_on_load_matches_ingest_time_state() {
         item("item:e", "alpha::quux_5", "context_b"),
     ];
 
-    // SOURCE: build a store whose keyspace carries the spec.
     let mut store_a = PetgraphStore::new();
     store_a
         .keyspaces
@@ -88,18 +62,15 @@ fn by_prop_rebuilt_on_load_matches_ingest_time_state() {
         "ingest with non-empty spec must populate by_prop"
     );
 
-    // SAVE → tmp file.
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("rt-rebuild.json");
     crate::persist::save(&store_a, &ks, &path).expect("save");
 
-    // DESTINATION: fresh store + same-spec keyspace pre-seeded.
     let mut store_b = PetgraphStore::new();
     store_b
         .keyspaces
         .insert(ks.clone(), KeyspaceState::new_with_spec(spec));
 
-    // LOAD → automatic by_prop rebuild via the slice-2 ingest pipeline.
     crate::persist::load(&mut store_b, &ks, &path).expect("load");
 
     let by_prop_after = &store_b
@@ -113,8 +84,6 @@ fn by_prop_rebuilt_on_load_matches_ingest_time_state() {
         "by_prop after load must match ingest-time by_prop byte-for-byte"
     );
 
-    // Defence-in-depth: the canonical_dump must also match (proves
-    // the underlying graph state round-tripped, not just the index).
     let dump_a = store_a.canonical_dump(&ks).expect("dump a");
     let dump_b = store_b.canonical_dump(&ks).expect("dump b");
     assert_eq!(dump_a, dump_b);

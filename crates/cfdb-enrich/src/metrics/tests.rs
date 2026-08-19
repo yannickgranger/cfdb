@@ -1,7 +1,3 @@
-//! Tests for `EnrichEngine::enrich_metrics`'s dispatch guards — NOT for
-//! `metrics::run`'s own computation (see `ast_signals.rs` / `clustering.rs`
-//! / `coverage.rs` for those).
-
 use cfdb_core::enrich::EnrichBackend;
 use cfdb_core::schema::Keyspace;
 use cfdb_core::store::StoreBackend;
@@ -48,9 +44,8 @@ fn no_workspace_root_returns_degraded_report() {
 
 #[test]
 fn unknown_keyspace_errs_even_when_workspace_root_is_also_missing() {
-    // The keyspace guard wins when both fail — never the degraded report.
-    let mut store = PetgraphStore::new(); // no workspace root
-    let ks = Keyspace::new("never"); // and no such keyspace
+    let mut store = PetgraphStore::new();
+    let ks = Keyspace::new("never");
     let err = EnrichEngine::new(&mut store)
         .enrich_metrics(&ks)
         .expect_err("keyspace guard must win over the workspace guard");

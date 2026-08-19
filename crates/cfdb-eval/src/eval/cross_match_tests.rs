@@ -1,24 +1,3 @@
-//! Prescribed-test surface for the `context_homonym`-shape cross-MATCH fixture.
-//!
-//! Builds a synthetic 1 000-node `:Item` keyspace with exactly 10
-//! last-segment-colliding pairs across distinct bounded contexts
-//! (matching the shape of `examples/queries/classifier-context-homonym.cypher`)
-//! and asserts:
-//!
-//! 1. **Correctness** — the query returns exactly those 10 collision
-//!    pairs (the rule surfaces the "a" side per `classifier-context-
-//!    homonym.cypher`'s one-sided filter; we run the query with each
-//!    context as `$context` and union the A sides to get all 10).
-//! 2. **Equivalence** — the same query against an `IndexSpec::empty()`
-//!    keyspace produces the same result set. The index is a pure
-//!    narrowing optimisation; no node is gained or lost.
-//! 3. **Wall time** — on the indexed keyspace the query completes in
-//!    under 100 ms.
-//!
-//! Lives in a sibling `#[cfg(test)] mod` declared from `eval/mod.rs`
-//! so it can reach `pub(super)` / `pub(crate)` items without
-//! widening the public surface.
-
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Instant;
 
@@ -38,9 +17,6 @@ use crate::QueryEngine;
 const FIXTURE_SIZE: usize = 1_000;
 const HOMONYM_PAIR_COUNT: usize = 10;
 
-/// Spec with `(Item, qname)`, `(Item, bounded_context)`, and the
-/// `(Item, last_segment(qname))` computed index that slice-6
-/// cross-MATCH intersection consumes.
 fn slice6_spec() -> IndexSpec {
     IndexSpec {
         entries: vec![
@@ -63,16 +39,8 @@ fn slice6_spec() -> IndexSpec {
     }
 }
 
-/// Build `FIXTURE_SIZE` `:Item` nodes. The first `2 *
-/// HOMONYM_PAIR_COUNT` are arranged as pairs `(i, i +
-/// HOMONYM_PAIR_COUNT)` that share a last-segment but live in
-/// distinct bounded contexts — these are the homonyms the rule
-/// must find. All others have unique qnames and the same context
-/// as their row-index mod 3 dictates, chosen to be noise.
 fn build_fixture_nodes() -> Vec<Node> {
     let mut out: Vec<Node> = Vec::with_capacity(FIXTURE_SIZE);
-    // Pairs: 2*HOMONYM_PAIR_COUNT slots (0..20) carrying ctx=A/B and
-    // the same `shared_N` last-segment.
     for i in 0..HOMONYM_PAIR_COUNT {
         let name = format!("shared_{i}");
         out.push(
@@ -86,8 +54,6 @@ fn build_fixture_nodes() -> Vec<Node> {
                 .with_prop("bounded_context", "B"),
         );
     }
-    // Noise: unique qnames, mixed contexts. Start from 2 *
-    // HOMONYM_PAIR_COUNT so IDs don't collide with pair slots.
     let noise_start = 2 * HOMONYM_PAIR_COUNT;
     for i in noise_start..FIXTURE_SIZE {
         let ctx = if i % 3 == 0 { "A" } else { "B" };
@@ -112,21 +78,6 @@ fn build_store(spec: IndexSpec) -> (PetgraphStore, Keyspace) {
     (store, ks)
 }
 
-/// Build the context_homonym-shape Query — simplified shape of
-/// `examples/queries/classifier-context-homonym.cypher` without the
-/// `signature_divergent` UDF. That UDF is hard-wired in the
-/// evaluator and not indexable here; the joinable predicate
-/// (`last_segment(a.qname) = last_segment(b.qname)`) is what slice
-/// 6 targets.
-///
-/// ```text
-/// MATCH (a:Item), (b:Item)
-/// WHERE a.bounded_context = $ctx
-///   AND b.bounded_context <> $ctx
-///   AND last_segment(a.qname) = last_segment(b.qname)
-///   AND a.qname <> b.qname
-/// RETURN a.qname AS aqn, b.qname AS bqn
-/// ```
 fn build_homonym_query(ctx: &str) -> Query {
     let props = BTreeMap::new();
     let a_np = NodePattern {
@@ -216,9 +167,6 @@ fn build_homonym_query(ctx: &str) -> Query {
     }
 }
 
-/// Collect the set of `a.qname` values returned by the homonym
-/// query. Each row's `aqn` column is a `Str`; we lift it out for
-/// comparison.
 fn collect_aqn(store: &PetgraphStore, ks: &Keyspace, ctx: &str) -> BTreeSet<String> {
     let query = build_homonym_query(ctx);
     let result = QueryEngine::new(store)
@@ -240,8 +188,6 @@ fn collect_aqn(store: &PetgraphStore, ks: &Keyspace, ctx: &str) -> BTreeSet<Stri
 #[test]
 fn cross_match_returns_exactly_ten_homonym_pairs_on_indexed_keyspace() {
     let (store, ks) = build_store(slice6_spec());
-    // Running with ctx=A surfaces all the `item:a:*` side of each
-    // of the 10 pairs.
     let got = collect_aqn(&store, &ks, "A");
     assert_eq!(
         got.len(),
@@ -273,8 +219,6 @@ fn cross_match_matches_full_scan_fallback_byte_for_byte() {
 fn cross_match_indexed_completes_under_100ms() {
     let (store, ks) = build_store(slice6_spec());
     let query = build_homonym_query("A");
-    // Warm the executor with one throwaway call; the first run
-    // includes one-time lazy allocations.
     let engine = QueryEngine::new(&store);
     let _ = engine.execute(&ks, &query).expect("warm-up");
     let start = Instant::now();

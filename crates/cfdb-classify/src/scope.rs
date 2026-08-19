@@ -1,8 +1,3 @@
-//! `scope` — the structured §A3.3 infection inventory for one bounded
-//! context, assembled from the classifier rules. Orchestration lives here;
-//! rule execution and row projection live in the `classifier` / `helpers`
-//! submodules; the engine calls [`build_scope_inventory`].
-
 use std::collections::BTreeSet;
 
 use cfdb_core::graph::GraphBackend;
@@ -20,8 +15,6 @@ mod helpers;
 use classifier::{query_canonical_candidates, query_findings_in_context, run_classifier_rule};
 pub(crate) use helpers::validate_context;
 
-/// Assemble the full `ScopeInventory` for the requested context — items,
-/// canonical candidates, warnings: query → filter → attach warnings.
 pub(crate) fn build_scope_inventory<S: GraphBackend>(
     engine: &QueryEngine<'_, S>,
     ks: &Keyspace,
@@ -34,27 +27,17 @@ pub(crate) fn build_scope_inventory<S: GraphBackend>(
 
     let mut inventory = ScopeInventory::new(context, ks.as_str());
     inventory.loc_per_crate = loc_per_crate;
-    let _ = findings_in_context; // reserved for future inventory population — see §A3.3
+    let _ = findings_in_context;
 
     inventory.canonical_candidates = query_canonical_candidates(engine, ks, context, sink)?;
     inventory.canonical_candidates.sort();
 
-    // Issue #48 — populate each class bucket via its classifier rule.
-    // RFC-042 042-B (#392): `production_only` swaps the Unwired classifier
-    // cypher to the production-only variant.
     populate_findings_by_class(engine, ks, context, &mut inventory, sink, production_only)?;
 
     attach_scope_warnings(&mut inventory);
     Ok(inventory)
 }
 
-/// Run each classifier rule (§A2.1 six classes) and fill the
-/// corresponding bucket in `inventory.findings_by_class`. Rules that
-/// return an empty row set — either because no finding exists OR
-/// because the required enrichment pass (HIR, concepts, reachability)
-/// was not run against the keyspace — leave the bucket empty; the
-/// warning path in [`attach_scope_warnings`] reports dependency
-/// degradations.
 pub(crate) fn populate_findings_by_class<S: GraphBackend>(
     engine: &QueryEngine<'_, S>,
     ks: &Keyspace,
@@ -74,18 +57,6 @@ pub(crate) fn populate_findings_by_class<S: GraphBackend>(
     Ok(())
 }
 
-/// Populate `inventory.findings_by_class` with classifier findings restricted
-/// to qnames present in `restrict_to`. Delegates to
-/// [`populate_findings_by_class`] (the sole classifier-iteration entry
-/// point) and then filters each bucket in place — never a parallel
-/// classifier run. Used by `cfdb classify`.
-///
-/// Post-filter semantics: after [`populate_findings_by_class`] has filled
-/// every bucket, each `Vec<Finding>` is retained to only those findings
-/// whose `qname` is in `restrict_to`. A resulting empty bucket triggers
-/// the same per-class warning [`class_empty_bucket_note`] emits for
-/// `cfdb scope`, so consumers can distinguish "zero in-diff findings"
-/// from "classifier degraded on missing enrichment".
 pub(crate) fn populate_findings_by_class_restricted<S: GraphBackend>(
     engine: &QueryEngine<'_, S>,
     ks: &Keyspace,
@@ -94,17 +65,11 @@ pub(crate) fn populate_findings_by_class_restricted<S: GraphBackend>(
     inventory: &mut ScopeInventory,
     sink: &ExplainSink,
 ) -> Result<(), ClassifyError> {
-    // `cfdb classify` does not surface a --production-only flag (RFC-042 042-B
-    // §3.3 scoped the flag to `cfdb scope` only). Pass `false` here to use the
-    // legacy all-kinds Unwired cypher.
     populate_findings_by_class(engine, ks, context, inventory, sink, false)?;
     retain_findings_by_qname(inventory, restrict_to);
     Ok(())
 }
 
-/// Post-filter that retains only findings whose `qname` is in
-/// `restrict_to`. Extracted from [`populate_findings_by_class_restricted`]
-/// so the set-algebra half can be unit-tested without a store.
 pub(crate) fn retain_findings_by_qname(
     inventory: &mut ScopeInventory,
     restrict_to: &BTreeSet<String>,
@@ -114,16 +79,6 @@ pub(crate) fn retain_findings_by_qname(
     }
 }
 
-/// Attach the full warning set for a `cfdb scope` inventory — per-class
-/// dependency / degradation notes (only when the bucket is empty), the
-/// reachability-map HIR caveat, and the loc-per-crate approximation
-/// note. Split out of [`build_scope_inventory`] to keep the assembly
-/// body flat.
-///
-/// Classes that produced at least one finding do NOT get a warning — the
-/// bucket itself is the signal. Empty buckets carry a warning naming the
-/// likely cause (missing enrichment, no signal in this context, etc.) so
-/// consumers can distinguish different scenarios.
 pub(crate) fn attach_scope_warnings(inventory: &mut ScopeInventory) {
     DebtClass::variants()
         .iter()
@@ -160,13 +115,6 @@ pub(crate) fn attach_scope_warnings(inventory: &mut ScopeInventory) {
     }
 }
 
-/// Diagnostic for a `DebtClass` whose bucket is empty after the
-/// classifier run. Names the likely degraded input that would cause
-/// a false negative — a keyspace extracted without the required
-/// enrichment pass. For classes whose inputs are always present in a
-/// syn-only extract (`DuplicatedFeature`, `UnfinishedRefactor`), the
-/// message reports the empty result as "no finding in this context"
-/// rather than a dependency gap.
 pub(crate) fn class_empty_bucket_note(class: DebtClass) -> Option<String> {
     let reason = match class {
         DebtClass::DuplicatedFeature => {

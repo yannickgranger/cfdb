@@ -1,21 +1,3 @@
-//! Self-dogfood test for `enrich_rfc_docs` (issue #107 — slice 43-D).
-//!
-//! Extracts cfdb's own source tree, runs `enrich_rfc_docs`, and asserts:
-//!
-//! - AC-3: `edges_written > 0` — cfdb's own `docs/RFC-*.md` files reference
-//!   `EnrichBackend`, `StoreBackend`, `PetgraphStore`, etc.
-//! - AC-4: spot check — the `:Item` named `EnrichBackend` has a
-//!   `REFERENCED_BY` edge pointing at a `:RfcDoc` whose path is
-//!   `docs/RFC-031-audit-cleanup.md`.
-//!
-//! Uses the library API (no CLI shell-out) so a failure surfaces as a
-//! Rust stack trace inside `cargo test`. Workspace root resolved from
-//! `CARGO_MANIFEST_DIR` for portability across worktrees + CI runners.
-//!
-//! Routes through `cfdb_enrich::EnrichEngine`, not `PetgraphStore`
-//! directly. Still never exercises `crates/cfdb-cli/src/enrich.rs`'s
-//! dispatcher, though — see `enrich_rfc_docs_cli.rs` for that.
-
 use std::path::PathBuf;
 
 use cfdb_core::enrich::EnrichBackend;
@@ -63,7 +45,6 @@ fn ac3_ac4_self_dogfood_enrich_backend_references_rfc_031() {
         "AC-3: expected ≥1 markdown file scanned under docs/"
     );
 
-    // AC-4: EnrichBackend → docs/RFC-031-audit-cleanup.md spot-check.
     let (all_nodes, all_edges) = store.export(&ks).expect("export");
     let enrich_backend_id = all_nodes
         .iter()

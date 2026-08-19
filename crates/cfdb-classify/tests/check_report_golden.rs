@@ -1,9 +1,3 @@
-//! Golden projection of `ClassifyEngine::check`: a synthetic keyspace with
-//! one T1 hit and one T3 hit yields exactly the `Row` / `RowValue` shape the
-//! two triggers have always emitted — same column names, same scalar / list
-//! kinds, same null handling, same warning on an empty `:RfcDoc` set. The
-//! CLI serialises these rows verbatim, so any drift here is a wire change.
-
 use std::collections::BTreeMap;
 
 use cfdb_classify::{CheckReport, ClassifyEngine, TriggerId};
@@ -41,10 +35,6 @@ fn rfc_doc(path: &str, title: &str) -> Node {
         .with_prop("title", title)
 }
 
-/// Two contexts. `ctx-a` is fully wired (crate present, items carry it, RFC
-/// present). `ctx-b` names a crate the workspace does not contain — the one
-/// T1 hit. `Widget` is a struct in both crates across both contexts — the
-/// one T3 hit; `Gadget` lives in one crate only and must not surface.
 fn fixture(with_rfc_docs: bool) -> Vec<Node> {
     let mut nodes = vec![
         ctx("ctx-a", "crate-a", "RFC-001"),
@@ -107,8 +97,6 @@ fn t1_projects_one_missing_canonical_crate_row_in_the_five_column_shape() {
 
 #[test]
 fn t1_null_fills_absent_context_props_and_reports_every_sub_verdict() {
-    // A context with no canonical crate, no RFC and no wired item: only
-    // CONCEPT_UNWIRED fires, and the two absent props project as null.
     let ks = Keyspace::new("golden-null");
     let mut store = PetgraphStore::new();
     let mut nodes = fixture(true);
@@ -129,7 +117,6 @@ fn t1_null_fills_absent_context_props_and_reports_every_sub_verdict() {
             (col("context_name"), col("verdict"))
         })
         .collect();
-    // Sorted by (context_name, verdict) — the trigger's canonical order.
     assert_eq!(
         verdicts,
         vec![
@@ -231,7 +218,6 @@ fn t3_without_a_declared_canonical_crate_projects_null_candidate() {
         report.rows[0].get("canonical_candidate"),
         Some(&RowValue::Scalar(PropValue::Null))
     );
-    // Both items still sit in two bounded contexts.
     assert_eq!(
         report.rows[0].get("is_cross_context"),
         Some(&RowValue::Scalar(PropValue::Bool(true)))

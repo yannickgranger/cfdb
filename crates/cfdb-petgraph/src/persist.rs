@@ -1,23 +1,3 @@
-//! Persistence — save/load a keyspace to a single JSON file on disk.
-//!
-//! JSON is the canonical format for deterministic storage. Saving and
-//! loading the same keyspace MUST produce byte-identical bytes across calls
-//! on unchanged state.
-//!
-//! File format (one JSON object per file):
-//!
-//! ```json
-//! {
-//!   "schema_version": "0.1.0",
-//!   "nodes": [ { "id": "...", "label": "...", "props": {...} }, ... ],
-//!   "edges": [ { "src": "...", "dst": "...", "label": "...", "props": {...} }, ... ]
-//! }
-//! ```
-//!
-//! Nodes are serialized in their stable label/id sort order; edges in their
-//! stable src/dst/label order. `BTreeMap`-backed `Props` maps give per-node
-//! and per-edge determinism by iteration order.
-
 use std::fs;
 use std::path::Path;
 
@@ -30,35 +10,20 @@ use serde::{Deserialize, Serialize};
 
 use crate::PetgraphStore;
 
-/// On-disk representation of one keyspace. Serialized as compact JSON:
-/// the file is a machine-read artifact re-parsed in full on every query,
-/// and pretty-printing is pure size/parse tax at scale. Parsing is
-/// whitespace-insensitive.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct KeyspaceFile {
     pub schema_version: SchemaVersion,
     pub nodes: Vec<Node>,
     pub edges: Vec<Edge>,
-    /// Identity-contention diagnostics — persisted so a later `cfdb query`
-    /// process sees the node loss the extract observed. Deliberately ONLY
-    /// the contention kind: the per-edge unknown-endpoint ingest log stays
-    /// process-local. Bounded by the recording cap + one summary row.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub contention_warnings: Vec<Warning>,
 }
 
-/// Write a keyspace to `path` as JSON.
-///
-/// The output is stable across runs: nodes are sorted by
-/// `(label, id)` and edges by `(src, dst, label)` before writing.
 pub fn save(store: &PetgraphStore, keyspace: &Keyspace, path: &Path) -> Result<(), StoreError> {
     let (mut nodes, mut edges) = store.export(keyspace)?;
     nodes.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
     edges.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
 
-    // Unknown keyspaces default to V0_1_0. The new `:Item.visibility`
-    // attribute is optional on every item, so readers treat its absence
-    // as "not recorded" rather than malformed.
     let schema_version = store
         .schema_version(keyspace)
         .unwrap_or(SchemaVersion::V0_1_0);
@@ -84,11 +49,6 @@ pub fn save(store: &PetgraphStore, keyspace: &Keyspace, path: &Path) -> Result<(
     Ok(())
 }
 
-/// Read a keyspace from `path` and ingest it into `store` under `keyspace`.
-///
-/// Existing nodes and edges in that keyspace are preserved (additive) — the
-/// caller is responsible for `drop_keyspace` first if a clean reload is
-/// desired.
 pub fn load(store: &mut PetgraphStore, keyspace: &Keyspace, path: &Path) -> Result<(), StoreError> {
     let bytes = fs::read(path)?;
     let file: KeyspaceFile = serde_json::from_slice(&bytes)
@@ -101,8 +61,6 @@ pub fn load(store: &mut PetgraphStore, keyspace: &Keyspace, path: &Path) -> Resu
         });
     }
 
-    // Seed the persisted diagnostics BEFORE ingesting, so any load-time
-    // warnings land after them and chronological order falls out for free.
     store
         .keyspace_mut(keyspace)
         .ingest_warnings

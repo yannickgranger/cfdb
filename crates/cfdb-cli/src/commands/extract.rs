@@ -1,10 +1,4 @@
-//! Extraction command handlers — the `cfdb extract` entry and the
-//! working-tree extract path.
-
 use std::path::{Path, PathBuf};
-// The composition root owns the profiling clock —
-// the extractor emits pure phase markers and this crate does every wall-clock
-// read. Gated on `lang-rust` because only the Rust profiled path uses it.
 #[cfg(feature = "lang-rust")]
 use std::time::{Duration, Instant};
 
@@ -19,9 +13,6 @@ pub fn keyspace_path(db: &Path, keyspace: &str) -> PathBuf {
     db.join(format!("{keyspace}.json"))
 }
 
-/// Default keyspace name when `--keyspace` is absent: the workspace
-/// directory's basename. Only the working-tree path uses it — the `--rev`
-/// paths default to the short rev instead (see `extract_rev`).
 fn workspace_basename(workspace: &Path) -> String {
     workspace
         .file_name()
@@ -29,11 +20,6 @@ fn workspace_basename(workspace: &Path) -> String {
         .unwrap_or_else(|| "workspace".to_string())
 }
 
-/// Surface ingest-time diagnostics on stderr.
-/// Exit stays 0 — the warning is diagnostic, not failure. Runs after every
-/// ingest (syn + optional HIR) and before save, so the stderr report matches
-/// what the keyspace persists. Lives with the command that owns the
-/// `extract:` prefix; one stderr lock for the whole batch.
 fn surface_ingest_warnings(store: &cfdb_petgraph::PetgraphStore, ks: &Keyspace) {
     use std::io::Write;
     let warnings = store.ingest_warnings(ks);
@@ -60,9 +46,6 @@ pub fn extract(
     rev: Option<String>,
     profile: bool,
 ) -> Result<(), crate::CfdbCliError> {
-    // The `Some(rev) if is_url_at_sha(rev)` guard is the SINGLE resolution
-    // point for URL-vs-SHA discrimination. Do not duplicate this check
-    // inside `extract_at_rev` or `extract_at_url_rev`.
     match rev.as_deref() {
         None => extract_at_path(&workspace, &db, keyspace, hir, no_proc_macro, profile),
         Some(rev) if is_url_at_sha(rev) => {
@@ -72,9 +55,6 @@ pub fn extract(
     }
 }
 
-/// Extract the current working tree at `workspace` into a keyspace on
-/// disk. This is the v0.1 behaviour preserved verbatim — `extract`
-/// dispatches here when `--rev` is absent.
 pub(super) fn extract_at_path(
     workspace: &Path,
     db: &Path,
@@ -88,22 +68,10 @@ pub(super) fn extract_at_path(
 
     eprintln!("extract: walking {}", workspace.display());
 
-    // The profiled path attributes wall-clock
-    // across the extract's phases and prints the breakdown to stderr. It is
-    // Rust-specific (the phases are the Rust extract pipeline's),
-    // so it runs the Rust extractor directly rather than the polyglot
-    // producer registry below. Timings never touch the keyspace, so a
-    // profiled extract's graph is byte-identical to a plain one (RFC-048 §4).
     if profile {
         return run_profiled_extract(workspace, db, &ks, &ks_name, hir, no_proc_macro);
     }
 
-    // Replaces the direct
-    // `cfdb_extractor::extract_workspace` call with a producer-trait
-    // lookup. The composition root lives in `crate::lang`; this is
-    // the only call site that touches the registry. Slim builds
-    // (`--no-default-features`) hit the `[]` arm and surface
-    // `NoProducerDetected` cleanly.
     let producers = crate::lang::available_producers();
     let compiled_in: Vec<&'static str> = producers.iter().map(|p| p.name()).collect();
     let matched: Vec<&dyn cfdb_lang::LanguageProducer> = producers
@@ -114,13 +82,6 @@ pub(super) fn extract_at_path(
 
     let (nodes, edges) = match matched.as_slice() {
         [] => {
-            // An empty or no-recognized-language workspace is NOT an error: a
-            // fact-graph extractor over a repo with no source it understands
-            // answers with an EMPTY graph, not a failure. This lets a
-            // greenfield bootstrap — a brand-new repo whose first commit will
-            // create the workspace — be x-rayed into a valid, empty keyspace
-            // that downstream consumers (anchor resolution, violation checks)
-            // read as "zero items" instead of crashing on a missing keyspace.
             eprintln!(
                 "cfdb: no LanguageProducer detected workspace `{}`; \
                  compiled-in producers: {compiled_in:?} — extracting an empty graph",
@@ -158,11 +119,6 @@ pub(super) fn extract_at_path(
     Ok(())
 }
 
-/// Composition-root clock for profiling. The extractor
-/// emits pure [`cfdb_extractor::ExtractPhaseMarker`] boundaries — it reads no
-/// clock — and this observer timestamps each. All
-/// wall-clock reads for the extract-internal phases live here, never in the
-/// extractor.
 #[cfg(feature = "lang-rust")]
 #[derive(Default)]
 struct PhaseClock {
@@ -174,7 +130,6 @@ struct PhaseClock {
 
 #[cfg(feature = "lang-rust")]
 impl PhaseClock {
-    /// Record the wall-clock instant at which `marker` fired.
     fn observe(&mut self, marker: cfdb_extractor::ExtractPhaseMarker) {
         use cfdb_extractor::ExtractPhaseMarker as Marker;
 
@@ -187,11 +142,6 @@ impl PhaseClock {
         }
     }
 
-    /// The three extract-internal phase durations `(cargo-metadata, syn-walk,
-    /// deferred-resolve)` derived from the four boundary marks, or `None` if
-    /// any mark is missing. The extractor fires all four in order every run,
-    /// so `None` means the profiled contract broke — the caller surfaces that
-    /// as an error rather than reporting a fabricated zero.
     fn phase_durations(&self) -> Option<(Duration, Duration, Duration)> {
         let cargo_metadata_start = self.cargo_metadata_start?;
         let syn_walk_start = self.syn_walk_start?;
@@ -205,18 +155,6 @@ impl PhaseClock {
     }
 }
 
-/// Profiled extract. Runs the Rust extractor's
-/// profiled entry point with a [`PhaseClock`] observer that times the three
-/// `extract`-internal phases (cargo-metadata, syn-walk, deferred-resolve),
-/// times the CLI-owned ingest / `--hir` load / save phases around their
-/// existing calls, and renders the [`crate::ExtractProfile`] breakdown to
-/// stderr. The keyspace bytes are identical to a non-profiled extract — every
-/// clock read is here and keeps them out of the extractor.
-///
-/// Rust-only: the profiled phase vocabulary is the Rust pipeline's, so this
-/// runs `cfdb_extractor` directly instead of the polyglot producer registry.
-/// Compiled only under the `lang-rust` feature; the slim build hits the stub
-/// below and reports the missing feature instead of silently no-op'ing.
 #[cfg(feature = "lang-rust")]
 fn run_profiled_extract(
     workspace: &Path,
@@ -230,15 +168,7 @@ fn run_profiled_extract(
 
     let t_total = Instant::now();
 
-    // The composition root owns the clock: the extractor emits pure phase
-    // markers and this observer timestamps each. `PhaseClock` then derives the
-    // three extract-internal phase durations from the four marks. The `&mut`
-    // borrow of `clock` ends when the call returns, freeing it for the
-    // duration read below.
     let mut clock = PhaseClock::default();
-    // `ExtractError` maps into `CfdbCliError::Extract` via `#[from]` (both are
-    // `lang-rust`-gated), so `?` surfaces the same typed failure the
-    // non-profiled path's `ExtractError` consumers see.
     let (nodes, edges) =
         cfdb_extractor::extract_workspace_profiled(workspace, &mut |m| clock.observe(m))?;
     eprintln!("extract: {} nodes, {} edges", nodes.len(), edges.len());
@@ -285,10 +215,6 @@ fn run_profiled_extract(
     Ok(())
 }
 
-/// Slim-build stub — `--profile` is a Rust-pipeline diagnostic,
-/// so a build with no `lang-rust` feature cannot honour it. Mirrors the
-/// [`extract_hir`] `#[cfg(not(...))]` stub: a clear error, never a silent
-/// no-op.
 #[cfg(not(feature = "lang-rust"))]
 fn run_profiled_extract(
     _workspace: &Path,
@@ -303,10 +229,6 @@ fn run_profiled_extract(
     ))
 }
 
-/// Run the HIR pipeline when the `hir` feature is compiled in. The
-/// feature-gated `crate::hir::extract_and_ingest_hir` module is the
-/// single integration seam — if not compiled, `--hir` emits a clear
-/// error instead of silently no-oping.
 #[cfg(feature = "hir")]
 fn extract_hir(
     store: &mut cfdb_petgraph::PetgraphStore,

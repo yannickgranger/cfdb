@@ -1,31 +1,3 @@
-//! Composition root for `cfdb-cli`.
-//!
-//! This module is the **single place in cfdb-cli that knows which concrete
-//! `StoreBackend` is wired in** — and which `QueryBackend` evaluates over it
-//! (`query_engine`). Every other handler module constructs and
-//! loads its store exclusively through `compose::*` — `commands.rs`,
-//! `scope.rs`, `stubs.rs`, and `enrich.rs` never call `PetgraphStore::new()`
-//! or `persist::{load, save}` directly.
-//!
-//! Handler modules depend on the factory functions here, not on the concrete
-//! `PetgraphStore` type, so swapping the backend is a one-file change.
-//!
-//! # Why these functions return a concrete type
-//!
-//! The factories return `PetgraphStore` by value (not `Box<dyn StoreBackend>`)
-//! because cfdb-cli's handlers currently need specific petgraph-side
-//! operations (e.g. `persist::save` takes `&PetgraphStore`). The concrete
-//! return keeps the adapter seam honest — when a second backend exists, the
-//! factory signature becomes the negotiation point (feature flag, env var,
-//! config), and the adapter abstraction lands naturally at that time.
-//!
-//! # Scope boundary
-//!
-//! This module does NOT own:
-//! - the keyspace-path layout (`keyspace_path` lives in `commands.rs`);
-//! - command semantics (each handler module owns its own dispatch);
-//! - persistence formats (`cfdb-petgraph::persist` owns that).
-
 use std::path::{Path, PathBuf};
 
 #[cfg(feature = "classify")]
@@ -38,33 +10,21 @@ use cfdb_petgraph::{persist, PetgraphStore};
 use crate::commands::keyspace_path;
 use crate::CfdbCliError;
 
-/// Relative path inside `workspace_root` for the optional index spec.
-/// Missing file is not an error (see [`IndexSpec::from_path`]).
 const INDEXES_TOML_PATH: &str = ".cfdb/indexes.toml";
 
-/// Construct an empty in-memory store. Used by the extract path before ingest.
 pub(crate) fn empty_store() -> PetgraphStore {
     PetgraphStore::new()
 }
 
-/// The query engine over a loaded store — the one `QueryBackend` cfdb-cli
-/// evaluates with. Zero-cost to construct; handlers build one per query
-/// batch rather than threading it alongside the store.
 pub(crate) fn query_engine(store: &PetgraphStore) -> QueryEngine<'_, PetgraphStore> {
     QueryEngine::new(store)
 }
 
-/// The judgment engine over a loaded store — `scope` / `classify` / `check`
-/// run through it. Same shape as [`query_engine`]: cheap, built per verb
-/// invocation. Rides the `classify` feature with the verbs it serves.
 #[cfg(feature = "classify")]
 pub(crate) fn classify_engine(store: &PetgraphStore) -> ClassifyEngine<'_, PetgraphStore> {
     ClassifyEngine::new(store)
 }
 
-/// Resolve a keyspace's on-disk path under `db` and verify it exists.
-/// Returns the resolved path. Centralises the "keyspace not found" error
-/// shape so every handler sees one consistent diagnostic.
 pub(crate) fn ensure_keyspace_exists(db: &Path, keyspace: &str) -> Result<PathBuf, CfdbCliError> {
     let path = keyspace_path(db, keyspace);
     if !path.exists() {
@@ -78,40 +38,14 @@ pub(crate) fn ensure_keyspace_exists(db: &Path, keyspace: &str) -> Result<PathBu
     Ok(path)
 }
 
-/// Load a keyspace from the on-disk database into a fresh `PetgraphStore`.
-///
-/// Returns the loaded store plus the `Keyspace` handle callers need for
-/// subsequent backend calls. The caller is free to validate path existence
-/// before calling this factory if it wants to emit a command-specific error
-/// message — the factory itself propagates whatever `persist::load` returns
-/// via the typed error.
 pub(crate) fn load_store(
     db: &Path,
     keyspace: &str,
 ) -> Result<(PetgraphStore, Keyspace), CfdbCliError> {
-    // Auto-discover the workspace by walking up from `db` looking for
-    // `.cfdb/indexes.toml`. Without this, callers that don't accept a
-    // `--workspace` flag miss the index spec and fall back to full
-    // label-scan on every query.
-    //
-    // The walk-up is anchored on `db` because the canonical layout is
-    // `<workspace>/.cfdb/db/<keyspace>.json` — so `db.ancestors()`
-    // will find `<workspace>` containing `.cfdb/indexes.toml` within
-    // a few steps. Non-canonical layouts (db far from workspace) get
-    // `None` and empty index spec, label-scan fallback.
     let auto_workspace = discover_workspace_from_db(db);
     load_store_with_workspace(db, keyspace, auto_workspace)
 }
 
-/// Walk up from `db` searching for the first ancestor that holds
-/// `.cfdb/indexes.toml`. Returns that ancestor as the workspace root,
-/// or `None` if no ancestor contains the file (caller falls back to
-/// the empty-index spec).
-///
-/// The search is bounded by [`Path::ancestors`] which terminates at
-/// the root of the file system; the indexes file is typically
-/// 1-2 hops above `db` (`<workspace>/.cfdb/db` → `<workspace>`), so
-/// the walk is cheap.
 fn discover_workspace_from_db(db: &Path) -> Option<PathBuf> {
     let canonical = db.canonicalize().ok()?;
     for ancestor in canonical.ancestors() {
@@ -122,15 +56,6 @@ fn discover_workspace_from_db(db: &Path) -> Option<PathBuf> {
     None
 }
 
-/// Variant that also attaches a workspace root to the store. Used by
-/// enrichment verbs that read workspace files and by paths that need
-/// `.cfdb/indexes.toml` wired. `None` ⇒ identical behaviour to
-/// [`load_store`]. Separate function (not a default arg on `load_store`)
-/// so existing call sites stay signature-stable.
-///
-/// When `workspace_root = Some(root)`, this is the single composition
-/// root for `.cfdb/indexes.toml` — no other code path reads the TOML.
-/// Missing file → `IndexSpec::empty()`, not an error.
 pub(crate) fn load_store_with_workspace(
     db: &Path,
     keyspace: &str,
@@ -150,9 +75,6 @@ pub(crate) fn load_store_with_workspace(
     Ok((store, ks))
 }
 
-/// Persist a keyspace to the on-disk database. Creates the `db` directory if
-/// missing. Returns the path the keyspace was written to so callers can print
-/// a locate-my-file message without re-computing it.
 pub(crate) fn save_store(
     store: &PetgraphStore,
     keyspace: &Keyspace,
@@ -164,18 +86,6 @@ pub(crate) fn save_store(
     Ok(path)
 }
 
-/// Returns the sorted list of keyspace names found under `<db>/`.
-///
-/// A keyspace name is the file_stem of a `.json` direct child. Returns an
-/// empty `Vec` if the directory is missing or contains no `.json` files —
-/// missing directory is not an error here, callers that want a "db missing"
-/// error message must check `db.exists()` themselves before invoking.
-///
-/// Centralised in the composition root so the read_dir / extension-filter /
-/// file_stem / sort recipe lives once (audit 2026-W17, EPIC #273, Pattern 3
-/// finding cfdb-cli F-011). Callers requiring count-based semantics
-/// (`resolve_keyspace_name`'s 0/1/N branch) layer their own logic on top of
-/// the returned `Vec<String>`.
 pub(crate) fn list_keyspace_names(db: &Path) -> Result<Vec<String>, CfdbCliError> {
     if !db.exists() {
         return Ok(Vec::new());
@@ -197,10 +107,6 @@ pub(crate) fn list_keyspace_names(db: &Path) -> Result<Vec<String>, CfdbCliError
 
 #[cfg(test)]
 mod tests {
-    //! `load_store_with_workspace` reads `.cfdb/indexes.toml` at the
-    //! composition root. Missing file is not an error (returns
-    //! `IndexSpec::empty()`); invalid TOML is an error; valid TOML
-    //! populates the store's `IndexSpec`.
 
     use cfdb_core::schema::Keyspace;
     use cfdb_core::store::StoreBackend;
@@ -220,15 +126,9 @@ notes = "slice-7 compose test"
 "#;
 
     fn seed_db(db: &Path, keyspace: &str) {
-        // Build an empty-keyspace JSON file so `persist::load` has
-        // something to consume. The keyspace file format is a
-        // `KeyspaceFile { schema_version, nodes, edges }` — empty
-        // vectors for nodes/edges yield a valid roundtrippable dump.
         std::fs::create_dir_all(db).expect("mkdir db");
         let ks = Keyspace::new(keyspace);
         let mut store = PetgraphStore::new();
-        // Auto-create the keyspace via ingest of an empty batch so
-        // `save_store`/`export` find it.
         StoreBackend::ingest_nodes(&mut store, &ks, Vec::new()).expect("seed ingest");
         save_store(&store, &ks, db).expect("seed save_store");
     }
@@ -251,7 +151,6 @@ notes = "slice-7 compose test"
 
     #[test]
     fn load_store_with_workspace_some_missing_toml_is_empty_spec() {
-        // Missing `.cfdb/indexes.toml` must NOT be an error — RFC §3.8.
         let tmp = tempfile::tempdir().expect("tempdir");
         let db = tmp.path().join("db");
         let ws = tmp.path().join("ws");

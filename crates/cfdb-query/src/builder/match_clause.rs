@@ -1,5 +1,3 @@
-//! `MATCH` / `OPTIONAL MATCH` / `UNWIND` clause builders.
-
 use std::collections::BTreeMap;
 
 use cfdb_core::{
@@ -9,7 +7,6 @@ use cfdb_core::{
 use super::QueryBuilder;
 
 impl QueryBuilder {
-    /// `MATCH (var:Label)` — add a bare node binding.
     pub fn match_node(mut self, var: impl Into<String>, label: Label) -> Self {
         self.patterns.push(Pattern::Node(NodePattern {
             var: Some(var.into()),
@@ -19,8 +16,6 @@ impl QueryBuilder {
         self
     }
 
-    /// `MATCH (var:Label {k: v, ...})` — node binding with inline property
-    /// equalities.
     pub fn match_node_with_props(
         mut self,
         var: impl Into<String>,
@@ -35,7 +30,6 @@ impl QueryBuilder {
         self
     }
 
-    /// `MATCH (src)-[:EDGE_LABEL]->(dst)` — single directed hop.
     pub fn match_path(
         mut self,
         src_var: impl Into<String>,
@@ -63,7 +57,6 @@ impl QueryBuilder {
         self
     }
 
-    /// `MATCH (src)-[:EDGE_LABEL*min..max]->(dst)` — variable-length hop.
     pub fn match_var_path(
         mut self,
         src_var: impl Into<String>,
@@ -93,13 +86,11 @@ impl QueryBuilder {
         self
     }
 
-    /// Wrap a `Pattern` in `OPTIONAL MATCH`.
     pub fn optional(mut self, inner: Pattern) -> Self {
         self.patterns.push(Pattern::Optional(Box::new(inner)));
         self
     }
 
-    /// `UNWIND $list_param AS var`.
     pub fn unwind(mut self, list_param: impl Into<String>, var: impl Into<String>) -> Self {
         self.patterns.push(Pattern::Unwind {
             list_param: list_param.into(),

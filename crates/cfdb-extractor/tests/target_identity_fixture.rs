@@ -1,16 +1,3 @@
-//! RFC-054 54-B (#557) — the ONE shared bin-target fixture.
-//!
-//! Council-prescribed test design: the SAME fixture asserts both that ids
-//! and edge endpoints are target-discriminated AND that display props
-//! (`qname`, `caller_qname`, `parent_qname`) stay bare — so a
-//! conflated-variable bug (one string doing both jobs) cannot pass the two
-//! assertion families separately.
-//!
-//! Fixture shape = the #542 evidence shape: TWO `src/bin/*.rs` targets with
-//! byte-identical contents (same-qname items, same-spelling call sites),
-//! plus a lib target the bins call into and a bin-local type the resolver
-//! must route back to the SAME target.
-
 use std::collections::BTreeSet;
 use std::path::Path;
 
@@ -25,10 +12,6 @@ fn write_fixture_file(root: &Path, rel: &str, contents: &str) {
     std::fs::write(p, contents).expect("fixture write");
 }
 
-/// Two identical bins + one lib. Each bin: a bin-local struct returned by a
-/// bin fn (RETURNS row), a bin-local enum matched on (MATCHES_ON row), a
-/// param carrying a lib type (TYPE_OF row), and a call into the lib
-/// (`:CallSite` row).
 fn write_target_identity_fixture(root: &Path) {
     write_fixture_file(
         root,
@@ -87,7 +70,6 @@ fn target_identity_shared_fixture() {
     let (nodes, edges) = extract_workspace(root).expect("extract fixture workspace");
     let node_ids: BTreeSet<&str> = nodes.iter().map(|n| n.id.as_str()).collect();
 
-    // --- identity: every node id is unique (pre-054 the twin bins collide) ---
     assert_eq!(
         node_ids.len(),
         nodes.len(),
@@ -107,7 +89,6 @@ fn target_identity_shared_fixture() {
         .filter(|n| n.label.as_str() == Label::ITEM)
         .collect();
 
-    // --- two distinct mains, discriminated ids, bare display qnames ---
     let mains: Vec<&&Node> = items
         .iter()
         .filter(|n| prop_str(n, "name") == Some("main"))
@@ -132,7 +113,6 @@ fn target_identity_shared_fixture() {
         );
     }
 
-    // --- lib items: byte-stable ids, target=lib ---
     let shared = items
         .iter()
         .find(|n| prop_str(n, "qname") == Some("tif::shared"))
@@ -140,7 +120,6 @@ fn target_identity_shared_fixture() {
     assert_eq!(shared.id, "item:tif::shared", "lib ids are byte-stable");
     assert_eq!(prop_str(shared, "target"), Some("lib"));
 
-    // --- call sites: same-spelling calls in sibling bins stay distinct ---
     let call_sites: Vec<&Node> = nodes
         .iter()
         .filter(|n| n.label.as_str() == Label::CALL_SITE)
@@ -170,7 +149,6 @@ fn target_identity_shared_fixture() {
         );
     }
 
-    // --- params: derived ids inherit the parent identity; props stay bare ---
     let make_params: Vec<&Node> = nodes
         .iter()
         .filter(|n| n.label.as_str() == Label::PARAM)
@@ -185,7 +163,6 @@ fn target_identity_shared_fixture() {
         );
     }
 
-    // --- RETURNS into a bin-local type resolves to the SAME target ---
     let returns: Vec<_> = edges
         .iter()
         .filter(|e| e.label.as_str() == EdgeLabel::RETURNS)
@@ -211,7 +188,6 @@ fn target_identity_shared_fixture() {
         );
     }
 
-    // --- TYPE_OF into a LIB type falls back to the lib target ---
     let type_of_lib: Vec<_> = edges
         .iter()
         .filter(|e| e.label.as_str() == EdgeLabel::TYPE_OF)
@@ -223,7 +199,6 @@ fn target_identity_shared_fixture() {
         "use_lib(t: tif::LibType) resolves to the undiscriminated lib id from both bins"
     );
 
-    // --- MATCHES_ON into a bin-local enum resolves same-target ---
     let matches_on: Vec<_> = edges
         .iter()
         .filter(|e| e.label.as_str() == EdgeLabel::MATCHES_ON)
@@ -246,7 +221,6 @@ fn target_identity_shared_fixture() {
         );
     }
 
-    // --- no spurious synthesize stubs for bin-local types ---
     let bin_locals: Vec<&&Node> = items
         .iter()
         .filter(|n| prop_str(n, "qname") == Some("tif::BinLocal"))
@@ -257,7 +231,6 @@ fn target_identity_shared_fixture() {
         "exactly one BinLocal :Item per bin — no third synthesized stub"
     );
 
-    // --- every edge endpoint that is an item: id resolves (global no-dangle) ---
     for e in &edges {
         for endpoint in [&e.src, &e.dst] {
             if endpoint.starts_with("item:") {

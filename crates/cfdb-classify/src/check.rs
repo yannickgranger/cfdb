@@ -1,48 +1,3 @@
-//! The editorial-drift triggers behind `cfdb check --trigger <ID>`.
-//!
-//! A closed, versioned registry of cypher rules run against a keyspace,
-//! per-trigger findings computed in Rust, each row tagged with its
-//! verdict / correlation columns and returned as one [`CheckReport`].
-//! v0.1 ships two triggers:
-//!
-//! - `T1` — concept-declared-in-TOML-but-missing-in-code (three
-//!   sub-verdicts: CONCEPT_UNWIRED / MISSING_CANONICAL_CRATE /
-//!   STALE_RFC_REFERENCE).
-//! - `T3` — concept-name-in-≥2-crates raw Pattern A detection with
-//!   per-row `is_cross_context` boolean + `canonical_candidate`
-//!   lookup.
-//!
-//! The triggers run on the engine's already-loaded keyspace through
-//! [`cfdb_eval::QueryEngine`] and never print, emit or exit — the
-//! composition root prints the `violations:` line, serialises the report
-//! and maps the row count to the exit code.
-//!
-//! # Verdict / correlation computation lives in Rust
-//!
-//! Both triggers run primitive cypher reads and apply per-row logic
-//! in Rust because the cfdb-query v0.1 subset evaluator has three
-//! anti-join limitations (outer-bound vars inaccessible in
-//! `NOT EXISTS`, `OPTIONAL MATCH WHERE` drops unmatched rows instead
-//! of null-filling, `collect()` lists not addressable by `IN`) that
-//! make pure-cypher expression of these patterns fragile. The
-//! read/project split keeps each cypher rule self-standing and
-//! deterministic; correlation is a closed typed Rust computation.
-//! Header comments on the respective `.cypher` files carry the
-//! per-rule rationale.
-//!
-//! # TriggerId bounded context
-//!
-//! `cfdb_classify::TriggerId` is distinct from
-//! `check_prelude_triggers::trigger_id::TriggerId`:
-//!
-//! - This enum: cfdb editorial-drift triggers, variants `T1..Tn`
-//!   (capital-T), detecting TOML-vs-code drift.
-//! - That enum: mechanical C-triggers for graph-specs-rust companion
-//!   prelude enforcement, variants `C1..C9` (capital-C).
-//!
-//! Different bounded contexts, different serialization namespaces,
-//! independent change vectors.
-
 use std::collections::BTreeMap;
 use std::str::FromStr;
 
@@ -61,16 +16,9 @@ pub(crate) mod t3;
 #[cfg(test)]
 mod tests;
 
-/// Embedded cypher that dumps the `:Context` inventory for T1. The
-/// file lives under `examples/queries/` so operators can also run it
-/// standalone via `cfdb violations --rule <path>` for ad-hoc
-/// inspection — the `violations` verb returns the same three columns.
 pub(super) const T1_CONTEXT_INVENTORY_CYPHER: &str =
     include_str!("../../../examples/queries/t1-concept-unwired.cypher");
 
-/// Primitive reads for the correlation sets. Kept inline (not as
-/// separate files) because they are trivial one-line queries the
-/// check verb owns — not reusable rules.
 pub(super) const T1_CRATE_NAMES_CYPHER: &str =
     "MATCH (k:Crate) RETURN k.name AS name ORDER BY name ASC";
 pub(super) const T1_ITEM_BOUNDED_CONTEXTS_CYPHER: &str =
@@ -78,49 +26,23 @@ pub(super) const T1_ITEM_BOUNDED_CONTEXTS_CYPHER: &str =
 pub(super) const T1_RFC_DOCS_CYPHER: &str =
     "MATCH (r:RfcDoc) RETURN r.path AS path, r.title AS title ORDER BY path ASC";
 
-/// Embedded cypher for trigger T3 — same-name-in-≥2-crates raw
-/// detection. Sibling of `hsb-by-name.cypher`: adds the `n_contexts`
-/// and `bounded_contexts[]` columns needed to compute the per-row
-/// `is_cross_context` boolean in Rust. See the rule file header for
-/// the kind-restriction doctrine and the reason for a sibling file
-/// rather than an in-place extension of hsb-by-name.
 pub(super) const T3_CONCEPT_MULTI_CRATE_CYPHER: &str =
     include_str!("../../../examples/queries/t3-concept-multi-crate.cypher");
 
-/// Primitive read for the T3 canonical-candidate correlation set:
-/// every `:Context.canonical_crate` value in the keyspace. A crate
-/// qualifies as the `canonical_candidate` for a T3 row when the row's
-/// `crates[]` list contains at least one crate that appears in this
-/// set. Lookup runs once per T3 invocation — the number of declared
-/// contexts is O(dozens) in practice.
 pub(super) const T3_CANONICAL_CRATES_CYPHER: &str =
     "MATCH (c:Context) RETURN c.canonical_crate AS canonical_crate ORDER BY canonical_crate ASC";
 
-/// Cfdb editorial-drift trigger identifier (qbot-core council-4046
-/// Phase 2 naming). T1 detects concept declarations that are unwired,
-/// missing their canonical crate, or point at stale RFCs. T3 detects
-/// same-name items across multiple crates (the raw Pattern A signal,
-/// enriched with a per-row `is_cross_context` boolean).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TriggerId {
-    /// Concept-declared-in-TOML-but-missing-in-code (three sub-verdicts).
     T1,
-    /// Concept-name-in-≥2-crates (raw Pattern A, restricted to
-    /// struct/enum/trait; carries `is_cross_context` flag).
     T3,
 }
 
 impl TriggerId {
-    /// Canonical list of every known trigger id. The `FromStr`
-    /// implementation iterates this list for its error message so the
-    /// set of valid values in the error string never diverges from the
-    /// enum itself (global CLAUDE.md §7 MCP/CLI boundary fix AC).
     pub fn variants() -> &'static [TriggerId] {
         &[TriggerId::T1, TriggerId::T3]
     }
 
-    /// Stable wire form. Matches the trigger ID documented in the
-    /// qbot-core council-4046 Phase 2 spec (e.g. `"T1"`, `"T3"`).
     pub fn as_str(self) -> &'static str {
         match self {
             TriggerId::T1 => "T1",
@@ -147,9 +69,6 @@ impl FromStr for TriggerId {
     }
 }
 
-/// Parse error for [`TriggerId`]. Carries the rejected input so the
-/// `Display` impl can enumerate the valid set derived from
-/// [`TriggerId::variants`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UnknownTriggerId(pub String);
 
@@ -170,11 +89,6 @@ impl std::fmt::Display for UnknownTriggerId {
 
 impl std::error::Error for UnknownTriggerId {}
 
-/// One `cfdb check` run, typed: the trigger that ran, its rows already
-/// projected to `Row` / `RowValue` (the same projection `T1Row` / `T3Row`
-/// perform), and the warnings the trigger raised. `row_count` drives the
-/// exit-30 rule; the composition root serialises `rows` + `warnings` as the
-/// merged `QueryResult` payload `cfdb check` has always printed.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CheckReport {
     pub trigger: TriggerId,
@@ -183,17 +97,11 @@ pub struct CheckReport {
 }
 
 impl CheckReport {
-    /// Number of findings — the exit-code signal (`> 0` ⇒ exit 30 unless
-    /// `--no-fail`).
     pub fn row_count(&self) -> usize {
         self.rows.len()
     }
 }
 
-/// Parse one embedded rule and run it on the engine's keyspace. The
-/// triggers only read `rows`; a primitive read's own warnings do not reach
-/// the report (the report carries the trigger's warnings, not the query
-/// engine's).
 pub(super) fn execute<S: GraphBackend>(
     engine: &QueryEngine<'_, S>,
     ks: &Keyspace,
@@ -204,9 +112,6 @@ pub(super) fn execute<S: GraphBackend>(
     Ok(engine.execute(ks, &parsed)?.rows)
 }
 
-/// One T1 finding, produced by the Rust-side anti-join logic and
-/// projected into a `cfdb_core::result::Row` so it lands in the
-/// [`CheckReport`] alongside the trigger's warnings.
 #[derive(Clone, Debug)]
 pub(super) struct T1Row {
     pub(super) verdict: &'static str,
@@ -251,7 +156,6 @@ impl T1Row {
     }
 }
 
-/// One row from the `:Context` inventory cypher.
 #[derive(Clone, Debug)]
 pub(super) struct ContextRow {
     pub(super) name: String,
@@ -259,10 +163,6 @@ pub(super) struct ContextRow {
     pub(super) owning_rfc: Option<String>,
 }
 
-/// One T3 row, after the per-row `is_cross_context` + `canonical_candidate`
-/// derivations, projected into a `cfdb_core::result::Row` like [`T1Row`].
-/// The two row types share no field and are never unified: each trigger
-/// owns its projection.
 #[derive(Clone, Debug)]
 pub(super) struct T3Row {
     pub(super) name: String,

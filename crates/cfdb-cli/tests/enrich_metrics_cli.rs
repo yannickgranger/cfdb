@@ -1,18 +1,3 @@
-//! `cfdb enrich-metrics` end-to-end through the real binary, against
-//! cfdb's own tree.
-//!
-//! Two variants, mutually exclusive by feature:
-//!
-//! - `#[cfg(feature = "quality-metrics")]`: `self_dogfood_enrich_metrics.rs`
-//!   already exercises `EnrichEngine` in-process; this test's only
-//!   additional job is proving the dispatcher actually routes
-//!   `EnrichVerb::Metrics` to it.
-//! - `#[cfg(not(feature = "quality-metrics"))]`: proves the degraded-report
-//!   path also routes correctly — a botched forward in
-//!   `cfdb-cli/Cargo.toml` would show up as a generic `not implemented`
-//!   warning instead of the specific `built without \`quality-metrics\``
-//!   text `EnrichEngine`'s feature-off variant pins.
-
 use std::path::PathBuf;
 
 use assert_cmd::prelude::*;

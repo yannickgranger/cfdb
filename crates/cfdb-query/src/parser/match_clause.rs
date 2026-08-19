@@ -1,5 +1,3 @@
-//! Match layer — node / edge / path patterns and MATCH / OPTIONAL MATCH / UNWIND clauses.
-
 use std::collections::BTreeMap;
 
 use cfdb_core::{
@@ -79,11 +77,6 @@ pub(super) fn edge_pattern_parser<'a>(
             })
     };
 
-    // `*N..M` (closed) and `*N..` (open upper bound). The upper bound is
-    // optional; an omitted upper bound parses to the `u32::MAX` sentinel,
-    // reusing the existing `(u32, u32)` AST tuple. The open form is used
-    // for unbounded reverse reachability queries like
-    // `(seed)<-[:CALLS*1..]-(affected)`.
     let range = just('*')
         .ignore_then(digits())
         .then_ignore(just("..").padded())
@@ -98,7 +91,7 @@ pub(super) fn edge_pattern_parser<'a>(
         .map(|((var, label), var_length)| EdgePattern {
             var,
             label,
-            direction: Direction::Undirected, // patched by path_pattern_parser
+            direction: Direction::Undirected,
             var_length,
         })
         .delimited_by(just('[').padded(), just(']').padded())

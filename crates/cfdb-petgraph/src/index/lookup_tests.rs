@@ -1,10 +1,3 @@
-//! Unit tests for [`crate::index::lookup`].
-//!
-//! Tests reach `pub(crate)` `candidates_from_index` via `use super::lookup::*`.
-//! The helpers it exercises (private `collect_pattern_hints`, `collect_where_hints`, …)
-//! are tested transitively through the public entry point; direct-private-fn tests
-//! added no coverage the entry-point path didn't already cover.
-
 use std::collections::BTreeMap;
 
 use cfdb_core::fact::{Node, PropValue};
@@ -16,9 +9,6 @@ use crate::index::build::IndexValue;
 use crate::index::lookup::candidates_from_index;
 use crate::index::spec::{ComputedKey, IndexEntry, IndexSpec};
 
-/// Inert bound-var resolver for slice-5 tests: no cross-MATCH
-/// hints. Slice-6 tests that exercise cross-ref behaviour build a
-/// bespoke closure over a `BTreeMap<(var, prop), IndexValue>`.
 fn no_bound(_var: &str, _prop: &str) -> Option<IndexValue> {
     None
 }
@@ -107,7 +97,6 @@ fn returns_none_when_label_missing_on_pattern() {
 #[test]
 fn returns_none_when_no_hints_match_spec() {
     let state = state_with_nodes(qname_spec(), vec![item("i:1", "foo::a", "ctx")]);
-    // `name` is not an indexed prop.
     let mut np = np_item_var_a();
     np.props.insert("name".into(), PropValue::from("anything"));
     assert!(candidates_from_index(&state, &np, None, &BTreeMap::new(), &no_bound).is_none());
@@ -126,7 +115,6 @@ fn pattern_literal_hits_posting_list() {
     let np = np_item_with_qname("foo::a");
     let got = candidates_from_index(&state, &np, None, &BTreeMap::new(), &no_bound)
         .expect("indexed path");
-    // i:1 and i:3 both have qname "foo::a".
     assert_eq!(got.len(), 2);
 }
 
@@ -217,18 +205,11 @@ fn where_and_conjunction_intersects_posting_lists() {
     );
     let got = candidates_from_index(&state, &np, Some(&pred), &BTreeMap::new(), &no_bound)
         .expect("indexed path");
-    // Only i:1 matches both.
     assert_eq!(got.len(), 1);
 }
 
 #[test]
 fn where_or_alone_contributes_no_hint() {
-    // `(a.qname = "foo::a") OR (a.qname = "foo::b")` — neither
-    // branch is conjunctively joined to the pattern, so neither
-    // can seed a posting-list intersection. With no pattern props
-    // either, the function returns None and the caller falls back
-    // to the label scan (correct: the Evaluator's WHERE filter
-    // handles the Or).
     let state = state_with_nodes(
         qname_spec(),
         vec![item("i:1", "foo::a", "ctx"), item("i:2", "foo::b", "ctx")],
@@ -254,12 +235,6 @@ fn where_not_alone_contributes_no_hint() {
 
 #[test]
 fn where_or_inside_and_does_not_invalidate_sibling_hint() {
-    // `(a.qname = "foo::a") AND (a.bounded_context = "x"
-    //  OR a.bounded_context = "y")` — the qname conjunct is
-    // indexable and strictly narrows; the Or sub-tree contributes
-    // nothing but must not poison the sibling hint. The outer
-    // `run()` WHERE filter will re-evaluate the full predicate
-    // (including the Or) on the narrowed candidate set.
     let state = state_with_nodes(
         qname_spec(),
         vec![
@@ -278,8 +253,6 @@ fn where_or_inside_and_does_not_invalidate_sibling_hint() {
     );
     let got = candidates_from_index(&state, &np, Some(&pred), &BTreeMap::new(), &no_bound)
         .expect("qname hint still valid");
-    // i:1 and i:2 share qname foo::a — the Or narrows to i:1
-    // post-filter, but candidate_nodes returns both.
     assert_eq!(got.len(), 2);
 }
 
@@ -290,9 +263,6 @@ fn where_non_eq_compare_is_ignored_not_fatal() {
         vec![item("i:1", "foo::a", "ctx"), item("i:2", "foo::b", "ctx")],
     );
     let np = np_item_with_qname("foo::a");
-    // `a.qname < "zzz"` is not indexable — must not contribute a
-    // hint, but must not invalidate the pattern-literal hint that
-    // IS indexable.
     let pred = Predicate::Compare {
         left: Expr::Property {
             var: "a".into(),
@@ -313,7 +283,6 @@ fn where_eq_for_unrelated_var_is_ignored() {
         vec![item("i:1", "foo::a", "ctx"), item("i:2", "foo::b", "ctx")],
     );
     let np = np_item_with_qname("foo::a");
-    // `b.qname = "foo::b"` — mentions var `b`, not `a`.
     let pred = Predicate::Compare {
         left: Expr::Property {
             var: "b".into(),
@@ -324,6 +293,5 @@ fn where_eq_for_unrelated_var_is_ignored() {
     };
     let got = candidates_from_index(&state, &np, Some(&pred), &BTreeMap::new(), &no_bound)
         .expect("indexed via pattern literal");
-    // Pattern literal still narrows to the 1 matching i:1.
     assert_eq!(got.len(), 1);
 }

@@ -1,22 +1,3 @@
-//! Integration test — issue #48 `:Finding` classifier end-to-end.
-//!
-//! Drives `cfdb extract --hir` + `cfdb enrich-concepts` + `cfdb enrich-
-//! reachability` + `cfdb scope --context trading` against the synthetic
-//! `classifier-taxonomy` fixture, then asserts that every one of the six
-//! `DebtClass` buckets in `findings_by_class` is populated with at least
-//! one row traceable to the fixture's intentionally-planted shapes.
-//!
-//! # Why this test gates behind `--features hir`
-//!
-//! Four of the six classes (`ContextHomonym`, `RandomScattering`,
-//! `CanonicalBypass`, `Unwired`) depend on HIR-extracted facts —
-//! `:Item.signature`, `:EntryPoint` nodes, `CALLS` edges,
-//! `reachable_from_entry`. Non-HIR extracts produce empty buckets for
-//! those classes and the test would fail on a false negative. The
-//! surrounding `#![cfg(feature = "hir")]` ensures the `cfdb` binary
-//! under test was compiled with HIR support, matching the pattern used
-//! in `pattern_c_canonical_bypass.rs`.
-
 #![cfg(all(feature = "hir", feature = "classify"))]
 
 use std::fs;
@@ -59,20 +40,10 @@ fn copy_dir_recursive(src: &Path, dst: &Path) {
     }
 }
 
-/// Shared HIR extract + enrich of the `classifier-taxonomy` fixture into
-/// keyspace `cls`, built once and reused read-only by every test. Replaces
-/// the former per-test `build_and_enrich`, which re-ran a `--hir` extract
-/// plus two enrich passes in each of the 8 tests (8 pipelines → 1). The
-/// enriched keyspace is read-only here (`scope` only reads it), so sharing
-/// is faithful — assertions see byte-identical data.
 fn shared_cls_db() -> PathBuf {
     common::cached_db("classifier-taxonomy-cls", |db| {
         let workspace = db.join("_workspace");
         copy_dir_recursive(&fixture_dir(), &workspace);
-        // --no-proc-macro: this test exercises classifier logic, not
-        // proc-macro recall; without it the post-RFC-043 default invokes
-        // the sysroot proc-macro server and pulls the fixture's full
-        // transitive dep graph into the keyspace, exploding extract time.
         common::extract(db, &workspace, "cls", &["--hir", "--no-proc-macro"]);
 
         cfdb()
@@ -137,18 +108,12 @@ fn qnames(bucket: &serde_json::Value) -> Vec<String> {
         .collect()
 }
 
-// ---------------------------------------------------------------------------
-// Each class gets its own #[test] so failures report precisely which
-// classifier regressed.
-// ---------------------------------------------------------------------------
-
 #[test]
 fn classifier_emits_duplicated_feature_for_orderbook_pair() {
     let db = shared_cls_db();
     let ks = "cls";
     let inv = run_scope(&db, ks, "trading");
     let names = qnames(bucket(&inv, "duplicated_feature"));
-    // Both halves of the pair should surface (one row per definition).
     assert!(
         names
             .iter()
@@ -169,9 +134,6 @@ fn classifier_emits_unfinished_refactor_for_deprecated_item() {
     let ks = "cls";
     let inv = run_scope(&db, ks, "trading");
     let names = qnames(bucket(&inv, "unfinished_refactor"));
-    // The deprecated `OldSizer` struct and/or its deprecated `compute` fn
-    // must appear. The struct + its method are both annotated #[deprecated]
-    // so either one qualifies; we accept any qname containing `OldSizer`.
     assert!(
         names.iter().any(|q| q.contains("OldSizer")),
         "expected an OldSizer-rooted item in unfinished_refactor, got {names:?}"
@@ -182,8 +144,6 @@ fn classifier_emits_unfinished_refactor_for_deprecated_item() {
 fn classifier_emits_context_homonym_for_position_value_pair() {
     let db = shared_cls_db();
     let ks = "cls";
-    // Homonym surfaces in the `trading` context's inventory (the a-side
-    // of the pair whose `bounded_context = trading`).
     let inv = run_scope(&db, ks, "trading");
     let names = qnames(bucket(&inv, "context_homonym"));
     assert!(
@@ -200,7 +160,6 @@ fn classifier_emits_random_scattering_for_compute_qty_fork() {
     let ks = "cls";
     let inv = run_scope(&db, ks, "trading");
     let names = qnames(bucket(&inv, "random_scattering"));
-    // Rule projects resolver A (lexicographically smaller) → `compute_qty_from_bps`.
     assert!(
         names.iter().any(|q| q.contains("compute_qty_from_bps")),
         "expected compute_qty_from_bps in random_scattering, got {names:?}"
@@ -213,8 +172,6 @@ fn classifier_emits_canonical_bypass_for_orphan_isolated() {
     let ks = "cls";
     let inv = run_scope(&db, ks, "trading");
     let names = qnames(bucket(&inv, "canonical_bypass"));
-    // `Orphan::isolated` lives in the canonical crate (trading_domain_a)
-    // and has no CLI caller → CANONICAL_FOR + reachable_from_entry=false.
     assert!(
         names
             .iter()
@@ -237,10 +194,6 @@ fn classifier_emits_unwired_for_dead_function() {
 
 #[test]
 fn classifier_six_buckets_all_populated() {
-    // Composite assertion — one pass, one extract, verify every class
-    // bucket has at least one row. Mirrors the individual tests but is
-    // cheaper for CI (single pipeline invocation) and catches regressions
-    // where a fix to one class accidentally empties another.
     let db = shared_cls_db();
     let ks = "cls";
     let inv = run_scope(&db, ks, "trading");

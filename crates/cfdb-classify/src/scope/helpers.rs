@@ -5,7 +5,6 @@ use cfdb_core::{ParamBinding, PropValue, Query, RowValue};
 use crate::engine::ClassifyError;
 use crate::taxonomy::{CanonicalCandidate, Finding};
 
-/// Validate that `context` is one of the `:Context` nodes in the keyspace.
 pub(crate) fn validate_context(
     engine: &dyn QueryBackend,
     ks: &Keyspace,
@@ -21,10 +20,6 @@ pub(crate) fn validate_context(
     Ok(())
 }
 
-/// Run `MATCH (c:Context) RETURN c.name` and collect the sorted list.
-///
-/// Takes `&dyn QueryBackend` — this helper depends only on the
-/// query-execution contract, not on the engine behind it.
 pub(super) fn query_known_contexts(
     engine: &dyn QueryBackend,
     ks: &Keyspace,
@@ -68,10 +63,6 @@ pub(super) fn query_known_contexts(
     Ok(names)
 }
 
-/// Enumerate every `:Item.crate` whose `bounded_context` equals the
-/// requested context. Used to filter `hsb-by-name` candidate rows.
-///
-/// Accepts `&dyn QueryBackend` for the same reason as `query_known_contexts`.
 pub(super) fn crates_for_context(
     engine: &dyn QueryBackend,
     ks: &Keyspace,
@@ -158,9 +149,6 @@ pub(super) fn canonical_candidate_from_row(
     crates_in_context: &std::collections::BTreeSet<String>,
 ) -> Option<CanonicalCandidate> {
     let crates = row_list_str(row, "crates");
-    // Retain only candidates whose crate set intersects the current context.
-    // A candidate with no context-owned crates is a "neighbour" finding that
-    // belongs to a different context's inventory.
     if !crates.iter().any(|c| crates_in_context.contains(c)) {
         return None;
     }

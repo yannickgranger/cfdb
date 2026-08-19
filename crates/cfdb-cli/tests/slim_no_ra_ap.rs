@@ -1,31 +1,12 @@
-//! Slim-build anti-bloat guard — RFC-044 §3.3 sub-band 3 (slice 044-C / #422).
-//!
-//! **Invariant asserted:** `cfdb-cli`'s dependency tree carries zero `ra-ap-*`
-//! (rust-analyzer HIR) crates unless the opt-in `hir` feature is enabled.
-//! `crates/cfdb-cli/Cargo.toml:65-69` documents this as prose ("Default builds
-//! MUST have zero ra-ap-* in their dep tree", RFC-032 §3 221-227); this test
-//! makes it mechanical. The `ra-ap-*` cold-compile cost (90-150s) must stay
-//! out of every default / slim CLI build.
-//!
-//! **Mechanism:** shell out to `cargo tree` (resolution only, no compile) for
-//! both the default feature set and `--no-default-features`, and assert no
-//! `ra-ap` token appears in either tree. Run via the `CARGO` env var cargo
-//! sets for integration tests, against this crate's own manifest.
-
 use std::path::PathBuf;
 use std::process::Command;
 
-/// The forbidden dependency-name fragment. `cargo tree` prints crate names in
-/// their hyphenated Cargo form (`ra-ap-hir`, `ra-ap-syntax`, …).
 const FORBIDDEN_FRAGMENT: &str = "ra-ap";
 
 fn cfdb_cli_manifest() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml")
 }
 
-/// Run `cargo tree` for cfdb-cli with `extra_args` and return its stdout.
-/// Panics (fails the test) if cargo can't be invoked or returns non-zero —
-/// never silently passes on a missing/failed command.
 fn cargo_tree(extra_args: &[&str]) -> String {
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
     let manifest = cfdb_cli_manifest();
@@ -51,8 +32,6 @@ fn cargo_tree(extra_args: &[&str]) -> String {
     );
 
     let stdout = String::from_utf8(output.stdout).expect("cargo tree stdout is UTF-8");
-    // Non-vacuity: a tree that doesn't even mention cfdb-cli means the command
-    // resolved the wrong package and the ra-ap assertion would be vacuous.
     assert!(
         stdout.contains("cfdb-cli"),
         "non-vacuity guard: `cargo tree {extra_args:?}` output does not mention \
@@ -84,7 +63,5 @@ fn slim_cfdb_cli_has_no_ra_ap_in_dep_tree() {
 
 #[test]
 fn default_cfdb_cli_has_no_ra_ap_in_dep_tree() {
-    // The `hir` feature is opt-in, so even the default (`lang-rust`) build
-    // must be ra-ap-free; only `--features hir` may pull them in.
     assert_no_ra_ap(&cargo_tree(&[]), "default-features");
 }

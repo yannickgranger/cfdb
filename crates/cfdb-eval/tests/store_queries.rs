@@ -1,10 +1,3 @@
-//! Store-level query tests — `QueryEngine` over a `PetgraphStore`.
-//!
-//! Anchors: load the fixture and assert the spike-validated counts
-//! (F1b=5, F2=20, F3=8), UnknownLabel warning path, OPTIONAL MATCH
-//! null-fill, UNWIND, ORDER BY / LIMIT, var-length depth honouring, the
-//! ingest-warning prepend on every result, unknown-keyspace error.
-
 use std::collections::BTreeMap;
 
 use cfdb_core::fact::{Edge, Node, PropValue};
@@ -49,7 +42,6 @@ fn unresolved_edge_endpoint_warns_but_does_not_error() {
         )
         .expect("ingest into fresh in-memory store never fails");
 
-    // Run any query — the ingest warning should be surfaced on the result.
     let q = Query::new(
         vec![Pattern::Node(NodePattern {
             var: Some("a".into()),
@@ -102,8 +94,6 @@ fn unknown_keyspace_returns_error() {
         cfdb_core::store::StoreError::UnknownKeyspace(_)
     ));
 }
-
-// ---- Fixture-driven tests: F1b=5, F2=20, F3=8 --------------------------
 
 const FIXTURE_SMALL: &str = include_str!("../../../studies/spike/fixture-small.json");
 
@@ -158,12 +148,6 @@ fn load_small_fixture(store: &mut PetgraphStore) {
         .expect("ingest into fresh in-memory store never fails");
 }
 
-/// Build the F1b query:
-///   MATCH (a:Item)
-///   WITH a.crate AS c, last_segment(a.qname) AS base
-///   WITH base, count(DISTINCT c) AS n
-///   WHERE n > 1
-///   RETURN base
 fn build_f1b_query() -> Query {
     use cfdb_core::query::ProjectionValue as PV;
     Query {
@@ -228,9 +212,6 @@ fn f1b_aggregation_matches_spike_count() {
     );
 }
 
-/// Build the F2 query:
-///   MATCH (cs:CallSite)-[:CALLS*1..5]->(a:Item)
-///   RETURN cs, a
 fn build_f2_query() -> Query {
     Query {
         match_clauses: vec![Pattern::Path(PathPattern {
@@ -288,17 +269,6 @@ fn f2_variable_length_matches_spike_count() {
     );
 }
 
-// --- var-length depth honouring -------------------
-//
-// `DEFAULT_VAR_LENGTH_MAX` (5) was silently clamping *every* var-length
-// pattern, including explicit bounds (`*1..10` → 5). The fix honours
-// explicit finite bounds as written, and treats the open form `*N..`
-// (`u32::MAX`) as unbounded-via-visited-set. The fixture is an 8-hop linear
-// chain — deeper than the old cap — so a silent clamp is observable.
-
-/// Load a linear CALLS chain `cs -> f1 -> f2 -> ... -> f{hops}`: one CallSite
-/// seed followed by `hops` Items, each calling the next. The chain length is
-/// chosen `> DEFAULT_VAR_LENGTH_MAX` so the depth-5 clamp would truncate it.
 fn load_linear_calls_chain(store: &mut PetgraphStore, hops: usize) {
     let mut nodes = vec![call_site("cs:0")];
     for i in 1..=hops {
@@ -324,8 +294,6 @@ fn load_linear_calls_chain(store: &mut PetgraphStore, hops: usize) {
         .expect("ingest chain edges into fresh store");
 }
 
-/// `MATCH (cs:CallSite)-[:CALLS*1..max]->(a:Item) RETURN a` — one row per
-/// transitively-reached Item. `max == u32::MAX` is the open form `*1..`.
 fn build_reach_query(max: u32) -> Query {
     Query {
         match_clauses: vec![Pattern::Path(PathPattern {
@@ -366,8 +334,6 @@ fn var_length_honours_explicit_upper_bound_past_default_cap() {
     let mut store = PetgraphStore::new();
     load_linear_calls_chain(&mut store, 8);
 
-    // `*1..10` over an 8-hop chain reaches all 8 Items — it must NOT clamp
-    // to DEFAULT_VAR_LENGTH_MAX (5).
     let r10 = QueryEngine::new(&store)
         .execute(&ks(), &build_reach_query(10))
         .expect("*1..10 query executes");
@@ -378,7 +344,6 @@ fn var_length_honours_explicit_upper_bound_past_default_cap() {
         r10.rows.len()
     );
 
-    // A smaller explicit bound is honoured exactly: `*1..3` reaches 3 hops.
     let r3 = QueryEngine::new(&store)
         .execute(&ks(), &build_reach_query(3))
         .expect("*1..3 query executes");
@@ -395,8 +360,6 @@ fn var_length_open_form_is_unbounded_via_visited_set() {
     let mut store = PetgraphStore::new();
     load_linear_calls_chain(&mut store, 8);
 
-    // The open form `*1..` (`u32::MAX`) traverses the full transitive set —
-    // the visited-set is the only bound.
     let r_open = QueryEngine::new(&store)
         .execute(&ks(), &build_reach_query(u32::MAX))
         .expect("*1.. (open form) query executes");
@@ -408,8 +371,6 @@ fn var_length_open_form_is_unbounded_via_visited_set() {
     );
 }
 
-/// Build the F3 query:
-///   MATCH (a:Item) WHERE a.qname =~ '.*now_utc.*' RETURN a
 fn build_f3_query() -> Query {
     Query {
         match_clauses: vec![Pattern::Node(NodePattern {
@@ -467,7 +428,7 @@ fn unknown_label_emits_warning_with_suggestion() {
     let q = Query::new(
         vec![Pattern::Node(NodePattern {
             var: Some("a".into()),
-            label: Some(Label::new("Ietm")), // typo for "Item"
+            label: Some(Label::new("Ietm")),
             props: BTreeMap::new(),
         })],
         ReturnClause {
@@ -508,7 +469,6 @@ fn optional_match_null_fills_unmatched_bindings() {
             ],
         )
         .expect("ingest into fresh in-memory store never fails");
-    // No edges — OPTIONAL MATCH should null-fill.
 
     let q = Query {
         match_clauses: vec![
@@ -665,14 +625,6 @@ fn order_by_and_limit_are_applied() {
     );
 }
 
-/// Regression: a bare `Var` reference in a RETURN projection
-/// must surface a `RowValue::List` binding produced by a prior
-/// `WITH collect(...)` aggregation. Before the fix at `eval.rs::apply_return`,
-/// the non-aggregation RETURN path re-evaluated the `Var` through
-/// `eval_expr` which only handles `Scalar` bindings and dropped Lists to
-/// `null`. The enriched `hsb-by-name.cypher` rule
-/// depends on this working — without it, `crates[]`, `qnames[]`, `files[]`
-/// all come back null and the rule loses its entire triage signal.
 #[test]
 fn with_collect_then_return_var_preserves_list_binding_3675() {
     let mut store = PetgraphStore::new();
@@ -693,9 +645,6 @@ fn with_collect_then_return_var_preserves_list_binding_3675() {
         )
         .expect("ingest into fresh in-memory store never fails");
 
-    // MATCH (a:Item) WITH a.name AS name, collect(a.crate) AS crates
-    // WHERE count(*)-style is irrelevant here — we just care RETURN surfaces the list
-    // RETURN name, crates
     let q = Query {
         match_clauses: vec![Pattern::Node(NodePattern {
             var: Some("a".into()),
@@ -744,7 +693,6 @@ fn with_collect_then_return_var_preserves_list_binding_3675() {
         .execute(&ks(), &q)
         .expect("fixture query executes against populated store");
 
-    // Find the OrderStatus row — the HSB candidate with 2 crates collected.
     let order_status_row = result
         .rows
         .iter()
@@ -756,8 +704,6 @@ fn with_collect_then_return_var_preserves_list_binding_3675() {
         })
         .expect("OrderStatus row must be present");
 
-    // The 'crates' column MUST be a List, not null. Pre-fix this would match
-    // `RowValue::Scalar(PropValue::Null)` instead.
     let crates = order_status_row
         .get("crates")
         .expect("crates column must exist");

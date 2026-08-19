@@ -1,9 +1,3 @@
-//! Predicate and expression evaluation.
-//!
-//! `WHERE` predicates compose `Compare` / `In` / `Regex` / `NotExists` /
-//! `And` / `Or` / `Not`. Expressions evaluate to `Option<PropValue>` so that
-//! missing / `Null` bindings propagate cleanly into comparisons.
-
 use cfdb_core::fact::PropValue;
 use cfdb_core::graph::GraphReader;
 use cfdb_core::query::{CompareOp, Expr, ParamBinding, Predicate};
@@ -154,18 +148,11 @@ impl<'a, G: GraphReader + ?Sized> Evaluator<'a, G> {
 
     fn call_size(&self, args: &[Expr], bindings: &Bindings) -> Option<PropValue> {
         let arg = args.first()?;
-        // `size(var)` where `var` was bound by a prior WITH `collect(...)`
-        // aggregation resolves to a `RowValue::List` binding — lift the
-        // list's length into an Int directly. `eval_expr` cannot surface
-        // List values (it is scalar-typed), so this path has to read the
-        // binding itself. RFC-036 §3.2 / issue #202: the VSB detector's
-        // `WHERE size(resolvers) > 1` clause depends on this code path.
         if let Expr::Var(name) = arg {
             if let Some(Binding::Value(RowValue::List(items))) = bindings.get(name) {
                 return Some(PropValue::Int(items.len() as i64));
             }
         }
-        // Fallback — `size(str)` counts Unicode scalar values (chars).
         let PropValue::Str(s) = self.eval_expr(arg, bindings)? else {
             return None;
         };
@@ -190,22 +177,6 @@ impl<'a, G: GraphReader + ?Sized> Evaluator<'a, G> {
         Some(PropValue::Bool(text.ends_with(&p)))
     }
 
-    /// `last_segment(text) -> Str` Cypher UDF — delegates to
-    /// [`cfdb_core::qname::last_segment`], the RFC-035 §3.3
-    /// invariant-owner of the qname `last_segment` formula.
-    ///
-    /// Every consumer of the formula in the workspace routes through
-    /// the canonical owner: the index-build write side
-    /// (`ComputedKey::evaluate` in the store's index subsystem), and this
-    /// query-time read side. The
-    /// `call_last_segment_agrees_with_canonical_owner_byte_for_byte`
-    /// test in this module's `#[cfg(test)]` block pins the dispatch
-    /// against the canonical helper on the canary set used by the
-    /// slice 3 self-dogfood.
-    ///
-    /// Returns `None` on non-string inputs (preserves the
-    /// `?`-on-type-mismatch surface shared with the other UDFs in
-    /// this dispatcher).
     fn call_last_segment(&self, args: &[Expr], bindings: &Bindings) -> Option<PropValue> {
         let PropValue::Str(text) = self.eval_expr(args.first()?, bindings)? else {
             return None;
@@ -215,66 +186,17 @@ impl<'a, G: GraphReader + ?Sized> Evaluator<'a, G> {
         ))
     }
 
-    /// `signature_divergent(sig_a, sig_b) -> Bool` — issue #47.
-    ///
-    /// Returns `true` when two `:Item.signature` strings (produced by
-    /// `cfdb-extractor::type_render::render_fn_signature`) differ after
-    /// whitespace normalization. This is the load-bearing discriminator
-    /// for the DDD Shared-Kernel-vs-Homonym check (RFC-029 §A1.5 gate
-    /// v0.2-8, `council/RATIFIED.md` R1): two items that share a last
-    /// qname segment across bounded contexts are a Shared Kernel when
-    /// their signatures match byte-for-byte and a Context Homonym when
-    /// they diverge.
-    ///
-    /// # Normalization
-    ///
-    /// Both inputs are trimmed and internal whitespace is collapsed to
-    /// single spaces before comparison. This keeps the UDF robust
-    /// against harmless whitespace noise in the extractor's future
-    /// evolution. Parameter NAMES are already normalized out by
-    /// `render_fn_signature` at extract time (it emits types only), so
-    /// this UDF does not re-enact that normalization.
-    ///
-    /// # Type-mismatch behavior
-    ///
-    /// Matches the convention of the other hard-wired UDFs
-    /// (`starts_with`, `ends_with`): if either argument is not a
-    /// string, the UDF returns `None`, which the predicate evaluator
-    /// treats as "unknown" — the enclosing `WHERE` clause rejects the
-    /// binding rather than silently coercing to `true` or `false`. This
-    /// is the correct failure mode for the classifier (#48) — an item
-    /// with no `:Item.signature` prop (non-fn kinds) should not surface
-    /// as a divergent pair simply because the prop is absent.
     fn call_signature_divergent(&self, args: &[Expr], bindings: &Bindings) -> Option<PropValue> {
         let a = self.eval_expr(args.first()?, bindings)?;
         let b = self.eval_expr(args.get(1)?, bindings)?;
         let (PropValue::Str(sa), PropValue::Str(sb)) = (a, b) else {
             return None;
         };
-        // Compare signatures with whitespace normalization.
-        // `signatures_differ_modulo_whitespace` walks both inputs once
-        // with no allocation, skipping whitespace runs as a single
-        // logical space — equivalent semantics to allocation-heavy
-        // comparison without the allocation cost.
         Some(PropValue::Bool(signatures_differ_modulo_whitespace(
             &sa, &sb,
         )))
     }
 
-    /// `entries_subset(a, b) -> Bool`
-    ///
-    /// Returns `true` iff every element of JSON-array `a` is contained
-    /// in JSON-array `b`. The empty set is a subset of anything; equal
-    /// sets are subsets of each other. Operates on the
-    /// `:ConstTable.entries_normalized` wire shape: a JSON array of
-    /// strings (e.g. `["EUR","USD"]`) or numbers (e.g. `[1,42,100]`).
-    /// Element type is inferred from the first parsable element;
-    /// mixed-element-type inputs return `false`.
-    ///
-    /// # Type-mismatch behavior
-    ///
-    /// Non-string args (or non-JSON-array strings) return `None`,
-    /// matching the convention of the other hard-wired UDFs.
     fn call_entries_subset(&self, args: &[Expr], bindings: &Bindings) -> Option<PropValue> {
         let a = self.eval_expr(args.first()?, bindings)?;
         let b = self.eval_expr(args.get(1)?, bindings)?;
@@ -284,16 +206,6 @@ impl<'a, G: GraphReader + ?Sized> Evaluator<'a, G> {
         Some(PropValue::Bool(entries_subset_impl(&sa, &sb)))
     }
 
-    /// `entries_jaccard(a, b) -> Float`
-    ///
-    /// Returns `|a ∩ b| / |a ∪ b|`. Returns `0.0` when both inputs
-    /// are empty (avoid divide-by-zero). Operates on the
-    /// `:ConstTable.entries_normalized` wire shape. Mixed-element-type
-    /// inputs return `0.0`.
-    ///
-    /// # Type-mismatch behavior
-    ///
-    /// Non-string args (or non-JSON-array strings) return `None`.
     fn call_entries_jaccard(&self, args: &[Expr], bindings: &Bindings) -> Option<PropValue> {
         let a = self.eval_expr(args.first()?, bindings)?;
         let b = self.eval_expr(args.get(1)?, bindings)?;
@@ -303,26 +215,6 @@ impl<'a, G: GraphReader + ?Sized> Evaluator<'a, G> {
         Some(PropValue::Float(entries_jaccard_impl(&sa, &sb)))
     }
 
-    /// `overlap_verdict(a_normalized, b_normalized, a_hash, b_hash) -> Str`
-    ///
-    /// Maps a `(a, b)` pair to one of `'CONST_TABLE_DUPLICATE'`,
-    /// `'CONST_TABLE_SUBSET'`, `'CONST_TABLE_INTERSECTION_HIGH'`, or
-    /// `'CONST_TABLE_NONE'` per the precedence ordering:
-    ///
-    ///   1. DUPLICATE: `a_hash = b_hash` (entries_hash equality is the
-    ///      canonical set-equality key).
-    ///   2. SUBSET: not duplicate AND `entries_subset(a, b)` OR
-    ///      `entries_subset(b, a)`.
-    ///   3. INTERSECTION_HIGH: not subset AND
-    ///      `entries_jaccard(a, b) >= 0.5`.
-    ///   4. otherwise: `'CONST_TABLE_NONE'`.
-    ///
-    /// Lives here (alongside `entries_subset` / `entries_jaccard`)
-    /// because the Cypher subset has no `CASE WHEN` / `UNION` construct,
-    /// so the precedence-decoder must live in a UDF for the rule file to
-    /// emit a single `verdict` string column. Keeping the precedence
-    /// semantics in one Rust function avoids reimplementation across
-    /// multiple consumer queries.
     fn call_overlap_verdict(&self, args: &[Expr], bindings: &Bindings) -> Option<PropValue> {
         let a_norm = self.eval_expr(args.first()?, bindings)?;
         let b_norm = self.eval_expr(args.get(1)?, bindings)?;

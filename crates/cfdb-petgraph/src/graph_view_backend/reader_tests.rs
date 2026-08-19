@@ -1,12 +1,3 @@
-//! Delegation tests for `GraphReader` on `KeyspaceState` and
-//! `GraphBackend::graph_reader` on `PetgraphStore`.
-//!
-//! Every assertion compares the port method's result against the
-//! equivalent direct `KeyspaceState` accessor or raw-field read on one
-//! synthetic fixture, so the port is pinned as pure delegation with no
-//! behavior of its own. This file is the ONLY place a handle's raw value is
-//! compared against a petgraph index — the port's consumers never do.
-
 use std::collections::BTreeMap;
 
 use petgraph::stable_graph::NodeIndex;
@@ -52,10 +43,6 @@ fn edge(src: &str, dst: &str, label: &str) -> Edge {
     }
 }
 
-/// Three `:Item` nodes (two sharing a qname, all indexed on `qname`), two
-/// `:Fn` nodes, a multi-edge-label node (`i1` → `f1` CALLS, `i1` → `f2`
-/// USES), an incoming edge on `f1` from `i2` too, and one edge whose `dst`
-/// is unknown so the keyspace records an ingest warning.
 fn fixture() -> (PetgraphStore, Keyspace) {
     let ks = Keyspace::new("test");
     let mut store = PetgraphStore::new().with_indexes(qname_spec());

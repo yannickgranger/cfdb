@@ -1,19 +1,9 @@
-//! Fact types — Node, Edge, PropValue.
-//!
-//! These are the units the extractor emits and the store persists. The JSONL
-//! canonical-dump format (RFC §12.1) is obtained by serializing these types
-//! with `serde_json` and sorting by the deterministic key `(label, id)` for
-//! nodes, `(src, dst, label)` for edges.
-
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
 use crate::schema::{EdgeLabel, Label};
 
-/// A typed property value. Intentionally a closed set — string / int / float /
-/// bool / null — so that property equality has canonical semantics and so that
-/// the JSONL dump is byte-stable across implementations.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 #[non_exhaustive]
@@ -51,25 +41,12 @@ impl PropValue {
         matches!(self, PropValue::Null)
     }
 
-    /// Canonical JSON → scalar PropValue coercion. Arrays and objects are
-    /// NOT valid scalar params — callers feeding untrusted input (e.g. the
-    /// `cfdb query --params <json>` CLI) must reject non-scalar shapes at
-    /// the boundary BEFORE calling this, so they can emit a clear error.
-    /// For trusted scalar input (test fixtures, already-validated CLI
-    /// params), this is a total function: non-scalar JSON collapses to
-    /// `PropValue::Null` rather than panicking.
     pub fn from_json(v: &serde_json::Value) -> Self {
         match v {
             serde_json::Value::String(s) => PropValue::Str(s.clone()),
             serde_json::Value::Number(n) if n.is_i64() => {
                 PropValue::Int(n.as_i64().expect("match arm guard proved n.is_i64()"))
             }
-            // Not-an-`i64` ⇒ a float. `as_f64` yields `None` only for a
-            // non-finite value; the fn's contract collapses that to `Null`,
-            // never a fabricated `0.0` (a lossy coercion, not a safe
-            // default). Unreachable in this build — `serde_json` without
-            // `arbitrary_precision` returns `Some` for every `Number` — but
-            // kept contract-correct for reuse.
             serde_json::Value::Number(n) => match n.as_f64() {
                 Some(f) => PropValue::Float(f),
                 None => PropValue::Null,
@@ -105,53 +82,14 @@ impl From<bool> for PropValue {
     }
 }
 
-/// A map of property key → value. BTreeMap is intentional — it gives us a
-/// canonical iteration order, which is load-bearing for G1 (byte-identical
-/// canonical dumps across runs).
 pub type Props = BTreeMap<String, PropValue>;
 
-/// Attribute names excluded from the canonical (G1) dump.
-///
-/// Their values are toolchain- or environment-dependent, so any
-/// `StoreBackend::canonical_dump` implementation that emitted them would
-/// break G1 byte-stable re-extract. `test_coverage` carries
-/// `cargo-llvm-cov` line/region counts that vary by toolchain and run.
-/// It is byte-stable today only because `enrich_metrics` defaults it to
-/// `None`; this set makes the exclusion real rather than incidental.
-///
-/// This lives in `cfdb-core` alongside the `Props` / G1 byte-stability
-/// contract and the `StoreBackend::canonical_dump` trait so EVERY store
-/// implementation honours the same exclusion, not just `cfdb-petgraph`.
-/// Adding an attribute requires a reviewed source edit justified against
-/// the G1 contract.
 pub const G1_EXCLUDED_ATTRS: &[&str] = &["test_coverage"];
 
-/// Whether an attribute is excluded from the canonical (G1) dump — see
-/// [`G1_EXCLUDED_ATTRS`]. Keyed by attribute name. The set is tiny; a
-/// linear scan is fine.
 pub fn is_g1_excluded(attr: &str) -> bool {
     G1_EXCLUDED_ATTRS.contains(&attr)
 }
 
-/// Language-independent `:Item.props` core — single owner of the
-/// `{qname, name, kind, crate}` 4-subset shared by every crate-emitting
-/// `:Item` producer in the workspace: the Rust free-item, impl-block, and
-/// impl-method paths; the TypeScript declaration and method paths; and the
-/// synthetic / HIR paths. Each producer layers its own keys on top of this
-/// core, so the four key strings and their `PropValue::Str` wrapping have
-/// exactly ONE construction point and cannot drift across producers.
-///
-/// `name` is taken EXPLICITLY, not derived from `qname`. Free items and
-/// methods carry `name == last_segment(qname)`, but an impl-block `:Item`
-/// deliberately carries a human-readable `name` (`"impl Foo"`) that is NOT
-/// the qname's trailing segment (`"impl"`); deriving here would corrupt
-/// that shape. Callers wanting the derived name pass `last_segment(qname)`
-/// themselves (see [`build_item_props`]).
-///
-/// Not universal: a producer that emits no per-item `crate` prop — the PHP
-/// path, whose `:Item`s convey crate membership through the `IN_CRATE`
-/// edge alone — does NOT route through this helper. The 4-subset is
-/// genuinely common to the crate-emitting producers, not to every emitter.
 pub fn build_item_props_common(qname: &str, name: &str, kind: &str, crate_name: &str) -> Props {
     let mut props: Props = BTreeMap::new();
     props.insert("qname".to_string(), PropValue::Str(qname.to_string()));
@@ -161,17 +99,6 @@ pub fn build_item_props_common(qname: &str, name: &str, kind: &str, crate_name: 
     props
 }
 
-/// Canonical `:Item.props` constructor — single owner of the 5-key
-/// `(qname, name, kind, crate, bounded_context)` shape used by the
-/// synthetic and HIR `:Item` paths. Extends [`build_item_props_common`]
-/// with the `bounded_context` key; the common 4-subset is owned there
-/// so this constructor and the Rust/TS emitters share one construction
-/// point.
-///
-/// `name` is derived from `qname` via [`crate::qname::last_segment`] so
-/// these callers cannot disagree on the segmentation rule. Callers supply
-/// the other `&str`s and the helpers own the conversion to owned
-/// `PropValue::Str` values and the BTreeMap canonical insertion order.
 pub fn build_item_props(qname: &str, kind: &str, crate_name: &str, bounded_context: &str) -> Props {
     let name = crate::qname::last_segment(qname);
     let mut props = build_item_props_common(qname, name, kind, crate_name);
@@ -182,12 +109,8 @@ pub fn build_item_props(qname: &str, kind: &str, crate_name: &str, bounded_conte
     props
 }
 
-/// A single node fact.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Node {
-    /// Stable identifier — globally unique within a keyspace. For Items this
-    /// is typically the fully-qualified name plus a disambiguator; for
-    /// CallSites it is a hash of `(file, line, col, in_fn)`.
     pub id: String,
     pub label: Label,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -208,14 +131,11 @@ impl Node {
         self
     }
 
-    /// Sort key for canonical dump ordering (G1).
     pub fn sort_key(&self) -> (&str, &str) {
         (self.label.as_str(), self.id.as_str())
     }
 }
 
-/// A single edge fact. Edge identity is not stored — two edges with identical
-/// (src, dst, label, props) are distinct by construction (bag semantics).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Edge {
     pub src: String,
@@ -240,8 +160,6 @@ impl Edge {
         self
     }
 
-    /// Sort key for canonical dump ordering (G1). Includes label so two edges
-    /// between the same pair with different labels sort stably.
     pub fn sort_key(&self) -> (&str, &str, &str) {
         (self.src.as_str(), self.dst.as_str(), self.label.as_str())
     }
@@ -270,11 +188,8 @@ mod tests {
             .with_prop("line", 10i64);
         let e2 = Edge::new("cs:2", "item:foo", EdgeLabel::new(EdgeLabel::CALLS))
             .with_prop("line", 20i64);
-        // Different src → different facts even though dst/label match.
         assert_ne!(e1, e2);
     }
-
-    // ---- Serde round-trip tests (#3625 AC) ---------------------------------
 
     #[test]
     fn prop_value_round_trips_every_variant() {
@@ -295,7 +210,6 @@ mod tests {
 
     #[test]
     fn prop_value_untagged_serializes_as_bare_json() {
-        // #[serde(untagged)] writes bare JSON values, not tagged enum variants.
         assert_eq!(
             serde_json::to_string(&PropValue::Str("x".into()))
                 .expect("PropValue::Str wraps String, infallible to JSON"),
@@ -332,8 +246,6 @@ mod tests {
 
     #[test]
     fn node_round_trips_without_props() {
-        // Empty props must be elided from the wire form (skip_serializing_if)
-        // AND must parse back to an empty BTreeMap, not a missing field error.
         let n = Node::new("crate:qbot-core", Label::new(Label::CRATE));
         let json = serde_json::to_string(&n)
             .expect("Node has derived Serialize over String/Label/BTreeMap");
@@ -356,8 +268,6 @@ mod tests {
         assert_eq!(e, back);
     }
 
-    // ---- :Item prop-key convergence (#478) --------------------------------
-
     #[test]
     fn build_item_props_common_is_exactly_the_four_subset() {
         let props = build_item_props_common("a::b::Foo", "Foo", "struct", "mycrate");
@@ -374,9 +284,6 @@ mod tests {
             props.get("crate").and_then(PropValue::as_str),
             Some("mycrate")
         );
-        // The common core is EXACTLY those four keys — every other key is a
-        // per-producer layer, so the helper must not smuggle in extras
-        // (`bounded_context`, `module_qpath`, …).
         let mut keys: Vec<&str> = props.keys().map(String::as_str).collect();
         keys.sort_unstable();
         assert_eq!(keys, ["crate", "kind", "name", "qname"]);
@@ -384,10 +291,6 @@ mod tests {
 
     #[test]
     fn build_item_props_common_takes_name_verbatim_not_derived_from_qname() {
-        // The impl-block emitter passes a human-readable `name` that is NOT
-        // the qname's trailing segment. The helper must store it verbatim —
-        // deriving it here would rewrite `"impl Display for Foo"` to
-        // `"impl_Display"` and move the byte-identical extraction output.
         let props = build_item_props_common(
             "m::Foo::impl_Display",
             "impl Display for Foo",
@@ -402,8 +305,6 @@ mod tests {
 
     #[test]
     fn build_item_props_extends_common_with_bounded_context() {
-        // The 5-key owner is the common 4-subset (with `name` derived from
-        // qname via `last_segment`) plus `bounded_context`, and nothing else.
         let props = build_item_props("a::b::Foo", "struct", "mycrate", "b_context");
         let common = build_item_props_common("a::b::Foo", "Foo", "struct", "mycrate");
         for (k, v) in &common {
@@ -416,12 +317,9 @@ mod tests {
         assert_eq!(props.len(), 5);
     }
 
-    // ---- from_json numeric coercion contract (#478 rider) -----------------
-
     #[test]
     fn from_json_number_never_fabricates_a_zero() {
         use serde_json::Value;
-        // In-range integers land on `Int`.
         assert_eq!(
             PropValue::from_json(&Value::from(42_i64)),
             PropValue::Int(42)
@@ -430,18 +328,13 @@ mod tests {
             PropValue::from_json(&Value::from(-5_i64)),
             PropValue::Int(-5)
         );
-        // A magnitude beyond i64 is not an `Int`; it coerces to its true
-        // `Float`, never a fabricated `0.0`.
         let big = PropValue::from_json(&Value::from(u64::MAX));
         assert_eq!(big, PropValue::Float(u64::MAX as f64));
         assert_ne!(big, PropValue::Float(0.0));
-        // Genuine floats round-trip their value.
         assert_eq!(
             PropValue::from_json(&Value::from(2.5_f64)),
             PropValue::Float(2.5)
         );
-        // Other scalars follow the documented contract; JSON null and the
-        // non-scalar shapes (array / object) collapse to `Null`.
         assert_eq!(
             PropValue::from_json(&Value::from(true)),
             PropValue::Bool(true)
@@ -453,10 +346,5 @@ mod tests {
         assert!(PropValue::from_json(&Value::Null).is_null());
         assert!(PropValue::from_json(&Value::Array(vec![])).is_null());
         assert!(PropValue::from_json(&Value::Object(Default::default())).is_null());
-        // The `None => Null` arm cannot be exercised through a constructed
-        // `Value` in this build (`serde_json` without `arbitrary_precision`
-        // returns `Some` for every `Number`, and the deserializer rejects
-        // non-finite floats), so this locks the reachable contract; the arm
-        // is guarded for contract-correctness under reuse.
     }
 }

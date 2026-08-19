@@ -1,19 +1,3 @@
-//! Fluent Rust builder API producing a `cfdb_core::Query` AST.
-//!
-//! The builder is the type-safe authoring surface. It produces the same
-//! `Query` value the parser builds ("two surfaces, one AST").
-//!
-//! ```
-//! use cfdb_query::QueryBuilder;
-//! use cfdb_core::Label;
-//!
-//! let q = QueryBuilder::new()
-//!     .match_node("a", Label::new(Label::ITEM))
-//!     .return_count_star("n")
-//!     .build();
-//! assert_eq!(q.match_clauses.len(), 1);
-//! ```
-
 use std::collections::BTreeMap;
 
 use cfdb_core::{ParamBinding, Pattern, Predicate, Projection, Query, ReturnClause, WithClause};
@@ -23,7 +7,6 @@ mod params;
 mod projection;
 mod where_clause;
 
-/// Fluent builder producing a `Query` AST.
 #[derive(Default, Debug, Clone)]
 pub struct QueryBuilder {
     patterns: Vec<Pattern>,
@@ -37,14 +20,10 @@ pub struct QueryBuilder {
 }
 
 impl QueryBuilder {
-    /// Create an empty builder.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Finalize and return the `Query`. Panics if `return_items` /
-    /// `return_count_star` was never called — a query without a RETURN clause
-    /// is a programmer bug, not a recoverable runtime error.
     pub fn build(self) -> Query {
         assert!(
             !self.projections.is_empty(),

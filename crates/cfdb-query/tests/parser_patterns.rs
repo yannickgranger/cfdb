@@ -1,11 +1,3 @@
-//! Acceptance: the 9 canonical F-capability test queries from
-//! `.concept-graph/studies/001-graph-store-selection-methodology.md` §4.1
-//! must all parse into a `Query` AST.
-//!
-//! Each test additionally performs a serde roundtrip (JSON) to validate that
-//! the AST carries enough information to reconstruct the query and that every
-//! variant is wired up in Serialize/Deserialize.
-
 use cfdb_core::{Aggregation, Pattern, Predicate, ProjectionValue, Query};
 use cfdb_query::parse;
 
@@ -20,9 +12,6 @@ fn parse_and_roundtrip(label: &str, src: &str) -> Query {
     q
 }
 
-// F1 — Fixed-hop label + property match (aggregation form, per study 001 §4.2).
-// The Cartesian form is the F1a footgun flagged by the shape lint; the
-// aggregation form is what tools should actually emit.
 #[test]
 fn f1_fixed_hop_label_property_match() {
     let q = parse_and_roundtrip(
@@ -39,7 +28,6 @@ fn f1_fixed_hop_label_property_match() {
     assert!(q.with_clause.is_some());
 }
 
-// F2 — Variable-length path [:CALLS*1..10].
 #[test]
 fn f2_variable_length_path() {
     let q = parse_and_roundtrip(
@@ -55,10 +43,6 @@ fn f2_variable_length_path() {
     }
 }
 
-// RFC-047a B1 (#488) — open-ended variable-length range `*N..`. The upper
-// bound is optional; an omitted upper bound parses to the `u32::MAX` sentinel
-// (reusing the existing `(u32, u32)` AST tuple — no new variant). This is the
-// query form `cfdb impact` composes: `(seed)<-[:CALLS*1..]-(affected)`.
 #[test]
 fn open_range_variable_length_path_parses_to_u32_max() {
     let q = parse_and_roundtrip(
@@ -77,7 +61,6 @@ fn open_range_variable_length_path_parses_to_u32_max() {
         other => panic!("expected Path, got {other:?}"),
     }
 
-    // The closed form `*N..M` is unaffected — still parses to its literal pair.
     let closed = parse_and_roundtrip(
         "closed-range-regression",
         "MATCH (a:Item)-[:CALLS*2..7]->(b:Item) RETURN a",
@@ -88,7 +71,6 @@ fn open_range_variable_length_path_parses_to_u32_max() {
     }
 }
 
-// F3 — Property regex in WHERE (=~).
 #[test]
 fn f3_property_regex_in_where() {
     let q = parse_and_roundtrip(
@@ -101,7 +83,6 @@ fn f3_property_regex_in_where() {
     }
 }
 
-// F4 — OPTIONAL MATCH / left join.
 #[test]
 fn f4_optional_match() {
     let q = parse_and_roundtrip(
@@ -114,7 +95,6 @@ fn f4_optional_match() {
         .any(|p| matches!(p, Pattern::Optional(_))));
 }
 
-// F5 — External parameter sets / input bucket joins.
 #[test]
 fn f5_param_list_in() {
     let q = parse_and_roundtrip(
@@ -131,7 +111,6 @@ fn f5_param_list_in() {
     }
 }
 
-// F6 — NOT EXISTS / anti-join.
 #[test]
 fn f6_not_exists_anti_join() {
     let q = parse_and_roundtrip(
@@ -144,7 +123,6 @@ fn f6_not_exists_anti_join() {
     }
 }
 
-// F7 — Aggregation + grouping (count + group by implicit projection).
 #[test]
 fn f7_aggregation_grouping() {
     let q = parse_and_roundtrip(
@@ -159,7 +137,6 @@ fn f7_aggregation_grouping() {
     )));
 }
 
-// F8 — Parameterized queries — $qname, $rule_path bound safely.
 #[test]
 fn f8_parameterized_query() {
     let q = parse_and_roundtrip("F8", "MATCH (i:Item) WHERE i.qname = $qname RETURN i");
@@ -171,9 +148,6 @@ fn f8_parameterized_query() {
     }
 }
 
-// F9 — Multi-valued repeated edges between same pair (bag semantics). Here
-// we just need to parse a CALLS edge pattern with a bound edge variable so
-// callers can distinguish call sites via edge properties.
 #[test]
 fn f9_multi_valued_edges_with_var() {
     let q = parse_and_roundtrip("F9", "MATCH (a:Item)-[c:CALLS]->(b:Item) RETURN a, c, b");

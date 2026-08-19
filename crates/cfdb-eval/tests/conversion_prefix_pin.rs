@@ -1,11 +1,3 @@
-//! The store's `ComputedKey::ConversionPrefix` index key and the
-//! `regexp_extract` join in `examples/queries/classifier-random-scattering.cypher`
-//! must use the same pattern, byte for byte: the cross-MATCH fast path
-//! recognises the computed join only when the Cypher call's pattern
-//! argument equals the vetted constant. The two now live in different
-//! crates, so the equality is pinned here against the PARSED rule file —
-//! never against a third hand-written copy of the literal.
-
 use std::collections::BTreeSet;
 
 use cfdb_core::fact::PropValue;
@@ -14,8 +6,6 @@ use cfdb_petgraph::index::spec::CONVERSION_PREFIX_PATTERN;
 
 const RULE: &str = include_str!("../../../examples/queries/classifier-random-scattering.cypher");
 
-/// Every distinct string literal handed to `regexp_extract(_, <literal>)`
-/// anywhere in the query's `WHERE` (and nested `NOT EXISTS`) predicates.
 fn regexp_extract_patterns(query: &Query) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     if let Some(pred) = &query.where_clause {

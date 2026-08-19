@@ -1,17 +1,6 @@
-//! Tests for the post-walk synthesis pass.
-//!
-//! The parent `synthesize.rs` declares this module via
-//! `#[cfg(test)] mod tests;`, so this file does NOT carry its own
-//! `#![cfg(test)]` — that would be a duplicate-attribute clippy
-//! violation.
-
 use super::*;
 use cfdb_core::fact::Edge;
 
-/// Empty overrides — for foreign crates (`std`, `serde`,...) the
-/// `compute_bounded_context` heuristic returns the bare crate name,
-/// which is what the unit tests assert on. Real callers pass the
-/// workspace's `.cfdb/concepts/*.toml`-derived overrides.
 fn empty_overrides() -> ConceptOverrides {
     ConceptOverrides::default()
 }
@@ -53,7 +42,6 @@ fn crate_from_qname_multi_segment() {
 
 #[test]
 fn crate_from_qname_degenerate_single_segment() {
-    // A bare type name (single-segment qname) — degenerate but valid.
     assert_eq!(crate_from_qname("Foo"), "Foo");
 }
 
@@ -91,8 +79,6 @@ fn promotion_implements_for_then_implements() {
 
 #[test]
 fn promotion_implements_then_implements_for() {
-    // Insertion order reversed — IMPLEMENTS first, IMPLEMENTS_FOR
-    // after. Trait evidence MUST be sticky.
     let mut emitter = Emitter::new();
     emitter.claim_item_qname(
         "crate_a::Source",
@@ -125,8 +111,6 @@ fn promotion_implements_then_implements_for() {
 
 #[test]
 fn dedup_two_implements_for_yields_single_node() {
-    // Same qname referenced twice as IMPLEMENTS_FOR — must produce
-    // exactly one synthesised :Item node, not two.
     let mut emitter = Emitter::new();
     emitter.claim_item_qname("crate_a::A", &cfdb_core::qname::TargetDiscriminator::Lib);
     emitter.claim_item_qname("crate_a::B", &cfdb_core::qname::TargetDiscriminator::Lib);
@@ -187,9 +171,6 @@ fn synthesises_one_node_with_minimal_props() {
         display.props.get("crate").and_then(PropValue::as_str),
         Some("std")
     );
-    // `compute_bounded_context("std", empty_overrides)` falls through
-    // to the heuristic which returns the crate name unchanged for
-    // crates with no recognised prefix.
     assert_eq!(
         display
             .props
@@ -197,8 +178,6 @@ fn synthesises_one_node_with_minimal_props() {
             .and_then(PropValue::as_str),
         Some("std")
     );
-    // Body-shaped props are deliberately ABSENT — that is the
-    // discriminator between walked and synthesised items.
     for absent in [
         "file",
         "visibility",
@@ -241,8 +220,6 @@ fn idempotent_on_re_run() {
 
 #[test]
 fn skips_walked_qnames() {
-    // A workspace-internal qname is in emitted_item_qnames; the
-    // synthesis pass must NOT add a second :Item for it.
     let mut emitter = Emitter::new();
     emitter.claim_item_qname("crate_a::A", &cfdb_core::qname::TargetDiscriminator::Lib);
     emitter.claim_item_qname(
@@ -267,9 +244,6 @@ fn skips_walked_qnames() {
 
 #[test]
 fn covers_all_four_edge_labels() {
-    // Same-shape edges with each of the four labels target four
-    // distinct foreign qnames. Each must produce a synthesised
-    // :Item with the correct kind.
     let mut emitter = Emitter::new();
     emitter.claim_item_qname(
         "crate_a::Source",
@@ -310,9 +284,6 @@ fn covers_all_four_edge_labels() {
 
 #[test]
 fn ignores_unrelated_edge_labels() {
-    // Edges with labels NOT in {IMPLEMENTS, IMPLEMENTS_FOR, RETURNS,
-    // TYPE_OF} must not trigger synthesis even if dst qname is
-    // unwalked.
     let mut emitter = Emitter::new();
     emitter.claim_item_qname(
         "crate_a::Source",

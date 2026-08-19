@@ -1,19 +1,3 @@
-//! `impact_query` — the canonical `cfdb impact` reverse-reachability query
-//! composer.
-//!
-//! Given a list of changed-item seed qnames, composes the parameterised
-//! `Query` AST that collects every transitive *caller* of those seeds — the
-//! blast radius of a change. The traversal is the open variable-length form
-//! `(seed)<-[:CALLS*1..]-(affected)`: `*1..` is `Some((1, u32::MAX))` and the
-//! evaluator walks it unbounded via its visited-set.
-//!
-//! Like the sibling [`crate::list_items::list_items_matching`] composer, it
-//! builds the `Query` AST **directly** (no parse, no I/O), so it is pure,
-//! infallible, and deterministic — identical seed lists produce structurally
-//! equal `Query` values (by `PartialEq` / serde round-trip). The
-//! human-readable [`IMPACT_QUERY`] string documents the same shape and is
-//! pinned to the built AST by `impact_query_matches_canonical_cypher`.
-
 use std::collections::BTreeMap;
 
 use cfdb_core::fact::PropValue;
@@ -23,42 +7,17 @@ use cfdb_core::query::{
 };
 use cfdb_core::schema::{EdgeLabel, Label};
 
-/// The canonical `cfdb impact` reverse-reachability query, in
-/// the v0.1 Cypher subset. [`impact_query`] builds this exact shape as a
-/// `Query` AST — the string is the human-readable source of truth, pinned to
-/// the built AST by the `impact_query_matches_canonical_cypher` test.
-///
-/// `$seeds` binds a `ParamBinding::List` of seed qnames; the open form
-/// `<-[:CALLS*1..]-` collects every transitive caller of the bound seeds,
-/// unbounded. `DISTINCT` dedups items reachable via more than one
-/// call path.
 pub const IMPACT_QUERY: &str = "MATCH (seed:Item)<-[:CALLS*1..]-(affected:Item) \
      WHERE seed.qname IN $seeds \
      RETURN DISTINCT affected.qname AS qname";
 
-/// Compose the canonical `cfdb impact` query for a list of
-/// changed-item seed qnames.
-///
-/// Returns a [`Query`] AST value with `$seeds` already bound to a
-/// `ParamBinding::List` of the given qnames, in the order provided. The caller
-/// executes it against a [`cfdb_core::store::StoreBackend`]; the result rows'
-/// `qname` column is the set of transitive callers (the blast radius).
-///
-/// `max_depth` bounds the traversal: `None` is the open form `<-[:CALLS*1..]-`
-/// (unbounded, the canonical default — [`IMPACT_QUERY`]); `Some(n)` is
-/// `<-[:CALLS*1..n]-` (callers within `n` hops). This is the `*1..N` form the
-/// `cfdb impact --max-depth` flag maps to.
 pub fn impact_query<S: AsRef<str>>(seeds: &[S], max_depth: Option<u32>) -> Query {
-    // `(var:Item)` endpoint — the seed and affected nodes share this shape.
     let item_endpoint = |var: &str| NodePattern {
         var: Some(var.to_string()),
         label: Some(Label::new(Label::ITEM)),
         props: BTreeMap::new(),
     };
 
-    // `(seed:Item)<-[:CALLS*1..N]-(affected:Item)` — reverse (`Direction::In`)
-    // var-length traversal: `affected` is any transitive caller of `seed`.
-    // `None` → `u32::MAX` (the open, unbounded form).
     let match_clauses = vec![Pattern::Path(PathPattern {
         from: item_endpoint("seed"),
         edge: EdgePattern {
@@ -70,7 +29,6 @@ pub fn impact_query<S: AsRef<str>>(seeds: &[S], max_depth: Option<u32>) -> Query
         to: item_endpoint("affected"),
     })];
 
-    // `WHERE seed.qname IN $seeds`.
     let where_clause = Some(Predicate::In {
         left: Expr::Property {
             var: "seed".to_string(),
@@ -79,7 +37,6 @@ pub fn impact_query<S: AsRef<str>>(seeds: &[S], max_depth: Option<u32>) -> Query
         right: Expr::Param("seeds".to_string()),
     });
 
-    // `RETURN DISTINCT affected.qname AS qname`.
     let return_clause = ReturnClause {
         projections: vec![Projection {
             value: ProjectionValue::Expr(Expr::Property {
@@ -93,7 +50,6 @@ pub fn impact_query<S: AsRef<str>>(seeds: &[S], max_depth: Option<u32>) -> Query
         distinct: true,
     };
 
-    // `$seeds` bound to the given qnames, in order.
     let bound = seeds
         .iter()
         .map(|s| PropValue::Str(s.as_ref().to_string()))
@@ -110,17 +66,6 @@ pub fn impact_query<S: AsRef<str>>(seeds: &[S], max_depth: Option<u32>) -> Query
     }
 }
 
-/// Compose the projection that feeds `cfdb impact --since` SEED RESOLUTION:
-/// `(qname, file)` for every `:Item`.
-///
-/// The caller matches each row's `file` against the `git diff` changed-file set
-/// (repo-relative) and seeds [`impact_query`] with the matching qnames. The
-/// match is done caller-side (not as a `WHERE i.file IN $files`) on purpose:
-/// `:Item.file` is **absolute** on HIR-extracted keyspaces (the ones that carry
-/// the resolved `CALLS` impact needs) and **repo-relative** on syn-extracted
-/// ones, so an exact `IN` would silently match nothing on exactly the keyspaces
-/// where `impact` is meaningful. A suffix-tolerant caller-side match handles
-/// both forms.
 pub fn items_with_files_query() -> Query {
     let property = |prop: &str| {
         ProjectionValue::Expr(Expr::Property {
@@ -203,7 +148,6 @@ mod tests {
 
     #[test]
     fn impact_query_max_depth_bounds_the_traversal() {
-        // `--max-depth N` maps to the bounded form `*1..N`.
         let q = impact_query(&["x"], Some(3));
         let Pattern::Path(PathPattern { edge, .. }) = &q.match_clauses[0] else {
             unreachable!("the canonical impact match is a single Path pattern");
@@ -261,9 +205,6 @@ mod tests {
 
     #[test]
     fn impact_query_matches_canonical_cypher() {
-        // The directly-built AST must equal `parse(IMPACT_QUERY)` (params
-        // aside): this pins the human-readable canonical string as the source
-        // of truth and catches any drift between it and the built AST.
         let mut built = impact_query::<&str>(&[], None);
         built.params.clear();
         let parsed = parse(IMPACT_QUERY).expect("IMPACT_QUERY is a valid Cypher-subset query");
@@ -276,7 +217,6 @@ mod tests {
     #[test]
     fn items_with_files_query_projects_qname_and_file_for_all_items() {
         let q = items_with_files_query();
-        // MATCH (i:Item) — no WHERE (caller does the suffix-tolerant match).
         assert_eq!(q.match_clauses.len(), 1);
         let Pattern::Node(NodePattern { var, label, .. }) = &q.match_clauses[0] else {
             unreachable!("seed-resolution projection matches a single (i:Item) node");
@@ -285,7 +225,6 @@ mod tests {
         assert_eq!(label.as_ref().map(Label::as_str), Some("Item"));
         assert!(q.where_clause.is_none(), "no WHERE — match is caller-side");
         assert!(q.params.is_empty());
-        // RETURN i.qname AS qname, i.file AS file
         let aliases: Vec<&str> = q
             .return_clause
             .projections

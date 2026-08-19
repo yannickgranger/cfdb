@@ -1,11 +1,3 @@
-//! Exercise `by_prop` build + stale-entry removal at the `KeyspaceState`
-//! layer. `KeyspaceState` stays `pub(crate)` and is tested at this level.
-//!
-//! The parent `graph.rs` declares this module via
-//! `#[cfg(test)] mod index_build_tests;`, so this file does NOT carry
-//! its own `#![cfg(test)]` — that would be a duplicate-attribute
-//! clippy violation (rust-1.93 `clippy::duplicated_attributes`).
-
 use super::*;
 use crate::canonical_dump::canonical_dump;
 use crate::index::spec::{ComputedKey, IndexEntry, IndexSpec};
@@ -80,7 +72,7 @@ fn recall_matches_full_scan_on_1000_item_fixture() {
         let ctx = contexts[i % contexts.len()];
         let root = roots[(i / contexts.len()) % roots.len()];
         let leaf = leaves[(i / (contexts.len() * roots.len())) % leaves.len()];
-        let disc = i; // disambiguator to keep ids unique
+        let disc = i;
         let qname = format!("{root}::{leaf}_{disc}");
         nodes.push(item(&format!("item:{i}"), &qname, ctx));
     }
@@ -90,7 +82,6 @@ fn recall_matches_full_scan_on_1000_item_fixture() {
 
     assert_eq!(state.graph.node_count(), 1000);
 
-    // Recall ≡ full scan across every indexed (Label, key).
     for ((label, tag), postings) in &state.by_prop {
         for (value, indices) in postings {
             let scanned = full_scan(&state, label.as_str(), tag, value);
@@ -101,7 +92,6 @@ fn recall_matches_full_scan_on_1000_item_fixture() {
         }
     }
 
-    // Contexts bucket size — 1000 / 4 contexts = 250 each.
     let ctx_key = (Label::new("Item"), "bounded_context".to_string());
     let ctx_buckets = state.by_prop.get(&ctx_key).expect("context index");
     assert_eq!(ctx_buckets.len(), contexts.len());
@@ -113,9 +103,6 @@ fn recall_matches_full_scan_on_1000_item_fixture() {
         );
     }
 
-    // Computed-key bucket size: 8 distinct leaves × 5 roots = 40 distinct
-    // last-segment suffixes? No — last_segment includes the disambiguator,
-    // so all 1000 values are distinct. Assert that instead.
     let comp_key = (Label::new("Item"), "last_segment(qname)".to_string());
     let comp_buckets = state.by_prop.get(&comp_key).expect("computed index");
     assert_eq!(comp_buckets.len(), 1000);
@@ -136,11 +123,8 @@ fn stale_entry_removed_on_reingest_with_changed_prop() {
     assert!(state.by_prop[&key_ctx]["context_a"].contains(&idx));
     assert!(state.by_prop[&key_last]["foo"].contains(&idx));
 
-    // Re-ingest with a changed qname AND a changed context.
     state.ingest_nodes(vec![item("item:a", "mod::bar", "context_b")]);
 
-    // Stale postings: old values lose the idx AND the (now-empty) entries
-    // are pruned from the outer map so iteration stays minimal.
     assert!(
         !state.by_prop[&key_qname].contains_key("mod::foo"),
         "stale qname posting list should be pruned, not merely emptied"
@@ -148,21 +132,15 @@ fn stale_entry_removed_on_reingest_with_changed_prop() {
     assert!(!state.by_prop[&key_ctx].contains_key("context_a"));
     assert!(!state.by_prop[&key_last].contains_key("foo"));
 
-    // Fresh postings: new values carry the idx.
     assert!(state.by_prop[&key_qname]["mod::bar"].contains(&idx));
     assert!(state.by_prop[&key_ctx]["context_b"].contains(&idx));
     assert!(state.by_prop[&key_last]["bar"].contains(&idx));
 
-    // Only one node in the keyspace, so the node-count stays at 1.
     assert_eq!(state.graph.node_count(), 1);
 }
 
 #[test]
 fn canonical_dump_unaffected_by_by_prop() {
-    // Determinism / G1 invariant: indexes are rebuild-able scratch and
-    // MUST NOT leak into `canonical_dump`. A keyspace ingested with
-    // indexes and one ingested without indexes produce byte-identical
-    // canonical dumps on the same fact content (RFC-035 §4).
     let nodes = vec![
         item("item:a", "mod::foo", "context_a"),
         item("item:b", "mod::bar", "context_b"),
@@ -182,7 +160,6 @@ fn canonical_dump_unaffected_by_by_prop() {
         "canonical_dump must be byte-identical with vs without indexes"
     );
 
-    // Sanity: the indexed keyspace actually populated its posting lists.
     assert!(!indexed.by_prop.is_empty());
     assert!(plain.by_prop.is_empty());
 }
@@ -207,14 +184,11 @@ fn label_change_on_reingest_drops_old_label_entries() {
     let idx = *state.id_to_idx.get("item:a").expect("ingested");
     assert!(state.by_prop[&key_qname]["mod::foo"].contains(&idx));
 
-    // Re-ingest with a label the spec does not cover — Item → CallSite.
     let changed = Node::new("item:a", Label::new("CallSite"))
         .with_prop("qname", "mod::foo")
         .with_prop("bounded_context", "context_a");
     state.ingest_nodes(vec![changed]);
 
-    // All (Item, *) entries for this idx should have been dropped. The
-    // CallSite label is not in the spec so no new entries appear.
     assert!(!state
         .by_prop
         .get(&key_qname)

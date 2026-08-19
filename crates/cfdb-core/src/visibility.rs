@@ -1,35 +1,6 @@
-//! `Visibility` — Rust item visibility for `:Item` fact attributes.
-//!
-//! Captures the five forms an item can carry in Rust source:
-//!
-//! - `Public`           — `pub`
-//! - `CrateLocal`       — `pub(crate)`
-//! - `Module`           — `pub(super)` or `pub(self)` (module-scope)
-//! - `Private`          — no modifier (inherited)
-//! - `Restricted(path)` — `pub(in some::module::path)` with arbitrary path
-//!
-//! This is a programmatic type. Items store visibility on the wire as a
-//! `PropValue::Str` formatted by `Visibility::Display`; `Visibility::FromStr`
-//! is the inverse. Canonical wire strings:
-//!
-//! | variant              | wire string        |
-//! |----------------------|--------------------|
-//! | `Public`             | `"pub"`            |
-//! | `CrateLocal`         | `"pub(crate)"`     |
-//! | `Module`             | `"pub(super)"`     |
-//! | `Private`            | `"private"`        |
-//! | `Restricted(p)`      | `"pub(in {p})"`    |
-//!
-//! The `Module` variant always renders as `pub(super)` even when the original
-//! source was `pub(self)` — the two are semantically equivalent at this
-//! granularity, and collapsing them keeps the wire vocabulary closed. If a
-//! future consumer needs the distinction, it becomes a second variant and a
-//! SchemaVersion bump.
-
 use std::fmt;
 use std::str::FromStr;
 
-/// Visibility of a Rust item as it appears in `:Item.visibility`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum Visibility {
@@ -41,8 +12,6 @@ pub enum Visibility {
 }
 
 impl Visibility {
-    /// Canonical wire string — stable across SchemaVersion bumps within the
-    /// same major. Used to round-trip through `PropValue::Str`.
     pub fn as_wire_str(&self) -> String {
         match self {
             Visibility::Public => "pub".into(),
@@ -116,11 +85,8 @@ mod tests {
 
     #[test]
     fn pub_self_collapses_to_module() {
-        // `pub(self)` is semantically equivalent to `pub(super)` at this
-        // granularity — both are "module scope, not crate-wide".
         let parsed: Visibility = "pub(self)".parse().expect("pub(self) is valid");
         assert_eq!(parsed, Visibility::Module);
-        // Display always renders as pub(super) — the canonical form.
         assert_eq!(parsed.to_string(), "pub(super)");
     }
 

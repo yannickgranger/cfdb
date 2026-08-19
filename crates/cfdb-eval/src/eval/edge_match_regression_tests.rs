@@ -1,21 +1,3 @@
-//! Regression tests for edge-pattern MATCH returns 0 rows.
-//!
-//! Root cause: `build_path_binding` inserts node variables but does not
-//! insert the edge variable. The `Binding` enum lacked an `EdgeRef` variant,
-//! making the edge variable architecturally unrepresentable — every `count(r)`
-//! or `r.prop` evaluated against an empty binding and returned Null.
-//!
-//! # Test shapes
-//!
-//! **Programmatic fixtures** (control): build a `PetgraphStore`
-//! in-process, ingest 2 nodes + 1 edge, run the failing queries.
-//!
-//! **Persist-roundtrip fixtures** (the shape the reported bug lives
-//! on): write the same fixture to JSON via `persist::save`, load it
-//! into a fresh store via `persist::load`, run the same queries.
-//!
-//! Both shapes FAIL on develop tip and PASS on the fix.
-
 use cfdb_core::fact::{Edge, Node, PropValue};
 use cfdb_core::result::RowValue;
 use cfdb_core::schema::{EdgeLabel, Keyspace, Label};
@@ -46,7 +28,6 @@ fn scalar_str(row: &cfdb_core::result::Row, key: &str) -> String {
     }
 }
 
-/// Build the minimal 2-node, 1-edge fixture used by programmatic tests.
 fn minimal_fixture() -> (Vec<Node>, Vec<Edge>) {
     let nodes = vec![
         Node::new("nA", Label::new("N")).with_prop("qname", "alpha"),
@@ -65,8 +46,6 @@ fn fresh_store_with_fixture() -> (PetgraphStore, Keyspace) {
     store.ingest_edges(&k, edges).expect("ingest edges");
     (store, k)
 }
-
-// ---------- Programmatic fixtures ----------
 
 #[test]
 fn count_named_edge_var_anonymous_label() {
@@ -99,8 +78,6 @@ fn count_named_edge_var_with_typed_endpoints() {
 
 #[test]
 fn count_star_also_works_as_control() {
-    // CountStar doesn't depend on edge-var binding; serves as a control
-    // that edge-traversal itself is finding the pair.
     let (store, k) = fresh_store_with_fixture();
     let q = parse("MATCH (a)-[r]->(b) RETURN count(*)");
     let r = QueryEngine::new(&store).execute(&k, &q).expect("exec");
@@ -109,8 +86,6 @@ fn count_star_also_works_as_control() {
 
 #[test]
 fn count_from_node_var_also_works_as_control() {
-    // count(a) on the from-node already works pre-fix; control that the
-    // fix doesn't regress it.
     let (store, k) = fresh_store_with_fixture();
     let q = parse("MATCH (a)-[r]->(b) RETURN count(a)");
     let r = QueryEngine::new(&store).execute(&k, &q).expect("exec");
@@ -132,8 +107,6 @@ fn edge_var_property_access_custom_prop() {
     let r = QueryEngine::new(&store).execute(&k, &q).expect("exec");
     assert_eq!(scalar_int(&r.rows[0], "r.weight"), 7);
 }
-
-// ---------- Chained patterns ----------
 
 #[test]
 fn count_chained_edges() {
@@ -168,8 +141,6 @@ fn count_chained_edges() {
     assert_eq!(scalar_int(&r2.rows[0], "count"), 1);
 }
 
-// ---------- Persist-roundtrip fixtures ----------
-
 fn roundtripped_store() -> (PetgraphStore, Keyspace, tempfile::TempDir) {
     let (source, k) = fresh_store_with_fixture();
     let dir = tempfile::tempdir().expect("tempdir");
@@ -202,13 +173,8 @@ fn roundtrip_edge_property_access() {
     assert_eq!(scalar_str(&r.rows[0], "r.label"), "REL");
 }
 
-// ---------- Parallel edges (bag semantics per cfdb_core::fact::Edge) ----------
-
 #[test]
 fn parallel_edges_each_produce_a_row() {
-    // `Edge` has bag semantics — two edges with identical (src, dst, label,
-    // props) are distinct by construction. Single-hop traversal emits one
-    // row per edge so `count(r) == jq '.edges | length'`.
     let mut store = PetgraphStore::new();
     let k = ks();
     store
@@ -241,12 +207,8 @@ fn parallel_edges_each_produce_a_row() {
     );
 }
 
-// ---------- Invariant: anonymous edges still work (regression guard) ----------
-
 #[test]
 fn anonymous_edge_pattern_still_works() {
-    // All 31 shipped .cypher rules use anonymous -[:LABEL]-> patterns.
-    // The fix must not break them.
     let (store, k) = fresh_store_with_fixture();
 
     let q = parse("MATCH (a:N)-[:REL]->(b:N) RETURN count(a)");
@@ -256,14 +218,6 @@ fn anonymous_edge_pattern_still_works() {
 
 #[test]
 fn unknown_edge_label_still_warns() {
-    // Label validation must still fire UnknownEdgeLabel when the label
-    // is absent. The fix must not silence this signal.
-    //
-    // Note: when the stream is empty (which is what
-    // `warn_on_unknown_edge_label` triggers by returning `iter::empty`),
-    // `group_and_aggregate` on an empty table produces no rows. That is
-    // pre-existing behavior unrelated to this bug — this test asserts
-    // only on the WARNING, not the row shape.
     let (store, k) = fresh_store_with_fixture();
     let q = parse("MATCH (a)-[r:NOSUCH]->(b) RETURN count(r)");
     let r = QueryEngine::new(&store).execute(&k, &q).expect("exec");

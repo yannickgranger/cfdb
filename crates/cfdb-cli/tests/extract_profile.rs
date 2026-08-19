@@ -1,33 +1,10 @@
-//! RFC-048 §3.1 / slice 48-A (#492) — `cfdb extract --profile` CLI surface.
-//!
-//! Covers the two properties the profile MUST hold, end-to-end through the
-//! real binary against a real cargo workspace (the `spikes/qa5-utc-now`
-//! fixture, the same one `ci/determinism-check.sh` uses):
-//!
-//! 1. **Determinism (RFC-048 §4).** `--profile` reports timings to stderr
-//!    and never into the keyspace, so a profiled extract's canonical dump is
-//!    byte-identical to a plain extract's. This is the load-bearing
-//!    invariant — a profile that perturbs the graph is a determinism break.
-//! 2. **Surface.** The flag is discoverable in `--help` and, when set, the
-//!    per-phase breakdown lands on stderr over the real phase vocabulary.
-//!
-//! The pure-function arithmetic of the breakdown (phase timers sum to the
-//! measured total within tolerance — the RFC-048 §7 Unit row) is asserted by
-//! the inline unit tests in `crates/cfdb-cli/src/profile.rs`; this file is
-//! the observable-behavior contract.
-
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use assert_cmd::prelude::*;
 use tempfile::tempdir;
 
-/// The `spikes/qa5-utc-now` fixture — a small, self-contained cargo
-/// workspace (its `Cargo.toml` carries an empty `[workspace]` table). Fast
-/// to extract and already a determinism-check fixture.
 fn fixture_workspace() -> PathBuf {
-    // CARGO_MANIFEST_DIR is <repo>/crates/cfdb-cli/; the fixture is under
-    // <repo>/spikes/qa5-utc-now.
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("cfdb-cli manifest dir has a parent crates/ directory")
@@ -37,8 +14,6 @@ fn fixture_workspace() -> PathBuf {
         .join("qa5-utc-now")
 }
 
-/// Run `cfdb extract` against the fixture, optionally with `--profile`,
-/// returning the captured (stdout, stderr). Asserts the process succeeded.
 fn extract_fixture(db: &Path, keyspace: &str, profile: bool) -> (String, String) {
     let workspace = fixture_workspace();
     let mut args = vec![
@@ -69,8 +44,6 @@ fn extract_fixture(db: &Path, keyspace: &str, profile: bool) -> (String, String)
     )
 }
 
-/// Canonical dump of a keyspace — the byte string the determinism gate
-/// hashes.
 fn dump(db: &Path, keyspace: &str) -> String {
     let out = Command::cargo_bin("cfdb")
         .expect("cfdb binary built")
@@ -91,8 +64,6 @@ fn dump(db: &Path, keyspace: &str) -> String {
     String::from_utf8_lossy(&out.stdout).into_owned()
 }
 
-/// `--profile` is advertised in `cfdb extract --help`. An undocumented
-/// diagnostic flag is not a usable one.
 #[test]
 fn extract_help_mentions_profile_flag() {
     let out = Command::cargo_bin("cfdb")
@@ -111,9 +82,6 @@ fn extract_help_mentions_profile_flag() {
     );
 }
 
-/// RFC-048 §4 — the load-bearing invariant. A profiled extract and a plain
-/// extract of the same workspace produce byte-identical canonical dumps: the
-/// timings live on stderr and never enter the graph.
 #[test]
 fn profile_flag_does_not_perturb_keyspace() {
     let db_plain = tempdir().expect("tempdir");
@@ -131,8 +99,6 @@ fn profile_flag_does_not_perturb_keyspace() {
     );
 }
 
-/// `--profile` emits the per-phase breakdown to stderr over the real phase
-/// vocabulary. Without `--hir`, the hir-load phase is marked skipped.
 #[test]
 fn profile_emits_phase_breakdown_to_stderr() {
     let db = tempdir().expect("tempdir");

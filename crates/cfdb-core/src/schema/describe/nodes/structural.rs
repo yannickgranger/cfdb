@@ -1,7 +1,3 @@
-//! Structural node-label descriptors — the Rust AST skeleton: crate,
-//! module, file, item (+ its provenance-grouped attribute sets), field,
-//! variant, and param.
-
 use crate::schema::descriptors::{attr, AttributeDescriptor, NodeLabelDescriptor, Provenance};
 use crate::schema::labels::Label;
 
@@ -100,20 +96,12 @@ pub(in crate::schema::describe) fn item_node_descriptor() -> NodeLabelDescriptor
     }
 }
 
-/// Extractor-provenance attributes on `:Item` — syntactic facts the
-/// AST walker populates directly.
 fn item_attrs_extractor() -> Vec<AttributeDescriptor> {
-    // Composed from two builders purely to keep each short and readable; the
-    // caller sorts by name, so the partition is cosmetic (#488 boy-scout — the
-    // flat 20-attr builder tripped the line-based complexity heuristic on the
-    // `?` / `for` tokens inside its doc strings, not on real branching).
     let mut attrs = item_attrs_extractor_metadata();
     attrs.extend(item_attrs_extractor_structural());
     attrs
 }
 
-/// Extractor-provenance `:Item` attributes (part 1) — context, cfg, rustdoc,
-/// deprecation, impl-block, and compile-scope facts.
 fn item_attrs_extractor_metadata() -> Vec<AttributeDescriptor> {
     use Provenance::Extractor;
     vec![
@@ -130,14 +118,8 @@ fn item_attrs_extractor_metadata() -> Vec<AttributeDescriptor> {
     ]
 }
 
-/// Extractor-provenance `:Item` attributes (part 2) — kind, naming, location,
-/// signature, visibility, and cross-producer (PHP/TS) disambiguation facts.
 fn item_attrs_extractor_structural() -> Vec<AttributeDescriptor> {
     use Provenance::Extractor;
-    // #479/#481 — the top-level kind list is GENERATED from
-    // `ItemKind::variants()` so the descriptor can never again drift from
-    // the vocabulary the CLI parses (`method` is not an `ItemKind`: it is
-    // the impl-member kind, appended textually below).
     let top_level_kinds = crate::query::ItemKind::variants()
         .iter()
         .map(|k| format!("`{}`", k.to_extractor_str()))
@@ -163,13 +145,6 @@ fn item_attrs_extractor_structural() -> Vec<AttributeDescriptor> {
     ]
 }
 
-/// `enrich_metrics`-provenance attributes on `:Item` — populated by
-/// `EnrichEngine::enrich_metrics` when the `quality-metrics` feature is
-/// active. Descriptors were reserved in
-/// V0_3_0 and became load-bearing in V0_3_1 (producer landing). G6
-/// invariant: `test_coverage` is toolchain-version-scoped (depends on
-/// `cargo-llvm-cov` output) and excluded from the G1 canonical-dump
-/// sha256; the other three attrs participate in G1 as normal.
 fn item_attrs_enrich_metrics() -> Vec<AttributeDescriptor> {
     use Provenance::EnrichMetrics;
     vec![
@@ -180,8 +155,6 @@ fn item_attrs_enrich_metrics() -> Vec<AttributeDescriptor> {
     ]
 }
 
-/// `enrich_git_history`-provenance attributes on `:Item` — populated by
-/// slice 43-B (issue #105) behind the `git-enrich` feature flag.
 fn item_attrs_enrich_git_history() -> Vec<AttributeDescriptor> {
     use Provenance::EnrichGitHistory;
     vec![
@@ -191,9 +164,6 @@ fn item_attrs_enrich_git_history() -> Vec<AttributeDescriptor> {
     ]
 }
 
-/// `enrich_reachability`-provenance attributes on `:Item` — populated by
-/// slice 43-G (issue #110), extended by RFC-042 042-B (issue #392) with
-/// the production-only twin attrs that exclude `:EntryPoint{kind ∈ {test, bench}}`.
 fn item_attrs_enrich_reachability() -> Vec<AttributeDescriptor> {
     use Provenance::EnrichReachability;
     vec![

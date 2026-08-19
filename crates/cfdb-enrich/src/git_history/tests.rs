@@ -8,11 +8,6 @@ use cfdb_petgraph::PetgraphStore;
 
 use crate::EnrichEngine;
 
-// ------------------------------------------------------------------
-// Fixture builders — a tempdir + a fresh git repo + one or more files
-// committed along a linear history.
-// ------------------------------------------------------------------
-
 struct GitFixture {
     _tmp: tempfile::TempDir,
     workspace: std::path::PathBuf,
@@ -92,10 +87,6 @@ fn get_item_props(store: &PetgraphStore, keyspace: &Keyspace, qname: &str) -> Pr
         .props
 }
 
-// ------------------------------------------------------------------
-// Two-commit fixture — counts + last-ts + last-author correct.
-// ------------------------------------------------------------------
-
 #[test]
 fn ac2_two_commit_fixture_writes_correct_attrs() {
     let fx = GitFixture::new();
@@ -131,26 +122,12 @@ fn ac2_two_commit_fixture_writes_correct_attrs() {
     );
 }
 
-// ------------------------------------------------------------------
-// Regression — `:Item.file` is an ABSOLUTE path emitted by
-// `cfdb-extractor`, but `git_info` is keyed by the RELATIVE form
-// `git diff` returns. Without path-strip in `write_attrs_one`,
-// every item gets a Null timestamp on real cfdb-self extracts —
-// surfaced when #349's dogfood reported 100% null on cfdb-self
-// despite `attrs_written: 5637`. Pin the fix.
-// ------------------------------------------------------------------
-
 #[test]
 fn absolute_file_path_strips_workspace_prefix_and_matches_git_info() {
     let fx = GitFixture::new();
     fx.write("src/lib.rs", "fn v1() {}\n");
     fx.commit("src/lib.rs", "first", 1_700_000_000);
 
-    // Store the :Item with the ABSOLUTE file path the extractor
-    // actually emits (extractor walks via cargo_metadata which
-    // produces absolute paths). The pre-fix behavior would Null
-    // every attr because git_info is keyed by `src/lib.rs`, not
-    // `<workspace>/src/lib.rs`.
     let absolute_file = fx.workspace.join("src/lib.rs");
     let mut store = store_with_item(
         &fx.workspace,
@@ -173,10 +150,6 @@ fn absolute_file_path_strips_workspace_prefix_and_matches_git_info() {
     );
 }
 
-// ------------------------------------------------------------------
-// AC-3: untracked-file fixture — attrs all Null, no panic.
-// ------------------------------------------------------------------
-
 #[test]
 fn ac3_untracked_file_gets_null_attrs() {
     let fx = GitFixture::new();
@@ -196,10 +169,6 @@ fn ac3_untracked_file_gets_null_attrs() {
     assert_eq!(props.get(super::ATTR_AUTHOR), Some(&PropValue::Null));
     assert_eq!(props.get(super::ATTR_COUNT), Some(&PropValue::Null));
 }
-
-// ------------------------------------------------------------------
-// AC-6: determinism — two runs produce identical canonical dumps.
-// ------------------------------------------------------------------
 
 #[test]
 fn ac6_two_runs_produce_identical_canonical_dumps() {
@@ -226,10 +195,6 @@ fn ac6_two_runs_produce_identical_canonical_dumps() {
     let dump2 = store2.canonical_dump(&ks).expect("dump 2");
     assert_eq!(dump1, dump2, "two runs must be byte-identical (G1)");
 }
-
-// ------------------------------------------------------------------
-// Degraded paths: workspace not in a git repo.
-// ------------------------------------------------------------------
 
 #[test]
 fn workspace_not_a_git_repo_writes_nulls_with_warning() {
@@ -310,9 +275,8 @@ fn no_workspace_root_returns_degraded_report() {
 
 #[test]
 fn unknown_keyspace_errs_even_when_workspace_root_is_also_missing() {
-    // The keyspace guard wins when both fail — never the degraded report.
-    let mut store = PetgraphStore::new(); // no workspace root
-    let ks = Keyspace::new("never"); // and no such keyspace
+    let mut store = PetgraphStore::new();
+    let ks = Keyspace::new("never");
     let err = EnrichEngine::new(&mut store)
         .enrich_git_history(&ks)
         .expect_err("keyspace guard must win over the workspace guard");

@@ -1,17 +1,3 @@
-//! cfdb-query — Cypher-subset parser + Rust builder API + AST evaluator helpers.
-//!
-//! This crate is a thin producer of `cfdb_core::Query` values. Two surfaces:
-//! - `parser`: chumsky-based parser for the Cypher subset.
-//! - `builder`: fluent Rust API constructing the same `Query` AST directly.
-//!
-//! Both surfaces produce identical `Query` values — this is the architectural
-//! invariant.
-//!
-//! The evaluator lives in `cfdb-eval`, but any
-//! shape-level lints that are backend-agnostic (e.g. the Cartesian-with-
-//! function-equality footgun) live here as a pre-eval pass callers can
-//! run before dispatching.
-
 pub mod builder;
 pub mod diff;
 pub mod impact;

@@ -1,21 +1,3 @@
-//! Self-dogfood test for `enrich_git_history` (issue #105 — slice 43-B).
-//!
-//! Extracts cfdb's own source tree, attaches the workspace root to the store,
-//! runs `enrich_git_history`, and asserts that ≥80% of `:Item` nodes pick up
-//! a non-null `git_last_commit_unix_ts`. This is AC-4 + AC-5 from the issue
-//! body — exercised as a Rust integration test rather than a shell script so
-//! the failure mode is a stack trace inside `cargo test`, not a wall of CLI
-//! output.
-//!
-//! The test runs only with the `git-enrich` feature (no git2, nothing to
-//! populate → nothing to assert on) and resolves the cfdb workspace root
-//! from `CARGO_MANIFEST_DIR` — this keeps the test portable across
-//! worktrees, CI runners, and user clones.
-//!
-//! Routes through `cfdb_enrich::EnrichEngine`, not `PetgraphStore`
-//! directly. Still never exercises `crates/cfdb-cli/src/enrich.rs`'s
-//! dispatcher, though — see `enrich_git_history_cli.rs` for that.
-
 #![cfg(feature = "git-enrich")]
 
 use std::path::PathBuf;
@@ -28,10 +10,6 @@ use cfdb_enrich::EnrichEngine;
 use cfdb_petgraph::PetgraphStore;
 
 fn cfdb_workspace_root() -> PathBuf {
-    // CARGO_MANIFEST_DIR for this test is `<workspace>/crates/cfdb-cli`. Pop
-    // two levels to reach the workspace root. Using `env!` (not `option_env!`)
-    // because `CARGO_MANIFEST_DIR` is always set under `cargo test`; a missing
-    // value indicates a broken test runner and should be a compile error.
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(std::path::Path::parent)
@@ -43,7 +21,6 @@ fn cfdb_workspace_root() -> PathBuf {
 fn ac4_ac5_self_dogfood_eighty_percent_items_have_git_attrs() {
     let workspace = cfdb_workspace_root();
 
-    // Extract → ingest into a PetgraphStore with workspace_root attached.
     let (nodes, edges) =
         cfdb_extractor::extract_workspace(&workspace).expect("extract cfdb workspace");
 
@@ -56,7 +33,6 @@ fn ac4_ac5_self_dogfood_eighty_percent_items_have_git_attrs() {
         .ingest_edges(&ks, edges)
         .expect("ingest extractor edges");
 
-    // Run the enrichment pass.
     let report = EnrichEngine::new(&mut store)
         .enrich_git_history(&ks)
         .expect("enrich_git_history");
@@ -66,8 +42,6 @@ fn ac4_ac5_self_dogfood_eighty_percent_items_have_git_attrs() {
         report.warnings
     );
 
-    // AC-4: attrs_written >= count_of_items_in_tracked_files. Every :Item got
-    // three attrs (Null or real), so attrs_written >= 3 × item_count / 3 = item_count.
     let (all_nodes, _) = store.export(&ks).expect("export");
     let item_count = all_nodes
         .iter()
@@ -85,7 +59,6 @@ fn ac4_ac5_self_dogfood_eighty_percent_items_have_git_attrs() {
         item_count
     );
 
-    // AC-5: ≥80% of :Item nodes have non-null git_last_commit_unix_ts.
     let with_ts = all_nodes
         .iter()
         .filter(|n| n.label.as_str() == Label::ITEM)

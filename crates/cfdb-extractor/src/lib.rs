@@ -1,50 +1,3 @@
-//! cfdb-extractor — walk a Rust workspace and emit Node/Edge facts.
-//!
-//! v0.1 scope (RFC §7 subset):
-//!
-//! - **Nodes:** `Crate`, `Module`, `File`, `Item`, `Field`, `CallSite`
-//! - **Edges:** `IN_CRATE` (Item → Crate), `IN_MODULE` (Item → Module),
-//!   `HAS_FIELD` (Item → Field), `INVOKES_AT` (Item → CallSite)
-//!
-//! **CallSite extraction (RFC §13 "out of scope — unless needed" carve-out).**
-//! The Q1=(b) council pick (Pattern D `arch-ban-utc-now`) needs the extractor
-//! to see textual call paths inside function and method bodies. This is a
-//! *name-based*, unresolved call graph — `syn` gives us the text
-//! `chrono::Utc::now` at a call site without any guarantee it resolves to the
-//! `chrono` crate's `now` function. That is deliberately sufficient for
-//! Pattern D: a ban rule cares about the *appearance* of the symbol in the
-//! source, not about full type resolution.
-//!
-//! **Out of scope for v0.1:** resolved cross-crate `CALLS` (Item → Item),
-//! `TYPE_OF`, `IMPLEMENTS`, `RETURNS`, `Param`, `Variant`, `EntryPoint`,
-//! `Concept`. Those need full method dispatch and re-export chain following
-//! (`ra-ap-hir`, RFC §8.2 Phase B).
-//!
-//! The extractor is a pure function: `extract_workspace(path) ->
-//! (Vec<Node>, Vec<Edge>)`. It does not touch any store; callers ingest the
-//! results into a [`cfdb_core::StoreBackend`]. This keeps the extractor
-//! testable without a store and preserves the dependency rule (RFC §8).
-//!
-//! **Module layout (#3718 split).** The production code is partitioned
-//! into narrow submodules so no single file dominates:
-//!
-//! - [`attrs`]        — single-purpose `syn::Attribute` probes
-//! - [`type_render`]  — textual rendering of `syn::Type` / `syn::Path`
-//! - [`file_walker`]  — recursive module walker + `#[path]` resolution
-//! - [`item_visitor`] — `syn::Visit` impl for module-level items
-//! - [`call_visitor`] — `syn::Visit` impl for call sites inside fn bodies
-//! - [`match_visitor`] — `syn::Visit` impl for `match`-dispatch sites
-//!   inside fn bodies (RFC-053)
-//! - [`macro_tokens`] — shared macro-body re-parse helper used by the
-//!   call, literal, and match visitors
-//!
-//! `lib.rs` keeps only the public entry point, the error type, and the
-//! shared [`Emitter`] sink that every submodule writes into.
-
-// RFC-044 §3.7 (slice 044-G): cfdb-core schema enums are `#[non_exhaustive]`.
-// Cross-crate `match` sites require `_ =>` arms by E0004; the deny below
-// auto-activates when the (nightly-only on rust 1.93)
-// `non_exhaustive_omitted_patterns` lint stabilises.
 #![allow(unknown_lints)]
 #![deny(non_exhaustive_omitted_patterns)]
 
@@ -116,30 +69,6 @@ pub enum ExtractError {
     },
 }
 
-// ---------------------------------------------------------------------------
-// `LanguageProducer` impl — RFC-041 Phase 1 / Slice 41-B.
-//
-// The trait surface lives in `cfdb-lang`; this crate provides the Rust
-// reference implementation. `cfdb-cli`'s `available_producers()` registry
-// (see `crates/cfdb-cli/src/lang.rs`) is the only place that names this
-// concrete type — every other consumer dispatches through
-// `&dyn cfdb_lang::LanguageProducer`.
-// ---------------------------------------------------------------------------
-
-/// Rust reference implementation of `cfdb_lang::LanguageProducer`.
-///
-/// Detects a Rust workspace by the presence of a `Cargo.toml` at the
-/// workspace root, then delegates to the legacy `extract_workspace`
-/// entry point. The `produce` impl wraps `ExtractError` into
-/// `LanguageError::Parse { producer: "rust", message: ... }` so callers
-/// who dispatch through `&dyn LanguageProducer` get a uniform error
-/// type.
-///
-/// The legacy public function `extract_workspace` is preserved verbatim
-/// (same signature, same `ExtractError` return) for backward-compat
-/// with qbot-core's `cargo install --git` consumer per RFC-041 §3.3 +
-/// EPIC #279. Its deprecation timeline is a deferred architectural
-/// decision (RFC-041 §6).
 pub struct RustProducer;
 
 impl cfdb_lang::LanguageProducer for RustProducer {
@@ -162,78 +91,22 @@ impl cfdb_lang::LanguageProducer for RustProducer {
     }
 }
 
-/// Extract all structural facts from a Rust workspace rooted at the given
-/// path. The path must contain a `Cargo.toml`.
-///
-/// Returns `(nodes, edges)` in stable order: nodes sorted by `(label, id)`,
-/// edges by `(src, dst, label)`. The caller ingests both into a store.
-///
-/// # Backward-compat shim
-///
-/// This is the v0.1 entry point preserved verbatim for qbot-core's
-/// `cargo install --git` CI consumer (per EPIC #279 / RFC-041 §3.3).
-/// New code should dispatch via `&dyn cfdb_lang::LanguageProducer` —
-/// see [`RustProducer`] above. The two paths produce byte-identical
-/// fact sets; the trait method just wraps `ExtractError` into
-/// `LanguageError::Parse`.
 pub fn extract_workspace(workspace_root: &Path) -> Result<(Vec<Node>, Vec<Edge>), ExtractError> {
-    // Delegate with a no-op observer so profiled and un-profiled extraction
-    // share ONE implementation and cannot diverge.
     extract_workspace_profiled(workspace_root, &mut |_| {})
 }
 
-/// Phase-transition markers the profiled extract emits to an observer at each
-/// boundary between the `extract`-internal phases the council fixed for
-/// RFC-048 §1: the `cargo metadata` subprocess, the `syn` walk (parse +
-/// per-file visit + context emission), and the post-walk deferred resolution
-/// (RETURNS / TYPE_OF resolvers, referenced-item synthesis, canonical sort).
-///
-/// Pure control-flow signals: the extractor reads no clock — RFC-029 §12.1 G1
-/// forbids wall-clock reads in this crate, and the fence at
-/// `tests/architecture_determinism.rs` enforces it at the source level. The
-/// composition root (cfdb-cli) supplies an observer that timestamps each
-/// marker and derives the per-phase durations; nothing here is telemetry,
-/// only the boundaries. Emitted in order, exactly once each, per run — so
-/// profiling is structurally incapable of perturbing the emitted facts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExtractPhaseMarker {
-    /// Emitted immediately before the `cargo metadata --no-deps` subprocess.
     CargoMetadataStart,
-    /// Emitted after cargo-metadata completes, before the `syn` walk begins.
     SynWalkStart,
-    /// Emitted after the `syn` walk, before post-walk deferred resolution.
     DeferredResolveStart,
-    /// Emitted after deferred resolution + the canonical sort — extraction is
-    /// complete and `(nodes, edges)` is about to return.
     Finished,
 }
 
-/// Profiled sibling of [`extract_workspace`] — identical work and
-/// byte-identical `(nodes, edges)` output. It emits an [`ExtractPhaseMarker`]
-/// to `observe` at each boundary between the three `extract`-internal phases
-/// named in RFC-048 §1, letting the composition root time them.
-///
-/// [`extract_workspace`] is the un-profiled entry every existing caller uses;
-/// it delegates here with a no-op observer, so the two paths share ONE
-/// implementation and cannot diverge. The extractor itself reads no clock —
-/// the markers are pure control flow (RFC-029 §12.1 G1); the observer owns the
-/// wall-clock. Determinism (RFC-048 §4, the `G1` byte-stable dump) is
-/// therefore structurally unaffected by profiling.
 pub fn extract_workspace_profiled(
     workspace_root: &Path,
     observe: &mut dyn FnMut(ExtractPhaseMarker),
 ) -> Result<(Vec<Node>, Vec<Edge>), ExtractError> {
-    // Resolve the workspace root canonically ONCE, before any phase begins
-    // (issue #527). `cargo_metadata` always returns absolute file paths for
-    // every target `src_path`; every emitted `:File.path` is computed by
-    // stripping this same root from those absolute paths
-    // (`file_walker::visit_file_inner`). Canonicalizing here makes the root
-    // match cargo's absolute form regardless of how the caller spelled it
-    // (`.`, a relative path, a path through a symlink) — CI's
-    // `cfdb extract --workspace .` used to make every `strip_prefix` miss
-    // and silently fall back to an absolute path: a file-scoped fence
-    // anchored on a relative path became a silently dead rule (zero rows
-    // forever).
     let workspace_root_buf =
         workspace_root
             .canonicalize()
@@ -243,7 +116,6 @@ pub fn extract_workspace_profiled(
             })?;
     let workspace_root: &Path = &workspace_root_buf;
 
-    // Phase 1 (RFC-048 §1) — the `cargo metadata` subprocess.
     observe(ExtractPhaseMarker::CargoMetadataStart);
     let manifest = workspace_root.join("Cargo.toml");
     let metadata = MetadataCommand::new()
@@ -252,45 +124,19 @@ pub fn extract_workspace_profiled(
         .exec()
         .map_err(|e| ExtractError::Metadata(e.to_string()))?;
 
-    // Phase 2 (RFC-048 §1) — the syn walk: concept-override load, crate-tier
-    // DAG, the per-file `syn` parse + visit, and per-context node emission.
     observe(ExtractPhaseMarker::SynWalkStart);
 
-    // Step 1 (pre-walk): load `.cfdb/concepts/*.toml` overrides so the
-    // per-crate bounded-context resolution in the loop below can honour
-    // explicit mappings before falling back to the crate-prefix heuristic.
-    // Missing directory is not an error — the overrides are optional.
     let overrides = load_concept_overrides(workspace_root)
         .map_err(|e| ExtractError::Concepts(e.to_string()))?;
 
-    // Step 1b (pre-walk): load `.cfdb/published-language-crates.toml`
-    // marker list (issue #100 / RFC-cfdb.md Addendum B §A1.8). Missing
-    // file is not an error — empty map means every `:Crate` emits
-    // `published_language: false`. Classifier (#48) suppresses false
-    // Context-Homonym positives for declared published-language crates.
     let published_language = load_published_language_crates(workspace_root)
         .map_err(|e| ExtractError::Concepts(e.to_string()))?;
 
     let mut emitter = Emitter::new();
 
-    // Accumulate every bounded context we see so we can emit one `:Context`
-    // node per unique context after the crate loop. BTreeMap gives us a
-    // deterministic emission order (RFC-029 §12.1 G1).
-    //
-    // Each entry pairs the metadata with a [`ContextSource`] discriminator
-    // (RFC-038 §3.3): `Declared` for contexts pre-seeded from
-    // `.cfdb/concepts/*.toml`, `Heuristic` for contexts synthesised from
-    // crate-name prefix stripping during the per-crate loop. Pre-seeding
-    // declared contexts FIRST means a later heuristic crate that maps to
-    // the same context name cannot demote the source — `or_insert_with`
-    // only fires when the entry is absent.
     let mut contexts_seen: BTreeMap<String, (ContextMeta, ContextSource)> =
         seed_declared_contexts(&overrides);
 
-    // RFC-050 50-A: compute each workspace crate's `crate_tier` (topological
-    // longest-path depth in the intra-workspace normal-`[dependencies]` DAG)
-    // up front — the DAG needs the full member set, so this precedes the
-    // per-crate emission loop. A cycle in the normal-deps DAG is fatal.
     let packages = metadata.workspace_packages();
     let crate_tiers = crate_tier::compute_crate_tiers(&packages)?;
 

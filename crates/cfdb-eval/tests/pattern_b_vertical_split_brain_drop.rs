@@ -1,35 +1,3 @@
-//! Pattern B `drop` kind scar tests (issue #297 Phase B / #44 follow-up).
-//!
-//! Asserts that `examples/queries/vertical-split-brain-drop.cypher`
-//! fires on the qbot-core #2651 compound-stop param-drop shape: one
-//! `:EntryPoint` registers a wire-level param key K, two resolvers
-//! reachable from the handler — one reads K, the other reads a
-//! divergent key K' that the entry point never registers.
-//!
-//! ## Test approach — direct fact injection (mirrors the `fork` tests)
-//!
-//! Same rationale as `pattern_b_vertical_split_brain.rs`: build
-//! synthetic `(Vec<Node>, Vec<Edge>)` batches matching what the HIR
-//! extractor would emit, ingest into a fresh `PetgraphStore`, parse +
-//! run the query. The on-disk fixture under
-//! `examples/queries/fixtures/vertical-split-brain-drop/` exists for
-//! human verification (per the sister fixture's convention) — these
-//! tests are the regression surface.
-//!
-//! ## What the rule keys on
-//!
-//! - `:EntryPoint -[:REGISTERS_PARAM]-> wire` (target may be `:Field`,
-//!   `:Variant`, or `:Param` per RFC-037 §3.1 — the rule does not
-//!   restrict the target label)
-//! - `(handler:Item)` exposed by the entry point
-//! - Two reachable resolvers (`layer_k`, `layer_kp1`) via
-//!   `[:CALLS*1..8]` whose `:Param.name` differs from each other
-//! - `matched.name = wire.name` for layer K
-//! - `divergent.name <> wire.name` for layer K+1
-//! - `NOT EXISTS { ep -[:REGISTERS_PARAM]-> other_wire WHERE
-//!    other_wire.name = divergent.name }` — the divergent key is
-//!   genuinely unwired
-
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -40,12 +8,6 @@ use cfdb_core::store::{QueryBackend, StoreBackend};
 use cfdb_eval::QueryEngine;
 use cfdb_petgraph::PetgraphStore;
 use cfdb_query::parse;
-
-// ---------------------------------------------------------------------
-// Helpers — small, test-local builders for the fact shapes the HIR
-// extractor would emit. Mirror of pattern_b_vertical_split_brain.rs's
-// helpers + param/field/has_param/registers_param.
-// ---------------------------------------------------------------------
 
 fn entry_point_node(display_name: &str, handler_qname: &str, kind: &str) -> Node {
     let mut props = BTreeMap::new();
@@ -93,8 +55,6 @@ fn struct_item_node(qname: &str, name: &str) -> Node {
     }
 }
 
-/// `:Field` node — clap struct field; what HIR emits as the
-/// `:EntryPoint -[:REGISTERS_PARAM]-> :Field` target.
 fn field_node(parent_qname: &str, field_name: &str) -> Node {
     let mut props = BTreeMap::new();
     props.insert("name".into(), PropValue::Str(field_name.into()));
@@ -106,10 +66,6 @@ fn field_node(parent_qname: &str, field_name: &str) -> Node {
     }
 }
 
-/// `:Param` node — fn/method parameter; what HIR + syn emit as the
-/// `:Item -[:HAS_PARAM]-> :Param` target. The node id is keyed by
-/// `(parent_qname, index)` per `cfdb_core::qname::param_node_id` —
-/// positionally stable within a single extract.
 fn param_node(parent_qname: &str, param_name: &str, index: usize) -> Node {
     let mut props = BTreeMap::new();
     props.insert("name".into(), PropValue::Str(param_name.into()));
@@ -203,15 +159,6 @@ fn row_str<'a>(
     row.get(key).and_then(|v| v.as_str())
 }
 
-// ---------------------------------------------------------------------
-// Fixture builder — the qbot-core #2651 compound-stop drop shape.
-// ---------------------------------------------------------------------
-
-/// Build the canonical drop-shape graph: `Cli` registers the wire
-/// param `wire_field`; both `layer_k_qname` and `layer_kp1_qname` are
-/// reachable from `Cli::handle` via `Engine::dispatch`; layer K reads
-/// a `:Param` matching `wire_field`, layer K+1 reads `divergent_param`
-/// (which is NOT wire-registered).
 struct DropShape {
     cli_qname: &'static str,
     handle_qname: &'static str,
@@ -243,23 +190,17 @@ fn build_drop_shape(shape: &DropShape) -> (Vec<Node>, Vec<Edge>) {
         fn_item_node(shape.dispatch_qname, "dispatch"),
         fn_item_node(shape.layer_k_qname, "compute_active_mult"),
         fn_item_node(shape.layer_kp1_qname, "compute_trail_layer"),
-        // Layer K reads the wire key (matched).
         param_node(shape.layer_k_qname, shape.wire_field, 0),
-        // Layer K+1 reads the divergent key.
         param_node(shape.layer_kp1_qname, shape.divergent_param, 0),
     ];
 
     let edges = vec![
         registers_param_field_edge(&ep_id, shape.cli_qname, shape.wire_field),
         exposes_edge(&ep_id, shape.cli_qname),
-        // CALLS chain: Cli -> handle -> dispatch -> { layer_k, layer_kp1 }.
         calls_edge(shape.cli_qname, shape.handle_qname),
         calls_edge(shape.handle_qname, shape.dispatch_qname),
         calls_edge(shape.dispatch_qname, shape.layer_k_qname),
         calls_edge(shape.dispatch_qname, shape.layer_kp1_qname),
-        // HAS_PARAM edges to the resolver fns' params (param_node_id
-        // keys by (parent_qname, index); both fns have one param at
-        // index 0).
         has_param_edge(shape.layer_k_qname, shape.layer_k_qname, 0),
         has_param_edge(shape.layer_kp1_qname, shape.layer_kp1_qname, 0),
     ];
@@ -277,13 +218,6 @@ fn ingest(store: &mut PetgraphStore, nodes: Vec<Node>, edges: Vec<Edge>) {
         .expect("ingest synthetic edges");
 }
 
-// ---------------------------------------------------------------------
-// Scar tests
-// ---------------------------------------------------------------------
-
-/// Positive scar — the canonical qbot-core #2651 compound-stop drop
-/// shape MUST fire the rule, returning exactly one row with the
-/// expected output columns.
 #[test]
 fn scar_2651_compound_stop_drop_emits_one_drop_row() {
     let mut store = PetgraphStore::new();
@@ -318,13 +252,10 @@ fn scar_2651_compound_stop_drop_emits_one_drop_row() {
     assert_eq!(row_str(row, "divergence_kind"), Some("drop"));
 }
 
-/// Negative — both resolvers read the SAME key (no divergence). Rule
-/// must NOT fire.
 #[test]
 fn both_resolvers_read_wire_key_emits_no_rows() {
     let mut store = PetgraphStore::new();
     let shape = DropShape {
-        // Both resolvers read `stop_atr_mult` — no drop.
         divergent_param: "stop_atr_mult",
         ..CANONICAL_SHAPE
     };
@@ -339,24 +270,12 @@ fn both_resolvers_read_wire_key_emits_no_rows() {
     );
 }
 
-/// Documented false-positive class — when the "divergent" key is
-/// ALSO wire-registered, the rule still fires because the cfdb-query
-/// v0.1 subset's `NOT EXISTS` cannot bind outer-scope variables.
-/// Two rows fire (one per direction of the symmetric K/K' pair).
-/// The cypher header documents the operator's manual triage
-/// procedure for this class. Pinning the current behaviour here so
-/// that a v0.2 query-subset upgrade (outer-scope binding inside
-/// `NOT EXISTS`) flips this test red and forces the rule to be
-/// tightened — that's the desired pattern, not a regression.
 #[test]
 fn both_keys_wire_registered_currently_fires_as_known_false_positive() {
     let mut store = PetgraphStore::new();
     let (mut nodes, mut edges) = build_drop_shape(&CANONICAL_SHAPE);
     let ep_id = format!("entrypoint:cli_command:{}", CANONICAL_SHAPE.cli_qname);
 
-    // Add a SECOND :Field on the Cli struct named `active_mult` — i.e.
-    // the user supplies BOTH at the wire form (legitimate "compound
-    // stop accepts both keys" shape).
     nodes.push(field_node(CANONICAL_SHAPE.cli_qname, "active_mult"));
     edges.push(registers_param_field_edge(
         &ep_id,
@@ -379,15 +298,11 @@ fn both_keys_wire_registered_currently_fires_as_known_false_positive() {
     );
 }
 
-/// Negative — only ONE resolver reachable. The rule's two-resolver
-/// join cannot bind, so no rows.
 #[test]
 fn single_reachable_resolver_emits_no_rows() {
     let mut store = PetgraphStore::new();
     let (mut nodes, mut edges) = build_drop_shape(&CANONICAL_SHAPE);
 
-    // Drop the layer-K+1 fn + its CALLS edge + its HAS_PARAM + the
-    // divergent param node so only `compute_active_mult` is reachable.
     nodes.retain(|n| {
         n.id != item_node_id(CANONICAL_SHAPE.layer_kp1_qname)
             && n.id != param_node_id(CANONICAL_SHAPE.layer_kp1_qname, 0)
@@ -408,14 +323,11 @@ fn single_reachable_resolver_emits_no_rows() {
     );
 }
 
-/// Negative — the layer-K+1 resolver IS test code (`is_test = true`).
-/// Rule's `is_test = false` filter excludes it; no rows.
 #[test]
 fn test_layer_kp1_resolver_is_excluded() {
     let mut store = PetgraphStore::new();
     let (mut nodes, edges) = build_drop_shape(&CANONICAL_SHAPE);
 
-    // Mark layer_kp1 as a test fn — it should be filtered out.
     for node in &mut nodes {
         if node.id == item_node_id(CANONICAL_SHAPE.layer_kp1_qname) {
             node.props.insert("is_test".into(), PropValue::Bool(true));

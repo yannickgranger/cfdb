@@ -1,8 +1,3 @@
-//! Pure helpers for projection aliasing, deterministic sort keys, value
-//! comparison, and did-you-mean label suggestions.
-//!
-//! Everything here is stateless — no reference to `Evaluator`.
-
 use cfdb_core::fact::PropValue;
 use cfdb_core::query::{Aggregation, Expr, Projection, ProjectionValue};
 use cfdb_core::result::{Row, RowValue};
@@ -36,8 +31,6 @@ fn aggregation_alias(agg: &Aggregation) -> String {
         Aggregation::Collect(_) => "collect".to_string(),
         Aggregation::CollectDistinct(_) => "collect_distinct".to_string(),
         Aggregation::Size(_) => "size".to_string(),
-        // `Aggregation` is `#[non_exhaustive]`; future variants get a
-        // sentinel alias so column names are still distinguishable.
         _ => "unsupported_aggregation".to_string(),
     }
 }
@@ -48,9 +41,6 @@ pub(super) fn row_value_cmp(a: &RowValue, b: &RowValue) -> std::cmp::Ordering {
         (RowValue::List(x), RowValue::List(y)) => x.len().cmp(&y.len()),
         (RowValue::Scalar(_), RowValue::List(_)) => std::cmp::Ordering::Less,
         (RowValue::List(_), RowValue::Scalar(_)) => std::cmp::Ordering::Greater,
-        // `RowValue` is `#[non_exhaustive]`. Future variants sort as Equal
-        // under this comparator — a stable fallback that doesn't reorder
-        // result rows in a determinism-breaking way.
         _ => std::cmp::Ordering::Equal,
     }
 }
@@ -83,9 +73,6 @@ pub(super) fn propvalue_sort_key(v: &PropValue) -> String {
         PropValue::Int(i) => format!("2:{:020}", i),
         PropValue::Float(f) => format!("3:{:020.10}", f),
         PropValue::Str(s) => format!("4:{}", s),
-        // `PropValue` is `#[non_exhaustive]`. Future variants sort after
-        // all known kinds (prefix "9:") and use Debug to keep ordering
-        // deterministic per-input.
         _ => format!("9:{:?}", v),
     }
 }
@@ -100,16 +87,12 @@ pub(super) fn row_sort_key(row: &Row) -> String {
                 let joined: Vec<String> = items.iter().map(propvalue_sort_key).collect();
                 format!("L[{}]", joined.join(","))
             }
-            // `RowValue` is `#[non_exhaustive]`. Future variants are
-            // encoded via Debug for deterministic sort-key fallback.
             _ => format!("U[{:?}]", v),
         });
     }
     parts.join("|")
 }
 
-/// Return a did-you-mean suggestion for `query` picked from `known`, if any
-/// entry is within edit distance 2. Deterministic: ties broken by sorted order.
 pub(super) fn suggest_label<'a>(
     query: &str,
     known: impl Iterator<Item = &'a str>,

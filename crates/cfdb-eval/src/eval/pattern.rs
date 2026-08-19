@@ -1,13 +1,3 @@
-//! Pattern application — `MATCH`, path traversal, `OPTIONAL MATCH`, `UNWIND`.
-//! Streaming iterator adapters: per incoming binding row we build a bounded
-//! scratch `Vec<Bindings>`, yield it, then drop — peak memory is O(per-row
-//! fan-out), not O(cartesian). Memory note lives in `super::Evaluator`.
-//!
-//! Path-pattern methods (`apply_path_pattern`, traversal, BFS) live in the
-//! `path` submodule; node-pattern methods, `OPTIONAL MATCH`, `UNWIND`, and
-//! free helpers (`matches_existing`, `edge_label_matches`, `collect_pattern_vars`)
-//! stay here.
-
 mod coupling;
 mod path;
 
@@ -30,14 +20,6 @@ impl<'a, G: GraphReader + ?Sized> Evaluator<'a, G> {
         np: &'e NodePattern,
         where_clause: Option<&'e Predicate>,
     ) -> BindingStream<'e> {
-        // When neither the NodePattern itself nor the top-level WHERE
-        // references any var OTHER than the pattern's own var,
-        // `candidate_nodes` is binding-independent: the result is
-        // identical for every incoming row, so we compute it ONCE up
-        // front and have the per-row closure borrow the cached vec.
-        // Without this lift, the Cartesian classifier rules run at
-        // O(outer × inner_lookup) and hang. With the lift the inner
-        // leaf collapses to O(1) lookups per rule.
         if is_binding_independent_pattern(np, where_clause, self.state) {
             let cached = self.candidate_nodes(np, where_clause, &Bindings::new());
             return Box::new(table.flat_map(move |bindings| {
@@ -46,12 +28,6 @@ impl<'a, G: GraphReader + ?Sized> Evaluator<'a, G> {
                 out
             }));
         }
-        // Per-row candidate_nodes — the incoming row's bindings pick
-        // the cross-MATCH bucket. Empty bindings collapse to
-        // base-case behaviour. This path runs when the pattern OR the
-        // WHERE references a foreign var (genuine cross-binding
-        // equi-join), where the candidate set IS binding-dependent and
-        // per-row narrowing is correct.
         Box::new(table.flat_map(move |bindings| {
             let candidates = self.candidate_nodes(np, where_clause, &bindings);
             let mut out: Vec<Bindings> = Vec::new();
@@ -60,9 +36,6 @@ impl<'a, G: GraphReader + ?Sized> Evaluator<'a, G> {
         }))
     }
 
-    /// Dispatch a single binding row through the three node-pattern cases:
-    /// anonymous (no `var`), pre-bound `var` (pinned to the existing ref), or
-    /// fresh `var` (multiplied by candidates).
     fn emit_node_bindings(
         &self,
         out: &mut Vec<Bindings>,
@@ -79,8 +52,6 @@ impl<'a, G: GraphReader + ?Sized> Evaluator<'a, G> {
         }
     }
 
-    /// Anonymous node pattern — every candidate that matches props emits a
-    /// fresh clone of the carrying bindings.
     fn emit_anon_node(
         &self,
         out: &mut Vec<Bindings>,
@@ -94,9 +65,6 @@ impl<'a, G: GraphReader + ?Sized> Evaluator<'a, G> {
             .for_each(|_| out.push(bindings.clone()));
     }
 
-    /// Pre-bound variable — the incoming bindings already carry `var`.
-    /// Emit a single clone iff at least one candidate matches the existing
-    /// pin AND its props. Breaks on first match (confirmation semantics).
     fn emit_bound_node(
         &self,
         out: &mut Vec<Bindings>,
@@ -117,8 +85,6 @@ impl<'a, G: GraphReader + ?Sized> Evaluator<'a, G> {
         }
     }
 
-    /// Fresh variable — each matching candidate produces a new binding row
-    /// with `var` inserted.
     fn emit_new_var_node(
         &self,
         out: &mut Vec<Bindings>,
@@ -154,8 +120,6 @@ impl<'a, G: GraphReader + ?Sized> Evaluator<'a, G> {
                 });
                 return Vec::new();
             }
-            // RFC-035 §3.6 fast paths (slices 5+6). `None` ⇒ fall back
-            // to `nodes_with_label`. Slice 7 logs the decision.
             let bound_var_prop =
                 |var: &str, prop: &str| self.bound_var_prop_value(bindings, var, prop);
             if let Some(indexed) =
@@ -173,9 +137,6 @@ impl<'a, G: GraphReader + ?Sized> Evaluator<'a, G> {
         }
     }
 
-    /// Resolve a `NodeRef` binding's prop value for the cross-MATCH fast
-    /// path. `None` for unbound vars, non-`NodeRef` bindings and absent
-    /// props; whether the value is indexable is the reader's call.
     fn bound_var_prop_value(
         &self,
         bindings: &Bindings,
@@ -214,12 +175,6 @@ impl<'a, G: GraphReader + ?Sized> Evaluator<'a, G> {
         }))
     }
 
-    /// Per-row body of [`apply_optional`] — runs the inner pattern with a
-    /// one-row seed, materialises the expansion (needed to decide between
-    /// emission and null-fill), then either extends `out` with the
-    /// expansion or null-fills the carrying bindings. The one-row
-    /// materialisation is bounded by the inner pattern's fan-out for a
-    /// single input row — O(candidate_count), not O(table × candidates).
     fn apply_optional_row(
         &self,
         out: &mut Vec<Bindings>,

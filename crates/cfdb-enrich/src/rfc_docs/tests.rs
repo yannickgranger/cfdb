@@ -42,11 +42,6 @@ fn count_edges(store: &PetgraphStore, ks: &Keyspace, label: &str) -> usize {
     edges.iter().filter(|e| e.label.as_str() == label).count()
 }
 
-// ------------------------------------------------------------------
-// Synthetic RFC with known item name → exactly 1 :RfcDoc + 1
-// REFERENCED_BY edge.
-// ------------------------------------------------------------------
-
 #[test]
 fn ac1_match_emits_one_rfc_doc_and_one_edge() {
     let tmp = tempfile::tempdir().expect("tempdir");
@@ -68,10 +63,6 @@ fn ac1_match_emits_one_rfc_doc_and_one_edge() {
     assert_eq!(count_edges(&store, &ks, EdgeLabel::REFERENCED_BY), 1);
 }
 
-// ------------------------------------------------------------------
-// No RFC files → ran=true, all counters zero, no panic.
-// ------------------------------------------------------------------
-
 #[test]
 fn ac2_no_rfc_files_returns_zeroed_report() {
     let tmp = tempfile::tempdir().expect("tempdir");
@@ -86,10 +77,6 @@ fn ac2_no_rfc_files_returns_zeroed_report() {
     assert_eq!(report.attrs_written, 0);
     assert_eq!(report.edges_written, 0);
 }
-
-// ------------------------------------------------------------------
-// No panic on malformed markdown.
-// ------------------------------------------------------------------
 
 #[test]
 fn ac6_empty_file_and_no_heading_do_not_panic() {
@@ -113,17 +100,12 @@ fn ac6_empty_file_and_no_heading_do_not_panic() {
 
     assert!(report.ran);
     assert_eq!(report.facts_scanned, 3);
-    // Only has-heading.md and no-heading.md (if the name matches) would
-    // match — but FooBarService is only in has-heading.md.
     assert_eq!(report.edges_written, 1, "only has-heading.md has the match");
 }
 
 #[test]
 fn whole_word_matching_rejects_substring_matches() {
     let tmp = tempfile::tempdir().expect("tempdir");
-    // Fixture contains Timer as a substring (`Timers`, `preTimer`,
-    // `TimerService`, `TimerXyz`) but never as a standalone word — no
-    // match should register.
     write(
         tmp.path(),
         "docs/RFC-example.md",
@@ -160,8 +142,6 @@ fn whole_word_matching_accepts_punctuation_neighbours() {
 
 #[test]
 fn qname_match_triggers_reference_when_name_absent() {
-    // File mentions the qname but not the bare name — qname match alone
-    // should be sufficient.
     let tmp = tempfile::tempdir().expect("tempdir");
     write(
         tmp.path(),
@@ -189,10 +169,6 @@ fn qname_match_triggers_reference_when_name_absent() {
 
     assert_eq!(report.edges_written, 1);
 }
-
-// ------------------------------------------------------------------
-// AC-5: determinism across two runs.
-// ------------------------------------------------------------------
 
 #[test]
 fn ac5_two_runs_produce_identical_canonical_dumps() {
@@ -280,8 +256,6 @@ fn no_workspace_root_returns_degraded_report() {
 
 #[test]
 fn rfc_file_with_no_matches_is_not_emitted_as_node() {
-    // RFC file exists but doesn't reference any known item — no node,
-    // no edge, no wasted data.
     let tmp = tempfile::tempdir().expect("tempdir");
     write(
         tmp.path(),
@@ -305,9 +279,8 @@ fn rfc_file_with_no_matches_is_not_emitted_as_node() {
 
 #[test]
 fn unknown_keyspace_errs_even_when_workspace_root_is_also_missing() {
-    // The keyspace guard wins when both fail — never the degraded report.
-    let mut store = PetgraphStore::new(); // no workspace root
-    let ks = Keyspace::new("never"); // and no such keyspace
+    let mut store = PetgraphStore::new();
+    let ks = Keyspace::new("never");
     let err = EnrichEngine::new(&mut store)
         .enrich_rfc_docs(&ks)
         .expect_err("keyspace guard must win over the workspace guard");

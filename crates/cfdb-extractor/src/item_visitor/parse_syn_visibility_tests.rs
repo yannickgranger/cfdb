@@ -2,8 +2,6 @@ use super::parse_syn_visibility;
 use cfdb_core::Visibility;
 
 fn parse(src: &str) -> syn::Visibility {
-    // Parse via a wrapper item so the visibility appears in a
-    // well-formed context syn accepts.
     let wrapped = format!("{src} fn dummy() {{}}");
     let item: syn::ItemFn = syn::parse_str(&wrapped).expect("parse test fixture");
     item.vis
@@ -49,8 +47,6 @@ fn pub_in_path_is_restricted() {
 
 #[test]
 fn pub_in_crate_does_not_collapse_to_crate_local() {
-    // `pub(in crate)` is a restricted-path form, not the short
-    // `pub(crate)`. We preserve the distinction on the wire.
     assert_eq!(
         parse_syn_visibility(&parse("pub(in crate)")),
         Visibility::Restricted("crate".into())

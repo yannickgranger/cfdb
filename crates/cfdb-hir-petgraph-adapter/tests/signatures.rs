@@ -1,30 +1,10 @@
-//! Integration-seam signature pin (RFC-044 §3.2 / #428, slice 044-B).
-//!
-//! Freezes the `PetgraphAdapter::ingest_resolved_call_sites` method
-//! signature — the single orphan-rule bridge through which HIR-resolved
-//! call sites enter a `PetgraphStore` — in `tests/signatures.toml`. The
-//! test re-parses `src/lib.rs` with `syn`, walks every `impl` block for a
-//! method of that name, renders its [`syn::Signature`] to a deterministic
-//! token string via `quote::quote!`, and asserts byte-equality against
-//! the frozen value. A silent change to the seam (a new param, a return
-//! type shift) fails here.
-//!
-//! **Mechanism (council Q1.c, unanimous):** per-crate frozen TOML + an
-//! inline self-contained parser. NO shared `cfdb-signatures-check` crate.
-//!
-//! **Rotation cost:** an *intentional* signature change updates
-//! `tests/signatures.toml` in the same commit.
-
 use std::collections::BTreeMap;
 
 use quote::ToTokens;
 
-/// Source file holding the pinned impl method.
 const SOURCE: &str = include_str!("../src/lib.rs");
-/// Frozen rendered signatures, keyed by method name.
 const FROZEN: &str = include_str!("signatures.toml");
 
-/// Render every `impl`-block method in `SOURCE` to `(name, rendered signature)`.
 fn rendered_impl_methods() -> BTreeMap<String, String> {
     let file = syn::parse_file(SOURCE).expect("parse src/lib.rs");
     let mut out = BTreeMap::new();

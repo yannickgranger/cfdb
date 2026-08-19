@@ -1,14 +1,3 @@
-//! `cfdb extract --hir` HIR pipeline wiring — only compiled when
-//! the `hir` feature is enabled.
-//!
-//! Default `cargo build -p cfdb-cli` does NOT include this module,
-//! keeping the 90-150s `ra-ap-*` cold compile cost out of every
-//! CLI build. Enable with:
-//!
-//! ```text
-//! cargo build -p cfdb-cli --features hir
-//! ```
-
 use std::path::Path;
 
 use cfdb_core::fact::{Edge, Node};
@@ -18,14 +7,6 @@ use cfdb_hir_extractor::{build_hir_database, extract_call_sites, extract_entry_p
 use cfdb_hir_petgraph_adapter::PetgraphAdapter;
 use cfdb_petgraph::PetgraphStore;
 
-/// Run the HIR pipeline on `workspace_root` and ingest the resulting
-/// `:CallSite` / `CALLS` / `INVOKES_AT` / `:EntryPoint` / `EXPOSES`
-/// facts into `store` under `keyspace`.
-///
-/// `proc_macros` selects the loader policy: `true` enables
-/// `ProcMacroServerChoice::Sysroot` with a startup probe and silent
-/// fallback when the sysroot binary is missing; `false` restores the
-/// syn-only behaviour.
 pub fn extract_and_ingest_hir(
     store: &mut PetgraphStore,
     keyspace: &Keyspace,
@@ -36,12 +17,6 @@ pub fn extract_and_ingest_hir(
         "extract --hir: loading HIR database for {}",
         workspace_root.display()
     );
-    // `_proc_macro_client` owns the proc-macro
-    // subprocess. It MUST outlive the salsa `db` because salsa keeps
-    // live references to expanders that the subprocess hosts. Dropping
-    // it before the VFS walk completes terminates the subprocess and
-    // breaks lazy macro expansion. The leading `_` silences the unused
-    // binding warning without freeing the handle.
     let (db, vfs, _proc_macro_client, targets) =
         build_hir_database(workspace_root, proc_macros).map_err(HirExtractError::Hir)?;
     eprintln!(
@@ -65,9 +40,6 @@ pub fn extract_and_ingest_hir(
     let (mut ep_nodes, mut ep_edges) =
         extract_entry_points(&db, &vfs, workspace_root, &targets).map_err(HirExtractError::Hir)?;
 
-    // Combine the two fact batches so the adapter sees one ingest.
-    // Stable ordering is already guaranteed by each extractor's
-    // internal sort — concatenation preserves per-label groups.
     let mut combined_nodes: Vec<Node> = Vec::with_capacity(nodes.len() + ep_nodes.len());
     combined_nodes.append(&mut nodes);
     combined_nodes.append(&mut ep_nodes);
@@ -93,9 +65,6 @@ pub fn extract_and_ingest_hir(
     Ok(stats)
 }
 
-/// Error type for the HIR pipeline wrapper — narrows `HirError` +
-/// `StoreError` to a single variant the CLI maps to
-/// [`crate::CfdbCliError`].
 #[derive(Debug, thiserror::Error)]
 pub enum HirExtractError {
     #[error("hir: {0}")]

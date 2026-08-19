@@ -1,23 +1,3 @@
-//! cfdb-petgraph — `StoreBackend` implementation on `petgraph::StableDiGraph`.
-//!
-//! One `KeyspaceState` per keyspace; each holds a `StableDiGraph<Node, Edge>`
-//! plus an insertion-ordered id → `NodeIndex` map (`indexmap::IndexMap`) and a
-//! `BTreeMap`-based label index.
-//!
-//! Storage and query are separate contracts: this crate implements
-//! `StoreBackend` (ingest, dump, keyspace lifecycle) and `GraphBackend`
-//! (per-keyspace `GraphView` / `GraphReader` ports); query evaluation is
-//! `cfdb-eval`'s `QueryEngine`, which reads a keyspace only through
-//! `GraphReader`. Canonical dumping is a single sorted `Vec<String>` join so
-//! two consecutive calls are byte-identical.
-//!
-//! cfdb-core schema enums are `#[non_exhaustive]`. Cross-crate `match` sites
-//! on those enums require a `_ =>` arm by hard compile error (E0004). The
-//! `non_exhaustive_omitted_patterns` lint further tightens this at the
-//! wildcard-arm boundary; we deny it preemptively so the attribute
-//! auto-activates when the lint stabilises (currently nightly-only on rust
-//! 1.93; `allow(unknown_lints)` keeps the attribute inert on stable).
-
 #![allow(unknown_lints)]
 #![deny(non_exhaustive_omitted_patterns)]
 
@@ -46,27 +26,11 @@ use crate::canonical_dump::canonical_dump;
 use crate::graph::KeyspaceState;
 use crate::index::spec::IndexSpec;
 
-/// In-memory petgraph-backed store. One `StableDiGraph` per keyspace.
-///
-/// The store is `Send + Sync` by virtue of its contents; concurrent readers
-/// are not yet supported — the trait takes `&mut self` for writes and `&self`
-/// for reads, so callers wrap the store in an external `RwLock` if they need
-/// parallel evaluation.
 pub struct PetgraphStore {
     pub(crate) keyspaces: BTreeMap<Keyspace, KeyspaceState>,
     pub(crate) schema_version: SchemaVersion,
-    /// Optional workspace root, exposed through `GraphBackend::workspace_root`
-    /// so enrichment passes that read files (docs, `.cfdb/concepts/*.toml`,
-    /// git history, sources) can locate them. `None` when the store was
-    /// constructed for tests or for non-enrichment workflows.
     pub(crate) workspace_root: Option<PathBuf>,
 
-    /// Index spec carried at the store level. Each newly-created
-    /// [`KeyspaceState`] is bound to this spec via
-    /// [`KeyspaceState::new_with_spec`] so per-keyspace `by_prop` gets
-    /// populated on ingest (the composition-root ships one `IndexSpec` that
-    /// flows to every keyspace the store owns). Empty by default — existing
-    /// callers get identical behaviour.
     pub(crate) index_spec: IndexSpec,
 }
 
@@ -77,10 +41,6 @@ impl Default for PetgraphStore {
 }
 
 impl PetgraphStore {
-    /// Create an empty store at `SchemaVersion::CURRENT`. New keyspaces
-    /// are tagged with the current build's schema version; any legacy file
-    /// ingested via `persist::load` retains its own version unless it is
-    /// rewritten through `persist::save` (which stamps CURRENT).
     pub fn new() -> Self {
         Self {
             keyspaces: BTreeMap::new(),
@@ -90,39 +50,24 @@ impl PetgraphStore {
         }
     }
 
-    /// Attach a workspace root for enrichment passes that read files.
-    /// Builder-style so `PetgraphStore::new()` stays argument-less.
     pub fn with_workspace(mut self, root: impl Into<PathBuf>) -> Self {
         self.workspace_root = Some(root.into());
         self
     }
 
-    /// Attach an [`IndexSpec`]. Every [`KeyspaceState`] the store creates
-    /// from this point on is bound to `spec`, so `ingest_nodes` /
-    /// `persist::load` populate per-keyspace `by_prop` posting lists.
-    /// Symmetric to [`Self::with_workspace`]; chain after `new` at the
-    /// composition root. RFC-035 §3.8.
     pub fn with_indexes(mut self, spec: IndexSpec) -> Self {
         self.index_spec = spec;
         self
     }
 
-    /// Return the attached workspace root, if any.
     pub fn workspace_root(&self) -> Option<&Path> {
         self.workspace_root.as_deref()
     }
 
-    /// Return a reference to the store-level [`IndexSpec`]. Mirrors
-    /// [`Self::workspace_root`] — lets the composition root and test
-    /// harnesses inspect what `with_indexes` received without widening
-    /// the mutation surface. RFC-035 §3.8.
     pub fn index_spec(&self) -> &IndexSpec {
         &self.index_spec
     }
 
-    /// Return a reference to a keyspace, creating it if missing. New
-    /// keyspaces inherit the store's [`Self::index_spec`] so on-ingest
-    /// `by_prop` population is active from the first node (RFC-035 §3.8).
     fn keyspace_mut(&mut self, keyspace: &Keyspace) -> &mut KeyspaceState {
         if !self.keyspaces.contains_key(keyspace) {
             let spec = self.index_spec.clone();
@@ -134,25 +79,12 @@ impl PetgraphStore {
             .expect("keyspace just inserted must be present")
     }
 
-    /// Does the given keyspace contain a node with this id? Returns
-    /// `false` if the keyspace doesn't exist yet — symmetric to
-    /// [`ingest_one_edge`]'s "unknown dst id ⇒ drop" treatment.
-    ///
-    /// Consumed by [`cfdb_hir_petgraph_adapter::PetgraphAdapter`] (issue
-    /// #388) to decide whether to synthesize a stub `:Item` for a
-    /// foreign-callee CALLS edge dst before ingest. Pure read; no
-    /// behavioral change to existing ingest semantics.
-    ///
-    /// [`ingest_one_edge`]: crate::graph::KeyspaceState
     pub fn has_node(&self, keyspace: &Keyspace, id: &str) -> bool {
         self.keyspaces
             .get(keyspace)
             .is_some_and(|state| state.id_to_idx.contains_key(id))
     }
 
-    /// Export the raw nodes and edges of a keyspace. Used by
-    /// [`crate::persist::save`] to serialize the keyspace to disk. Returns
-    /// facts in insertion order; the caller sorts for canonical output.
     pub fn export(&self, keyspace: &Keyspace) -> Result<(Vec<Node>, Vec<Edge>), StoreError> {
         let state = self
             .keyspaces
@@ -166,11 +98,6 @@ impl PetgraphStore {
         Ok((nodes, edges))
     }
 
-    /// Ingest-time diagnostics for one keyspace — recorded warnings plus the
-    /// over-cap summary row. Inherent, not on [`StoreBackend`]: a diagnostic
-    /// surface, not part of the storage contract. An unknown keyspace yields
-    /// empty. Query results carry the same set through
-    /// `GraphReader::ingest_warnings`.
     #[must_use]
     pub fn ingest_warnings(&self, keyspace: &Keyspace) -> Vec<Warning> {
         self.keyspaces

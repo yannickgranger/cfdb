@@ -1,22 +1,3 @@
-//! Self-dogfood test for `enrich_bounded_context` (issue #108 — slice 43-E).
-//!
-//! Extracts cfdb's own worktree (which carries `.cfdb/concepts/cfdb.toml`
-//! declaring every cfdb crate → `"cfdb"` context), runs
-//! `enrich_bounded_context`, and asserts:
-//!
-//! - AC-2 shape: on a fresh extract the pass is a no-op (`attrs_written = 0,
-//!   ran = true`) because the extractor already honours the TOML.
-//! - AC-4: ≥95% of `:Item` nodes carry the expected `bounded_context`
-//!   (= `"cfdb"`, from the TOML override). Given the override covers all 9
-//!   workspace crates, actual coverage should be 100%.
-//!
-//! Runs as a Rust integration test using the library API — a failure
-//! surfaces as a stack trace inside `cargo test`, not CLI output.
-//!
-//! Routes through `cfdb_enrich::EnrichEngine`, not `PetgraphStore`
-//! directly. Still never exercises `crates/cfdb-cli/src/enrich.rs`'s
-//! dispatcher, though — see `enrich_bounded_context_cli.rs` for that.
-
 use std::path::PathBuf;
 
 use cfdb_core::enrich::EnrichBackend;
@@ -34,10 +15,6 @@ fn cfdb_workspace_root() -> PathBuf {
         .to_path_buf()
 }
 
-/// AC-4 — cfdb-scoped ground truth via `.cfdb/concepts/cfdb.toml`.
-/// Every cfdb `:Item` should carry `bounded_context = "cfdb"` after extract.
-/// Running `enrich_bounded_context` against the same TOML is a no-op (the
-/// extractor-time path already applied the override).
 #[test]
 fn ac2_and_ac4_self_dogfood_cfdb_scoped_ground_truth() {
     let workspace = cfdb_workspace_root();
@@ -52,7 +29,6 @@ fn ac2_and_ac4_self_dogfood_cfdb_scoped_ground_truth() {
         .enrich_bounded_context(&ks)
         .expect("enrich_bounded_context");
 
-    // AC-2 shape — fresh extract matches current TOML, so no patches needed.
     assert!(report.ran, "pass must run: {:?}", report.warnings);
     assert_eq!(
         report.attrs_written, 0,
@@ -61,7 +37,6 @@ fn ac2_and_ac4_self_dogfood_cfdb_scoped_ground_truth() {
         report.attrs_written
     );
 
-    // AC-4 — every :Item should report bounded_context == "cfdb".
     let (all_nodes, _) = store.export(&ks).expect("export");
     let items: Vec<_> = all_nodes
         .iter()

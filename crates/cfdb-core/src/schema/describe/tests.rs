@@ -35,11 +35,6 @@ fn schema_describe_covers_all_node_labels() {
 fn schema_describe_covers_all_edge_labels() {
     let d = schema_describe();
     let edges: Vec<&str> = d.edges.iter().map(|e| e.label.as_str()).collect();
-    // Every const on EdgeLabel must appear in schema_describe exactly
-    // once. `REFERENCED_BY` appended per #43-A (reservation only — first
-    // emissions land in slice 43-D alongside `:RfcDoc`); `HAS_CONST_TABLE`
-    // appended per RFC-040 slice 1/5 (issue #323 reservation; first
-    // emissions land in slice 3/5, issue #325).
     let expected = [
         "IN_CRATE",
         "IN_MODULE",
@@ -61,8 +56,6 @@ fn schema_describe_covers_all_edge_labels() {
         "CANONICAL_FOR",
         "EQUIVALENT_TO",
         "REFERENCED_BY",
-        // RFC-053 slice 53-A — MATCHES_AT (first emissions this slice),
-        // MATCHES_ON (reserved here, first emissions in slice 53-B).
         "MATCHES_AT",
         "MATCHES_ON",
     ];
@@ -99,11 +92,6 @@ fn schema_describe_item_has_quality_signals_with_enrich_metrics_provenance() {
     }
 }
 
-/// #106 AC-4 — deprecation facts are extractor-time, not enrichment-time.
-/// The `#[deprecated]` attribute is syntactic; cfdb-extractor's AST walker
-/// captures it at extraction. Flipping either attr to an `Enrich*`
-/// provenance would mis-route the classifier (#48) and contradict the
-/// RFC amendment §A2.2 row 3.
 #[test]
 fn schema_describe_item_deprecation_attrs_are_extractor_provenanced() {
     let d = schema_describe();
@@ -126,11 +114,6 @@ fn schema_describe_item_deprecation_attrs_are_extractor_provenanced() {
     }
 }
 
-/// The enrichment-overlay edges are written by enrichment passes, never by
-/// the extractor: `LABELED_AS` / `CANONICAL_FOR` by `enrich_concepts`,
-/// `REFERENCED_BY` by `enrich_rfc_docs`. Their descriptor provenance must
-/// name the pass that produces them, or `schema-describe` tells an adopter
-/// the edge is available right after `extract` when it is not.
 #[test]
 fn schema_describe_overlay_edges_are_provenanced_by_their_enrich_pass() {
     let d = schema_describe();
@@ -151,25 +134,6 @@ fn schema_describe_overlay_edges_are_provenanced_by_their_enrich_pass() {
     }
 }
 
-/// RFC-041 §3.1 (ddd lens, council 2026-05-15) — `:Literal` carries exactly
-/// `value`/`file`/`line`/`col`/`crate`/`is_test`, all `Extractor`-provenanced
-/// (the producer lands in slice 041-B, issue #370; the descriptor is reserved
-/// here with the `:ConstTable` precedent of an Extractor-tagged reservation).
-/// It MUST NOT carry a `kind` attr: that would be a three-way homonym against
-/// `:Item.kind` (declaration kind) and `:ConstTable.element_type`. Future
-/// non-string literals use `lit_syntax`, not `kind`.
-/// #481 — the `:Item.kind` attribute descriptor must enumerate the LOWERCASE
-/// wire values the extractor actually emits on `:Item` nodes (`struct`, `enum`,
-/// `trait`, `impl_block`, `fn`, `const`, `static`, `type_alias`), NOT the
-/// capitalized council `ItemKind` spellings. Pre-fix the descriptor read
-/// `Struct, Enum, Trait, Impl, Fn, Const, TypeAlias` — capitalized (that is the
-/// CLI vocabulary users type, per `ItemKind::as_str`) and missing `static` — so
-/// it matched no real `:Item.kind` string a consumer would query against.
-/// #479/#515 red — once `Static` and `Union` join `ItemKind`, the
-/// `kind` descriptor text must carry their wire spellings too. The
-/// generated-from-variants() description (this PR) makes divergence
-/// structurally impossible; this test is the direct witness for the
-/// two newcomers.
 #[test]
 fn schema_describe_item_kind_documents_static_and_union() {
     let d = schema_describe();
@@ -210,9 +174,6 @@ fn schema_describe_item_kind_documents_lowercase_wire_values() {
     let desc = &kind.description;
 
     for variant in ItemKind::variants() {
-        // The extractor emits the lowercase wire spelling, never the council /
-        // CLI spelling. `to_extractor_str` is the single source of truth for
-        // that mapping (7 of the 8 wire values).
         let wire = variant.to_extractor_str();
         assert!(
             desc.contains(wire),
@@ -228,9 +189,6 @@ fn schema_describe_item_kind_documents_lowercase_wire_values() {
         );
     }
 
-    // `static` is emitted by `cfdb-extractor::visit_item_static` but is not a
-    // council `ItemKind` variant (`list_items_matching` has no Static — #479),
-    // so it is the one wire value asserted as an explicit literal.
     assert!(
         desc.contains("static"),
         "Item.kind descriptor must document the `static` wire value \
@@ -238,16 +196,6 @@ fn schema_describe_item_kind_documents_lowercase_wire_values() {
     );
 }
 
-/// #538 — the `:Item` node descriptor's own top-level `description` must not
-/// contradict its `visibility` attribute's value enumeration. Pre-fix the
-/// description read "A top-level `pub`/`pub(crate)` item" — implying only
-/// two of the five `Visibility` wire values (`pub`, `pub(crate)`) are ever
-/// emitted — while the `visibility` attribute descriptor documents all five
-/// (`pub`, `pub(crate)`, `pub(super)`, `private`, `pub(in <path>)`) and the
-/// extractor (`cfdb-extractor::item_visitor::parse_syn_visibility`) emits
-/// `:Item` nodes for every visibility unconditionally, with no filter. Third
-/// manifestation of the #481 descriptor-drift class; Tier-1 text correction,
-/// standalone (the durable generative fix is #479, out of scope here).
 #[test]
 fn schema_describe_item_description_documents_any_visibility() {
     let d = schema_describe();
@@ -265,8 +213,6 @@ fn schema_describe_item_description_documents_any_visibility() {
          items are emitted too; description was: {desc:?}",
     );
 
-    // The corrected text must agree with the `visibility` attribute's own
-    // enumeration rather than re-narrowing it.
     let visibility_attr = item
         .attributes
         .iter()
@@ -338,7 +284,6 @@ fn schema_describe_concept_attrs_are_enrich_concepts() {
 
 #[test]
 fn schema_describe_is_deterministic() {
-    // G1: byte-stable. Two calls must produce identical JSON.
     let a = serde_json::to_string(&schema_describe())
         .expect("SchemaDescribe serializes deterministically");
     let b = serde_json::to_string(&schema_describe())
@@ -355,11 +300,6 @@ fn schema_describe_round_trips_through_serde() {
     assert_eq!(d, back);
 }
 
-/// Issue #307 — `EQUIVALENT_TO` is reserved-by-design (no producer in v0.x,
-/// planned for Phase B). The descriptor's `provenance` MUST be
-/// `Provenance::Reserved` and the human-readable description MUST advertise
-/// the reservation so consumers can distinguish "no producer because
-/// reserved" from "no producer because we forgot."
 #[test]
 fn schema_describe_equivalent_to_is_reserved() {
     let d = schema_describe();
@@ -385,12 +325,6 @@ fn schema_describe_equivalent_to_is_reserved() {
     );
 }
 
-/// Issue #307 — Forbidden move 5: only EQUIVALENT_TO carries the Reserved
-/// tag. The other dormant labels on cfdb-self (CALLS, EXPOSES,
-/// REGISTERS_PARAM, LABELED_AS, CANONICAL_FOR, REFERENCED_BY) have real
-/// producers in `cfdb-hir-extractor` or enrichment passes — they must NOT
-/// be silenced via the Reserved tag. This test locks the invariant: exactly
-/// one edge label is Reserved, and that one is EQUIVALENT_TO.
 #[test]
 fn schema_describe_only_equivalent_to_is_reserved() {
     let d = schema_describe();
@@ -410,41 +344,15 @@ fn schema_describe_only_equivalent_to_is_reserved() {
     );
 }
 
-// ---- RFC-044 §3.1 sub-band 3: descriptor narrative freeze --------------
-
-/// RFC-044 §3.1 sub-band 3(i) — frozen sha256 digest of every attribute
-/// narrative string in `schema_describe()`.
-///
-/// The canonical snapshot is built by sorting all (node + edge) attribute
-/// descriptors by `(kind, label, attr_name)` and joining them as:
-///   `"<NODE|EDGE> <Label>.<attr> = <description>"`
-/// lines separated by `\n`. The sha256 hex of the resulting UTF-8 bytes is
-/// frozen in `FROZEN_NARRATIVE_DIGEST`.
-///
-/// **On mismatch:** the test prints the full current snapshot so you can
-/// diff it against the previous one. To update a narrative legitimately
-/// (e.g., an RFC changes the description of an attribute), recompute the
-/// digest by temporarily setting `FROZEN_NARRATIVE_DIGEST = "RECOMPUTE"`,
-/// running `cargo test -p cfdb-core schema_describe_narrative_digest 2>&1`,
-/// and copying the `actual digest:` hex from the failure output into the
-/// const. The update MUST be in the same PR as the narrative change —
-/// explicit review surface for RFC §4 I6-shaped concerns.
 #[test]
 fn schema_describe_narrative_digest() {
-    /// The frozen sha256 (lowercase hex) of the canonical narrative snapshot.
-    /// See test body for the snapshot construction algorithm.
-    ///
-    /// To update after a legitimate narrative change: set this to `"RECOMPUTE"`,
-    /// run the test, copy the `actual digest:` value from the failure output.
     const FROZEN_NARRATIVE_DIGEST: &str =
         "5a459149b167b95891e265fcac69fcbae0c0c41762c4a7c527857d352568c653";
 
     let d = schema_describe();
 
-    // Build a canonically sorted list of lines.
     let mut lines: Vec<String> = Vec::new();
 
-    // Node attributes
     for node in &d.nodes {
         let label = node.label.as_str();
         for attr in &node.attributes {
@@ -455,7 +363,6 @@ fn schema_describe_narrative_digest() {
         }
     }
 
-    // Edge attributes
     for edge in &d.edges {
         let label = edge.label.as_str();
         for attr in &edge.attributes {
@@ -466,12 +373,10 @@ fn schema_describe_narrative_digest() {
         }
     }
 
-    // Deterministic sort by the line itself (already prefixed with kind+label+attr).
     lines.sort();
 
     let snapshot = lines.join("\n");
 
-    // Compute sha256 hex.
     let mut hasher = Sha256::new();
     hasher.update(snapshot.as_bytes());
     let digest_bytes = hasher.finalize();
@@ -499,15 +404,6 @@ fn schema_describe_narrative_digest() {
     );
 }
 
-/// RFC-044 §3.1 sub-band 3(ii) — explicit narrative pins for load-bearing
-/// `:CallSite` attribute descriptions (RFC-043 §4 I6-shaped concerns).
-///
-/// These two pins lock the specific narrative sentences that RFC-043 §4 cites:
-///   - `callee_resolved`: the epistemic precision caveat about proc-macro support.
-///   - `resolver`: the closed-set enum-as-string description.
-///
-/// If either description is gutted or changed, this test fails with a clear
-/// message identifying which pin broke and what the new text is.
 #[test]
 fn schema_describe_call_site_narrative_pins() {
     let d = schema_describe();
@@ -517,11 +413,6 @@ fn schema_describe_call_site_narrative_pins() {
         .find(|n| n.label.as_str() == Label::CALL_SITE)
         .expect(":CallSite node descriptor must be present in schema_describe()");
 
-    // Pin 1 — callee_resolved: RFC-043 epistemic precision caveat.
-    // The key sentence: the RFC-043 caveat about proc-macro server enabling
-    // improved resolution, and the statement that there is no per-keyspace
-    // status flag. A deliberate truncation of the description removes this
-    // caveat and this test fails.
     let callee_resolved = call_site
         .attributes
         .iter()
@@ -555,10 +446,6 @@ fn schema_describe_call_site_narrative_pins() {
         callee_resolved.description,
     );
 
-    // Pin 2 — resolver: closed-set enum description.
-    // The description must name both valid values ("syn", "hir") and the
-    // SchemaVersion constraint. Removing either value string makes the enum
-    // undiscoverable to consumers reading the schema at runtime.
     let resolver = call_site
         .attributes
         .iter()
@@ -594,25 +481,6 @@ fn schema_describe_call_site_narrative_pins() {
     );
 }
 
-/// RFC-044 §3.1 sub-band 1 (spec-coverage test) — asserts the `## Label` and
-/// `## EdgeLabel` sections of `specs/concepts/cfdb-core.md` document EVERY node
-/// and edge label returned by `schema_describe()` (by name and by attribute
-/// field name), and that each section declares the `describe/{nodes,edges}.rs`
-/// descriptor authoritative.
-///
-/// **Deviation from RFC-044 §3.1 (documented):** the RFC prescribed per-variant
-/// `### :Crate`-style headings. `graph-specs check` validates EVERY markdown
-/// heading bidirectionally against a `pub` type, so per-label headings would
-/// require minting a marker type per label — the exact "second vocabulary
-/// source" the ddd lens forbade in the same §3.1. The load-bearing ratified
-/// constraint (no second vocabulary source) wins: the per-label vocabulary is
-/// documented as a flat list inside the existing `## Label` / `## EdgeLabel`
-/// concept sections (no new headings, no new types). This test enforces the
-/// list stays complete — adding a label or attribute to the descriptor without
-/// documenting it here fails the test (the "completeness constant" of §3.1).
-///
-/// **Non-vacuity guard:** asserts the spec file was read, both sections are
-/// non-empty, and the descriptor returns the full schema.
 #[test]
 fn spec_sections_cover_all_schema_labels() {
     let spec_path =
@@ -628,7 +496,6 @@ fn spec_sections_cover_all_schema_labels() {
     let node_section = extract_section_content(&spec_content, "Label");
     let edge_section = extract_section_content(&spec_content, "EdgeLabel");
 
-    // Non-vacuity: both concept sections must be present and non-trivial.
     assert!(
         node_section.len() > 200 && edge_section.len() > 200,
         "## Label / ## EdgeLabel sections of cfdb-core.md are missing or too short \
@@ -637,7 +504,6 @@ fn spec_sections_cover_all_schema_labels() {
         edge_section.len(),
     );
 
-    // ddd-specialist R1: each section declares the descriptor authoritative.
     assert!(
         node_section.contains("`crates/cfdb-core/src/schema/describe/nodes.rs` is authoritative"),
         "## Label section must declare describe/nodes.rs authoritative (ddd R1 / RFC-044 §3.1)"
@@ -649,7 +515,6 @@ fn spec_sections_cover_all_schema_labels() {
 
     let d = schema_describe();
 
-    // Every node label + every attribute name is documented in ## Label.
     for node in &d.nodes {
         let label = node.label.as_str();
         assert!(
@@ -667,7 +532,6 @@ fn spec_sections_cover_all_schema_labels() {
         }
     }
 
-    // Every edge label + every edge attribute name is documented in ## EdgeLabel.
     for edge in &d.edges {
         let label = edge.label.as_str();
         assert!(
@@ -684,7 +548,6 @@ fn spec_sections_cover_all_schema_labels() {
         }
     }
 
-    // Non-vacuity: the descriptor returned the full schema, not a degraded subset.
     assert!(
         d.nodes.len() >= 15 && d.edges.len() >= 20,
         "schema_describe() returned a degraded schema (nodes={}, edges={})",
@@ -693,9 +556,6 @@ fn spec_sections_cover_all_schema_labels() {
     );
 }
 
-/// Extract the content of a `## heading` section from a markdown string.
-/// Returns everything from (but not including) the heading line up to the
-/// next `##`-level heading (or end of file).
 fn extract_section_content(markdown: &str, section_name: &str) -> String {
     let heading_marker = format!("## {}", section_name);
     let mut in_section = false;
@@ -707,7 +567,6 @@ fn extract_section_content(markdown: &str, section_name: &str) -> String {
             continue;
         }
         if in_section {
-            // Stop at the next ## heading (any section).
             if line.trim().starts_with("## ") {
                 break;
             }

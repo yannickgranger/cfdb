@@ -1,26 +1,3 @@
-//! `TYPE_OF` edge emission tests (#220, RFC-037 §3.4; #239 closeout).
-//!
-//! After #220, every `:Field` or `:Param` whose rendered type string
-//! resolves to an emitted `:Item` qname in the same workspace produces
-//! one `TYPE_OF` edge from the source `:Field` / `:Param` to the
-//! referenced `:Item`. Resolution is post-walk and shares the RETURNS
-//! resolver's three-tier policy: exact-match, unique-last-segment
-//! fallback, and (#239) wrapper unwrap via `render_type_inner` on the
-//! stored `syn::Type` with a depth-3 budget. `struct V(Vec<Foo>)` now
-//! emits a TYPE_OF edge to `Foo`; `struct R { x: Result<Ok, Err> }`
-//! emits two (both arms resolve).
-//!
-//! **Scope limits still pinned here (RFC-037 §6 non-goals):**
-//!
-//! - Variant-level `TYPE_OF` is out of scope for this slice — variant
-//!   payloads are walked into separate `:Field` nodes that queue their
-//!   own `TYPE_OF` entries, which is sufficient for current queries.
-//!
-//! The fixture harness mirrors `returns_emission.rs`: a real cargo
-//! workspace is written into a tempdir and run through the full
-//! `extract_workspace` pipeline, so assertions reflect the observable
-//! extractor output end-to-end.
-
 use std::path::Path;
 
 use cfdb_core::fact::PropValue;
@@ -67,8 +44,6 @@ path = "src/lib.rs"
     write_fixture_file(root, &format!("{crate_name}/src/lib.rs"), lib_src);
 }
 
-/// Find the `:Item` node id for the given `kind` + `name` prop pair.
-/// Panics with a helpful message if zero or more than one match.
 fn item_id_by_name<'a>(nodes: &'a [cfdb_core::Node], kind: &str, name: &str) -> &'a str {
     let matches: Vec<&cfdb_core::Node> = nodes
         .iter()
@@ -87,8 +62,6 @@ fn item_id_by_name<'a>(nodes: &'a [cfdb_core::Node], kind: &str, name: &str) -> 
     matches[0].id.as_str()
 }
 
-/// Find the `:Field` node id for a given `(parent_qname, field_name)`
-/// pair. Panics if zero or more than one match.
 fn field_id_by<'a>(nodes: &'a [cfdb_core::Node], parent_qname: &str, field_name: &str) -> &'a str {
     let matches: Vec<&cfdb_core::Node> = nodes
         .iter()
@@ -107,8 +80,6 @@ fn field_id_by<'a>(nodes: &'a [cfdb_core::Node], parent_qname: &str, field_name:
     matches[0].id.as_str()
 }
 
-/// Find the `:Param` node id for a given `(parent_qname, index)` pair.
-/// Panics if zero or more than one match.
 fn param_id_by<'a>(nodes: &'a [cfdb_core::Node], parent_qname: &str, index: i64) -> &'a str {
     let matches: Vec<&cfdb_core::Node> = nodes
         .iter()
@@ -136,9 +107,6 @@ fn type_of_edges(edges: &[cfdb_core::Edge]) -> Vec<&cfdb_core::Edge> {
 
 #[test]
 fn field_referencing_same_crate_struct_emits_type_of_edge() {
-    // Baseline: `struct A;` declared first, then `struct Foo { bar: A }`.
-    // Same-walk resolution would already work here — this pins the
-    // simplest case.
     let fixture = tempdir().expect("tempdir");
     write_cargo_workspace(
         fixture.path(),
@@ -174,9 +142,6 @@ pub struct Foo {
 
 #[test]
 fn field_referencing_forward_declared_struct_still_emits_type_of_edge() {
-    // `struct Bar { a: A }` declared BEFORE `pub struct A;`. Same-walk
-    // forward-lookup would miss this; the post-walk pass catches it.
-    // This is the slice's core invariant.
     let fixture = tempdir().expect("tempdir");
     write_cargo_workspace(
         fixture.path(),
@@ -207,9 +172,6 @@ pub struct A;
 
 #[test]
 fn field_with_primitive_type_emits_no_type_of_edge() {
-    // `struct Foo(i32)` — `i32` is not a walked `:Item` qname, so no
-    // TYPE_OF edge should be emitted. The deferred entry is silently
-    // dropped by `resolve_deferred_type_of`.
     let fixture = tempdir().expect("tempdir");
     write_cargo_workspace(
         fixture.path(),
@@ -232,13 +194,6 @@ fn field_with_primitive_type_emits_no_type_of_edge() {
 
 #[test]
 fn field_wrapped_same_crate_type_emits_type_of_edge() {
-    // `struct V(Vec<MyType>)`. The outer `render_type_string` renders
-    // `"Vec"`, which does not match any workspace `:Item` qname. The
-    // third-tier `render_type_inner` unwrap (#239) then inspects the
-    // stored `syn::Type`, matches `Vec` in `WRAPPER_TYPES`, and yields
-    // the inner candidate `"MyType"` — which resolves to the walked
-    // struct and emits one TYPE_OF edge from the tuple field to
-    // `MyType`'s `:Item`.
     let fixture = tempdir().expect("tempdir");
     write_cargo_workspace(
         fixture.path(),
@@ -264,9 +219,6 @@ pub struct V(pub Vec<MyType>);
 
 #[test]
 fn param_with_wrapped_same_crate_type_emits_type_of_edge() {
-    // `fn handle(x: Option<Foo>)` — outer render `"Option"` misses;
-    // third-tier `render_type_inner` at depth 3 yields `"Foo"`, which
-    // resolves. One TYPE_OF edge from the :Param(0) to :Item(Foo).
     let fixture = tempdir().expect("tempdir");
     write_cargo_workspace(
         fixture.path(),
@@ -296,9 +248,6 @@ pub fn handle(x: Option<Foo>) {
 
 #[test]
 fn field_with_nested_wrappers_at_depth_three_emits_type_of_edge() {
-    // `struct V { inner: Vec<Option<Arc<Foo>>> }` — depth-3 unwrap
-    // terminates at `Foo`. One TYPE_OF edge from the :Field(inner) to
-    // :Item(Foo).
     let fixture = tempdir().expect("tempdir");
     write_cargo_workspace(
         fixture.path(),
@@ -330,8 +279,6 @@ pub struct V {
 
 #[test]
 fn field_with_result_wrapper_emits_one_type_of_edge_per_arm() {
-    // `struct R { slot: Result<Ok, Err> }` — Result third-tier unwrap
-    // yields both arms. Two TYPE_OF edges from :Field(slot).
     let fixture = tempdir().expect("tempdir");
     write_cargo_workspace(
         fixture.path(),
@@ -363,8 +310,6 @@ pub struct R {
 
 #[test]
 fn param_referencing_same_crate_struct_emits_type_of_edge() {
-    // `fn foo(a: A) {}` — the :Param(0) for `a` must emit a TYPE_OF
-    // edge to :Item(A).
     let fixture = tempdir().expect("tempdir");
     write_cargo_workspace(
         fixture.path(),
@@ -400,8 +345,6 @@ pub fn foo(a: A) {
 
 #[test]
 fn type_of_edge_emission_is_deterministic_across_two_extractions() {
-    // G1 byte-stability — two extractions of the same fixture produce
-    // an identical sorted TYPE_OF edge set.
     let fixture = tempdir().expect("tempdir");
     write_cargo_workspace(
         fixture.path(),
@@ -438,12 +381,6 @@ pub struct Late;
         a, b,
         "two extractions must produce byte-identical TYPE_OF edges"
     );
-    // Sanity: the fixture has
-    //   - Holder.a : A   → TYPE_OF
-    //   - Holder.b : B   → TYPE_OF
-    //   - use_a param 0  : A → TYPE_OF
-    //   - Forward.late   : Late → TYPE_OF (forward-declared)
-    // = 4 TYPE_OF edges
     assert_eq!(
         a.len(),
         4,

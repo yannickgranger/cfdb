@@ -1,15 +1,3 @@
-//! Self-dogfood integration test for `cfdb check-predicate` — RFC-034
-//! Slice 3 / #147 / Gate 4 Reality proof.
-//!
-//! Extracts cfdb's own worktree, persists a keyspace to a tempdir-backed
-//! `.cfdb/db`, and invokes the library API `cfdb_cli::check_predicate(...)`
-//! against the shipped `path-regex` predicate with a
-//! `pat:literal:cfdb-query/.*\.rs` CLI arg. Asserts ≥10 `:File` rows come
-//! back — a loose lower bound that survives future source growth.
-//!
-//! Uses the library entry point (not a subprocess) so a failure surfaces
-//! as a stack trace inside `cargo test`.
-
 use std::path::{Path, PathBuf};
 
 use cfdb_cli::check_predicate;
@@ -17,8 +5,6 @@ use cfdb_core::schema::Keyspace;
 use cfdb_core::store::StoreBackend;
 use cfdb_petgraph::{persist, PetgraphStore};
 
-/// Resolve the cfdb workspace root from this crate's manifest dir.
-/// `crates/cfdb-cli/` is two levels below the workspace root.
 fn cfdb_workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -27,10 +13,6 @@ fn cfdb_workspace_root() -> PathBuf {
         .to_path_buf()
 }
 
-/// Extract the cfdb workspace and persist the resulting keyspace to a
-/// caller-supplied `<db_dir>/cfdb.json`. Uses the library pipeline — no
-/// subprocess — so the test exercises the same code path as `cfdb
-/// extract`.
 fn seed_keyspace(workspace_root: &Path, db_dir: &Path, keyspace_name: &str) {
     let (nodes, edges) = cfdb_extractor::extract_workspace(workspace_root).expect("extract cfdb");
     let ks = Keyspace::new(keyspace_name);
@@ -46,16 +28,9 @@ fn seed_keyspace(workspace_root: &Path, db_dir: &Path, keyspace_name: &str) {
     persist::save(&store, &ks, &keyspace_path).expect("persist keyspace");
 }
 
-/// RFC §7 Slice 3 Self-dogfood test: run the shipped `path-regex` predicate
-/// against cfdb's own keyspace with `--param pat:literal:cfdb-query/.*\.rs`.
-/// Assert ≥10 `:File` rows come back — a loose lower bound (the actual
-/// count will grow as cfdb-query's source grows; strict equality would be
-/// brittle).
 #[test]
 fn path_regex_predicate_matches_cfdb_query_source_files() {
     let workspace_root = cfdb_workspace_root();
-    // #526-class: CI routes TMPDIR to /cache (#453), whose runner-side
-    // cleanup can prune a live tempdir mid-test; target/tmp survives it.
     let tmp = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).expect("tempdir");
     let db_dir = tmp.path().join("db");
     seed_keyspace(&workspace_root, &db_dir, "cfdb");
@@ -72,7 +47,6 @@ fn path_regex_predicate_matches_cfdb_query_source_files() {
         report.rows
     );
 
-    // Determinism: the report's rows are sorted by (qname, line) ascending.
     let mut sorted_rows = report.rows.clone();
     sorted_rows.sort();
     assert_eq!(
@@ -80,9 +54,6 @@ fn path_regex_predicate_matches_cfdb_query_source_files() {
         "rows must be sorted by (qname, line) ascending — determinism invariant §4.1"
     );
 
-    // Every row's qname must start with `cfdb-query/` (or contain it) per
-    // the regex pattern. Being lenient because path capitalization and
-    // separators are not load-bearing here; the substring check is enough.
     for row in &report.rows {
         assert!(
             row.qname.contains("cfdb-query/"),
@@ -93,28 +64,17 @@ fn path_regex_predicate_matches_cfdb_query_source_files() {
     }
 }
 
-/// Cross-form smoke: the `context-homonym` predicate with two `context:`
-/// params should resolve to zero rows against cfdb's own keyspace where
-/// only one context (`cfdb`) is declared. This exercises the
-/// `--param ctx:context:<name>` path end-to-end.
 #[test]
 fn context_homonym_predicate_self_dogfood_is_empty() {
     let workspace_root = cfdb_workspace_root();
-    // #526-class: CI routes TMPDIR to /cache (#453), whose runner-side
-    // cleanup can prune a live tempdir mid-test; target/tmp survives it.
     let tmp = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).expect("tempdir");
     let db_dir = tmp.path().join("db");
     seed_keyspace(&workspace_root, &db_dir, "cfdb");
 
-    // Both params bind to `cfdb` context — no crate is in two contexts
-    // simultaneously on this workspace, so zero rows are expected.
     let params = vec![
         "context_a:context:cfdb".to_string(),
         "context_b:context:cfdb".to_string(),
     ];
-    // The `context-homonym-crate-in-multiple-contexts.cypher` seed expects
-    // params named `$context_a` and `$context_b`; the CLI arg's first
-    // segment is the param name.
     let report = check_predicate(
         &db_dir,
         "cfdb",
@@ -124,10 +84,6 @@ fn context_homonym_predicate_self_dogfood_is_empty() {
     )
     .expect("report");
 
-    // Same context in both slots → every cfdb crate is a "homonym" of
-    // itself (the predicate does not filter self-matches). For the
-    // smoke-level assertion we just check the call succeeds and
-    // deterministically returns SOME rows (every cfdb crate appears).
     assert_eq!(
         report.predicate_name,
         "context-homonym-crate-in-multiple-contexts"
@@ -136,7 +92,6 @@ fn context_homonym_predicate_self_dogfood_is_empty() {
         report.row_count > 0,
         "expected ≥1 row when both params bind to the same context — cfdb crates appear in both"
     );
-    // Determinism
     let mut sorted = report.rows.clone();
     sorted.sort();
     assert_eq!(report.rows, sorted);

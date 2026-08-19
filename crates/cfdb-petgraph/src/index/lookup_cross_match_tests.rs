@@ -1,17 +1,3 @@
-//! Cross-MATCH unit tests for [`crate::index::lookup`].
-//!
-//! Split out of `lookup_tests.rs` to keep both test files under the
-//! workspace 500-LoC god-file ceiling. This file's cross-MATCH surface
-//! needs bespoke helpers (call-expression builder, bound-var resolver
-//! over a `BTreeMap`) that would push tests over the limit if co-located.
-//!
-//! Test shape: construct a small `KeyspaceState` with the slice-6
-//! spec (`(Item, qname)` + `(Item, last_segment(qname))` computed),
-//! build a `Predicate::Compare` of two `Call(last_segment, ...)`
-//! expressions, resolve one side through a stubbed closure over a
-//! `BTreeMap<(var, prop), IndexValue>`, and assert the returned
-//! `Vec<NodeIndex>` matches the expected posting-list bucket.
-
 use std::collections::BTreeMap;
 
 use cfdb_core::fact::{Node, PropValue};
@@ -65,7 +51,6 @@ fn np_item(var: &str) -> NodePattern {
     }
 }
 
-/// Build an `Expr::Call { name, args: [Property{var, prop}] }`.
 fn call(name: &str, var: &str, prop: &str) -> Expr {
     Expr::Call {
         name: name.into(),
@@ -102,9 +87,6 @@ fn bound_from_map<'a>(
 
 #[test]
 fn cross_match_resolves_target_b_against_bound_a() {
-    // a is bound with qname="some::path::Foo"; target is b; rule:
-    // last_segment(a.qname) = last_segment(b.qname). Expect b's
-    // candidate set to be the bucket `"Foo"`.
     let state = state_with_nodes(
         slice6_spec(),
         vec![
@@ -120,14 +102,11 @@ fn cross_match_resolves_target_b_against_bound_a() {
     let bound = bound_from_map(&bound_map);
     let got = candidates_from_index(&state, &np, Some(&pred), &BTreeMap::new(), &bound)
         .expect("indexed path");
-    // i:1 and i:2 both last_segment to "Foo"; i:3 is "Bar".
     assert_eq!(got.len(), 2);
 }
 
 #[test]
 fn cross_match_resolves_target_a_against_bound_b_commuted() {
-    // Commuted version: target is a, b is bound. The hint walker
-    // must accept either operand ordering.
     let state = state_with_nodes(
         slice6_spec(),
         vec![
@@ -143,15 +122,11 @@ fn cross_match_resolves_target_a_against_bound_b_commuted() {
     let bound = bound_from_map(&bound_map);
     let got = candidates_from_index(&state, &np, Some(&pred), &BTreeMap::new(), &bound)
         .expect("indexed path");
-    // i:3 is the only Bar.
     assert_eq!(got.len(), 1);
 }
 
 #[test]
 fn cross_match_falls_through_when_bound_var_unresolved() {
-    // Bound side references var "a", but the resolver returns None
-    // (simulates unbound from a previous pattern). The hint is
-    // skipped; no other hint applies; function returns None.
     let state = state_with_nodes(slice6_spec(), vec![item("i:1", "x::Foo", "ctx")]);
     let np = np_item("b");
     let pred = where_computed_eq("last_segment", "a", "qname", "b", "qname");
@@ -165,8 +140,6 @@ fn cross_match_falls_through_when_bound_var_unresolved() {
 
 #[test]
 fn cross_match_skips_unknown_call_name() {
-    // Unrecognised fn: no hint is emitted. With no pattern hints
-    // either, the function returns None.
     let state = state_with_nodes(slice6_spec(), vec![item("i:1", "x::Foo", "ctx")]);
     let np = np_item("b");
     let pred = where_computed_eq("not_a_computed_key", "a", "qname", "b", "qname");
@@ -178,9 +151,6 @@ fn cross_match_skips_unknown_call_name() {
 
 #[test]
 fn cross_match_skips_when_spec_lacks_computed_entry() {
-    // Spec has `(Item, qname)` prop index but NOT the `(Item,
-    // last_segment(qname))` computed index. The cross-ref hint is
-    // legal-shape but no posting list exists — fallback.
     let spec_without_computed = IndexSpec {
         entries: vec![IndexEntry::Prop {
             label: "Item".into(),
@@ -202,10 +172,6 @@ fn cross_match_skips_when_spec_lacks_computed_entry() {
 
 #[test]
 fn cross_match_skips_when_both_sides_are_target_var() {
-    // `last_segment(b.qname) = last_segment(b.name)` — same var on
-    // both sides. This is not cross-MATCH; it's a single-variable
-    // constraint (and currently unsupported by the fast path). No
-    // hint emitted.
     let state = state_with_nodes(slice6_spec(), vec![item("i:1", "x::Foo", "ctx")]);
     let np = np_item("b");
     let pred = where_computed_eq("last_segment", "b", "qname", "b", "name");
@@ -217,8 +183,6 @@ fn cross_match_skips_when_both_sides_are_target_var() {
 
 #[test]
 fn cross_match_skips_when_neither_side_is_target_var() {
-    // `last_segment(a.qname) = last_segment(c.qname)` — target is
-    // `b`, neither side mentions it. No hint.
     let state = state_with_nodes(slice6_spec(), vec![item("i:1", "x::Foo", "ctx")]);
     let np = np_item("b");
     let pred = where_computed_eq("last_segment", "a", "qname", "c", "qname");
@@ -228,8 +192,6 @@ fn cross_match_skips_when_neither_side_is_target_var() {
     let bound = bound_from_map(&bound_map);
     assert!(candidates_from_index(&state, &np, Some(&pred), &BTreeMap::new(), &bound).is_none());
 }
-
-// --- Slice 6b: plain Property = Property cross-MATCH hint --------
 
 fn name_indexed_spec() -> IndexSpec {
     IndexSpec {
@@ -345,8 +307,6 @@ fn cross_match_prop_eq_skips_when_prop_not_indexed() {
 
 #[test]
 fn cross_match_prop_eq_skips_when_props_differ() {
-    // `a.name = b.crate` — different props on the two sides cannot
-    // hash on one posting list even if both are individually indexed.
     let spec_both = IndexSpec {
         entries: vec![
             IndexEntry::Prop {
@@ -396,13 +356,6 @@ fn cross_match_prop_eq_skips_when_neither_side_is_target_var() {
     assert!(candidates_from_index(&state, &np, Some(&pred), &BTreeMap::new(), &bound).is_none());
 }
 
-// --- Slice 6: ConversionPrefix computed-key cross-MATCH ----------
-//
-// `regexp_extract(a.name, '<vetted>') = regexp_extract(b.name,
-// '<vetted>')` — the RandomScattering fork join. Recognition is
-// byte-for-byte on the pattern literal; a bound name with no conversion
-// prefix is a NULL join operand that narrows the target to empty.
-
 fn conversion_prefix_spec() -> IndexSpec {
     IndexSpec {
         entries: vec![IndexEntry::Computed {
@@ -413,8 +366,6 @@ fn conversion_prefix_spec() -> IndexSpec {
     }
 }
 
-/// `Expr::Call { name: "regexp_extract", args: [Property{var, prop},
-/// Literal(Str(pattern))] }`.
 fn call_regexp(var: &str, prop: &str, pattern: &str) -> Expr {
     Expr::Call {
         name: "regexp_extract".into(),
@@ -444,10 +395,6 @@ fn where_regexp_eq(
 
 #[test]
 fn cross_match_conversion_prefix_resolves_target_b_against_bound_a() {
-    // a bound with name "compute_0_from_bps" → prefix "compute_0_from_".
-    // b's candidates are the two items in that bucket; the third item
-    // has a different prefix and the fourth (no conversion prefix) has
-    // no posting at all.
     let state = state_with_nodes(
         conversion_prefix_spec(),
         vec![
@@ -489,10 +436,6 @@ fn cross_match_conversion_prefix_resolves_target_a_against_bound_b_commuted() {
 
 #[test]
 fn cross_match_conversion_prefix_non_matching_bound_narrows_to_empty() {
-    // Bound name has no conversion prefix → evaluate is None → the
-    // equi-join is unsatisfiable (NULL = anything is false). The fast
-    // path narrows the target to the EMPTY set rather than falling back
-    // to a full scan — Some(empty), not None.
     let state = state_with_nodes(
         conversion_prefix_spec(),
         vec![
@@ -515,10 +458,6 @@ fn cross_match_conversion_prefix_non_matching_bound_narrows_to_empty() {
 
 #[test]
 fn cross_match_conversion_prefix_empty_narrow_gated_on_index_present() {
-    // Same non-matching bound, but the conversion_prefix computed index
-    // is NOT in the spec. The empty-narrow is gated on the key being
-    // indexed (like every hint), so the fast path declines and the
-    // caller falls back to the full scan — None, not Some(empty).
     let spec_without_computed = IndexSpec {
         entries: vec![IndexEntry::Prop {
             label: "Item".into(),
@@ -543,9 +482,6 @@ fn cross_match_conversion_prefix_empty_narrow_gated_on_index_present() {
 
 #[test]
 fn cross_match_conversion_prefix_wrong_literal_no_hint() {
-    // A `regexp_extract` whose pattern literal is NOT the vetted const
-    // is not the conversion-prefix join — no hint, fall back. Guards the
-    // byte-for-byte recognition contract.
     let state = state_with_nodes(
         conversion_prefix_spec(),
         vec![item_named("i:1", "compute_0_from_bps", "ctx")],
@@ -563,10 +499,6 @@ fn cross_match_conversion_prefix_wrong_literal_no_hint() {
 
 #[test]
 fn cross_match_conversion_prefix_skips_when_call_reads_wrong_prop() {
-    // `regexp_extract(a.qname, '<vetted>')` reads `qname`, but
-    // ConversionPrefix's source prop is `name`; the posting list is
-    // keyed off `name`, so a qname-sourced call must NOT narrow through
-    // it. No hint.
     let state = state_with_nodes(
         conversion_prefix_spec(),
         vec![item_named("i:1", "compute_0_from_bps", "ctx")],
@@ -584,9 +516,6 @@ fn cross_match_conversion_prefix_skips_when_call_reads_wrong_prop() {
 
 #[test]
 fn cross_match_conversion_prefix_falls_through_when_bound_var_unresolved() {
-    // Bound side unresolved (e.g. the outer `a` MATCH, before `b` is
-    // bound) — no hint, no empty-narrow. This is what keeps the outer
-    // scan from wrongly collapsing to empty.
     let state = state_with_nodes(
         conversion_prefix_spec(),
         vec![item_named("i:1", "compute_0_from_bps", "ctx")],

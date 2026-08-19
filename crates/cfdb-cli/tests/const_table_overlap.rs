@@ -1,36 +1,3 @@
-//! `const-table-overlap.cypher` rule scar (RFC-040 slice 4/5, issues
-//! #326 + #332).
-//!
-//! Pins all three RFC-040 §3.4 verdict branches (DUPLICATE, SUBSET,
-//! INTERSECTION_HIGH) against
-//! `examples/queries/fixtures/const-table-overlap/`:
-//!
-//! - `kraken_normalize::FIAT` ⟷ `oanda_pricing::FIAT` — DUPLICATE
-//!   (same set, different declaration order; `entries_hash`
-//!   order-invariance MUST surface this pair as one row).
-//! - `binance_exchange::STABLES` — clean (same element_type as FIAT but
-//!   non-overlapping set; MUST NOT pair with anything).
-//! - `metric_client::PORTS` — clean (different element_type; cross-type
-//!   filter MUST exclude any sha256-collision-induced false pair).
-//! - `kraken_session_ports::PORTS = [10,20,30]` ⟷
-//!   `oanda_session_ports::PORTS = [20,10]` — SUBSET
-//!   (`oanda_session_ports::PORTS` is a strict subset of
-//!   `kraken_session_ports::PORTS`; the `entries_subset` UDF MUST
-//!   surface this pair).
-//! - `kraken_session_ports::PORTS = [10,20,30]` ⟷
-//!   `mt5_jaccard_ports::PORTS = [20,30,40]` — INTERSECTION_HIGH
-//!   (jaccard 0.5 at the threshold, neither is a subset of the
-//!   other; the `entries_jaccard` UDF MUST surface this pair).
-//! - `oanda_session_ports::PORTS = [20,10]` ⟷
-//!   `mt5_jaccard_ports::PORTS = [20,30,40]` — clean
-//!   (jaccard 0.25 < 0.5, no subset; MUST NOT surface).
-//!
-//! # Why this lives in `cfdb-cli/tests/`
-//!
-//! Same placement rationale as `signature_divergent.rs`: the scar needs
-//! the full pipeline (`cfdb-extractor` + `cfdb-query` + `cfdb-petgraph`)
-//! and `cfdb-cli` is the only crate that depends on all three.
-
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -112,10 +79,6 @@ fn run_rule(db: &Path, ks: &str, rule_file: &Path) -> String {
     String::from_utf8(output.stdout).expect("query stdout utf-8")
 }
 
-// ---------------------------------------------------------------------------
-// DUPLICATE pair: kraken_normalize::FIAT ⟷ oanda_pricing::FIAT MUST surface.
-// ---------------------------------------------------------------------------
-
 #[test]
 fn duplicate_fiat_pair_surfaces_under_const_table_overlap() {
     let tmp = tempdir().expect("tempdir");
@@ -138,10 +101,6 @@ fn duplicate_fiat_pair_surfaces_under_const_table_overlap() {
 
 #[test]
 fn duplicate_pair_is_reported_once_via_qname_lex_dedup() {
-    // The MATCH (a:ConstTable), (b:ConstTable) form yields both
-    // (a, b) and (b, a) without the `a.qname < b.qname` guard. The
-    // rule must dedupe the symmetric pair so each unordered pair
-    // appears exactly once.
     let tmp = tempdir().expect("tempdir");
     let (db, ks) = extract(tmp.path());
     let stdout = run_rule(&db, ks, &rule("const-table-overlap.cypher"));
@@ -152,10 +111,6 @@ fn duplicate_pair_is_reported_once_via_qname_lex_dedup() {
         "expected exactly one DUPLICATE row (qname lex-dedup); got {n}\n{stdout}"
     );
 }
-
-// ---------------------------------------------------------------------------
-// Non-overlapping str table MUST NOT surface.
-// ---------------------------------------------------------------------------
 
 #[test]
 fn binance_stables_does_not_pair_with_unrelated_str_tables() {
@@ -170,34 +125,18 @@ fn binance_stables_does_not_pair_with_unrelated_str_tables() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Cross-element-type filter: u32 table MUST NOT pair with str tables.
-// ---------------------------------------------------------------------------
-
 #[test]
 fn numeric_table_does_not_pair_with_string_tables() {
     let tmp = tempdir().expect("tempdir");
     let (db, ks) = extract(tmp.path());
     let stdout = run_rule(&db, ks, &rule("const-table-overlap.cypher"));
 
-    // metric_client::PORTS = [443, 80] is element_type=u32. The rule's
-    // `a.element_type = b.element_type` filter excludes any pairing with
-    // the FIAT (`&str`) tables. metric_client::PORTS also disjoint from
-    // every other u32 fixture (kraken_session_ports / oanda_session_ports
-    // / mt5_jaccard_ports) — jaccard 0, no subset, no hash collision —
-    // so it must NOT surface in any row regardless of which u32 fixture
-    // it is paired against.
     assert!(
         !stdout.contains("metric_client::PORTS"),
         "PORTS is element_type=u32 and disjoint from every other fixture \
          set; must NOT surface in any row:\n{stdout}"
     );
 }
-
-// ---------------------------------------------------------------------------
-// SUBSET branch: kraken_session_ports::PORTS ⊃ oanda_session_ports::PORTS
-// MUST surface as CONST_TABLE_SUBSET via `entries_subset` UDF.
-// ---------------------------------------------------------------------------
 
 #[test]
 fn subset_pair_surfaces_under_const_table_subset() {
@@ -221,12 +160,6 @@ fn subset_pair_surfaces_under_const_table_subset() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// INTERSECTION_HIGH branch: kraken_session_ports::PORTS / mt5_jaccard_ports
-// share two elements out of four (jaccard 0.5 at the threshold) and neither
-// is a subset of the other. MUST surface via `entries_jaccard` UDF.
-// ---------------------------------------------------------------------------
-
 #[test]
 fn intersection_high_pair_surfaces_under_const_table_intersection_high() {
     let tmp = tempdir().expect("tempdir");
@@ -243,25 +176,12 @@ fn intersection_high_pair_surfaces_under_const_table_intersection_high() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Below-threshold pair: oanda_session_ports::PORTS ⟷ mt5_jaccard_ports::PORTS
-// jaccard 0.25, no subset relation — MUST NOT surface.
-// ---------------------------------------------------------------------------
-
 #[test]
 fn below_threshold_pair_does_not_surface() {
     let tmp = tempdir().expect("tempdir");
     let (db, ks) = extract(tmp.path());
     let stdout = run_rule(&db, ks, &rule("const-table-overlap.cypher"));
 
-    // The (oanda_session_ports::PORTS, mt5_jaccard_ports::PORTS) pair
-    // has jaccard 1/4 = 0.25 (below the 0.5 threshold) and no subset
-    // relation. The rule MUST emit exactly three rows total —
-    // DUPLICATE (FIAT pair), SUBSET (kraken/oanda session ports),
-    // INTERSECTION_HIGH (kraken session ports / mt5_jaccard) — and
-    // exactly one of each verdict. A fourth verdict would mean the
-    // below-threshold pair leaked into the output (or a same-element-
-    // type filter regression).
     let dup = stdout.matches("CONST_TABLE_DUPLICATE").count();
     let sub = stdout.matches("CONST_TABLE_SUBSET").count();
     let high = stdout.matches("CONST_TABLE_INTERSECTION_HIGH").count();
@@ -284,10 +204,6 @@ fn below_threshold_pair_does_not_surface() {
          WITH/WHERE; got {none}:\n{stdout}"
     );
 }
-
-// ---------------------------------------------------------------------------
-// G1 determinism: rule output is byte-stable across two extracts.
-// ---------------------------------------------------------------------------
 
 #[test]
 fn const_table_overlap_rule_output_is_byte_stable() {

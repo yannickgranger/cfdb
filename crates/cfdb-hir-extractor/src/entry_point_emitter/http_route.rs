@@ -1,6 +1,3 @@
-//! HTTP route detection for axum / actix-web route registrations.
-//! See parent module docs for the detection contract.
-
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -15,23 +12,6 @@ use super::HTTP_ROUTE_METHOD_NAMES;
 use crate::call_site_emitter::function_qname;
 use crate::target_map::EmitCtx;
 
-/// Recognize `axum` / `actix-web` route-registration method calls and
-/// emit one `:EntryPoint { kind: "http_route" }` per `(literal path,
-/// resolvable handler)` pair. Dispatch shapes:
-///
-/// - **axum 2-arg:** `<router>.route|get|post|put|delete|patch|nest(
-///   "/path", handler)` — arg1 is the literal path, arg2 is either a
-///   bare handler path, a call expression whose callee is the handler
-///   (`api_router()`), or (for actix) a `web::<method>().to(handler)`
-///   chain.
-/// - **actix resource chain:** `<resource>.route|to(web::<method>().to(
-///   handler))` where `<resource>` is itself `web::resource("/path")`.
-///   The path comes from the `web::resource` receiver; the handler
-///   from the innermost `.to()` call.
-///
-/// Handlers that do not resolve to a concrete `ModuleDef::Function`
-/// (closures, unresolved paths, trait methods without a known impl) are
-/// skipped — handlers must be path-resolved, not raw closure expressions.
 pub(super) fn classify_http_route_method_call<DB>(
     sema: &Semantics<'_, DB>,
     ctx: &EmitCtx<'_>,
@@ -75,25 +55,6 @@ pub(super) fn classify_http_route_method_call<DB>(
     );
 }
 
-/// Return `(literal_path, handler_expr)` for a recognized shape, or
-/// `None` if this method call is not a route registration.
-///
-/// Two shapes are accepted:
-///
-/// 1. **2-arg call, literal arg0:** `.route|get|post|...|nest("/p",
-///    handler_expr)`. Path from arg0, handler from arg1.
-/// 2. **1-arg call on `web::resource("/p")` receiver:** `.route|to(
-///    inner)`. Path from the receiver's literal argument, handler
-///    from the inner expression (which is usually itself a
-///    `web::<method>().to(handler)` chain — digested in
-///    [`resolve_handler_qname`]).
-///
-/// **False-positive discipline.** The HTTP verb names
-/// (`get`/`post`/`put`/`delete`/`patch`) are also common map/cache
-/// method names (`Port::put("BTC/USD", quote)`). To avoid matching
-/// those, the literal path MUST start with `/` — the canonical shape
-/// for axum + actix route paths. A key like `"BTC/USD"` does not
-/// qualify. Empty paths are also rejected.
 pub(super) fn extract_path_and_handler(
     method_call: &ast::MethodCallExpr,
     args: &[ast::Expr],
@@ -103,8 +64,6 @@ pub(super) fn extract_path_and_handler(
         let p = string_literal_value(&args[0])?;
         (p, args[1].clone())
     } else if args.len() == 1 && (method_name == "route" || method_name == "to") {
-        // Single-arg form — only accepted when the receiver is a
-        // `web::resource("/p")` call.
         let p = receiver_resource_path(method_call)?;
         (p, args[0].clone())
     } else {
@@ -117,20 +76,10 @@ pub(super) fn extract_path_and_handler(
     Some((path, handler_expr))
 }
 
-/// `true` when `s` looks like an HTTP route path: starts with `/`.
-/// Empty string is NOT a valid axum / actix path — both frameworks
-/// require at least `/` for the root route. Excluding non-slash
-/// literals filters out map-like `.put("BTC/USD", …)` false positives
-/// verified on qbot-core during target dogfood (#124).
 fn is_url_path(s: &str) -> bool {
     s.starts_with('/')
 }
 
-/// Walk back through the receiver chain of `method_call` looking for
-/// a `web::resource("/p")` call expression. Returns its literal path
-/// argument if found. This supports the actix `service(web::resource(
-/// "/h").route(...))` pattern where the literal path is the receiver
-/// of the `.route` / `.to` call, not an argument.
 fn receiver_resource_path(method_call: &ast::MethodCallExpr) -> Option<String> {
     let mut expr = method_call.receiver()?;
     loop {
@@ -146,8 +95,6 @@ fn receiver_resource_path(method_call: &ast::MethodCallExpr) -> Option<String> {
                 return None;
             }
             ast::Expr::MethodCallExpr(inner) => {
-                // Walk further up the method chain (e.g.
-                // `web::resource("/p").route(...).route(...)`).
                 expr = inner.receiver()?;
             }
             _ => return None,
@@ -155,9 +102,6 @@ fn receiver_resource_path(method_call: &ast::MethodCallExpr) -> Option<String> {
     }
 }
 
-/// `true` when `call`'s callee path has `segment` as its last path
-/// segment (namespace-agnostic — accepts `resource`, `web::resource`,
-/// `actix_web::web::resource`).
 fn call_ends_in(call: &ast::CallExpr, segment: &str) -> bool {
     let Some(ast::Expr::PathExpr(path_expr)) = call.expr() else {
         return false;
@@ -170,7 +114,6 @@ fn call_ends_in(call: &ast::CallExpr, segment: &str) -> bool {
         .is_some_and(|nr| nr.text() == segment)
 }
 
-/// If `expr` is a string literal, return its decoded value.
 fn string_literal_value(expr: &ast::Expr) -> Option<String> {
     let ast::Expr::Literal(lit) = expr else {
         return None;
@@ -181,20 +124,6 @@ fn string_literal_value(expr: &ast::Expr) -> Option<String> {
     }
 }
 
-/// Dig through a handler expression to find a resolvable function
-/// path. Handles three shapes:
-///
-/// - `ast::Expr::PathExpr` — the direct handler path (`my_handler`,
-///   `routes::index`). Resolve via `Semantics::resolve_path`.
-/// - `ast::Expr::CallExpr` — a call whose result is the handler
-///   (`api_router()` for axum `.nest`). Treat the callee path as the
-///   handler so `.nest("/api", api_router())` exposes `api_router`.
-/// - `ast::Expr::MethodCallExpr` — a method chain (`web::get().to(
-///   handler)`, common in actix). Drill to the innermost `.to()`
-///   argument and resolve that.
-///
-/// Closures and unresolved paths return `None` — those do not emit an
-/// `:EntryPoint` per AC-5.
 pub(super) fn resolve_handler_qname<DB>(
     sema: &Semantics<'_, DB>,
     ctx: &EmitCtx<'_>,
@@ -205,27 +134,15 @@ where
 {
     match expr {
         ast::Expr::PathExpr(path_expr) => resolve_path_to_fn_qname(sema, ctx, path_expr),
-        ast::Expr::CallExpr(call) => {
-            // `api_router()` — the callee is the path we care about.
-            match call.expr()? {
-                ast::Expr::PathExpr(path_expr) => resolve_path_to_fn_qname(sema, ctx, &path_expr),
-                _ => None,
-            }
-        }
-        ast::Expr::MethodCallExpr(inner) => {
-            // Actix pattern: `web::get().to(handler)`. Walk down
-            // method chains looking for a `.to(handler)` call with a
-            // single path argument.
-            resolve_handler_from_method_chain(sema, ctx, inner)
-        }
+        ast::Expr::CallExpr(call) => match call.expr()? {
+            ast::Expr::PathExpr(path_expr) => resolve_path_to_fn_qname(sema, ctx, &path_expr),
+            _ => None,
+        },
+        ast::Expr::MethodCallExpr(inner) => resolve_handler_from_method_chain(sema, ctx, inner),
         _ => None,
     }
 }
 
-/// Drill through a method chain searching for a `.to(handler_path)`
-/// call. Returns the resolved handler qname from the first such call
-/// encountered. Walks receivers and also args — actix chains like
-/// `web::get().to(handler)` place the handler as the `to()` argument.
 fn resolve_handler_from_method_chain<DB>(
     sema: &Semantics<'_, DB>,
     ctx: &EmitCtx<'_>,
@@ -234,7 +151,6 @@ fn resolve_handler_from_method_chain<DB>(
 where
     DB: HirDatabase + Sized,
 {
-    // If this is a `.to(...)` call, try to resolve its first arg.
     let method_name = method_call.name_ref()?.text().to_string();
     if method_name == "to" {
         let arg_list = method_call.arg_list()?;
@@ -244,15 +160,12 @@ where
             }
         }
     }
-    // Otherwise walk up the receiver chain.
     match method_call.receiver()? {
         ast::Expr::MethodCallExpr(inner) => resolve_handler_from_method_chain(sema, ctx, &inner),
         _ => None,
     }
 }
 
-/// Resolve a `PathExpr` to its `hir::Function` and derive the qname
-/// via the canonical formula shared with `call_site_emitter`.
 fn resolve_path_to_fn_qname<DB>(
     sema: &Semantics<'_, DB>,
     ctx: &EmitCtx<'_>,
@@ -271,10 +184,6 @@ where
     }
 }
 
-/// Emit one `:EntryPoint { kind: "http_route" }` plus its `EXPOSES`
-/// edge. Node id includes the literal path so multiple routes sharing
-/// a handler (e.g. `.get("/a", h)` + `.post("/a", h)`, or two distinct
-/// paths wired to the same fn) get distinct `:EntryPoint` rows.
 pub(super) fn emit_http_route(
     nodes: &mut Vec<Node>,
     edges: &mut Vec<Edge>,
@@ -283,8 +192,6 @@ pub(super) fn emit_http_route(
     path_literal: &str,
     file_path: &Path,
 ) {
-    // Discriminated identity in the id (RFC-054 54-C), literal path
-    // appended so multiple routes sharing a handler stay distinct rows.
     let handler_identity = handler_target.identity(handler_qname);
     let ep_id = format!(
         "{}:{path_literal}",
@@ -300,9 +207,6 @@ pub(super) fn emit_http_route(
         PropValue::Str(handler_qname.to_string()),
     );
     props.insert("file".into(), PropValue::Str(file_str));
-    // Parameter JSON reserved for follow-up enrichment (HTTP method,
-    // extractors, body shape). MVP emits the empty array to satisfy
-    // the schema descriptor's `params: json` attr.
     props.insert("params".into(), PropValue::Str("[]".to_string()));
 
     nodes.push(Node {

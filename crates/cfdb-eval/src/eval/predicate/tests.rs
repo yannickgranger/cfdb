@@ -11,8 +11,6 @@ mod last_segment_tests {
 
     use crate::eval::Evaluator;
 
-    /// An empty keyspace, read through the port — the UDFs under test
-    /// never touch the graph.
     fn empty_store() -> (PetgraphStore, Keyspace) {
         let ks = Keyspace::new("udf");
         let mut store = PetgraphStore::new();
@@ -26,14 +24,6 @@ mod last_segment_tests {
         store.graph_reader(ks).expect("known keyspace")
     }
 
-    /// The `last_segment(...)` Cypher UDF MUST delegate to
-    /// `cfdb_core::qname::last_segment` byte-for-byte. Routing the
-    /// dispatch through the canonical helper closes the read-side of
-    /// the invariant. The canonical helper splits at the LAST `::` and
-    /// returns the trailing segment (or the whole input when no `::` is
-    /// present). Pinning these here surfaces any future divergence
-    /// between the UDF and the canonical helper loudly rather than via
-    /// a downstream Cypher query mismatch.
     #[test]
     fn call_last_segment_agrees_with_canonical_owner_byte_for_byte() {
         let state = empty_store();
@@ -69,9 +59,6 @@ mod last_segment_tests {
         }
     }
 
-    /// The UDF preserves the `Option<PropValue>` surface — non-string
-    /// inputs return `None` (the `?`-on-type-mismatch path shared with
-    /// the other UDFs in this dispatcher).
     #[test]
     fn call_last_segment_returns_none_on_non_string_input() {
         let state = empty_store();

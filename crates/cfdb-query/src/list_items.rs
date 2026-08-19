@@ -1,9 +1,3 @@
-//! `list_items_matching` — a cfdb verb.
-//!
-//! Composes a `Query` AST value from a regex name pattern, an optional
-//! [`ItemKind`] filter list, and a `group_by_context` flag. Pure and
-//! deterministic — no I/O.
-
 use std::collections::BTreeMap;
 
 use cfdb_core::fact::PropValue;
@@ -13,21 +7,6 @@ use cfdb_core::query::{
 };
 use cfdb_core::schema::Label;
 
-/// Compose the `list_items_matching` query. Returns a [`Query`] AST value;
-/// the caller is responsible for executing it against a
-/// [`cfdb_core::store::StoreBackend`].
-///
-/// Semantics:
-/// - `name_pattern` — openCypher-compatible regex applied to `:Item.name`.
-/// - `kinds` — when `Some`, restricts to items whose `:Item.kind` is one of
-///   the provided variants (mapped to the extractor's lowercase emission via
-///   [`ItemKind::to_extractor_str`]). When `None`, no kind filter is applied.
-/// - `group_by_context` — when `true`, rows are grouped by
-///   `:Item.bounded_context` with a `COLLECT` of matching items per group;
-///   when `false`, rows are flat `item` bindings.
-///
-/// The function is pure and deterministic: identical arguments produce
-/// structurally equal Queries (by `PartialEq` / serde round-trip). No I/O.
 pub fn list_items_matching(
     name_pattern: &str,
     kinds: Option<&[ItemKind]>,
@@ -68,10 +47,6 @@ pub fn list_items_matching(
         None => Some(regex_predicate),
     };
 
-    // The seven columns: `{qname, name, kind, crate, file, line,
-    // bounded_context}`. Projected explicitly as `item.<prop> AS <prop>` so
-    // the row shape is a flat object keyed by the property name — not a bare
-    // `item` id string.
     let flat_item_projections = || -> Vec<Projection> {
         [
             "qname",
@@ -170,7 +145,6 @@ mod tests {
     #[test]
     fn list_items_matching_filters_by_name_pattern() {
         let q = list_items_matching("^Order.*", None, false);
-        // One `MATCH (item:Item)` pattern.
         assert_eq!(q.match_clauses.len(), 1);
         match &q.match_clauses[0] {
             Pattern::Node(NodePattern { var, label, .. }) => {
@@ -179,7 +153,6 @@ mod tests {
             }
             other => panic!("expected MATCH (item:Item), got {other:?}"),
         }
-        // When kinds is None, the where clause is a plain Regex (no And).
         match regex_of(&q) {
             Predicate::Regex { left, pattern } => {
                 assert_eq!(
@@ -193,9 +166,6 @@ mod tests {
             }
             other => panic!("expected Predicate::Regex, got {other:?}"),
         }
-        // Flat row shape when group_by_context=false: 7 explicit column
-        // projections per AC row shape {qname, name, kind, crate, file, line,
-        // bounded_context}.
         assert!(q.with_clause.is_none());
         assert_eq!(q.return_clause.projections.len(), 7);
         let aliases: Vec<&str> = q
@@ -260,7 +230,6 @@ mod tests {
             .as_ref()
             .expect("group_by_context=true must emit a WithClause");
         assert_eq!(with.projections.len(), 2);
-        // First projection is `item.bounded_context AS bounded_context`.
         match &with.projections[0] {
             Projection {
                 value: ProjectionValue::Expr(Expr::Property { var, prop }),
@@ -272,7 +241,6 @@ mod tests {
             }
             other => panic!("expected bounded_context projection, got {other:?}"),
         }
-        // Second projection is `COLLECT(item) AS items`.
         match &with.projections[1] {
             Projection {
                 value: ProjectionValue::Aggregation(Aggregation::Collect(Expr::Var(v))),
@@ -288,8 +256,6 @@ mod tests {
 
     #[test]
     fn list_items_matching_deterministic_across_runs() {
-        // Same inputs must produce byte-identical serialized Queries so that
-        // consumers can diff / cache on query identity.
         let a = list_items_matching(
             "^Order.*",
             Some(&[ItemKind::Struct, ItemKind::Enum, ItemKind::Trait]),
@@ -308,14 +274,6 @@ mod tests {
 
     #[test]
     fn list_items_matching_implblock_maps_to_impl_block_kind() {
-        // Post-#42 (SchemaVersion V0_2_2), `cfdb-extractor::visit_item_impl`
-        // emits `:Item { kind: "impl_block" }` nodes for every impl block
-        // walked. The composer therefore maps `ItemKind::ImplBlock` to the
-        // concrete `"impl_block"` kind string so
-        // `list-items-matching --kinds ImplBlock` returns real rows on
-        // V0_2_2+ keyspaces. Pre-V0_2_2 keyspaces carry zero impl_block
-        // items; the CLI handler surfaces a schema-version warning for
-        // that case (tested in cfdb-cli integration tests, not here).
         let q = list_items_matching(".*", Some(&[ItemKind::ImplBlock]), false);
         let pred = regex_of(&q);
         let (_, rhs) = match pred {

@@ -1,58 +1,23 @@
-//! Enumeration of the 7 enrichment passes.
-//!
-//! Each `PassDef` carries everything the runner needs to dispatch one
-//! pass: the canonical name (matches `cfdb enrich-<name>`), the path of
-//! the Cypher template, the optional ratio threshold (None for hard-equality
-//! passes), and the feature gate.
-
 use crate::thresholds;
 
-/// Feature flag the pass requires. Default = no flag.
-/// Non-default variants run only in the nightly job.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FeatureGate {
-    /// PR-time eligible — no feature flag required.
     Default,
-    /// `--features hir` — requires `cfdb-hir-extractor` + `:EntryPoint`
-    /// nodes. Nightly only.
     Hir,
-    /// `--features quality-metrics` — requires syn re-parse for
-    /// cyclomatic + unwrap_count. Nightly only.
     QualityMetrics,
-    /// `--features git-enrich` — requires libgit2 against the workspace
-    /// `.git`. Nightly only.
     GitEnrich,
 }
 
-/// Static descriptor for one of the 7 passes.
 #[derive(Debug, Clone, Copy)]
 pub struct PassDef {
-    /// Pass name as accepted by `cfdb enrich-<name>` and `cfdb violations`
-    /// rule lookup. Stable identifier; do not rename without bumping every
-    /// `.cfdb/queries/self-enrich-*.cypher` cross-reference.
     pub name: &'static str,
-    /// Path of the Cypher template file relative to the workspace root.
-    /// Templates contain `{{ threshold }}` placeholders for ratio passes.
-    /// Materialized to a tempfile by [`crate::runner`] before subprocess invocation.
     pub query_template_path: &'static str,
-    /// Ratio threshold (percentage 0–100) for ratio-based passes.
-    /// `None` for hard-equality passes (deprecation, rfc-docs, concepts).
     pub threshold: Option<u32>,
-    /// Cargo feature flag the parent `cfdb` binary must be built with.
     pub feature_required: FeatureGate,
-    /// Whether `cfdb enrich-<name>` itself accepts `--workspace`. The
-    /// harness binary always accepts `--workspace` (it may need it for
-    /// source-side ground truth, e.g. `enrich-deprecation`'s `#[deprecated]`
-    /// grep), but the CLI subcommand surface diverges per pass:
-    /// `EnrichDeprecation` and `EnrichReachability` operate on the
-    /// keyspace alone; the other five also re-read source and accept
-    /// `--workspace`. Forwarding `--workspace` to a subcommand that
-    /// doesn't declare it makes clap exit 2.
     pub cli_takes_workspace: bool,
 }
 
 impl PassDef {
-    /// Static catalogue of all 7 passes.
     pub const fn all() -> &'static [PassDef] {
         &[
             PassDef {
@@ -107,8 +72,6 @@ impl PassDef {
         ]
     }
 
-    /// Look up a pass by name. Returns `None` for unknown names —
-    /// `main.rs` exits 1 with a "valid passes:" enumeration in that case.
     pub fn by_name(name: &str) -> Option<&'static PassDef> {
         Self::all().iter().find(|p| p.name == name)
     }
@@ -118,7 +81,6 @@ impl PassDef {
 mod tests {
     use super::*;
 
-    /// All 7 RFC-039 passes are present.
     #[test]
     fn all_seven_passes_enumerated() {
         let names: Vec<&str> = PassDef::all().iter().map(|p| p.name).collect();
@@ -136,7 +98,6 @@ mod tests {
         );
     }
 
-    /// Default-feature passes (PR-time eligible) match RFC §3.3.
     #[test]
     fn default_feature_passes_are_pr_time_set() {
         let default: Vec<&str> = PassDef::all()
@@ -155,7 +116,6 @@ mod tests {
         );
     }
 
-    /// Feature-gated passes route to nightly per RFC §3.3.
     #[test]
     fn nightly_passes_have_correct_feature_gates() {
         assert_eq!(
@@ -172,7 +132,6 @@ mod tests {
         );
     }
 
-    /// Ratio passes carry thresholds; hard-equality passes do not.
     #[test]
     fn threshold_assignment_matches_rfc_table() {
         let with_threshold: Vec<&str> = PassDef::all()
@@ -180,7 +139,6 @@ mod tests {
             .filter(|p| p.threshold.is_some())
             .map(|p| p.name)
             .collect();
-        // The 4 ratio-based invariants per RFC §3.1.
         assert_eq!(
             with_threshold,
             vec![
@@ -192,7 +150,6 @@ mod tests {
         );
     }
 
-    /// `by_name` round-trip + None on unknown.
     #[test]
     fn by_name_lookup() {
         assert_eq!(
@@ -203,9 +160,6 @@ mod tests {
         assert!(PassDef::by_name("").is_none());
     }
 
-    /// Query template paths follow the `self-enrich-*` convention from
-    /// RFC §2 deliverable 1 (renamed from `dogfood-enrich-*` per
-    /// ddd-specialist Q4).
     #[test]
     fn query_template_paths_use_self_enrich_prefix() {
         for p in PassDef::all() {

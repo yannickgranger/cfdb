@@ -1,11 +1,3 @@
-//! `cfdb impact` end-to-end — RFC-047 slice 47-B (#490).
-//!
-//! Drives the real `cfdb` binary against a fact-injected fixture keyspace
-//! (option-2 "integration against real inputs"): items in known files joined by
-//! a `CALLS` chain. Proves the whole verb path — load → seed resolution →
-//! `impact_query` → emit — for both `--item` (direct seeds) and `--since`
-//! (seeds from `git diff --name-only`).
-
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::Command;
@@ -37,8 +29,6 @@ fn calls(caller: &str, callee: &str) -> Edge {
     }
 }
 
-/// `x::top ─CALLS▶ x::mid ─CALLS▶ x::leaf`, plus an unconnected `x::island`.
-/// Reverse-reachable callers of `x::leaf` are {`x::mid`, `x::top`}.
 fn write_fixture_keyspace(db_dir: &Path) {
     let ks = Keyspace::new("imp");
     let nodes = vec![
@@ -99,8 +89,6 @@ fn impact_max_depth_bounds_the_traversal() {
     let db = tempfile::tempdir().expect("db tempdir");
     write_fixture_keyspace(db.path());
 
-    // `--max-depth 1` from `x::leaf` keeps the depth-1 caller `x::mid` but drops
-    // the depth-2 caller `x::top` (RFC-047a §6 — maps to `CALLS*1..1`).
     let out = cfdb()
         .args([
             "impact",
@@ -137,9 +125,6 @@ fn impact_since_resolves_seeds_from_git_diff() {
     let db = tempfile::tempdir().expect("db tempdir");
     write_fixture_keyspace(db.path());
 
-    // A throwaway git repo whose last commit changes `crates/x/leaf.rs` — the
-    // file that defines the seed. `git diff --name-only HEAD~1..HEAD` reports
-    // it, so `--since HEAD~1` must seed `x::leaf` and return its callers.
     let ws = tempfile::tempdir().expect("ws tempdir");
     let git = |args: &[&str]| {
         let ok = Command::new("git")

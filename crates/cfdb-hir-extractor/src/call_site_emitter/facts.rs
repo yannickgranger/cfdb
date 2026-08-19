@@ -1,6 +1,3 @@
-//! Fact emission — build `:CallSite`, `CALLS`, `INVOKES_AT`, and
-//! `:Argument`/`HAS_ARG` facts from resolved calls.
-
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -16,10 +13,6 @@ use ra_ap_syntax::SyntaxNode;
 use super::naming::{enclosing_fn, function_qname};
 use crate::target_map::{krate_discriminator, EmitCtx};
 
-/// Emit positional `:Argument` facts for an explicit arg list, numbering
-/// from `base` (1 for method calls — the receiver occupies position 0 —
-/// and 0 for path calls). Shared by [`emit_method_call`] and
-/// [`emit_path_call`].
 pub(super) fn emit_positional_args(
     cs_id: &str,
     arg_list: &ast::ArgList,
@@ -42,29 +35,7 @@ pub(super) fn emit_positional_args(
     }
 }
 
-/// Emit the three facts for one resolved call. Shared by both the
-/// method-call walker arm and the path-call walker arm in [`walk_file`].
-///
-/// `call_syntax` is the SyntaxNode of the call expression
-/// (either an `ast::MethodCallExpr` or an `ast::CallExpr`) — used
-/// only to locate the enclosing fn for the caller_qname; the
-/// caller has already extracted the offset / line / resolved
-/// callee.
-///
-/// `kind` is the wire-form discriminator stored as `:CallSite.kind`:
-/// `"method"` for receiver-method calls, `"fn"` for path-call shapes
-/// (free fn, associated fn, trait-static dispatch). Downstream
-/// consumers that need to distinguish associated-function from
-/// free-fn can re-derive the distinction from `callee_path`.
-///
-/// `line` is the 1-indexed source-line where the call expression
-/// starts, computed by the caller from a per-file `LineIndex`.
-/// Stored as `:CallSite.line` to match the syn extractor's wire
-/// convention (#291 / F-005). A future synthetic or macro-expanded
-/// span that produces no meaningful line should pass `0` (the
-/// caller — `walk_file` — handles real source spans only, so today
-/// every call here passes a real `line >= 1`).
-#[allow(clippy::too_many_arguments)] // 10 args — :CallSite shape carries caller_qname, file, line, and kind as separate plumbed values per the syn extractor's emission signature; tying them into a struct would just shift the surface.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn emit_resolved_call<DB>(
     sema: &Semantics<'_, DB>,
     ctx: &EmitCtx<'_>,
@@ -80,7 +51,6 @@ pub(super) fn emit_resolved_call<DB>(
 where
     DB: HirDatabase + Sized,
 {
-    // Find the caller — the enclosing `fn` or method definition.
     let caller_fn = enclosing_fn(sema, call_syntax)?;
     let caller_qname = function_qname(sema, caller_fn);
     let callee_qname = function_qname(sema, callee);
@@ -90,16 +60,11 @@ where
         .unwrap_or(&callee_qname)
         .to_string();
 
-    // Derive each side's target discriminator from its OWN crate — a
-    // bin-target caller can resolve a lib-target callee and the two ids
-    // discriminate independently.
     let db = sema.db;
     let caller_target = krate_discriminator(db, ctx.vfs, ctx.targets, caller_fn.krate(db));
     let callee_target = krate_discriminator(db, ctx.vfs, ctx.targets, callee.krate(db));
     let caller_identity = caller_target.identity(&caller_qname);
 
-    // One owned key per call is unavoidable (the counter owns it);
-    // the identity itself stays a Cow so the dominant lib path keeps the borrow.
     let key = (caller_identity.to_string(), callee_qname.clone());
     let idx = {
         let c = counts.entry(key).or_insert(0);
@@ -130,9 +95,6 @@ where
         props,
     });
 
-    // CALLS (resolved): caller Item → callee Item, each endpoint under
-    // its own target's discriminated id so the edge joins the syn side's
-    // :Items instead of dangling.
     let mut calls_props = BTreeMap::new();
     calls_props.insert("resolved".into(), PropValue::Bool(true));
     edges.push(Edge {
@@ -142,7 +104,6 @@ where
         props: calls_props,
     });
 
-    // INVOKES_AT: caller Item → :CallSite.
     edges.push(Edge {
         src: item_node_id_for_target(&caller_qname, &caller_target),
         dst: cs_id.clone(),
@@ -153,12 +114,6 @@ where
     Some(cs_id)
 }
 
-/// Coarse syntactic classification of a `ra_ap_syntax::ast::Expr` into the
-/// closed-set `kind` string used on `:Argument` nodes.
-///
-/// HIR-native classifier — mirrors `cfdb_extractor_shared::classify_arg_kind`
-/// but operates on `ra_ap_syntax::ast::Expr` rather than `syn::Expr` to avoid
-/// adding `syn` as a runtime dep to `cfdb-hir-extractor`.
 fn classify_hir_arg_kind(expr: &ast::Expr) -> &'static str {
     match expr {
         ast::Expr::PathExpr(_) => "path",
@@ -170,11 +125,6 @@ fn classify_hir_arg_kind(expr: &ast::Expr) -> &'static str {
     }
 }
 
-/// Emit one `:Argument` node and one `HAS_ARG` edge.
-///
-/// `cs_id` — the owning `:CallSite` id.
-/// `expr` — the `ra_ap_syntax` AST expression for the argument.
-/// `position` — 0-indexed position; 0 = receiver for method calls.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn emit_argument_facts(
     cs_id: &str,
@@ -191,7 +141,6 @@ pub(super) fn emit_argument_facts(
 
     let offset = expr.syntax().text_range().start();
     let lc = line_index.line_col(offset);
-    // LineIndex::line_col returns 0-indexed line/col; schema stores 1-indexed.
     let line = lc.line as i64 + 1;
     let col = lc.col as i64 + 1;
 

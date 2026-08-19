@@ -1,16 +1,3 @@
-//! End-to-end integration test — RFC §13 felt win.
-//!
-//! Runs the `cfdb` binary against the cfdb sub-workspace itself:
-//! 1. `cfdb extract --workspace <cfdb> --db <tempdir>`
-//! 2. `cfdb list-keyspaces --db <tempdir>` → includes `cfdb-v01`
-//! 3. `cfdb query ... 'MATCH (i:Item) WHERE i.name = "StoreBackend" ...'`
-//!    → finds the `StoreBackend` trait defined in `cfdb-core`
-//! 4. `cfdb query ... 'MATCH (i:Item) WHERE i.crate = "cfdb-query" ...'`
-//!    → finds at least 1 item (QueryBuilder or similar)
-//!
-//! This is the v0.1 acceptance gate: cfdb can index a real Rust workspace
-//! and answer a real structural question via the CLI wire form.
-
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -18,8 +5,6 @@ use assert_cmd::prelude::*;
 use tempfile::tempdir;
 
 fn cfdb_workspace_root() -> PathBuf {
-    // CARGO_MANIFEST_DIR for this crate is <repo>/crates/cfdb-cli/.
-    // The cfdb workspace root is two levels up.
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("cfdb-cli manifest dir has a parent crates/ directory")
@@ -34,7 +19,6 @@ fn end_to_end_extract_then_query_finds_store_backend_trait() {
     let db_path = db.path();
     let workspace = cfdb_workspace_root();
 
-    // 1. Extract cfdb itself.
     Command::cargo_bin("cfdb")
         .expect("cfdb binary is built for integration tests")
         .args([
@@ -51,7 +35,6 @@ fn end_to_end_extract_then_query_finds_store_backend_trait() {
         .assert()
         .success();
 
-    // 2. List keyspaces includes cfdb-v01.
     let list = Command::cargo_bin("cfdb")
         .expect("cfdb binary is built for integration tests")
         .args([
@@ -68,7 +51,6 @@ fn end_to_end_extract_then_query_finds_store_backend_trait() {
         "keyspace missing in list: {stdout}"
     );
 
-    // 3. Query for the StoreBackend trait by name.
     let query_out = Command::cargo_bin("cfdb")
         .expect("cfdb binary is built for integration tests")
         .args([
@@ -96,7 +78,6 @@ fn end_to_end_extract_then_query_finds_store_backend_trait() {
         "expected kind=trait in query output, got: {json}"
     );
 
-    // 4. Count items in cfdb-query crate — should find at least QueryBuilder.
     let count_out = Command::cargo_bin("cfdb")
         .expect("cfdb binary is built for integration tests")
         .args([
@@ -111,15 +92,11 @@ fn end_to_end_extract_then_query_finds_store_backend_trait() {
         .expect("spawn `cfdb query`");
     assert!(count_out.status.success());
     let json = String::from_utf8_lossy(&count_out.stdout);
-    // Parse the JSON to extract the count.
     let parsed: serde_json::Value = serde_json::from_str(&json).expect("valid JSON");
     let n = parsed["rows"][0]["n"].as_i64().expect("n is integer");
     assert!(n >= 1, "expected at least 1 cfdb-query item, got {n}");
 }
 
-/// `cfdb dump` end-to-end (#3630): extract a real workspace, dump it, assert
-/// every line is pure JSONL with alphabetical-key envelopes and the §12.1
-/// sort key. Guards against the OLD tab-prefixed `N\t...\t{json}` shape.
 #[test]
 fn dump_output_is_pure_jsonl_sorted_by_label_qname() {
     let db = tempdir().expect("tempdir");
@@ -159,12 +136,10 @@ fn dump_output_is_pure_jsonl_sorted_by_label_qname() {
         String::from_utf8_lossy(&dump_out.stderr)
     );
 
-    // `cfdb dump` uses println! which appends a trailing LF — strip exactly one.
     let stdout = String::from_utf8(dump_out.stdout).expect("dump output is UTF-8");
     let body = stdout.strip_suffix('\n').unwrap_or(&stdout);
     assert!(!body.is_empty(), "dump produced no output");
 
-    // Every line MUST be a pure JSON object — no tab-prefix, no positional cols.
     let mut node_count = 0usize;
     let mut edge_count = 0usize;
     let mut last_node_sort: Option<(String, String)> = None;
@@ -239,9 +214,6 @@ fn dump_output_is_pure_jsonl_sorted_by_label_qname() {
     assert!(edge_count > 0, "expected at least one edge line in dump");
 }
 
-/// Two consecutive `cfdb extract` + `cfdb dump` runs on the SAME workspace
-/// MUST produce byte-identical sha256. This is the Gate 1 / §12.1 G1
-/// observable behavior — what the CI harness `determinism-check.sh` checks.
 #[test]
 fn two_extractions_produce_byte_identical_dump() {
     use std::process::Stdio;

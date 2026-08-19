@@ -1,5 +1,3 @@
-//! Expression layer — literals, params, lists, function calls, properties, vars.
-
 use cfdb_core::{Expr, PropValue};
 use chumsky::prelude::*;
 
@@ -22,7 +20,6 @@ pub(super) fn expr_parser<'a>(
             .delimited_by(just('[').padded(), just(']').padded())
             .map(Expr::List);
 
-        // function call: ident '(' arg (',' arg)* ')'
         let call = ident
             .clone()
             .then(
@@ -34,14 +31,12 @@ pub(super) fn expr_parser<'a>(
             )
             .map(|(name, args)| Expr::Call { name, args });
 
-        // property access: ident '.' ident
         let property = ident
             .clone()
             .then_ignore(just('.').padded())
             .then(ident.clone())
             .map(|(var, prop)| Expr::Property { var, prop });
 
-        // bare variable: ident (lowest priority)
         let var = ident.clone().map(Expr::Var);
 
         choice((literal, param, list_lit, call, property, var))

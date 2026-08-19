@@ -1,24 +1,3 @@
-//! Self-dogfood test for issue #396 — `enrich_reachability` post-pass that
-//! flips `:Item.reachable_from_entry = true` for fns referenced from a
-//! `:CallSite{kind="serde_default"}`.
-//!
-//! Extracts cfdb's own source tree (which contains exactly one real
-//! `#[serde(default = "default_edge_provenance")]` attribute at
-//! `crates/cfdb-core/src/schema/descriptors.rs:119`) and asserts:
-//!
-//! 1. The syn extractor emits a `:CallSite{kind="serde_default",
-//!    callee_path="default_edge_provenance"}` for that attr.
-//! 2. After `enrich_reachability` runs with at least one synthetic
-//!    `:EntryPoint` injected (so the BFS does not bail), the fn
-//!    `cfdb_core::schema::descriptors::default_edge_provenance` carries
-//!    `reachable_from_entry = true` — even though no CALLS chain in the
-//!    syn-only keyspace reaches it (the real caller is serde's derived
-//!    `Deserialize` impl, invisible to cfdb per #398).
-//!
-//! The synthetic `:EntryPoint` is wired to a completely unrelated `:Item`
-//! to guarantee the BFS itself never reaches `default_edge_provenance`.
-//! That isolates the post-pass as the sole reason for the `true` flip.
-
 use std::path::PathBuf;
 
 use cfdb_core::enrich::EnrichBackend;
@@ -35,10 +14,6 @@ fn cfdb_workspace_root() -> PathBuf {
         .to_path_buf()
 }
 
-/// Synthetic `:EntryPoint` whose `EXPOSES` edge targets a guaranteed-unrelated
-/// `:Item`. Injecting one entry point is enough to unblock the BFS's degraded
-/// path (`no :EntryPoint → ran: false`); we then read the actual #396 effect
-/// on `default_edge_provenance` from the post-pass.
 fn synthetic_unrelated_entry_point_node() -> Node {
     let mut props = Props::new();
     props.insert("kind".into(), PropValue::Str("cli_command".into()));
@@ -102,11 +77,6 @@ fn issue_396_self_dogfood_default_edge_provenance_marked_reachable() {
     let (mut nodes, mut edges) =
         cfdb_extractor::extract_workspace(&workspace).expect("extract cfdb workspace");
 
-    // Pre-condition 1: the syn extractor emitted exactly the
-    // serde_default callsite we expect against
-    // cfdb-core::schema::descriptors::EdgeLabelDescriptor's `provenance`
-    // field. If this assertion fails, the syn-side emission has
-    // regressed (the post-pass would have nothing to resolve against).
     let cfdb_serde_default_callsites: Vec<_> = nodes
         .iter()
         .filter(|n| n.label.as_str() == Label::CALL_SITE)
@@ -126,9 +96,6 @@ fn issue_396_self_dogfood_default_edge_provenance_marked_reachable() {
          post-pass depends on has regressed"
     );
 
-    // Inject the synthetic :EntryPoint so enrich_reachability does not
-    // bail with `ran: false`. The seed Item is guaranteed-unrelated;
-    // the BFS will not reach default_edge_provenance via any CALLS chain.
     nodes.push(synthetic_unrelated_entry_point_node());
     nodes.push(synthetic_unrelated_item_node());
     edges.push(exposes_edge_from_seed());

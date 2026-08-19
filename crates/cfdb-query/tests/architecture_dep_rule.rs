@@ -1,39 +1,16 @@
-//! CLEAN-3 architecture test for cfdb-query (#21).
-//!
-//! cfdb-query is the parser + builder layer. RFC-029 §8 mandates that the
-//! dependency arrow points inward: cfdb-query depends on cfdb-core to
-//! produce a `Query` AST and MUST NOT depend on any sibling adapter or
-//! entry-point crate. Listing a sibling here would either create a cycle
-//! or couple unrelated adapters together.
-//!
-//! This test parses cfdb-query's own `Cargo.toml` at compile time and
-//! asserts that no forbidden crate appears in `[dependencies]`. Adding to
-//! the allowlist is a deliberate architectural choice.
-
 use std::collections::BTreeSet;
 
 const CARGO_TOML: &str = include_str!("../Cargo.toml");
 
-/// The complete allowed dependency set for cfdb-query.
-/// Inert workspace dep-direction declaration — single source of truth for the
-/// allow/forbid graph (RFC-044 §3.3 / #422). Consumed via `include_str!`; the
-/// per-crate reader below is intentionally self-contained (no shared Rust
-/// crate, no new dev-dep — clean-arch R1 / no-monolith), the same accepted
-/// duplication as `parse_dependency_names()`.
 const DEP_RULES: &str = include_str!("../../../.cfdb/workspace-dep-rules.toml");
 
-/// This crate's section name in the inert rules file.
 const CRATE_SECTION: &str = "cfdb-query";
 
-/// Read the `allowed` and `forbidden` arrays for `crate_name` from `DEP_RULES`.
-/// Line-oriented reader over hand-authored TOML (one quoted entry per array
-/// line); returns `(allowed, forbidden)`.
 fn dep_rules_for(crate_name: &str) -> (BTreeSet<String>, BTreeSet<String>) {
     let header = format!("[{crate_name}]");
     let mut allowed = BTreeSet::new();
     let mut forbidden = BTreeSet::new();
     let mut in_section = false;
-    // 0 = neither array, 1 = inside `allowed`, 2 = inside `forbidden`.
     let mut bucket = 0u8;
 
     for raw in DEP_RULES.lines() {
@@ -114,8 +91,6 @@ fn parse_dependency_names() -> BTreeSet<String> {
 
 #[test]
 fn workspace_dep_rules_section_loaded() {
-    // Non-vacuity guard: a broken include_str! path or drifted section name
-    // would yield empty lists and make every assertion below pass vacuously.
     let (allowed, forbidden) = dep_rules_for(CRATE_SECTION);
     assert!(
         !allowed.is_empty() && !forbidden.is_empty(),
@@ -170,9 +145,6 @@ fn cfdb_query_depends_on_cfdb_core() {
     );
 }
 
-/// The taxonomy moved out of this crate into cfdb-classify; the parser must
-/// never grow an edge back to it in any Cargo section — the direction is
-/// parser → AST → judgments, never reverse.
 #[test]
 fn cfdb_query_never_links_cfdb_classify_in_any_section() {
     let offending: Vec<&str> = CARGO_TOML

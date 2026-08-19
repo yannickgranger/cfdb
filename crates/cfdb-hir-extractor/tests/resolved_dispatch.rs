@@ -1,34 +1,3 @@
-//! Integration test — synthetic workspace with a concrete method
-//! dispatch that HIR resolves via type inference. Validates the full
-//! chain:
-//!
-//!   build_hir_database(workspace_root)
-//!     → extract_call_sites(db, vfs)
-//!       → :CallSite (resolver="hir", callee_resolved=true)
-//!       → CALLS(item:caller, item:callee)
-//!       → INVOKES_AT(item:caller, :CallSite)
-//!
-//! ## Fixture shape
-//!
-//! A single-crate workspace with one struct `Greeter` whose inherent
-//! method `greet` is invoked from a free function `dispatch`. This is
-//! the simplest case HIR resolves that syn cannot: syn sees
-//! `g.greet()` as textual `greet` with no type info; HIR infers the
-//! receiver type from `let g = Greeter` and resolves the method to
-//! `Greeter::greet`.
-//!
-//! ## Asserts
-//!
-//! 1. At least one `:CallSite` emitted with `resolver="hir"` +
-//!    `callee_resolved=true`
-//! 2. A matching `CALLS(item:<caller>, item:<callee>)` edge with
-//!    `resolved=true` — where `<caller>` is the `dispatch` fn and
-//!    `<callee>` is `Greeter::greet`
-//! 3. A matching `INVOKES_AT(item:<caller>, :CallSite)` edge
-//! 4. The `:CallSite` node's `callee_path` prop resolves to the
-//!    method-qname form (`<crate>::Greeter::greet`), NOT the textual
-//!    path `greet`
-
 use std::fs;
 use std::path::Path;
 
@@ -51,8 +20,6 @@ fn hir_resolves_inherent_method_call() {
     let tmp = tempdir().expect("tempdir");
     let root = tmp.path();
 
-    // Single-crate cargo workspace. `resolver = "2"` is required to
-    // match cfdb's edition-2021 default resolution.
     write(
         root,
         "Cargo.toml",
@@ -94,7 +61,6 @@ pub fn dispatch() -> &'static str {
     let (nodes, edges) = extract_call_sites(&db, &vfs, root, &targets)
         .expect("extract_call_sites succeeds on hirfixture");
 
-    // (1) At least one :CallSite with HIR discriminator props.
     let hir_call_sites: Vec<_> = nodes
         .iter()
         .filter(|n| n.label.as_str() == Label::CALL_SITE)
@@ -112,9 +78,6 @@ pub fn dispatch() -> &'static str {
             .count(),
     );
 
-    // (4) The :CallSite's callee_path resolves to Greeter::greet
-    // (not the textual `greet`). At least one of the HIR :CallSite
-    // nodes must point at Greeter::greet.
     let greet_call_site = hir_call_sites.iter().find(|n| {
         n.props
             .get("callee_path")
@@ -132,8 +95,6 @@ pub fn dispatch() -> &'static str {
     );
     let cs = greet_call_site.unwrap();
 
-    // (2) A CALLS edge from dispatch → Greeter::greet with
-    // resolved=true prop.
     let expected_caller_id = item_node_id("hirfixture::dispatch");
     let expected_callee_id = item_node_id("hirfixture::Greeter::greet");
     let calls_edge = edges
@@ -157,7 +118,6 @@ pub fn dispatch() -> &'static str {
         "CALLS edge must carry resolved=true prop",
     );
 
-    // (3) An INVOKES_AT edge from the caller item → the :CallSite.
     let invokes_at = edges
         .iter()
         .filter(|e| e.label.as_str() == EdgeLabel::INVOKES_AT)
@@ -175,20 +135,6 @@ pub fn dispatch() -> &'static str {
     );
 }
 
-/// Q7 fix from #94 ddd-specialist review — prove HIR offers value
-/// BEYOND what syn can do.
-///
-/// Fixture: trait `Greet` with TWO impls (`En`, `Fr`). A generic
-/// function `dispatch<G: Greet>(g: &G) -> &str` calls `g.greet()`.
-/// Syn sees only the textual path `greet` — it cannot determine
-/// which impl's `greet` is called because the receiver type is a
-/// generic parameter. HIR monomorphises the call site and resolves
-/// the concrete callee when the caller specialises `G`.
-///
-/// This test exercises trait-dispatch resolution — the case RFC-029
-/// §A1.2 line 92 specifically named as the HIR value proposition.
-/// The inherent-method test above is simpler but does not prove the
-/// HIR vs syn delta; this one does.
 #[test]
 fn hir_resolves_trait_method_via_generic_receiver() {
     let tmp = tempdir().expect("tempdir");
@@ -213,9 +159,6 @@ edition = "2021"
 [dependencies]
 "#,
     );
-    // `dispatch::<En>(&En)` forces monomorphisation to En's greet.
-    // Syn sees: `g.greet()` — a textual `greet` with no type context.
-    // HIR resolves: En::greet (after monomorphising the callee).
     write(
         root,
         "traitfixture/src/lib.rs",
@@ -249,12 +192,6 @@ pub fn use_en() -> &'static str {
     let (nodes, edges) =
         extract_call_sites(&db, &vfs, root, &targets).expect("extract_call_sites on traitfixture");
 
-    // HIR should resolve g.greet() in `dispatch<G>` to the trait
-    // method `Greet::greet`. The callee_path ends in `Greet::greet`.
-    // (Generic monomorphisation may surface either the trait method
-    // or a specific impl depending on solver state; both are
-    // acceptable — the point is that HIR resolves SOMETHING where
-    // syn would see nothing.)
     let hir_call_sites: Vec<_> = nodes
         .iter()
         .filter(|n| n.label.as_str() == Label::CALL_SITE)
@@ -278,9 +215,6 @@ pub fn use_en() -> &'static str {
             .collect::<Vec<_>>(),
     );
 
-    // The CALLS edge must point to a real Greet impl or the trait
-    // method — NOT to a textual `greet` with no prefix. Syn could
-    // never produce this target.
     let calls: Vec<_> = edges
         .iter()
         .filter(|e| e.label.as_str() == EdgeLabel::CALLS)
@@ -298,20 +232,6 @@ pub fn use_en() -> &'static str {
     );
 }
 
-/// #387 — path-call resolution beyond method calls.
-///
-/// Three call shapes that `ast::CallExpr` covers and the MVP
-/// (#85c, method-only) ignored:
-///
-/// 1. **Free fn call** — `my_helper()`
-/// 2. **Associated-fn (inherent) call** — `MyType::new()`
-/// 3. **Trait-static dispatch** — `MyTrait::method(arg)`
-///
-/// All three resolve via `Semantics::resolve_path`. Each must
-/// produce a `:CallSite` (`kind = "fn"`, `resolver = "hir"`,
-/// `callee_resolved = true`) plus matching `CALLS` and `INVOKES_AT`
-/// edges. Asserts confirm all three callees land in the edge set,
-/// closing the deferred follow-up scope of #85c.
 #[test]
 fn hir_resolves_path_call_shapes() {
     let tmp = tempdir().expect("tempdir");
@@ -336,13 +256,6 @@ edition = "2021"
 [dependencies]
 "#,
     );
-    // Three call sites in `caller`:
-    //   - `helper()`                  ← free fn
-    //   - `MyType::new()`             ← associated fn
-    //   - `MyTrait::trait_static(42)` ← trait static dispatch on
-    //                                    the trait path (resolves to
-    //                                    the impl's fn via the type
-    //                                    inferred from the arg).
     write(
         root,
         "pathcallfixture/src/lib.rs",
@@ -382,7 +295,6 @@ pub fn caller() -> i32 {
         .filter(|n| n.props.get("resolver").and_then(PropValue::as_str) == Some("hir"))
         .collect();
 
-    // Shape 1: free fn — caller → helper
     let caller_id = item_node_id("pathcallfixture::caller");
     let helper_id = item_node_id("pathcallfixture::helper");
     let calls_helper = edges
@@ -402,7 +314,6 @@ pub fn caller() -> i32 {
             .collect::<Vec<_>>(),
     );
 
-    // Shape 2: associated fn — caller → MyType::new
     let new_id = item_node_id("pathcallfixture::MyType::new");
     let calls_new = edges
         .iter()
@@ -421,10 +332,6 @@ pub fn caller() -> i32 {
             .collect::<Vec<_>>(),
     );
 
-    // Shape 3: trait-static dispatch — caller → MyType::trait_static
-    // (via the qualified path `<MyType as MyTrait>::trait_static`).
-    // The callee_qname after monomorphisation is the impl's fn under
-    // the impl target's qname, NOT the trait method's qname.
     let trait_static_id = item_node_id("pathcallfixture::MyType::trait_static");
     let calls_trait_static = edges
         .iter()
@@ -443,9 +350,6 @@ pub fn caller() -> i32 {
             .collect::<Vec<_>>(),
     );
 
-    // Each path call must produce a :CallSite with kind="fn"
-    // (distinguishing from method-call's kind="method"). At least
-    // one of the three.
     let fn_kind_call_sites = hir_call_sites
         .iter()
         .filter(|n| n.props.get("kind").and_then(PropValue::as_str) == Some("fn"))

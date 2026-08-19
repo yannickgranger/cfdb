@@ -1,35 +1,16 @@
-//! CLEAN-3 architecture test for cfdb-extractor (#21).
-//!
-//! cfdb-extractor walks a Rust workspace via `syn` + `cargo_metadata` and
-//! emits `Node`/`Edge` facts. RFC-029 §8 mandates it depends ONLY on
-//! cfdb-core plus source-analysis tooling. Coupling to the store backend
-//! (cfdb-petgraph), the parser (cfdb-query), or the entry points
-//! (cfdb-cli, cfdb-recall) is forbidden — the extractor produces facts;
-//! how they are stored or queried is a downstream concern.
-
 use std::collections::BTreeSet;
 
 const CARGO_TOML: &str = include_str!("../Cargo.toml");
 
-/// Inert workspace dep-direction declaration — single source of truth for the
-/// allow/forbid graph (RFC-044 §3.3 / #422). Consumed via `include_str!`; the
-/// per-crate reader below is intentionally self-contained (no shared Rust
-/// crate, no new dev-dep — clean-arch R1 / no-monolith), the same accepted
-/// duplication as `parse_dependency_names()`.
 const DEP_RULES: &str = include_str!("../../../.cfdb/workspace-dep-rules.toml");
 
-/// This crate's section name in the inert rules file.
 const CRATE_SECTION: &str = "cfdb-extractor";
 
-/// Read the `allowed` and `forbidden` arrays for `crate_name` from `DEP_RULES`.
-/// Line-oriented reader over hand-authored TOML (one quoted entry per array
-/// line); returns `(allowed, forbidden)`.
 fn dep_rules_for(crate_name: &str) -> (BTreeSet<String>, BTreeSet<String>) {
     let header = format!("[{crate_name}]");
     let mut allowed = BTreeSet::new();
     let mut forbidden = BTreeSet::new();
     let mut in_section = false;
-    // 0 = neither array, 1 = inside `allowed`, 2 = inside `forbidden`.
     let mut bucket = 0u8;
 
     for raw in DEP_RULES.lines() {
@@ -110,8 +91,6 @@ fn parse_dependency_names() -> BTreeSet<String> {
 
 #[test]
 fn workspace_dep_rules_section_loaded() {
-    // Non-vacuity guard: a broken include_str! path or drifted section name
-    // would yield empty lists and make every assertion below pass vacuously.
     let (allowed, forbidden) = dep_rules_for(CRATE_SECTION);
     assert!(
         !allowed.is_empty() && !forbidden.is_empty(),

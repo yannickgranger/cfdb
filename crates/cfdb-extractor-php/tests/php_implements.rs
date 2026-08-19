@@ -1,16 +1,3 @@
-//! `PhpProducer` `IMPLEMENTS` edges (RFC-045 slice 45-A / issue #462).
-//!
-//! Exercises the two-pass interface-implementation resolution described in
-//! RFC-045 §3.2: a PHP `class C implements I1, I2` emits one `IMPLEMENTS`
-//! edge per interface, **but only when the target interface resolves to an
-//! in-workspace `:Item`** (closed-world — external interfaces produce no
-//! edge and no synthetic node). `extends` (`base_clause`) is intentionally
-//! NOT an `IMPLEMENTS` edge (inheritance is deferred — §3.3 D3-a).
-//!
-//! Every PHP `IMPLEMENTS` edge carries `resolver = "tree-sitter-php"`.
-//! The implementing class is `:Item{php_construct:"class_declaration"}`,
-//! the target interface `:Item{php_construct:"interface_declaration"}`.
-
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -20,14 +7,6 @@ use cfdb_extractor_php::PhpProducer;
 use cfdb_lang::LanguageProducer;
 use tempfile::TempDir;
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/// Build an ephemeral Composer project from `(relative_path, php_source)`
-/// pairs, run `PhpProducer::produce`, and return the `(nodes, edges)`. A
-/// minimal `composer.json` is written at the root so `detect()` would pass
-/// and the walker treats the dir as a PHP workspace.
 fn produce_php(files: &[(&str, &str)]) -> (Vec<Node>, Vec<Edge>) {
     let dir = TempDir::new().expect("tempdir");
     fs::write(
@@ -47,7 +26,6 @@ fn produce_php(files: &[(&str, &str)]) -> (Vec<Node>, Vec<Edge>) {
         .expect("PhpProducer.produce")
 }
 
-/// All `IMPLEMENTS` edges in declaration-independent (sorted) order.
 fn implements_edges(edges: &[Edge]) -> Vec<&Edge> {
     edges
         .iter()
@@ -55,8 +33,6 @@ fn implements_edges(edges: &[Edge]) -> Vec<&Edge> {
         .collect()
 }
 
-/// `(src, dst)` id pairs of every `IMPLEMENTS` edge, sorted for stable
-/// comparison.
 fn implements_pairs(edges: &[Edge]) -> Vec<(String, String)> {
     let mut pairs: Vec<(String, String)> = implements_edges(edges)
         .iter()
@@ -70,7 +46,6 @@ fn item_id(qname: &str) -> String {
     format!("item:{qname}")
 }
 
-/// Look up a node by id.
 fn node<'a>(nodes: &'a [Node], id: &str) -> Option<&'a Node> {
     nodes.iter().find(|n| n.id == id)
 }
@@ -79,12 +54,6 @@ fn prop<'a>(n: &'a Node, key: &str) -> Option<&'a str> {
     n.props.get(key).and_then(PropValue::as_str)
 }
 
-// ---------------------------------------------------------------------------
-// Unit cases (issue #462 Tests block)
-// ---------------------------------------------------------------------------
-
-/// `class C implements I1, I2, I3` (all in-workspace) → exactly 3
-/// `IMPLEMENTS` edges, one per interface, all sourced at `C`.
 #[test]
 fn class_implementing_three_in_workspace_interfaces_emits_three_edges() {
     let (nodes, edges) = produce_php(&[(
@@ -109,7 +78,6 @@ class C implements I1, I2, I3 {}
         "expected exactly 3 IMPLEMENTS edges App\\C → {{I1,I2,I3}}; got {pairs:?}",
     );
 
-    // resolver discriminator on every edge.
     for e in implements_edges(&edges) {
         assert_eq!(
             e.props.get("resolver").and_then(PropValue::as_str),
@@ -118,8 +86,6 @@ class C implements I1, I2, I3 {}
         );
     }
 
-    // Source/target php_construct disambiguation (RFC-045 §3.2 — both are
-    // kind:"trait", php_construct distinguishes class source from iface target).
     let c = node(&nodes, &item_id(r"App\C")).expect("App\\C :Item present");
     assert_eq!(prop(c, "kind"), Some("trait"));
     assert_eq!(prop(c, "php_construct"), Some("class_declaration"));
@@ -127,8 +93,6 @@ class C implements I1, I2, I3 {}
     assert_eq!(prop(i1, "php_construct"), Some("interface_declaration"));
 }
 
-/// `class C extends B implements I` → exactly 1 `IMPLEMENTS` (to `I`); the
-/// `extends B` (`base_clause`) produces NO edge (inheritance deferred).
 #[test]
 fn extends_plus_implements_emits_only_the_implements_edge() {
     let (_nodes, edges) = produce_php(&[(
@@ -149,8 +113,6 @@ class C extends B implements I {}
     );
 }
 
-/// Fully-qualified `implements \Ns\I` where `Ns\I` is in-workspace →
-/// target qname is the qualified `Ns\I` (leading `\` stripped).
 #[test]
 fn qualified_implements_resolves_to_qualified_target() {
     let (_nodes, edges) = produce_php(&[
@@ -177,8 +139,6 @@ class C implements \Ns\I {}
     );
 }
 
-/// External interface (not in-workspace) → ZERO `IMPLEMENTS` edges AND zero
-/// synthetic `:Item` for the absent target (closed-world + stubs-not-arrows).
 #[test]
 fn external_interface_emits_no_edge_and_no_synthetic_item() {
     let (nodes, edges) = produce_php(&[(
@@ -194,7 +154,6 @@ class C implements \Vendor\Serializable {}
         "an external interface target must produce no IMPLEMENTS edge; got {:?}",
         implements_pairs(&edges),
     );
-    // No placeholder node was invented for the unresolved target.
     assert!(
         node(&nodes, &item_id(r"Vendor\Serializable")).is_none(),
         "no synthetic :Item may be created for an external interface target",
@@ -207,10 +166,6 @@ class C implements \Vendor\Serializable {}
     );
 }
 
-/// D3-a negative assertion: `interface A extends B {} class C implements A {}`
-/// → "implementors of B" is empty (transitive implements is NOT recorded).
-/// `interface A extends B` is a `base_clause`, so it emits no edge; only the
-/// syntactically-declared `C implements A` is recorded.
 #[test]
 fn transitive_interface_extends_is_not_bridged() {
     let (_nodes, edges) = produce_php(&[(
@@ -223,13 +178,11 @@ class C implements A {}
 "#,
     )]);
 
-    // Exactly the syntactic edge C → A; nothing to B.
     assert_eq!(
         implements_pairs(&edges),
         vec![(item_id(r"App\C"), item_id(r"App\A"))],
         "only the syntactic `C implements A` edge is recorded",
     );
-    // "implementors of B" — no IMPLEMENTS edge targets B.
     let implementors_of_b: Vec<_> = implements_edges(&edges)
         .into_iter()
         .filter(|e| e.dst == item_id(r"App\B"))
@@ -241,10 +194,6 @@ class C implements A {}
     );
 }
 
-/// Unqualified `implements I` where `I` is NOT declared in the current
-/// namespace → unresolved (no edge). The MVP does not track `use` imports,
-/// so an interface declared in a different namespace and pulled in via
-/// `use` does not resolve (documented closed-world limitation).
 #[test]
 fn unqualified_interface_in_other_namespace_does_not_resolve() {
     let (_nodes, edges) = produce_php(&[
@@ -273,9 +222,6 @@ class C implements I {}
     );
 }
 
-/// Re-extracting the same tree is byte-stable (determinism invariant —
-/// RFC-045 §4 I3). The full sorted `(Vec<Node>, Vec<Edge>)` must be
-/// identical across two runs.
 #[test]
 fn re_extract_is_deterministic() {
     let files = &[(
@@ -297,8 +243,6 @@ class B implements I1, I2 {}
     );
 }
 
-/// Adding one more in-workspace class implementing an in-workspace interface
-/// adds exactly one `IMPLEMENTS` edge (RFC-045 §4 I3 monotonic increment).
 #[test]
 fn adding_one_implementing_class_adds_one_edge() {
     let before = produce_php(&[(
@@ -325,17 +269,10 @@ class Z implements I {}
     );
 }
 
-// ---------------------------------------------------------------------------
-// Self-dogfood: the on-disk richer multi-interface fixture
-// ---------------------------------------------------------------------------
-
 fn richer_fixture_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/php-richer")
 }
 
-/// Extract the in-tree `php-richer` fixture and assert the expected
-/// `IMPLEMENTS` topology: Product→{Identifiable,Serializable}, Order→Timestamped
-/// (Order extends Product is a base_clause → no edge).
 #[test]
 fn richer_fixture_implements_topology() {
     let (_nodes, edges) = PhpProducer
@@ -359,7 +296,6 @@ fn richer_fixture_implements_topology() {
     }
 }
 
-/// The richer fixture re-extracts byte-stably.
 #[test]
 fn richer_fixture_is_deterministic() {
     let run1 = PhpProducer.produce(&richer_fixture_root()).expect("run1");

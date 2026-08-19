@@ -1,20 +1,3 @@
-//! Integration test for `extract_entry_points` (slice 4, Issue #86 +
-//! Issue #125 extension).
-//!
-//! Validates attribute-based heuristic detection of clap CLI commands
-//! (via `#[derive(Parser)]` / `#[derive(Subcommand)]`) and MCP tools
-//! (via `#[tool]`); plus call-expression-level detection of cron jobs
-//! (`tokio_cron_scheduler::Job::new_async` / `Job::new` /
-//! `JobScheduler::add`) and websocket upgrade handlers
-//! (`WebSocketUpgrade::on_upgrade`) — Issue #125.
-//!
-//! The v0.2 vocabulary covers five `:EntryPoint` kinds: `cli_command`,
-//! `mcp_tool` (Issue #86), `cron_job`, `websocket` (this file) and the
-//! sibling `http_route` slice (#124). Each kind gets its own fixture
-//! file with one or more call shapes to exercise so a regression in
-//! any shape fails its own assertion rather than hiding behind a
-//! cross-kind aggregate.
-
 use std::fs;
 use std::path::Path;
 
@@ -46,11 +29,6 @@ fn member_cargo_toml(name: &str) -> String {
     )
 }
 
-/// Member manifest whose `[dependencies]` names one local path-dep stub
-/// crate per entry (`<dep> = { path = "../<dep>" }`), so the fixture's
-/// crate graph carries that dependency for the RFC-049 §3.1 manifest
-/// gate. The gate is crate-name-only; the stub carries no framework
-/// code (see [`write_stub_crate`]).
 fn member_cargo_toml_with_deps(name: &str, deps: &[&str]) -> String {
     let mut manifest = member_cargo_toml(name);
     for dep in deps {
@@ -59,10 +37,6 @@ fn member_cargo_toml_with_deps(name: &str, deps: &[&str]) -> String {
     manifest
 }
 
-/// Write a minimal empty stub crate `name` as a sibling workspace member
-/// so the loaded crate graph contains a crate of that name. Pairs with a
-/// `member_cargo_toml_with_deps(.., &[name])` dependency and a `name`
-/// entry in the workspace member list.
 fn write_stub_crate(root: &Path, name: &str) {
     write(
         root,
@@ -101,11 +75,6 @@ fn attribute_based_entry_point_detection_covers_cli_and_mcp() {
         "Cargo.toml",
         &workspace_cargo_toml(&["epfixture", "clap"]),
     );
-    // A stub `clap` path-dep satisfies the RFC-049 §3.1 manifest gate
-    // (crate-name-only); the fixture still declares the derive idiom
-    // with a local stand-in trait — detection stays attribute-textual,
-    // not trait-resolution-based. No stub is needed for `#[tool]`: the
-    // MCP detector is not manifest-gated in 49-A/B.
     write(
         root,
         "epfixture/Cargo.toml",
@@ -149,10 +118,8 @@ pub fn unrelated_fn() {}
     let (nodes, edges) =
         extract_entry_points(&db, &vfs, root, &targets).expect("extract_entry_points on epfixture");
 
-    // Filter :EntryPoint nodes.
     let eps = entry_points(&nodes);
 
-    // Expect exactly 3: Cli (cli_command), Command (cli_command), echo (mcp_tool).
     assert_eq!(
         eps.len(),
         3,
@@ -172,7 +139,6 @@ pub fn unrelated_fn() {}
     assert_eq!(cli_count, 2, "expected 2 cli_command :EntryPoint");
     assert_eq!(mcp_count, 1, "expected 1 mcp_tool :EntryPoint");
 
-    // Each :EntryPoint must have an EXPOSES edge to the handler Item.
     let exposes: Vec<_> = edges
         .iter()
         .filter(|e| e.label.as_str() == EdgeLabel::EXPOSES)
@@ -184,8 +150,6 @@ pub fn unrelated_fn() {}
         exposes.len()
     );
 
-    // Spot-check: the `echo` mcp_tool's EXPOSES edge points to
-    // item:epfixture::echo.
     let expected_handler = item_node_id("epfixture::echo");
     assert!(
         exposes.iter().any(|e| e.dst == expected_handler),
@@ -194,7 +158,6 @@ pub fn unrelated_fn() {}
         exposes.iter().map(|e| &e.dst).collect::<Vec<_>>(),
     );
 
-    // unrelated_fn must NOT appear anywhere.
     assert!(
         !eps.iter()
             .any(|n| handler_qname(n).is_some_and(|q| q.ends_with("unrelated_fn"))),
@@ -202,15 +165,8 @@ pub fn unrelated_fn() {}
     );
 }
 
-// ---------------------------------------------------------------
-// Issue #125 — cron_job (tokio_cron_scheduler)
-// ---------------------------------------------------------------
-
 #[test]
 fn cron_job_detects_job_new_async_with_named_registration_fn() {
-    // `Job::new_async("<cron>", |_, _| async { ... })` inside
-    // `register_jobs` — the :EntryPoint EXPOSES the enclosing fn
-    // (the closure itself has no path-level qname).
     let tmp = tempdir().expect("tempdir");
     let root = tmp.path();
     write(root, "Cargo.toml", &workspace_cargo_toml(&["cronfix"]));
@@ -261,7 +217,6 @@ pub fn register_jobs() {
         "cron_job handler_qname must be the enclosing fn (closure body has no qname)"
     );
 
-    // EXPOSES edge → item:cronfix::register_jobs.
     let expected = item_node_id("cronfix::register_jobs");
     assert!(
         edges
@@ -273,8 +228,6 @@ pub fn register_jobs() {
 
 #[test]
 fn cron_job_detects_job_new_synchronous_variant() {
-    // `Job::new("<cron>", |_, _| { ... })` — the sync sibling of
-    // new_async. Same dispatch arm.
     let tmp = tempdir().expect("tempdir");
     let root = tmp.path();
     write(root, "Cargo.toml", &workspace_cargo_toml(&["cronsync"]));
@@ -310,8 +263,6 @@ pub fn install_daily() {
 
 #[test]
 fn cron_job_detects_scheduler_add_registration_path() {
-    // `JobScheduler::add(Job::new_async(...))` — the registration
-    // wrapper call. The inner Job::new_async still fires the emitter.
     let tmp = tempdir().expect("tempdir");
     let root = tmp.path();
     write(root, "Cargo.toml", &workspace_cargo_toml(&["cronsched"]));
@@ -365,14 +316,8 @@ pub fn boot() {
     );
 }
 
-// ---------------------------------------------------------------
-// Issue #125 — websocket (axum WebSocketUpgrade::on_upgrade)
-// ---------------------------------------------------------------
-
 #[test]
 fn websocket_detects_on_upgrade_with_named_handler_fn() {
-    // `ws.on_upgrade(ws_handler)` — the callee arg is a path to a
-    // named fn; EXPOSES target is that fn's qname.
     let tmp = tempdir().expect("tempdir");
     let root = tmp.path();
     write(root, "Cargo.toml", &workspace_cargo_toml(&["wsnamed"]));
@@ -430,9 +375,6 @@ pub fn mount_ws(upgrade: WebSocketUpgrade) -> Response {
 
 #[test]
 fn websocket_detects_on_upgrade_with_inline_closure() {
-    // `ws.on_upgrade(|socket| async { ... })` — closure has no
-    // path; EXPOSES target is the enclosing fn (same policy as
-    // cron_job's closure bodies).
     let tmp = tempdir().expect("tempdir");
     let root = tmp.path();
     write(root, "Cargo.toml", &workspace_cargo_toml(&["wsclosure"]));
@@ -485,32 +427,8 @@ pub fn mount_ws_inline(upgrade: WebSocketUpgrade) -> Response {
     );
 }
 
-// ---------------------------------------------------------------
-// Issue #219 — REGISTERS_PARAM producer (clap + Subcommand paths)
-// ---------------------------------------------------------------
-//
-// The HIR-side producer owns two rows of the §3.1 crate-ownership
-// table:
-//
-// - `#[derive(Parser)]` struct → one REGISTERS_PARAM edge per
-//   `#[arg(...)]`-carrying named field, pointing at the syn-side
-//   `:Field` node id produced via `field_node_id`.
-// - `#[derive(Subcommand)]` enum → one REGISTERS_PARAM edge per
-//   declared variant (the transitional approximation from §3.1 N1),
-//   pointing at the syn-side `:Variant` node id produced via
-//   `variant_node_id`.
-//
-// The HIR side does NOT emit `:Field` / `:Variant` nodes — only edges.
-// In a full `cfdb extract --features hir` run the syn-side pipeline
-// emits the target nodes; these tests only assert the edge shape
-// because the HIR harness here runs `extract_entry_points` in
-// isolation.
-
 #[test]
 fn clap_parser_struct_emits_one_registers_param_per_arg_field() {
-    // `#[derive(Parser)]` struct with 3 `#[arg]` fields + 1 plain
-    // field (no `#[arg]`). Expect exactly 3 REGISTERS_PARAM edges,
-    // dsts = field_node_id(struct_qname, field_name) for each.
     let tmp = tempdir().expect("tempdir");
     let root = tmp.path();
     write(
@@ -587,11 +505,6 @@ pub struct Cli {
 
 #[test]
 fn clap_subcommand_enum_emits_one_registers_param_per_variant() {
-    // `#[derive(Subcommand)]` enum with 3 variants — expect 3
-    // REGISTERS_PARAM edges, dsts = variant_node_id(enum_qname, i)
-    // for i ∈ [0, 1, 2] (declaration order). This is the transitional
-    // approximation from §3.1 N1; per-variant-field granularity is a
-    // follow-up RFC.
     let tmp = tempdir().expect("tempdir");
     let root = tmp.path();
     write(
@@ -659,9 +572,6 @@ pub enum Command {
 
 #[test]
 fn clap_parser_struct_with_no_arg_fields_emits_zero_registers_param() {
-    // `#[derive(Parser)]` struct with zero `#[arg]`-annotated fields —
-    // the :EntryPoint still emits (the struct itself is recognised),
-    // but REGISTERS_PARAM count is zero.
     let tmp = tempdir().expect("tempdir");
     let root = tmp.path();
     write(
@@ -693,11 +603,9 @@ pub struct Cli {
     let (nodes, edges) =
         extract_entry_points(&db, &vfs, root, &targets).expect("extract_entry_points on noargs");
 
-    // Sanity: the :EntryPoint still emits.
     let eps = entry_points(&nodes);
     assert_eq!(eps.len(), 1, "Parser struct still emits :EntryPoint");
 
-    // But no REGISTERS_PARAM edges.
     let register_edges: Vec<_> = edges
         .iter()
         .filter(|e| e.label.as_str() == EdgeLabel::REGISTERS_PARAM)
@@ -712,21 +620,10 @@ pub struct Cli {
     );
 }
 
-// ---------------------------------------------------------------
-// RFC-049 49-A — manifest gate: clap detector inert off-framework
-// ---------------------------------------------------------------
-
 #[test]
 fn clap_detector_inert_without_clap_dependency() {
-    // RFC-049 §3.1/§4 (no false positives off-framework): a workspace
-    // that declares the clap-derive idiom but does NOT depend on `clap`
-    // yields zero cli_command :EntryPoints — the manifest gate keeps the
-    // detector inert. This is the observable behaviour 49-A adds over
-    // 49-0 (where the detector was unconditionally present); the positive
-    // path (same idiom + a `clap` dependency) is the clap fixtures above.
     let tmp = tempdir().expect("tempdir");
     let root = tmp.path();
-    // No `clap` member and no clap dependency — empty [dependencies].
     write(root, "Cargo.toml", &workspace_cargo_toml(&["nodep"]));
     write(root, "nodep/Cargo.toml", &member_cargo_toml("nodep"));
     write(
@@ -769,25 +666,13 @@ pub enum Command {
 
 #[test]
 fn clap_detector_inert_when_clap_is_transitive_only() {
-    // RFC-049 §3.1/§4: the manifest gate consults a workspace MEMBER's
-    // own [dependencies]. A `clap` that reaches the crate graph only
-    // transitively — as a dependency of a NON-member crate — must not
-    // make the detector present. Here the member `consumer` declares the
-    // clap-derive idiom and depends on `midlib`, which lives OUTSIDE the
-    // workspace directory (so it is a non-member) and in turn depends on
-    // a stub `clap`. `clap` is in the graph but is no member's direct
-    // dependency, so the detector stays inert. This pins the shared
-    // manifest gate against the transitive-closure defect; the clap side
-    // suffices — the axum/actix detector consults the same gate.
     let tmp = tempdir().expect("tempdir");
     let base = tmp.path();
 
-    // Workspace at <base>/ws with a single member `consumer`.
     write(base, "ws/Cargo.toml", &workspace_cargo_toml(&["consumer"]));
     write(
         base,
         "ws/consumer/Cargo.toml",
-        // `midlib` is a sibling of the workspace dir → a non-member.
         "[package]\nname = \"consumer\"\nversion = \"0.0.1\"\nedition = \"2021\"\n\n\
          [dependencies]\nmidlib = { path = \"../../midlib\" }\n",
     );
@@ -803,7 +688,6 @@ pub struct Cli {
 }
 "#,
     );
-    // Non-member `midlib` (outside <base>/ws) depends on the stub clap.
     write(
         base,
         "midlib/Cargo.toml",
@@ -811,7 +695,6 @@ pub struct Cli {
          [dependencies]\nclap = { path = \"../clap\" }\n",
     );
     write(base, "midlib/src/lib.rs", "");
-    // Stub `clap` — present in the graph, but only via the non-member.
     write(base, "clap/Cargo.toml", &member_cargo_toml("clap"));
     write(base, "clap/src/lib.rs", "");
 
@@ -834,27 +717,8 @@ pub struct Cli {
     );
 }
 
-// ---------------------------------------------------------------
-// Issue #227 — fn_name_and_qname must include impl target
-// ---------------------------------------------------------------
-//
-// Regression test for the seam closure between HIR-side :EntryPoint
-// emission and syn-side :Param emission for MCP `#[tool]` fns
-// declared inside an `impl` block. Pre-fix the HIR side built the fn
-// qname from module path + fn name (`mod::method`), while the syn
-// side built `mod::ImplTarget::method` via `method_qname` — the
-// REGISTERS_PARAM dst therefore pointed at a non-existent :Param
-// node id and ingest silently dropped the edge. Post-fix the HIR
-// side routes through `call_site_emitter::function_qname`, which
-// applies `normalize_impl_target` + `method_qname` for associated
-// items and so produces a qname that matches syn's.
-
 #[test]
 fn mcp_tool_on_impl_method_emits_registers_param_matching_syn_side_param_id() {
-    // Fixture: `impl Tools { #[tool] pub fn bar(&self, x: i32, y: i32) -> i32 { x + y } }`.
-    // Pre-fix expectation: fn qname = `impltools::bar` (broken);
-    // post-fix expectation: fn qname = `impltools::Tools::bar`
-    // (canonical — matches `method_qname` the syn extractor uses).
     let tmp = tempdir().expect("tempdir");
     let root = tmp.path();
     write(root, "Cargo.toml", &workspace_cargo_toml(&["impltools"]));
@@ -889,18 +753,12 @@ impl Tools {
     let (nodes, edges) =
         extract_entry_points(&db, &vfs, root, &targets).expect("extract_entry_points on impltools");
 
-    // The canonical qname is derived via the canonical helper — if
-    // the qname formula ever changes shape, this assertion updates
-    // with it instead of silently drifting against a hand-spelled
-    // string.
     let expected_qname = method_qname(&["impltools".to_string()], "Tools", "bar");
     assert_eq!(
         expected_qname, "impltools::Tools::bar",
         "sanity: method_qname formula must yield `<crate>::<target>::<method>`"
     );
 
-    // The :EntryPoint{kind:mcp_tool} node must carry the impl-target
-    // qname, not the module-only shape.
     let eps = entry_points(&nodes);
     let mcp_eps: Vec<_> = eps
         .iter()
@@ -921,7 +779,6 @@ impl Tools {
         handler_qname(ep),
     );
 
-    // The EXPOSES edge must point at the canonical :Item node id.
     let expected_item = item_node_id(&expected_qname);
     let exposes: Vec<_> = edges
         .iter()
@@ -937,12 +794,6 @@ impl Tools {
         "EXPOSES dst must equal item_node_id(method_qname) for the impl method"
     );
 
-    // REGISTERS_PARAM: `&self` is receiver (syn :Param index 0);
-    // typed params `x` and `y` land at syn indices 1 and 2 via the
-    // +1 offset inside `emit_mcp_registers_param`. Pre-fix the dsts
-    // were `param:impltools::bar#{1,2}` (broken); post-fix they must
-    // be `param:impltools::Tools::bar#{1,2}` — matching what the syn
-    // extractor emits for the same method.
     let entry_point_id = format!("entrypoint:mcp_tool:{expected_qname}");
     let register_edges: Vec<_> = edges
         .iter()

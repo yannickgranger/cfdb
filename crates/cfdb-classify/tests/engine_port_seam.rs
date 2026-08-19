@@ -1,21 +1,8 @@
-//! The judgment layer reaches a keyspace only through cfdb-core's
-//! `GraphBackend` port (via `cfdb_eval::QueryEngine`) and never does I/O.
-//! No production line under `src/` may name a storage engine (`petgraph`,
-//! `cfdb_petgraph`, `PetgraphStore`, `KeyspaceState`), a handle's raw value,
-//! or print (`println!`, `eprint`); no production line under `src/check/`
-//! may re-load a keyspace (`load_store`) or run a rule through the CLI's
-//! `parse_and_execute`. Cargo already forbids the crate edges; this keeps
-//! the vocabulary and the side effects out too.
-//!
-//! Test sources are exempt (`*_tests.rs`, `tests.rs`, and everything at or
-//! after a file's first `#[cfg(test)]` marker).
-
 use std::fs;
 use std::path::{Path, PathBuf};
 
 const SRC_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src");
 
-/// Every substring a production line must not contain, anywhere under `src/`.
 const FORBIDDEN_EVERYWHERE: &[&str] = &[
     "petgraph",
     "PetgraphStore",
@@ -26,8 +13,6 @@ const FORBIDDEN_EVERYWHERE: &[&str] = &[
     "eprint",
 ];
 
-/// Substrings a production line under `src/check/` must not contain: the
-/// triggers run on the engine's already-loaded keyspace.
 const FORBIDDEN_UNDER_CHECK: &[&str] = &["load_store", "parse_and_execute"];
 
 fn is_test_source(path: &Path) -> bool {

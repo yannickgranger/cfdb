@@ -1,16 +1,8 @@
-//! Integration tests for `cfdb extract --rev <sha>` (issue #37).
-//!
-//! Builds a synthetic 2-commit git repo in a tempdir and exercises the
-//! full CLI pipeline against each commit separately, asserting the
-//! extractions differ in exactly the way the source diff predicts.
-
 use std::path::Path;
 use std::process::Command;
 
 use assert_cmd::cargo::CommandCargoExt;
 
-/// Run `git` in `cwd` with the given args. Panics on non-zero exit so
-/// test fixtures fail loudly.
 fn git(cwd: &Path, args: &[&str]) -> String {
     let out = Command::new("git")
         .current_dir(cwd)
@@ -28,11 +20,6 @@ fn git(cwd: &Path, args: &[&str]) -> String {
     String::from_utf8_lossy(&out.stdout).trim().to_string()
 }
 
-/// Materialise a minimal single-crate cargo workspace + git repo in
-/// `root`. Returns `(commit1_sha, commit2_sha)`.
-///
-/// Commit 1: `pub fn one() {}`
-/// Commit 2: add `pub fn two() {}` in the same file.
 fn build_two_commit_fixture(root: &Path) -> (String, String) {
     std::fs::write(
         root.join("Cargo.toml"),
@@ -65,8 +52,6 @@ fn cfdb_bin() -> Command {
     Command::cargo_bin("cfdb").expect("cfdb binary")
 }
 
-/// Extract `rev` via `cfdb extract --rev`. Returns the absolute path to
-/// the resulting keyspace JSON file.
 fn extract_rev(repo: &Path, db: &Path, rev: &str, keyspace: &str) -> std::path::PathBuf {
     let out = cfdb_bin()
         .args(["extract", "--workspace"])
@@ -104,11 +89,6 @@ fn dump(db: &Path, keyspace: &str) -> String {
     String::from_utf8_lossy(&out.stdout).to_string()
 }
 
-// ---------------------------------------------------------------------------
-// AC-1: --rev against a specific commit produces a keyspace reflecting
-// that commit's tree, NOT the current worktree.
-// ---------------------------------------------------------------------------
-
 #[test]
 fn ac1_extract_rev_honours_commit_sha() {
     let tmp = tempfile::tempdir().expect("tempdir");
@@ -123,7 +103,6 @@ fn ac1_extract_rev_honours_commit_sha() {
     let dump1 = dump(db.path(), "commit1");
     let dump2 = dump(db.path(), "commit2");
 
-    // Commit 1 has `one` but not `two`. Commit 2 has both.
     assert!(
         dump1.contains("\"name\":\"one\""),
         "dump1 missing one: {dump1}"
@@ -146,12 +125,6 @@ fn ac1_extract_rev_honours_commit_sha() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// AC-2: --rev determinism — two extractions against the same SHA produce
-// byte-identical keyspaces (excluding the tempdir path in warnings, which
-// the canonical dump does not include anyway).
-// ---------------------------------------------------------------------------
-
 #[test]
 fn ac2_extract_rev_is_deterministic_across_runs() {
     let tmp = tempfile::tempdir().expect("tempdir");
@@ -172,11 +145,6 @@ fn ac2_extract_rev_is_deterministic_across_runs() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// AC-3: --rev with invalid revision → clean CLI error (no panic, no silent
-// empty-keyspace write).
-// ---------------------------------------------------------------------------
-
 #[test]
 fn ac3_invalid_rev_fails_with_nonzero_exit() {
     let tmp = tempfile::tempdir().expect("tempdir");
@@ -196,22 +164,15 @@ fn ac3_invalid_rev_fails_with_nonzero_exit() {
         .output()
         .expect("spawn");
     assert!(!out.status.success(), "invalid --rev must fail");
-    // No keyspace file should have been written on failure.
     assert!(
         !db.path().join("bad.json").exists(),
         "no keyspace file should have been written on --rev failure"
     );
 }
 
-// ---------------------------------------------------------------------------
-// AC-4: --workspace that is not a git repository → clean rejection with
-// --rev (the `.git` check guards users who forget they're on a non-repo dir).
-// ---------------------------------------------------------------------------
-
 #[test]
 fn ac4_non_git_workspace_rejected_when_rev_passed() {
     let tmp = tempfile::tempdir().expect("tempdir");
-    // No `git init` — plain directory.
     std::fs::write(
         tmp.path().join("Cargo.toml"),
         "[package]\nname=\"x\"\nversion=\"0.0.1\"\nedition=\"2021\"\n",
@@ -240,11 +201,6 @@ fn ac4_non_git_workspace_rejected_when_rev_passed() {
         "error should mention git: {stderr}"
     );
 }
-
-// ---------------------------------------------------------------------------
-// AC-5: --rev default keyspace name is the short SHA when --keyspace is
-// omitted. Confirms `short_rev` is applied in the dispatch path.
-// ---------------------------------------------------------------------------
 
 #[test]
 fn ac5_default_keyspace_is_short_rev() {

@@ -1,15 +1,3 @@
-//! End-to-end integration tests for `cfdb list-items-matching` (#3728).
-//!
-//! These scenarios drive the `cfdb` binary via `assert_cmd` against a real
-//! petgraph keyspace extracted from the cfdb sub-workspace. They prove the
-//! 16th verb is a REAL composer (not a `typed_stub` Phase A placeholder):
-//! rows contain extractor-emitted `:Item` nodes matching the supplied
-//! `--name-pattern` / `--kinds` / `--group-by-context` flags.
-//!
-//! Council subsumption (RATIFIED.md §A.14) is exercised by invoking the verb
-//! with the three shapes that subsume `list_context_owner`,
-//! `list_definitions_of`, and `list_items_matching`.
-
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -25,9 +13,6 @@ fn cfdb_workspace_root() -> PathBuf {
         .to_path_buf()
 }
 
-/// Extract the cfdb sub-workspace into a temp keyspace and return the db
-/// directory. Every scenario below composes on top of this helper so the
-/// extractor only runs once per test function.
 fn extract_cfdb(db_path: &Path) {
     Command::cargo_bin("cfdb")
         .expect("cfdb binary is built for integration tests")
@@ -46,8 +31,6 @@ fn extract_cfdb(db_path: &Path) {
         .success();
 }
 
-/// AC: `list-items-matching --help` exists and documents all flags
-/// (context package AC bullet).
 #[test]
 fn list_items_matching_help_lists_every_flag() {
     let out = Command::cargo_bin("cfdb")
@@ -75,8 +58,6 @@ fn list_items_matching_help_lists_every_flag() {
     }
 }
 
-/// AC: `kinds` filter rejects unknown Item.kind values with exit 2
-/// (clap value-parser default).
 #[test]
 fn list_items_matching_rejects_unknown_kind_with_exit_2() {
     let out = Command::cargo_bin("cfdb")
@@ -101,9 +82,6 @@ fn list_items_matching_rejects_unknown_kind_with_exit_2() {
     );
 }
 
-/// Clean-arch direct form subsumption (RATIFIED §A.14 row 3):
-/// `list-items-matching --name-pattern <X>` returns matching :Item names
-/// from the real keyspace.
 #[test]
 fn list_items_matching_filters_keyspace_by_name_pattern() {
     let db = tempdir().expect("tempdir");
@@ -136,7 +114,6 @@ fn list_items_matching_filters_keyspace_by_name_pattern() {
         !rows.is_empty(),
         "expected at least one row for ^StoreBackend$: {stdout}"
     );
-    // Exactly one row — StoreBackend is a unique symbol.
     let row = &rows[0];
     assert_eq!(
         row["name"].as_str(),
@@ -164,9 +141,6 @@ fn list_items_matching_filters_keyspace_by_name_pattern() {
     }
 }
 
-/// Rust-systems `list_definitions_of(name)` subsumption (RATIFIED §A.14
-/// row 2): `list-items-matching --name-pattern ^<name>$` with no `--kinds`
-/// returns every definition regardless of kind.
 #[test]
 fn list_items_matching_subsumes_list_definitions_of_when_kinds_omitted() {
     let db = tempdir().expect("tempdir");
@@ -189,7 +163,6 @@ fn list_items_matching_subsumes_list_definitions_of_when_kinds_omitted() {
 
     let parsed: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON");
     let rows = parsed["rows"].as_array().expect("rows");
-    // `Query` is a struct in cfdb-core::query — must appear with kind=struct.
     let query_struct_row = rows
         .iter()
         .find(|r| r["name"].as_str() == Some("Query") && r["kind"].as_str() == Some("struct"));
@@ -199,8 +172,6 @@ fn list_items_matching_subsumes_list_definitions_of_when_kinds_omitted() {
     );
 }
 
-/// `--kinds` filter restricts to the named extractor-emitted kinds. Uses
-/// `.*` as the regex so a sufficiently large keyspace is sampled.
 #[test]
 fn list_items_matching_filters_by_kinds_at_cli_surface() {
     let db = tempdir().expect("tempdir");
@@ -229,7 +200,6 @@ fn list_items_matching_filters_by_kinds_at_cli_surface() {
         !rows.is_empty(),
         "cfdb workspace has known traits (StoreBackend, Visit, ...); expected non-empty rows"
     );
-    // Every row must carry kind=="trait" (extractor lowercase).
     for (idx, row) in rows.iter().enumerate() {
         assert_eq!(
             row["kind"].as_str(),
@@ -239,9 +209,6 @@ fn list_items_matching_filters_by_kinds_at_cli_surface() {
     }
 }
 
-/// Ddd `list_context_owner(concept)` subsumption (RATIFIED §A.14 row 1):
-/// `--group-by-context` returns rows keyed by bounded_context with a `List`
-/// of items per row.
 #[test]
 fn list_items_matching_group_by_context_partitions_real_keyspace() {
     let db = tempdir().expect("tempdir");
@@ -275,8 +242,6 @@ fn list_items_matching_group_by_context_partitions_real_keyspace() {
         !rows.is_empty(),
         "expected at least one bounded_context partition row"
     );
-    // Every partition row must carry a bounded_context string and an `items`
-    // list (non-empty for at least one partition).
     let mut saw_items_list = false;
     for row in rows {
         let obj = row.as_object().expect("row is object");
@@ -296,9 +261,6 @@ fn list_items_matching_group_by_context_partitions_real_keyspace() {
     );
 }
 
-/// `ImplBlock` is council-named but v0.1 extractor does not emit :Item
-/// nodes for impl blocks. The handler surfaces a warning so consumers
-/// know why their filter returns 0 rows.
 #[test]
 fn list_items_matching_warns_on_unemitted_impl_block() {
     let db = tempdir().expect("tempdir");
@@ -330,8 +292,6 @@ fn list_items_matching_warns_on_unemitted_impl_block() {
     );
 }
 
-/// AC determinism: two consecutive runs against the same keyspace with
-/// identical arguments produce byte-identical output.
 #[test]
 fn list_items_matching_deterministic_across_runs_at_cli_surface() {
     let db = tempdir().expect("tempdir");

@@ -1,43 +1,11 @@
-//! Query-shape lint — catches known performance footguns before evaluation.
-//!
-//! The textbook Cartesian form with function-equality predicates —
-//!
-//! ```cypher
-//! MATCH (a:Item), (b:Item)
-//! WHERE regexp_extract(a.qname, '[^:]+$') = regexp_extract(b.qname, '[^:]+$')
-//!   AND a <> b
-//! ```
-//!
-//! — exhibits O(n²) performance. The equivalent aggregation form is much faster.
-//! No planner pushes `f(a.p) = f(b.p)` into a hash join, so cfdb flags it at
-//! shape time and suggests the aggregation rewrite instead.
-//!
-//! v0.1 scope: **one rule**. `lint_shape` walks the top-level `match_clauses`
-//! and WHERE clause only — nested subqueries (`NOT EXISTS { ... }`) are not
-//! walked by this pass.
-
 use cfdb_core::{CompareOp, Expr, Label, Pattern, Predicate, Query};
 
-/// A shape-level finding. Non-exhaustive so v0.2 can add more rules without
-/// breaking downstream match arms.
 #[non_exhaustive]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ShapeLint {
-    /// F1a — Cartesian MATCH over two bindings of the same label combined
-    /// with a function-equality predicate (`f(a.p) = f(b.p)`). This is O(n²)
-    /// on the binding count and no backend planner will recover it.
-    CartesianFunctionEquality {
-        /// Human-readable description including the label and the measured
-        /// study numbers.
-        message: String,
-        /// The canonical aggregation rewrite to present to the caller.
-        suggestion: String,
-    },
+    CartesianFunctionEquality { message: String, suggestion: String },
 }
 
-/// Scan a `Query` for known pathological shapes. Empty output means the query
-/// is structurally acceptable — runtime complexity under the chosen backend
-/// is still the caller's responsibility.
 pub fn lint_shape(query: &Query) -> Vec<ShapeLint> {
     let mut out = Vec::new();
 
@@ -69,10 +37,6 @@ fn detect_cartesian_function_equality(query: &Query) -> Option<ShapeLint> {
     })
 }
 
-/// Find `(var_a, var_b, label)` triples where two top-level `Pattern::Node`
-/// bindings share the same label. Only the top-level `match_clauses` are
-/// considered — edges inside `Pattern::Path` and `Pattern::Optional` are
-/// deliberately out of scope for v0.1.
 fn collect_same_label_pairs(patterns: &[Pattern]) -> Vec<(String, String, Label)> {
     let bindings: Vec<(String, Label)> = patterns.iter().filter_map(pattern_node_binding).collect();
 
@@ -83,10 +47,6 @@ fn collect_same_label_pairs(patterns: &[Pattern]) -> Vec<(String, String, Label)
     out
 }
 
-/// Project a `Pattern::Node` entry with both `var` and `label` set into
-/// a `(var, label)` pair. Extracted out of the `for p in patterns` loop
-/// in [`collect_same_label_pairs`] so the `var.clone()` / `label.clone()`
-/// land in an iterator-chain closure rather than inside the `for` body.
 fn pattern_node_binding(p: &Pattern) -> Option<(String, Label)> {
     let Pattern::Node(np) = p else {
         return None;
@@ -96,9 +56,6 @@ fn pattern_node_binding(p: &Pattern) -> Option<(String, Label)> {
     Some((var.clone(), label.clone()))
 }
 
-/// Emit every `(i, j > i)` same-label pair originating at index `i`.
-/// Factored out of the outer `for i` loop in [`collect_same_label_pairs`]
-/// so the triple-clone per matched pair does not sit inside a `for` body.
 fn emit_same_label_pairs_with(
     bindings: &[(String, Label)],
     i: usize,
@@ -115,11 +72,6 @@ fn emit_same_label_pairs_with(
         });
 }
 
-/// Walk the predicate tree looking for an equality comparison whose both
-/// sides are `Call(Property(var_a, ...))` / `Call(Property(var_b, ...))` —
-/// and `var_a`, `var_b` are the two bindings of one of the same-label pairs.
-///
-/// Returns the shared label so the caller can include it in the message.
 fn find_function_equality_over_pair(
     pred: &Predicate,
     pairs: &[(String, String, Label)],
@@ -153,8 +105,6 @@ fn match_call_over_distinct_vars(
         .map(|(_, _, label)| label.clone())
 }
 
-/// `f(var.prop)` → `Some("var")`. Also recurses into nested calls so
-/// `outer(inner(var.prop))` still fires.
 fn extract_call_over_property_var(e: &Expr) -> Option<String> {
     let Expr::Call { args, .. } = e else {
         return None;
@@ -213,8 +163,6 @@ mod tests {
 
     #[test]
     fn silent_on_plain_property_equality_self_join() {
-        // Plain `a.qname = b.qname` is acceptable — the backend can hash-join
-        // on property equality. Only `f(a.p) = f(b.p)` is the footgun.
         let q = parse(
             r#"
             MATCH (a:Item), (b:Item)

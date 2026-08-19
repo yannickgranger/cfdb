@@ -1,18 +1,3 @@
-//! Self-dogfood scar — RFC-038 issue #302 final slice. Extracts cfdb's own
-//! sub-workspace via `extract_workspace` and asserts every emitted
-//! `:Context` node carries a valid `source` prop whose value matches the
-//! provenance the actual `.cfdb/concepts/*.toml` file set declares at
-//! slice-ship time.
-//!
-//! Coverage at slice-ship time:
-//! - cfdb's `.cfdb/concepts/cfdb.toml` declares ALL workspace crates under
-//!   the single `cfdb` bounded context. Therefore every emitted `:Context`
-//!   on cfdb's own tree resolves to `source = "declared"`.
-//! - There are NO heuristic-source `:Context` nodes on cfdb's own tree.
-//!   The four-case unit test in `lib.rs::context_source_aggregation_tests`
-//!   exercises the heuristic path with a synthetic workspace fixture
-//!   instead; this scar covers the real-source-tree dogfood.
-
 use std::collections::BTreeSet;
 use std::path::Path;
 
@@ -21,7 +6,6 @@ use cfdb_core::schema::Label;
 use cfdb_core::ContextSource;
 use cfdb_extractor::extract_workspace;
 
-/// Resolve the cfdb sub-workspace root — this crate's grandparent directory.
 fn cfdb_workspace_root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -30,9 +14,6 @@ fn cfdb_workspace_root() -> &'static Path {
         .expect("crates/ has parent (cfdb sub-workspace root)")
 }
 
-/// Read every `.cfdb/concepts/*.toml` and collect the `name` field. This is
-/// the set of context names the override declares; every other emitted
-/// `:Context` on cfdb's tree must therefore be heuristic-sourced.
 fn read_declared_context_names(workspace_root: &Path) -> BTreeSet<String> {
     let dir = workspace_root.join(".cfdb").join("concepts");
     let mut out = BTreeSet::new();
@@ -43,8 +24,6 @@ fn read_declared_context_names(workspace_root: &Path) -> BTreeSet<String> {
             continue;
         }
         let body = std::fs::read_to_string(&path).expect("read toml");
-        // The file's `name = "<context>"` line is the canonical context
-        // identifier — same field `cfdb_concepts::ConceptFile` deserialises.
         for line in body.lines() {
             let trimmed = line.trim();
             if let Some(rest) = trimmed.strip_prefix("name") {
@@ -122,10 +101,6 @@ fn context_source_matches_declared_toml_set() {
             .parse()
             .expect("source prop must be valid wire string");
 
-        // Strong assertion: source value must match TOML provenance for the
-        // ACTUAL `.cfdb/concepts/*.toml` file set committed at slice-ship
-        // time. If the name is in the declared set, source MUST be declared;
-        // otherwise it MUST be heuristic.
         let expected = if declared_names.contains(name) {
             ContextSource::Declared
         } else {
@@ -140,20 +115,10 @@ fn context_source_matches_declared_toml_set() {
         match source {
             ContextSource::Declared => declared_count += 1,
             ContextSource::Heuristic => heuristic_count += 1,
-            // RFC-044 §3.7: `ContextSource` is `#[non_exhaustive]`; any
-            // future variant fails the test loudly so the dogfood assertion
-            // can't drift silently.
             _ => panic!("unexpected ContextSource variant: {source:?}"),
         }
     }
 
-    // Coverage assertion (weakened per #302 prescription escape hatch):
-    // cfdb's `.cfdb/concepts/cfdb.toml` declares ALL workspace crates under
-    // the single `cfdb` context, so the cfdb tree emits zero heuristic
-    // contexts. The four-case unit test in lib.rs covers the heuristic
-    // path against a synthetic fixture; here we assert at least the
-    // declared variant is present. Heuristic count is reported for the PR
-    // body sanity-check, not asserted.
     assert!(
         declared_count >= 1,
         "expected >=1 declared :Context on cfdb's tree, got {declared_count}"

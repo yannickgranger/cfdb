@@ -1,12 +1,9 @@
-//! Edge-label descriptors for `schema_describe()`.
-
 use super::super::descriptors::{attr, EdgeLabelDescriptor, Provenance};
 use super::super::labels::{EdgeLabel, Label};
 
 pub(super) fn edge_descriptors() -> Vec<EdgeLabelDescriptor> {
     use Provenance::Extractor;
     vec![
-        // ---- Structural ------------------------------------------------------
         EdgeLabelDescriptor {
             label: EdgeLabel::new(EdgeLabel::IN_CRATE),
             description: "Any node with a crate belongs to that Crate.".into(),
@@ -106,7 +103,6 @@ pub(super) fn edge_descriptors() -> Vec<EdgeLabelDescriptor> {
             to: vec![Label::new(Label::CONTEXT)],
             provenance: Provenance::Extractor,
         },
-        // ---- Call graph ------------------------------------------------------
         EdgeLabelDescriptor {
             label: EdgeLabel::new(EdgeLabel::CALLS),
             description: "Static call edge between two fn Items (best-effort cross-crate).".into(),
@@ -139,7 +135,6 @@ pub(super) fn edge_descriptors() -> Vec<EdgeLabelDescriptor> {
             to: vec![Label::new(Label::ARGUMENT)],
             provenance: Provenance::Extractor,
         },
-        // ---- Match dispatch (RFC-053) ---------------------------------------
         EdgeLabelDescriptor {
             label: EdgeLabel::new(EdgeLabel::MATCHES_AT),
             description: "The fn/method Item that contains a `match` expression points at each :MatchSite emitted for it (Item → MatchSite), mirroring INVOKES_AT for call sites (one `match` verb root across the family). Emitted walk-time by `cfdb-extractor`'s `match_visitor`. SchemaVersion V0_7_0+; pre-V0_7_0 keyspaces carry zero MATCHES_AT edges.".into(),
@@ -156,7 +151,6 @@ pub(super) fn edge_descriptors() -> Vec<EdgeLabelDescriptor> {
             to: vec![Label::new(Label::ITEM)],
             provenance: Provenance::Extractor,
         },
-        // ---- Entry points ----------------------------------------------------
         EdgeLabelDescriptor {
             label: EdgeLabel::new(EdgeLabel::EXPOSES),
             description: "An EntryPoint dispatches to a handler fn Item.".into(),
@@ -183,7 +177,6 @@ pub(super) fn edge_descriptors() -> Vec<EdgeLabelDescriptor> {
             ],
             provenance: Provenance::Extractor,
         },
-        // ---- Concept overlay -------------------------------------------------
         EdgeLabelDescriptor {
             label: EdgeLabel::new(EdgeLabel::LABELED_AS),
             description: "An Item carries a semantic Concept label.".into(),
@@ -212,7 +205,6 @@ pub(super) fn edge_descriptors() -> Vec<EdgeLabelDescriptor> {
             to: vec![Label::new(Label::CONCEPT)],
             provenance: Provenance::Reserved,
         },
-        // ---- Enrichment overlay ----
         EdgeLabelDescriptor {
             label: EdgeLabel::new(EdgeLabel::REFERENCED_BY),
             description: "An Item is mentioned (by `name` or `qname`) in an RFC document. Emitted by `enrich_rfc_docs()` — slice 43-D (issue #107) ships the first emissions with a SchemaVersion patch bump.".into(),

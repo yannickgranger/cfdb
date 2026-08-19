@@ -1,7 +1,3 @@
-//! Visitor-level tests for `:MatchSite` + `MATCHES_AT` emission. These drive
-//! the real `MatchSiteVisitor` + `Emitter` (no mock) on parsed fn-body blocks
-//! and inspect the emitted facts.
-
 use std::collections::BTreeSet;
 
 use cfdb_core::fact::{Edge, Node, PropValue};
@@ -10,8 +6,6 @@ use cfdb_core::schema::{EdgeLabel, Label};
 use super::walk_match_sites_with_test_flag;
 use crate::Emitter;
 
-/// Parse a fn-body block and run the `:MatchSite` pass over it with a
-/// fixed fn qname / file / crate.
 fn walk(block_src: &str) -> (Vec<Node>, Vec<Edge>) {
     walk_with_test_flag(block_src, false)
 }
@@ -47,9 +41,6 @@ fn prop_str<'a>(n: &'a Node, key: &str) -> &'a str {
 
 #[test]
 fn multi_arm_single_prefix_emits_exactly_one_site() {
-    // The real post-#107 `parse_syn_visibility` shape: three arms sharing
-    // one `syn::Visibility` prefix → exactly ONE site, occurrence counter
-    // increments once (RFC-053 §3.1 dedup-before-id).
     let (nodes, _edges) = walk(
         r#"{
             match vis {
@@ -71,9 +62,6 @@ fn multi_arm_single_prefix_emits_exactly_one_site() {
 
 #[test]
 fn multi_prefix_same_expression_emits_distinct_sites() {
-    // One `match`, arms carrying two distinct prefixes → two sites with
-    // distinct prefix-bearing ids (no collision), arm_count/wildcard
-    // shared across both.
     let (nodes, _edges) = walk(
         r#"{
             match pair {
@@ -110,8 +98,6 @@ fn multi_prefix_same_expression_emits_distinct_sites() {
 
 #[test]
 fn same_prefix_in_two_match_expressions_increments_the_counter() {
-    // Two separate `match` expressions, both with prefix `Foo` → the
-    // per-prefix occurrence counter disambiguates the ids (`:0`, `:1`).
     let (nodes, _edges) = walk(
         r#"{
             match a { Foo::A => 1, _ => 0 };
@@ -145,9 +131,6 @@ fn every_match_site_has_a_matches_at_parent() {
 
 #[test]
 fn match_inside_macro_invocation_is_extracted() {
-    // The shared `walk_macro_tokens` helper makes a `match` inside a macro
-    // *invocation* body visible (RFC-053 §3.3), consistent with call
-    // sites and literals.
     let (nodes, _edges) = walk(r#"{ some_macro!(match v { Foo::A => 1, Foo::B => 2 }); }"#);
     let sites = match_sites(&nodes);
     assert_eq!(sites.len(), 1);
@@ -156,17 +139,12 @@ fn match_inside_macro_invocation_is_extracted() {
 
 #[test]
 fn matches_macro_emits_no_site_recall_limit_3() {
-    // `matches!(v, Foo::A)` — its `<expr>, <pat>` grammar re-parses as two
-    // *expressions*, never a bare pattern, so no `:MatchSite` is emitted
-    // (RFC-053 §6 named recall limit #3).
     let (nodes, _edges) = walk(r#"{ matches!(v, Foo::A); }"#);
     assert!(match_sites(&nodes).is_empty());
 }
 
 #[test]
 fn literal_scrutinee_match_emits_nothing() {
-    // The `&str` match shape (`Visibility::FromStr`) carries no path in
-    // any arm → zero sites.
     let (nodes, _edges) = walk(r#"{ match s { "a" => 1, "b" => 2, _ => 0 }; }"#);
     assert!(match_sites(&nodes).is_empty());
 }
@@ -183,8 +161,6 @@ fn is_test_flag_propagates_to_every_site() {
 
 #[test]
 fn nested_match_in_arm_body_is_extracted() {
-    // A `match` inside another match's arm body must not be lost — the
-    // visitor recurses after emitting the outer site.
     let (nodes, _edges) = walk(
         r#"{
             match outer {

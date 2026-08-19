@@ -1,13 +1,3 @@
-//! `check-prelude-triggers` — Tier-1 binary entry point.
-//!
-//! Each subcommand runs exactly one C-trigger. The binary is stateless: it
-//! reads argv-supplied TOML + diff files, emits a versioned JSON envelope on
-//! stdout, and exits with a code:
-//!
-//! - `0` success (envelope always emitted — empty `triggers_fired` is valid)
-//! - `1` usage / argument error (clap parse failure)
-//! - `2` fatal runtime error (TOML parse, IO)
-
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -30,20 +20,20 @@ use clap::{Parser, Subcommand};
     version
 )]
 struct Cli {
-    /// Git base ref of the diff under inspection (e.g. `develop`).
+    #[arg(help = "Git base ref of the diff under inspection (e.g. `develop`)")]
     #[arg(long, global = true, default_value = "")]
     from_ref: String,
-    /// Git head ref of the diff under inspection (e.g. the PR HEAD SHA).
+    #[arg(help = "Git head ref of the diff under inspection (e.g. the PR HEAD SHA)")]
     #[arg(long, global = true, default_value = "")]
     to_ref: String,
-    /// Envelope schema version the consumer expects. Only `v1` is recognized
-    /// today; any other value fails fast.
+    #[arg(
+        help = "Envelope schema version the consumer expects. Only `v1` is recognized today; any other value fails fast"
+    )]
     #[arg(long, global = true, default_value = "v1")]
     schema_version: String,
-    /// Refuse to emit an envelope when `--from-ref` equals `--to-ref`. Used by
-    /// `/ship` pre-flight to ensure the capture reflects a real diff and not
-    /// an issue-start snapshot. Default off — issue-start captures remain
-    /// valid for archaeology / dogfood replay use cases.
+    #[arg(
+        help = "Refuse to emit an envelope when `--from-ref` equals `--to-ref`. Used by `/ship` pre-flight to ensure the capture reflects a real diff and not an issue-start snapshot. Default off — issue-start captures remain valid for archaeology / dogfood replay use cases"
+    )]
     #[arg(long, global = true)]
     require_fresh: bool,
     #[command(subcommand)]
@@ -52,49 +42,52 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// C1 — cross-context change. Fires when ≥2 bounded contexts from
-    /// `context-map.toml` are touched by the diff.
+    #[command(
+        about = "C1 — cross-context change. Fires when ≥2 bounded contexts from `context-map.toml` are touched by the diff"
+    )]
     C1CrossContext {
         #[arg(long)]
         context_map: PathBuf,
         #[arg(long)]
         changed_paths: PathBuf,
     },
-    /// C3 — port trait signature. Fires when any changed path matches
-    /// `^crates/ports[^/]*/src/`.
+    #[command(
+        about = "C3 — port trait signature. Fires when any changed path matches `^crates/ports[^/]*/src/`"
+    )]
     C3PortSignature {
         #[arg(long)]
         changed_paths: PathBuf,
     },
-    /// C7 — financial-precision path. Fires when any changed path is under
-    /// a prefix declared in `financial-precision-crates.toml`.
+    #[command(
+        about = "C7 — financial-precision path. Fires when any changed path is under a prefix declared in `financial-precision-crates.toml`"
+    )]
     C7FinancialPrecision {
         #[arg(long)]
         financial_precision_crates: PathBuf,
         #[arg(long)]
         changed_paths: PathBuf,
     },
-    /// C8 — pipeline-stage cross. Fires when the diff touches ≥2 stages in
-    /// `pipeline-stages.toml`.
+    #[command(
+        about = "C8 — pipeline-stage cross. Fires when the diff touches ≥2 stages in `pipeline-stages.toml`"
+    )]
     C8PipelineStage {
         #[arg(long)]
         pipeline_stages: PathBuf,
         #[arg(long)]
         changed_paths: PathBuf,
     },
-    /// C9 — workspace cardinality. Fires when the workspace root `Cargo.toml`
-    /// is in the diff; parses `[workspace] members = [...]` directly (no
-    /// `cargo metadata` subprocess).
+    #[command(
+        about = "C9 — workspace cardinality. Fires when the workspace root `Cargo.toml` is in the diff; parses `[workspace] members = [...]` directly (no `cargo metadata` subprocess)"
+    )]
     C9WorkspaceCardinality {
         #[arg(long)]
         workspace_root: PathBuf,
         #[arg(long)]
         changed_paths: PathBuf,
     },
-    /// Run all 5 triggers (C1/C3/C7/C8/C9) and emit one consolidated envelope.
-    /// Canonical entry point for skill-side consumers — replaces 5 separate
-    /// per-trigger calls + manual merge. Calls the same pure evaluators as
-    /// the per-trigger subcommands; no shell-out.
+    #[command(
+        about = "Run all 5 triggers (C1/C3/C7/C8/C9) and emit one consolidated envelope. Canonical entry point for skill-side consumers — replaces 5 separate per-trigger calls + manual merge. Calls the same pure evaluators as the per-trigger subcommands; no shell-out"
+    )]
     All {
         #[arg(long)]
         context_map: PathBuf,
@@ -145,9 +138,6 @@ fn main() -> ExitCode {
     ExitCode::SUCCESS
 }
 
-/// Dispatch to the appropriate evaluator(s) and return a fully populated
-/// envelope. Per-trigger subcommands produce a single-trigger report;
-/// `Command::All` aggregates all 5 via [`run_all`].
 fn build_report(cli: &Cli) -> Result<PreludeTriggerReport, LoadError> {
     if let Command::All {
         context_map,
@@ -172,8 +162,6 @@ fn build_report(cli: &Cli) -> Result<PreludeTriggerReport, LoadError> {
     if outcome.fired {
         report.record(id, outcome.evidence);
     } else {
-        // Un-fired evidence is still recorded so consumers see what was
-        // checked. `triggers_fired` stays empty → "no pre-council required".
         report
             .evidence
             .insert(id.as_str().to_string(), outcome.evidence);

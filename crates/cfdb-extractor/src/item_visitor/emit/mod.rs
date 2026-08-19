@@ -1,25 +1,3 @@
-//! Inherent helper + `emit_*` methods on [`ItemVisitor`]. Split out of
-//! `item_visitor.rs` to keep each file under the 500-LOC budget (#128).
-//! These methods are only reachable from the `syn::Visit` impl (see
-//! sibling `visits` module) and from each other.
-//!
-//! **Sub-module split (#350).** The inherent impl block is partitioned
-//! across two files to stay under the 500-LOC budget:
-//!
-//! - This module ([`emit`](self)) — free helpers
-//!   ([`emit_call_site_node_and_edge`], [`insert_attr_metadata_props`])
-//!   plus the item-level methods on [`ItemVisitor`]: base accessors
-//!   (`current_module_qpath`, `qname`, `emit_in_module_edge`,
-//!   `is_in_test_mod`, `fn_is_test`), `emit_item`, `emit_item_with_flags`,
-//!   `emit_impl_block`, and `emit_attr_call_site`.
-//! - [`sub_items`] — the satellite-emission methods that live below an
-//!   `:Item`: `emit_param`, `emit_field`, `emit_field_list`,
-//!   `emit_variant`, `emit_const_table`.
-//!
-//! Both files share the same `impl ItemVisitor<'_>` block — Rust allows
-//! multiple inherent impls for the same type, so the split is purely
-//! source-level. Public surface is unchanged.
-
 use std::collections::BTreeMap;
 
 use cfdb_core::fact::{build_item_props_common, Edge, Node, PropValue};
@@ -37,22 +15,7 @@ use super::{
 
 mod sub_items;
 
-/// Emit a `:CallSite` node + `INVOKES_AT` edge from the owning `:Item`.
-///
-/// Centralises the prop shape, node label, and edge wiring shared by the
-/// two CallSite emission paths in this crate:
-/// - Body-call sites ([`crate::call_visitor::CallSiteVisitor::emit_call_site`])
-/// - Attribute-ref sites ([`ItemVisitor::emit_attr_call_site`])
-///
-/// This helper owns the prop shape (`callee_last_segment` derivation, the
-/// `resolver="syn"` discriminator, the `callee_resolved=false` default),
-/// the `Label::CALL_SITE` node emission, and the `INVOKES_AT` edge from
-/// `item_node_id_for_target(caller_qname, caller_target)` (RFC-054).
-///
-/// `extra_props` is merged after the canonical props so the attr-ref
-/// path can attach `field=<field_name>`. Body-call sites pass an empty
-/// map.
-#[allow(clippy::too_many_arguments)] // 10 args — :CallSite shape is wide; cs_id + extra_props stay caller-side because the two emission paths differ on id format and on whether they attach a `field` prop (audit 2026-W17 / EPIC #273 / Pattern 3 fan-out). `line` is the real source-line number from the call expression's syn span (#273 / F-005); 0 = unknown / synthetic.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_call_site_node_and_edge(
     emitter: &mut Emitter,
     cs_id: String,
@@ -85,7 +48,6 @@ pub(crate) fn emit_call_site_node_and_edge(
     props.insert("file".into(), PropValue::Str(file));
     props.insert("line".into(), PropValue::Int(line as i64));
     props.insert("is_test".into(), PropValue::Bool(is_test));
-    // SchemaVersion v0.1.3+ discriminator (Label::CALL_SITE doc, #83).
     props.insert("resolver".into(), PropValue::Str("syn".to_string()));
     props.insert("callee_resolved".into(), PropValue::Bool(false));
     props.extend(extra_props);
@@ -103,14 +65,6 @@ pub(crate) fn emit_call_site_node_and_edge(
     });
 }
 
-/// Insert `cfg_gate` (when present) + `is_deprecated` + `deprecation_since`
-/// (when present) into the prop map. Centralises the shape used by every
-/// `:Item` emit path so a future schema change touches one site
-/// (audit 2026-W17 / EPIC #273 / Pattern 3 fan-out).
-///
-/// Visible to the [`sub_items`] sibling so it shares the same metadata
-/// shape on every `:Item` it emits — `pub(super)` keeps it scoped to
-/// `item_visitor::emit::*`.
 pub(super) fn insert_attr_metadata_props(
     props: &mut BTreeMap<String, PropValue>,
     attrs: &[syn::Attribute],
@@ -118,11 +72,6 @@ pub(super) fn insert_attr_metadata_props(
     if let Some(gate) = extract_cfg_feature_gate(attrs) {
         props.insert("cfg_gate".into(), PropValue::Str(gate.to_string()));
     }
-    // Deprecation facts (#106 / RFC addendum §A2.2 row 3) —
-    // extractor-time per DDD + rust-systems verdicts. `is_deprecated`
-    // always emitted (false by default so downstream classifier
-    // queries can treat absence as a data gap vs. false). `deprecation_since`
-    // only emitted when the `#[deprecated(since = "X")]` form is used.
     let (is_deprecated, deprecation_since) = extract_deprecated_attr(attrs);
     props.insert("is_deprecated".into(), PropValue::Bool(is_deprecated));
     if let Some(since) = deprecation_since {
@@ -139,23 +88,6 @@ impl ItemVisitor<'_> {
         item_qname(&self.module_stack, item_name)
     }
 
-    /// Emit `src_id -[IN_MODULE]-> module:<current_module_qpath>` when an
-    /// enclosing `:Module` node exists.
-    ///
-    /// The schema declares `IN_MODULE` from `[Item, File]` to `[Module]`
-    /// (`cfdb-core/src/schema/describe/edges.rs`), but the extractor used
-    /// to emit only the `IN_CRATE` edge — `SchemaDescribe()` lied to
-    /// consumers and any Cypher walking `Item -[:IN_MODULE]-> Module`
-    /// returned zero rows (#267, audit ID CFDB-EXT-H1).
-    ///
-    /// `:Module` nodes are emitted only by `visit_item_mod` for nested
-    /// `mod` declarations — the crate root has no `:Module` node. The
-    /// `module_stack` invariant (see `ItemVisitor::module_stack` doc) is
-    /// that element 0 is always the crate name, so an item is at the
-    /// crate root iff `module_stack.len() == 1`. In that case there is
-    /// no enclosing `:Module` to point at and this method is a no-op —
-    /// the existing `IN_CRATE` edge already routes the item to its
-    /// `:Crate` node.
     pub(super) fn emit_in_module_edge(&mut self, src_id: &str) {
         if self.module_stack.len() <= 1 {
             return;
@@ -174,11 +106,6 @@ impl ItemVisitor<'_> {
         self.test_mod_depth > 0
     }
 
-    /// `is_test` for a fn item: true when either (a) the enclosing module is
-    /// `#[cfg(test)]`-gated, or (b) the fn itself carries a bare `#[test]`
-    /// attribute. This is the single OR site — non-fn items stay on the
-    /// module-depth signal alone (struct/enum/etc. have no libtest-native
-    /// marker). Council-cfdb-wiring §B.1.1.
     pub(super) fn fn_is_test(&self, attrs: &[syn::Attribute]) -> bool {
         self.is_in_test_mod() || attrs_contain_hash_test(attrs)
     }
@@ -203,30 +130,7 @@ impl ItemVisitor<'_> {
         )
     }
 
-    /// Like [`emit_item`] but the caller supplies the `is_test` flag
-    /// explicitly. Used by the fn-item visit path so a bare `#[test]` fn
-    /// outside a `#[cfg(test)]` module is still tagged `is_test=true`.
-    ///
-    /// `signature` is the canonical fn signature string
-    /// (`fn(i32) -> bool`) produced by
-    /// [`crate::type_render::render_fn_signature`]. Pass `Some(sig)` on
-    /// fn / method kinds so `:Item.signature` lands in the graph —
-    /// required by the `signature_divergent` UDF (#47). Non-fn kinds
-    /// (struct, enum, trait, const, …) pass `None` and the prop is
-    /// omitted.
-    ///
-    /// `impl_target` routes the impl-method emission path through this
-    /// helper instead of duplicating ~95 lines of `:Item` prop
-    /// construction (audit 2026-W17 / EPIC #273 / Pattern 3 F-002).
-    /// When `Some(target)` the qname is computed via
-    /// [`cfdb_core::qname::method_qname`] (`module::Target::method`)
-    /// instead of the free-item formula
-    /// (`module::name`), and the `impl_target` prop is emitted on the
-    /// resulting `:Item` node. When `None` the free-item formula is
-    /// used and no `impl_target` prop is emitted. This is the single
-    /// owner of `:Item` prop emission across free items, impl blocks,
-    /// and impl methods.
-    #[allow(clippy::too_many_arguments)] // 10 args — fn/method :Item shape is wide; impl_target is the impl-method routing knob (audit F-002), the rest are name/kind/line/is_test/vis/attrs/signature
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn emit_item_with_flags(
         &mut self,
         name: &str,
@@ -242,14 +146,7 @@ impl ItemVisitor<'_> {
             Some(target) => method_qname(&self.module_stack, target, name),
             None => self.qname(name),
         };
-        // RFC-054 §3.1 (#557): the id is the target-scoped identity; the
-        // returned display qname stays bare. Callers get both — deriving
-        // one from the other is the conflation class §3.5.1 retires.
         let id = item_node_id_for_target(&qname, &self.target);
-        // `{qname, name, kind, crate}` come from the shared owner; this path
-        // layers the Rust-specific keys (`bounded_context`, `module_qpath`,
-        // optional `impl_target`, `file`, `line`, `is_test`, `visibility`,
-        // attr metadata, optional `signature`) on top (#478).
         let mut props = build_item_props_common(&qname, name, kind, &self.crate_name);
         props.insert(
             "bounded_context".into(),
@@ -259,10 +156,6 @@ impl ItemVisitor<'_> {
             "module_qpath".into(),
             PropValue::Str(self.current_module_qpath()),
         );
-        // `impl_target` prop is emitted only on the impl-method path so
-        // queries can distinguish methods from free fns by the prop's
-        // presence (audit F-002 routing). Free items don't carry an
-        // impl target — the prop is absent, not the empty string.
         if let Some(target) = impl_target {
             props.insert("impl_target".into(), PropValue::Str(target.to_string()));
         }
@@ -278,10 +171,6 @@ impl ItemVisitor<'_> {
             PropValue::Str(parse_syn_visibility(vis).to_string()),
         );
         insert_attr_metadata_props(&mut props, attrs);
-        // `:Item.signature` — canonical fn signature string (#47). Only
-        // emitted on fn / method kinds. Non-fn kinds pass `None` and the
-        // prop is absent, which queries can distinguish from the empty
-        // string via `IS NULL`.
         if let Some(sig) = signature {
             props.insert("signature".into(), PropValue::Str(sig.to_string()));
         }
@@ -290,15 +179,7 @@ impl ItemVisitor<'_> {
             label: Label::new(Label::ITEM),
             props,
         });
-        // RETURNS / TYPE_OF post-walk resolution requires the set of
-        // every emitted `:Item` qname (RFC-037 §3.2, #216). The set
-        // lives on the workspace-scoped `Emitter` so the resolution
-        // pass in `extract_workspace` sees items across every file.
         self.emitter.claim_item_qname(&qname, &self.target);
-        // MATCHES_ON post-walk resolution additionally needs the enum
-        // subset (RFC-053 §3.2: resolution targets are constrained to
-        // `kind = "enum"`). This is the single `:Item` emission owner, so
-        // it is the one site that classifies enums for the filter.
         if kind == "enum" {
             self.emitter.claim_enum_qname(&qname, &self.target);
         }
@@ -308,30 +189,10 @@ impl ItemVisitor<'_> {
             label: EdgeLabel::new(EdgeLabel::IN_CRATE),
             props: BTreeMap::new(),
         });
-        // IN_MODULE membership for the deepest enclosing module (#267).
-        // No-op at crate root where no `:Module` node exists.
         self.emit_in_module_edge(&id);
         (id, qname)
     }
 
-    /// Emit an `:Item { kind: "impl_block" }` node for the current `impl`
-    /// block plus its `IMPLEMENTS` + `IMPLEMENTS_FOR` edges (#42 / RFC
-    /// Study 002 §11.4b).
-    ///
-    /// The impl-block's qname encodes the module path, the normalised
-    /// target type, and (when present) the trait path, so two trait
-    /// impls targeting the same type land on distinct nodes:
-    ///
-    /// ```text
-    /// impl Foo { ... }            → <module>::Foo::impl
-    /// impl Bar for Foo { ... }    → <module>::Foo::impl_Bar
-    /// impl Baz for Foo { ... }    → <module>::Foo::impl_Baz
-    /// ```
-    ///
-    /// Trait paths containing `::` are flattened to `_` for use in the
-    /// qname segment — the original trait path is preserved in the
-    /// `IMPLEMENTS` edge target so queries can resolve back to the
-    /// canonical trait node.
     pub(super) fn emit_impl_block(
         &mut self,
         target: &str,
@@ -342,10 +203,6 @@ impl ItemVisitor<'_> {
         let impl_qname = impl_block_qname(&self.module_stack, target, trait_qname);
         let impl_id = item_node_id_for_target(&impl_qname, &self.target);
 
-        // `{qname, name, kind, crate}` from the shared owner. The impl-block
-        // `name` (`"impl Foo"` / `"impl Bar for Foo"`) is passed explicitly:
-        // it is deliberately NOT `last_segment(qname)` (`"impl"` /
-        // `"impl_Bar"`), so the helper must take it verbatim (#478).
         let mut props = build_item_props_common(
             &impl_qname,
             &impl_block_name(target, trait_qname),
@@ -361,16 +218,8 @@ impl ItemVisitor<'_> {
             PropValue::Str(self.current_module_qpath()),
         );
         props.insert("file".into(), PropValue::Str(self.file_path.clone()));
-        // Real source line of the `impl` token — feeds line-precision
-        // queries the same way fn / struct / enum lines do (#273 /
-        // F-005). 0 for synthetic / macro-expanded impls.
         props.insert("line".into(), PropValue::Int(line as i64));
         props.insert("is_test".into(), PropValue::Bool(self.is_in_test_mod()));
-        // impl blocks carry no visibility modifier of their own in Rust;
-        // the impl's effective reachability is the intersection of the
-        // target type's and the trait's visibilities — treat the impl
-        // block itself as private for the cfdb vocabulary (council
-        // wiring §B.1.1 default).
         props.insert("visibility".into(), PropValue::Str("private".into()));
         props.insert("impl_target".into(), PropValue::Str(target.into()));
         props.insert(
@@ -387,11 +236,6 @@ impl ItemVisitor<'_> {
             label: Label::new(Label::ITEM),
             props,
         });
-        // Track impl-block qname for RETURNS / TYPE_OF post-walk
-        // resolution (RFC-037 §3.2, #216). Impl-block qnames don't
-        // typically appear as return types, but we populate the set
-        // consistently for every emitted `:Item` so any future fact
-        // type that resolves on `:Item` qnames is accurate.
         self.emitter.claim_item_qname(&impl_qname, &self.target);
         self.emitter.emit_edge(Edge {
             src: impl_id.clone(),
@@ -399,14 +243,8 @@ impl ItemVisitor<'_> {
             label: EdgeLabel::new(EdgeLabel::IN_CRATE),
             props: BTreeMap::new(),
         });
-        // IN_MODULE membership for the deepest enclosing module (#267).
-        // No-op at crate root where no `:Module` node exists.
         self.emit_in_module_edge(&impl_id);
 
-        // IMPLEMENTS_FOR — always emitted. Target resolution via the
-        // `item:<qname>` id formula. The dst may dangle when the target
-        // type is defined outside the workspace; the petgraph ingest
-        // layer emits a non-fatal warning rather than failing.
         let target_qname = resolve_target_qname(&self.module_stack, target);
         self.emitter.emit_edge(Edge {
             src: impl_id.clone(),
@@ -415,9 +253,6 @@ impl ItemVisitor<'_> {
             props: BTreeMap::new(),
         });
 
-        // IMPLEMENTS — trait impls only. Carries `resolver = "syn"` so the
-        // discriminator is uniformly present across producers (RFC-045 §3.2;
-        // PHP/TS emit `tree-sitter-php`/`tree-sitter-typescript`).
         if let Some(t) = trait_qname {
             let trait_resolved = resolve_target_qname(&self.module_stack, t);
             let mut props = BTreeMap::new();
@@ -431,15 +266,6 @@ impl ItemVisitor<'_> {
         }
     }
 
-    /// Emit a CallSite for an attribute-based name-reference to a callable
-    /// (e.g. `#[serde(default = "Utc::now")]`). The owning `Item` is the
-    /// struct that holds the field, so the INVOKES_AT edge flows from the
-    /// struct to the CallSite — same shape the query evaluator uses to
-    /// surface ban-rule hits for fn-body call sites.
-    ///
-    /// The CallSite id encodes the field name so two fields on the same
-    /// struct with the same callee path produce distinct nodes (G1
-    /// determinism requirement).
     pub(super) fn emit_attr_call_site(
         &mut self,
         parent_qname: &str,

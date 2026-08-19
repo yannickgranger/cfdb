@@ -1,12 +1,3 @@
-//! Feature-presence guard for dogfood sentinel.
-//!
-//! Before running the dogfood sentinel for a feature-gated pass, the
-//! harness invokes `cfdb enrich-<pass>` and inspects `EnrichReport.ran`.
-//! When `ran == false`, the harness exits with `EXIT_RUNTIME_ERROR` and a
-//! "feature missing" message — NOT with the sentinel result, because a
-//! binary built without the feature would silently report 100% null coverage
-//! and look like a real regression.
-
 use std::io;
 use std::path::Path;
 use std::process::Command;
@@ -45,19 +36,10 @@ pub enum GuardError {
     FeatureMissing { pass: String, warnings: Vec<String> },
 }
 
-/// Parse a `cfdb enrich-<pass>` JSON envelope into a typed
-/// [`EnrichReport`]. Wire-form contract guarded by the shared
-/// `cfdb-core` struct — `serde` tolerates unknown fields by default,
-/// so future additive extensions (new attrs/edges fields) parse cleanly
-/// without churning this harness.
 pub fn parse_report(json: &str) -> Result<EnrichReport, serde_json::Error> {
     serde_json::from_str(json)
 }
 
-/// Invoke `cfdb enrich-<pass>` against the keyspace and verify the
-/// pass actually ran. Returns `Ok(())` if `ran == true`. Returns
-/// `Err(GuardError::FeatureMissing)` if `ran == false`. Other errors
-/// bubble as runtime failures.
 pub fn check_pass_ran(
     cfdb_bin: &Path,
     pass_name: &str,
@@ -110,44 +92,36 @@ pub fn check_pass_ran(
 mod tests {
     use super::*;
 
-    /// `ran: true` parses cleanly.
     #[test]
     fn parse_report_returns_ran_true() {
         let json = r#"{"verb":"enrich_concepts","ran":true,"facts_scanned":42,"attrs_written":10,"edges_written":5,"warnings":[]}"#;
         assert!(parse_report(json).expect("valid json").ran);
     }
 
-    /// `ran: false` parses cleanly (this is the off-feature path).
     #[test]
     fn parse_report_returns_ran_false() {
         let json = r#"{"verb":"enrich_metrics","ran":false,"facts_scanned":0,"attrs_written":0,"edges_written":0,"warnings":["enrich_metrics: built without quality-metrics feature"]}"#;
         assert!(!parse_report(json).expect("valid json").ran);
     }
 
-    /// Unknown extra fields are tolerated (serde tolerates by default —
-    /// forward-compat with future EnrichReport extensions).
     #[test]
     fn parse_report_ignores_unknown_fields() {
         let json = r#"{"verb":"x","ran":true,"facts_scanned":0,"attrs_written":0,"edges_written":0,"warnings":[],"some_future_field":"hello"}"#;
         assert!(parse_report(json).expect("valid json").ran);
     }
 
-    /// Missing `ran` field is a parse error (we do not default to true).
     #[test]
     fn parse_report_errors_on_missing_ran_field() {
         let json = r#"{"verb":"enrich_concepts","facts_scanned":42}"#;
         assert!(parse_report(json).is_err());
     }
 
-    /// Malformed JSON is a parse error.
     #[test]
     fn parse_report_errors_on_malformed_json() {
         let json = r#"{"ran": tru"#;
         assert!(parse_report(json).is_err());
     }
 
-    /// `parse_report` carries warnings forward so the FeatureMissing
-    /// error can include them in the user-facing message.
     #[test]
     fn parse_report_carries_warnings() {
         let json = r#"{"verb":"enrich_metrics","ran":false,"facts_scanned":0,"attrs_written":0,"edges_written":0,"warnings":["enrich_metrics: built without quality-metrics feature"]}"#;

@@ -1,27 +1,11 @@
-//! Pure prefix-extraction over `match`-arm patterns.
-//!
-//! The functions here take `syn` AST fragments and return values — zero
-//! I/O, zero emission. [`match_facts`] is the entry point the visitor
-//! calls once per `match` expression; the recursion and the wildcard
-//! heuristic below are its building blocks and are unit-tested directly.
-
 use std::collections::BTreeSet;
 
-/// The per-`match`-expression facts extracted from its arm list: the
-/// distinct name-level matched-path prefixes, the arm count, and the
-/// wildcard flag. One `:MatchSite` is emitted per prefix.
 pub(crate) struct MatchFacts {
-    /// Distinct matched-path prefixes in sorted order — deduped before the
-    /// visitor assigns occurrence-counter ids, so a multi-arm single-prefix
-    /// `match` yields exactly one entry.
     pub(crate) prefixes: Vec<String>,
     pub(crate) arm_count: u32,
     pub(crate) wildcard: bool,
 }
 
-/// Extract the [`MatchFacts`] for one `match` expression from its arm
-/// list. Pure over the arms — the dedup (`BTreeSet`) happens here, so the
-/// caller sees each prefix once regardless of how many arms carry it.
 pub(crate) fn match_facts(arms: &[syn::Arm]) -> MatchFacts {
     let mut prefixes: BTreeSet<String> = BTreeSet::new();
     let mut wildcard = false;
@@ -38,16 +22,8 @@ pub(crate) fn match_facts(arms: &[syn::Arm]) -> MatchFacts {
     }
 }
 
-/// Walk one arm pattern recursively through the `syn::Pat` variant list and
-/// insert the all-but-last-segment prefix of every multi-segment path it
-/// carries. `syn::Pat` is `#[non_exhaustive]`; every currently-known variant
-/// is handled explicitly and the trailing `_` arm covers only future variants
-/// (they fall through to no contribution — the future-variant panic worry is
-/// moot).
 fn collect_pattern_prefixes(pat: &syn::Pat, out: &mut BTreeSet<String>) {
     match pat {
-        // Path-bearing — contribute a prefix, and (for the two container
-        // forms) recurse into their sub-patterns.
         syn::Pat::Path(p) => push_path_prefix(&p.path, out),
         syn::Pat::TupleStruct(ts) => {
             push_path_prefix(&ts.path, out);
@@ -61,7 +37,6 @@ fn collect_pattern_prefixes(pat: &syn::Pat, out: &mut BTreeSet<String>) {
                 collect_pattern_prefixes(&field.pat, out);
             }
         }
-        // Containers — no own path; recurse.
         syn::Pat::Ident(pi) => {
             if let Some((_, subpat)) = &pi.subpat {
                 collect_pattern_prefixes(subpat, out);
@@ -84,7 +59,6 @@ fn collect_pattern_prefixes(pat: &syn::Pat, out: &mut BTreeSet<String>) {
                 collect_pattern_prefixes(elem, out);
             }
         }
-        // Leaves — contribute no path.
         syn::Pat::Wild(_)
         | syn::Pat::Rest(_)
         | syn::Pat::Lit(_)
@@ -93,16 +67,10 @@ fn collect_pattern_prefixes(pat: &syn::Pat, out: &mut BTreeSet<String>) {
         | syn::Pat::Macro(_)
         | syn::Pat::Verbatim(_)
         | syn::Pat::Type(_) => {}
-        // Future `#[non_exhaustive]` variants — no contribution.
         _ => {}
     }
 }
 
-/// Insert the all-but-last-segment prefix of `path` when it has ≥ 2
-/// segments. Single-segment paths (and bare idents, handled as
-/// `Pat::Ident` above) are indistinguishable from bindings at the syn
-/// level and are skipped. Segment idents are joined with `::`, ignoring
-/// generic arguments, mirroring `type_render::render_path`.
 fn push_path_prefix(path: &syn::Path, out: &mut BTreeSet<String>) {
     let segments: Vec<String> = path.segments.iter().map(|s| s.ident.to_string()).collect();
     if segments.len() >= 2 {
@@ -110,13 +78,6 @@ fn push_path_prefix(path: &syn::Path, out: &mut BTreeSet<String>) {
     }
 }
 
-/// True iff `pat` (an arm's top-level pattern) is a wildcard arm: a
-/// top-level `_` (`Pat::Wild`) OR a bare `Pat::Ident` with no sub-pattern
-/// whose identifier starts lowercase (a fresh binding, not a unit-variant/const
-/// path — syn does no name resolution, so this is a heuristic). Covers BOTH
-/// catch-all forms. `syn::Pat` is `#[non_exhaustive]`; all known variants are
-/// enumerated so the trailing `_` covers only future variants (never a
-/// wildcard arm).
 fn is_wildcard_arm(pat: &syn::Pat) -> bool {
     match pat {
         syn::Pat::Wild(_) => true,
@@ -150,12 +111,9 @@ fn is_wildcard_arm(pat: &syn::Pat) -> bool {
 
 #[cfg(test)]
 mod tests {
-    //! Fixture patterns — prefix extraction, arm counting, and the wildcard
-    //! heuristic (including the lowercase-ident ambiguity).
 
     use super::*;
 
-    /// Parse `match x { <arms> }` and return its arms.
     fn arms(src: &str) -> Vec<syn::Arm> {
         match syn::parse_str::<syn::Expr>(src).expect("valid match expression") {
             syn::Expr::Match(m) => m.arms,
@@ -167,7 +125,6 @@ mod tests {
         match_facts(&arms(src))
     }
 
-    /// Parse a single-arm match and return that arm's top-level pattern.
     fn first_pat(src: &str) -> syn::Pat {
         arms(src).into_iter().next().expect("one arm").pat
     }
@@ -182,16 +139,12 @@ mod tests {
 
     #[test]
     fn deeply_qualified_prefix_keeps_all_leading_segments() {
-        // `syn::Visibility::Public` → prefix `syn::Visibility` (the exact
-        // shape of cfdb's own canonical `parse_syn_visibility` site).
         let f = facts("match vis { syn::Visibility::Public(_) => () }");
         assert_eq!(f.prefixes, vec!["syn::Visibility".to_string()]);
     }
 
     #[test]
     fn nested_some_x_y_skips_the_single_segment_wrapper() {
-        // `Some(Visibility::Pub)` → one prefix `Visibility`; the
-        // single-segment `Some` wrapper contributes nothing.
         let f = facts("match v { Some(Visibility::Pub) => () }");
         assert_eq!(f.prefixes, vec!["Visibility".to_string()]);
     }
@@ -210,8 +163,6 @@ mod tests {
 
     #[test]
     fn ident_at_subpattern_recurses_into_the_bound_pattern() {
-        // `x @ Foo::A` → the `@` sub-pattern carries the path prefix; the
-        // `x` binding itself contributes nothing and is not a wildcard.
         let f = facts("match v { x @ Foo::A => () }");
         assert_eq!(f.prefixes, vec!["Foo".to_string()]);
         assert!(!f.wildcard);
@@ -233,17 +184,12 @@ mod tests {
 
     #[test]
     fn single_segment_pattern_is_skipped_recall_limit_1() {
-        // A bare uppercase ident (`Pub` under a glob import) parses as a
-        // binding-shaped `Pat::Ident` — indistinguishable from a
-        // unit-variant path, so no prefix is emitted.
         let f = facts("match v { Pub => () }");
         assert!(f.prefixes.is_empty());
     }
 
     #[test]
     fn literal_scrutinee_arms_emit_no_prefix_recall_limit_matches() {
-        // The `&str` match in `Visibility::FromStr` — string-literal arm
-        // patterns carry no path, so no `:MatchSite` is warranted.
         let f = facts(r#"match s { "pub" => 1, "private" => 2, _ => 0 }"#);
         assert!(f.prefixes.is_empty());
     }
@@ -252,7 +198,6 @@ mod tests {
     fn arm_count_reflects_every_arm() {
         let f = facts("match v { Foo::A => 1, Foo::B => 2, _ => 0 }");
         assert_eq!(f.arm_count, 3);
-        // The three arms collapse to the single distinct prefix `Foo`.
         assert_eq!(f.prefixes, vec!["Foo".to_string()]);
     }
 
@@ -264,15 +209,12 @@ mod tests {
 
     #[test]
     fn wildcard_lowercase_binding_sets_the_flag_recall_limit_2() {
-        // A bare lowercase binding is a catch-all under the heuristic.
         let f = facts("match v { Foo::A => 1, other => 0 }");
         assert!(f.wildcard);
     }
 
     #[test]
     fn uppercase_bare_ident_is_not_a_wildcard_recall_limit_2() {
-        // Ambiguity case: an uppercase bare ident reads as a
-        // variant/const path, not a fresh binding — not flagged.
         assert!(!is_wildcard_arm(&first_pat("match v { None => () }")));
     }
 

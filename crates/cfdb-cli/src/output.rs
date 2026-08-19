@@ -1,43 +1,24 @@
-//! Tiny output helpers — keep stdout shape consistent across handlers.
-
 use std::str::FromStr;
 
 use serde::Serialize;
 
 use crate::CfdbCliError;
 
-/// Pretty-print `payload` as JSON to stdout (newline-terminated via println!).
-/// Centralises the `serde_json::to_string_pretty + println!` shape that every
-/// JSON-emitting handler used to inline. Reachable from the binary crate
-/// (`main_dispatch.rs`) via the crate-root `pub use` re-export, same pattern
-/// as the other handler exports.
 pub fn emit_json<T: Serialize + ?Sized>(payload: &T) -> Result<(), CfdbCliError> {
     let json = serde_json::to_string_pretty(payload)?;
     println!("{json}");
     Ok(())
 }
 
-/// Canonical output format flag for every cfdb subcommand that takes
-/// `--format`. Each handler accepts a subset of variants — see per-site
-/// allowlist via [`OutputFormat::require_one_of`].
-///
-/// Wire strings (`text`, `json`, `sorted-jsonl`, `table`) are stable and
-/// asserted on by integration tests; do not rename them without a
-/// deliberate user-facing change.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputFormat {
-    /// `text` — TSV / human-readable shape (e.g. `cfdb check-predicate --format text`).
     Text,
-    /// `json` — pretty-printed JSON envelope, the default for most verbs.
     Json,
-    /// `sorted-jsonl` — one JSON object per line, deterministic sort order.
     SortedJsonl,
-    /// `table` — reserved for v0.2 tabular output. No handler accepts this today.
     Table,
 }
 
 impl OutputFormat {
-    /// Wire string used on the command line. Round-trips with [`FromStr`].
     pub fn as_wire(&self) -> &'static str {
         match self {
             OutputFormat::Text => "text",
@@ -47,11 +28,6 @@ impl OutputFormat {
         }
     }
 
-    /// Allowlist check — return `Ok(self)` if `self` is one of `allowed`,
-    /// otherwise produce a [`CfdbCliError::Usage`] of the shape
-    /// `"<cmd>: --format `<got>` not supported; expected `<a>` or `<b>` ..."`.
-    /// The wire shape matches the per-handler error messages that existed
-    /// before unification so substring-asserting integration tests keep passing.
     pub fn require_one_of(self, allowed: &[OutputFormat], cmd: &str) -> Result<Self, CfdbCliError> {
         if allowed.contains(&self) {
             return Ok(self);

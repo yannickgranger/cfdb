@@ -7,7 +7,6 @@ use cfdb_petgraph::PetgraphStore;
 
 use crate::EnrichEngine;
 
-/// Build an `:Item` node with given qname + crate. `id` = `item:{qname}`.
 fn item_node(qname: &str, crate_name: &str) -> Node {
     let mut props = Props::new();
     props.insert("qname".into(), PropValue::Str(qname.into()));
@@ -116,10 +115,6 @@ fn read_reach_pair(
     (r, c)
 }
 
-// ------------------------------------------------------------------
-// 1 entry point E -[:EXPOSES]-> A; A -[:CALLS]-> B; C isolated.
-// ------------------------------------------------------------------
-
 #[test]
 fn ac1_three_item_fixture_reachability() {
     let mut store = PetgraphStore::new();
@@ -173,19 +168,10 @@ fn ac1_three_item_fixture_reachability() {
     );
 }
 
-// ------------------------------------------------------------------
-// multi-entry-point attribution — two entry points reaching an
-// overlapping item should count 2.
-// ------------------------------------------------------------------
-
 #[test]
 fn ac2_multi_entry_attribution_counts_distinct_origins() {
     let mut store = PetgraphStore::new();
     let ks = Keyspace::new("test");
-    // E1 -[:EXPOSES]-> A1 -[:CALLS]-> Shared
-    // E2 -[:EXPOSES]-> A2 -[:CALLS]-> Shared
-    // A1 and A2 are each reached by one entry point.
-    // Shared is reached by both → count = 2.
     store
         .ingest_nodes(
             &ks,
@@ -223,10 +209,6 @@ fn ac2_multi_entry_attribution_counts_distinct_origins() {
     );
 }
 
-// ------------------------------------------------------------------
-// zero :EntryPoint → ran=false + warning, no attrs touched.
-// ------------------------------------------------------------------
-
 #[test]
 fn ac3_zero_entry_points_returns_ran_false_with_warning() {
     let mut store = PetgraphStore::new();
@@ -234,7 +216,6 @@ fn ac3_zero_entry_points_returns_ran_false_with_warning() {
     store
         .ingest_nodes(&ks, vec![item_node("A", "x"), item_node("B", "x")])
         .expect("ingest");
-    // No :EntryPoint nodes ingested.
 
     let report = EnrichEngine::new(&mut store)
         .enrich_reachability(&ks)
@@ -248,15 +229,10 @@ fn ac3_zero_entry_points_returns_ran_false_with_warning() {
         report.warnings
     );
 
-    // Confirm no attrs were silently written on A or B.
     let props_a = get_item_props(&store, &ks, "A");
     assert!(!props_a.contains_key("reachable_from_entry"));
     assert!(!props_a.contains_key("reachable_entry_count"));
 }
-
-// ------------------------------------------------------------------
-// cycle safety — graph with A -> B -> A terminates.
-// ------------------------------------------------------------------
 
 #[test]
 fn ac5_call_cycle_does_not_loop_forever() {
@@ -272,7 +248,6 @@ fn ac5_call_cycle_does_not_loop_forever() {
             ],
         )
         .expect("ingest");
-    // Cycle: A → B → A. Both reachable from E.
     store
         .ingest_edges(
             &ks,
@@ -292,10 +267,6 @@ fn ac5_call_cycle_does_not_loop_forever() {
     assert_eq!(get_reachability(&store, &ks, "A"), (true, 1));
     assert_eq!(get_reachability(&store, &ks, "B"), (true, 1));
 }
-
-// ------------------------------------------------------------------
-// determinism across two runs.
-// ------------------------------------------------------------------
 
 #[test]
 fn ac6_two_runs_produce_identical_canonical_dumps() {
@@ -342,26 +313,13 @@ fn ac6_two_runs_produce_identical_canonical_dumps() {
     assert_eq!(d1, d2, "two runs must be byte-identical (AC-6)");
 }
 
-// ------------------------------------------------------------------
-// Entry-point item that EXPOSES nothing — contributes no seed. The
-// catalog is inconsistent (every :EntryPoint should EXPOSES an :Item),
-// but we don't fail the pass.
-// ------------------------------------------------------------------
-
 #[test]
 fn entry_point_without_exposes_is_ignored() {
     let mut store = PetgraphStore::new();
     let ks = Keyspace::new("test");
     store
-        .ingest_nodes(
-            &ks,
-            vec![
-                entry_point_node("ep:E"), // no outgoing EXPOSES
-                item_node("A", "x"),
-            ],
-        )
+        .ingest_nodes(&ks, vec![entry_point_node("ep:E"), item_node("A", "x")])
         .expect("ingest");
-    // No edges.
 
     let report = EnrichEngine::new(&mut store)
         .enrich_reachability(&ks)
@@ -370,10 +328,6 @@ fn entry_point_without_exposes_is_ignored() {
     assert!(report.ran, "pass still runs when EP is dangling");
     assert_eq!(get_reachability(&store, &ks, "A"), (false, 0));
 }
-
-// ------------------------------------------------------------------
-// Other edge kinds (LABELED_AS, REFERENCED_BY) are NOT traversed.
-// ------------------------------------------------------------------
 
 #[test]
 fn bfs_ignores_non_calls_edges() {
@@ -394,7 +348,6 @@ fn bfs_ignores_non_calls_edges() {
             &ks,
             vec![
                 exposes_edge("ep:E", "item:A"),
-                // NOT a CALLS edge — BFS must not follow.
                 Edge {
                     src: "item:A".into(),
                     dst: "item:B".into(),
@@ -426,16 +379,6 @@ fn unknown_keyspace_returns_err() {
         .expect_err("unknown keyspace must err");
     assert!(format!("{err:?}").contains("UnknownKeyspace"));
 }
-
-// ==================================================================
-// ReachabilityFilter::ProductionOnly
-// ==================================================================
-//
-// Two EntryPoints — one kind=mcp_tool, one kind=test — each EXPOSES a
-// distinct :Item. One `enrich_reachability(&ks)` call runs BOTH passes
-// (All then ProductionOnly). Pass 1 writes `reachable_from_entry`;
-// Pass 2 writes `reachable_from_production_entry`. ProductionOnly
-// excludes kind ∈ {test, bench} from the seed set.
 
 #[test]
 fn prod1_test_entry_excluded_from_production_pass() {
@@ -472,11 +415,9 @@ fn prod1_test_entry_excluded_from_production_pass() {
         "2 items × 4 attrs — both passes (All + ProductionOnly) write 2 each"
     );
 
-    // Pass 1 (All) — both items reachable.
     assert_eq!(get_reachability(&store, &ks, "A"), (true, 1));
     assert_eq!(get_reachability(&store, &ks, "T"), (true, 1));
 
-    // Pass 2 (ProductionOnly) — only the mcp_tool-exposed item.
     assert_eq!(get_production_reachability(&store, &ks, "A"), (true, 1));
     assert_eq!(
         get_production_reachability(&store, &ks, "T"),
@@ -526,10 +467,6 @@ fn prod2_bench_entry_excluded_from_production_pass() {
 
 #[test]
 fn prod3_shared_item_counts_only_production_entries_in_prod_pass() {
-    // ep:Http -[:EXPOSES]-> A1 -[:CALLS]-> Shared
-    // ep:Test -[:EXPOSES]-> T1 -[:CALLS]-> Shared
-    // All-pass: Shared reached from seeds {A1, T1} → count=2.
-    // ProductionOnly: ep:Test filtered out, seeds {A1} → count=1.
     let mut store = PetgraphStore::new();
     let ks = Keyspace::new("test");
     store
@@ -570,17 +507,12 @@ fn prod3_shared_item_counts_only_production_entries_in_prod_pass() {
         (true, 1),
         "Production pass: only A1 is a seed (T1's EP filtered out)"
     );
-    // T1 itself: All-pass true (seeded by its test EP); Prod-pass false
-    // (T1's EP filtered out, no other seed reaches it).
     assert_eq!(get_reachability(&store, &ks, "T1"), (true, 1));
     assert_eq!(get_production_reachability(&store, &ks, "T1"), (false, 0));
 }
 
 #[test]
 fn prod4_all_test_entries_writes_explicit_false_for_all_items() {
-    // Catalog has entry points, but ALL of them are kind=test. ProductionOnly
-    // pass produces zero seeds → every :Item gets (false, 0). The pass still
-    // ran=true (degraded-path warning only fires on zero unfiltered EPs).
     let mut store = PetgraphStore::new();
     let ks = Keyspace::new("test");
     store
@@ -612,8 +544,6 @@ fn prod4_all_test_entries_writes_explicit_false_for_all_items() {
         report.ran,
         "pass still runs — unfiltered EP set is non-empty"
     );
-    // Both items have All=true (reached by their test EP) but Prod=false
-    // (every EP filtered out).
     assert_eq!(get_reachability(&store, &ks, "A"), (true, 1));
     assert_eq!(get_reachability(&store, &ks, "B"), (true, 1));
     assert_eq!(
@@ -673,25 +603,6 @@ fn prod5_two_runs_with_mixed_kinds_are_byte_identical() {
     );
 }
 
-// ==================================================================
-// serde_default callee resolution post-pass
-// ==================================================================
-//
-// `:CallSite{kind="serde_default"}` carries a `callee_path` string
-// referencing a fn invoked by serde's derived `Deserialize` impl. The
-// derive expansion is invisible to cfdb (proc-macro server is disabled),
-// so the BFS never reaches the callee through a normal call
-// chain. Without the post-pass, every `#[serde(default = "fn")]`
-// callee is flagged `unwired`.
-//
-// The post-pass walks every `:CallSite{kind="serde_default"}` node,
-// resolves `callee_path` against `:Item.qname` using
-// exact / same-module / same-crate candidate matching, and sets
-// `reachable_from_entry = true` (and, on the ProductionOnly pass,
-// `reachable_from_production_entry = true`) on the resolved item.
-// `reachable_entry_count` is intentionally NOT incremented — the count
-// semantic remains "distinct BFS-reaching entry points".
-
 fn serde_default_callsite(parent_qname: &str, field: &str, callee_path: &str) -> Node {
     let mut props = Props::new();
     props.insert("kind".into(), PropValue::Str("serde_default".into()));
@@ -718,12 +629,6 @@ fn invokes_at_edge(src: &str, dst: &str) -> Edge {
 fn issue_396_serde_default_callee_with_exact_qname_match_becomes_reachable() {
     let mut store = PetgraphStore::new();
     let ks = Keyspace::new("test");
-    // Entry point E → load_config (reachable via BFS).
-    // AppConfig is a struct (NOT reached by BFS — types aren't called).
-    // AppConfig has #[serde(default = "myapp::config::default_url")] on
-    // the `url` field; callee_path is the FULLY-QUALIFIED form (the
-    // exact-match resolution strategy must catch this case).
-    // default_url itself has NO CALLS predecessor.
     store
         .ingest_nodes(
             &ks,
@@ -784,11 +689,6 @@ fn issue_396_serde_default_callee_with_exact_qname_match_becomes_reachable() {
 fn issue_396_serde_default_callee_with_same_module_short_form_becomes_reachable() {
     let mut store = PetgraphStore::new();
     let ks = Keyspace::new("test");
-    // Author wrote #[serde(default = "default_url")] — the short form
-    // that assumes default_url is in the SAME MODULE as AppConfig.
-    // The same-module resolver must split AppConfig's qname on the
-    // last `::` to recover the module path, then prepend it to
-    // callee_path.
     store
         .ingest_nodes(
             &ks,
@@ -830,9 +730,6 @@ fn issue_396_serde_default_callee_with_same_module_short_form_becomes_reachable(
 fn issue_396_serde_default_callee_unresolvable_does_not_panic() {
     let mut store = PetgraphStore::new();
     let ks = Keyspace::new("test");
-    // callee_path resolves to NO :Item — e.g. the callee is in a
-    // dependency crate not included in the workspace. The post-pass
-    // must skip silently, not panic.
     store
         .ingest_nodes(
             &ks,
@@ -857,7 +754,6 @@ fn issue_396_serde_default_callee_unresolvable_does_not_panic() {
         )
         .expect("ingest");
 
-    // Must not panic. AppConfig stays unreachable (no caller).
     EnrichEngine::new(&mut store)
         .enrich_reachability(&ks)
         .expect("pass");
@@ -871,9 +767,6 @@ fn issue_396_serde_default_callee_unresolvable_does_not_panic() {
 fn issue_396_non_serde_default_callsite_is_ignored() {
     let mut store = PetgraphStore::new();
     let ks = Keyspace::new("test");
-    // A regular `:CallSite{kind="call"}` (from a normal fn body) must
-    // NOT be picked up by the serde_default post-pass — it would
-    // contaminate reachability with un-resolved textual callee paths.
     let mut cs_props = Props::new();
     cs_props.insert("kind".into(), PropValue::Str("call".into()));
     cs_props.insert(
@@ -907,20 +800,12 @@ fn issue_396_non_serde_default_callsite_is_ignored() {
         .enrich_reachability(&ks)
         .expect("pass");
 
-    // dead_fn must stay unreachable — its callsite kind is "call",
-    // not "serde_default", so the post-pass must not touch it.
     assert_eq!(
         get_reachability(&store, &ks, "myapp::dead_fn"),
         (false, 0),
         "post-pass must scope its writes to kind=serde_default callsites"
     );
 }
-
-// ------------------------------------------------------------------
-// HIR dispatch shape: (:Item)-[:INVOKES_AT]->(:CallSite)-[:CALLS]->(:Item).
-// The BFS must cross the callsite hop; the callsite itself is never
-// attributed (only `:Item` nodes carry reach attrs).
-// ------------------------------------------------------------------
 
 #[test]
 fn bfs_traverses_hir_two_hop_invokes_at_then_calls_shape() {
@@ -973,11 +858,6 @@ fn bfs_traverses_hir_two_hop_invokes_at_then_calls_shape() {
         "2 items × 4 attrs; the transited :CallSite gets none"
     );
 }
-
-// ------------------------------------------------------------------
-// `attrs_written` counts the serde-default post-pass writes too: one per
-// resolved callsite per pass, on top of the per-item BFS attrs.
-// ------------------------------------------------------------------
 
 #[test]
 fn attrs_written_includes_one_serde_default_resolution_per_pass() {
