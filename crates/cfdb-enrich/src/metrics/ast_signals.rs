@@ -1,19 +1,3 @@
-//! `.unwrap()` / `.expect()` count + McCabe cyclomatic from a
-//! `syn::File`. Pure functions — no I/O beyond `std::fs::read_to_string`
-//! in the orchestration entry point.
-//!
-//! # Cyclomatic rule
-//!
-//! McCabe: `branches + 1`. Branches counted:
-//! - `if` / `else if` (each arm adds 1, baseline arm is the +1)
-//! - `match` arms (N arms → N-1 branches, the fall-through is the +1)
-//! - `while`, `while let`, `for`, `loop` (each loop head is 1 branch)
-//! - `&&`, `||` short-circuits (each adds 1)
-//! - `?` operator (early-return counts as 1)
-//!
-//! The `+1` baseline covers the single straight-line path. A trivial
-//! `fn x() {}` has cyclomatic = 1.
-
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
@@ -21,24 +5,18 @@ use syn::visit::{self, Visit};
 
 use super::FnItem;
 
-/// AST-derived per-function signals.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct AstSignals {
     pub unwrap_count: usize,
     pub cyclomatic: usize,
 }
 
-/// Scan every distinct source file referenced by `items` and return the
-/// per-qname signals. Missing / unparseable files produce a warning and
-/// are skipped (other items still get signals).
 pub(crate) fn scan_workspace(
     items: &[FnItem],
     workspace_root: &Path,
     warnings: &mut Vec<String>,
 ) -> BTreeMap<String, AstSignals> {
     let files = distinct_files(items);
-    // Consume `files` by value so each `rel: String` is moved into the
-    // map (no per-iteration clone).
     let mut by_file: BTreeMap<String, syn::File> = BTreeMap::new();
     for rel in files {
         let abs = workspace_root.join(&rel);
@@ -54,7 +32,6 @@ pub(crate) fn scan_workspace(
         }
     }
 
-    // Iterator chain form avoids `.clone()` inside a `for` body.
     items
         .iter()
         .filter_map(|item| {
@@ -66,8 +43,6 @@ pub(crate) fn scan_workspace(
 }
 
 fn distinct_files(items: &[FnItem]) -> Vec<String> {
-    // BTreeSet (not HashSet) keeps this deterministic — iteration order is
-    // the sort order, so the collected Vec is already sorted.
     let set: BTreeSet<&str> = items.iter().map(|i| i.file.as_str()).collect();
     set.into_iter().map(str::to_string).collect()
 }
@@ -77,10 +52,6 @@ fn parse_file(path: &Path) -> Result<syn::File, String> {
     syn::parse_file(&src).map_err(|e| format!("parse: {e}"))
 }
 
-/// Find the first `fn` item with matching `ident == name` anywhere in
-/// the file (including nested in `impl` / `mod`) and compute its
-/// signals. Returns `None` if no match. `pub(crate)` — consumed only
-/// by `scan_workspace` and unit tests.
 pub(crate) fn compute_for_item(file: &syn::File, name: &str) -> Option<AstSignals> {
     let mut finder = FnFinder {
         target: name,
@@ -121,8 +92,6 @@ impl<'ast, 'a> Visit<'ast> for FnFinder<'a> {
     }
 }
 
-/// Compute signals for a single block. Pure function over `syn::Block`.
-/// `pub(crate)` — used by `compute_for_item` + unit tests only.
 pub(crate) fn compute_for_block(block: &syn::Block) -> AstSignals {
     let mut v = SignalVisitor::default();
     v.visit_block(block);
@@ -150,7 +119,6 @@ impl<'ast> Visit<'ast> for SignalVisitor {
         visit::visit_expr_if(self, node);
     }
     fn visit_expr_match(&mut self, node: &'ast syn::ExprMatch) {
-        // N arms → N-1 branches (the fall-through is the +1 baseline).
         self.branches += node.arms.len().saturating_sub(1);
         visit::visit_expr_match(self, node);
     }
@@ -228,7 +196,6 @@ mod tests {
     fn short_circuit_ops_add_branches() {
         let block = parse_block("{ let y = a && b || c; }");
         let s = compute_for_block(&block);
-        // `a && b` is one branch, `... || c` is another → 1 + 2 = 3.
         assert_eq!(s.cyclomatic, 3);
     }
 

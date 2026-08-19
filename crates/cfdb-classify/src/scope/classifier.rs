@@ -15,12 +15,6 @@ use crate::rules::{
 };
 use crate::taxonomy::{CanonicalCandidate, DebtClass, Finding};
 
-/// Static list of (class, cypher source) pairs. Iteration order matches
-/// [`DebtClass::variants`] so the orchestrator run order is deterministic.
-///
-/// `production_only` swaps the `Unwired` cypher between the all-kinds default
-/// and the production-only variant. The two cyphers are structural siblings —
-/// the only difference is which reachability attr they read.
 pub(super) fn classifier_rules(production_only: bool) -> [(DebtClass, &'static str); 6] {
     let unwired_cypher = if production_only {
         CLASSIFIER_UNWIRED_PRODUCTION_CYPHER
@@ -49,11 +43,6 @@ pub(super) fn classifier_rules(production_only: bool) -> [(DebtClass, &'static s
     ]
 }
 
-/// Parse, bind `$context`, and execute one classifier rule. Returns
-/// the `Finding` rows projected from the result. Missing inputs
-/// (absent HIR enrichment, absent concept TOML, etc.) surface as
-/// empty result rows — this is the correct degradation, and the
-/// warning pass reports the dependency gap.
 pub(super) fn run_classifier_rule<S: GraphBackend>(
     engine: &QueryEngine<'_, S>,
     ks: &Keyspace,
@@ -69,29 +58,13 @@ pub(super) fn run_classifier_rule<S: GraphBackend>(
         "context".to_string(),
         ParamBinding::Scalar(PropValue::Str(context.to_string())),
     );
-    // Per-rule execution is infallible beyond store-level errors;
-    // missing props silently return empty rows (parser / evaluator
-    // absent-prop semantics), which lets the orchestrator tolerate
-    // keyspaces extracted without HIR / concepts / reachability.
     let result = match sink.run(engine, ks, &parsed) {
         Ok(r) => r,
-        // A store-level execution error on a classifier rule is a
-        // keyspace shape mismatch (e.g. `:EntryPoint` label absent
-        // because the keyspace was extracted with the syn-only
-        // extractor). Treat as "classifier rule cannot run against
-        // this keyspace" — return empty rows, let the warning path
-        // document the degradation.
         Err(_) => return Ok(Vec::new()),
     };
     Ok(result.rows.iter().filter_map(finding_from_row).collect())
 }
 
-/// Build an inventory query pre-filtered to a single bounded context by
-/// embedding `WHERE item.bounded_context = $context` in the Cypher AST.
-/// Pushing the predicate into the evaluator avoids materialising all rows
-/// before the Rust filter — the prior shape was an unbounded query
-/// returning every `:Item` across all contexts, then filtered in Rust,
-/// the root cause of a 13 GB OOM on large keyspaces.
 pub(super) fn compose_inventory_query_for_context(context: &str) -> cfdb_core::query::Query {
     use cfdb_core::query::{CompareOp, Expr, Predicate};
     let mut q = compose_list_items_matching(".*", None, false);
@@ -114,9 +87,6 @@ pub(super) fn compose_inventory_query_for_context(context: &str) -> cfdb_core::q
     q
 }
 
-/// Pull the context-filtered inventory rows + derive the per-crate LOC
-/// approximation. Factored out of [`build_scope_inventory`] to keep each
-/// helper under the cognitive-complexity ceiling.
 pub(super) fn query_findings_in_context<S: GraphBackend>(
     engine: &QueryEngine<'_, S>,
     ks: &Keyspace,
@@ -138,8 +108,6 @@ pub(super) fn query_findings_in_context<S: GraphBackend>(
     Ok((findings_in_context, loc_per_crate))
 }
 
-/// Run the embedded `hsb-by-name` rule and project each matching row into
-/// a canonical candidate if at least one crate belongs to the context.
 pub(super) fn query_canonical_candidates<S: GraphBackend>(
     engine: &QueryEngine<'_, S>,
     ks: &Keyspace,
@@ -161,19 +129,6 @@ pub(super) fn query_canonical_candidates<S: GraphBackend>(
 
 #[cfg(test)]
 mod tests_memory_169 {
-    //! Regression test for bounded context filtering.
-    //!
-    //! Prior behaviour: `query_findings_in_context` called
-    //! `compose_list_items_matching(".*", None, false)` — an unbounded
-    //! query returning every `:Item` across all contexts — then filtered in
-    //! Rust with `if row_context != context { continue; }`. On a 148k-item
-    //! keyspace the evaluator materialised every row before the Rust filter
-    //! could throw them away, a direct contributor to a 13 GB OOM.
-    //!
-    //! The fix pushes the `bounded_context = $context` constraint into the
-    //! Cypher query. This test asserts the structural invariant without
-    //! executing the query: the composed `Query` AST must carry a predicate
-    //! (or parameter binding) that constrains `item.bounded_context`.
     use cfdb_core::query::{CompareOp, Expr, Predicate, Query};
 
     use super::compose_inventory_query_for_context;

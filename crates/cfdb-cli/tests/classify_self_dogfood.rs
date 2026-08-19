@@ -1,11 +1,3 @@
-//! Self-dogfood integration test for `cfdb classify` — runs the real
-//! binary end-to-end against a cfdb extract of the worktree itself.
-//!
-//! Exercises AC1 (verb accepts --db + --keyspace + --restrict-to-diff),
-//! AC2 (every finding maps to one DebtClass), AC6 (exit 0), AC7
-//! (empty-bucket warnings preserved), and the wiring assertion that
-//! every classified row's qname is in the restrict set.
-
 #![cfg(feature = "classify")]
 
 use std::path::{Path, PathBuf};
@@ -17,13 +9,6 @@ use tempfile::tempdir;
 
 mod common;
 
-/// Shared extract of the cfdb worktree into two identical keyspaces
-/// (`cfdb-a`, `cfdb-b`), built once and reused read-only by every test in
-/// this binary. Replaces the former per-test `extract_two_keyspaces`,
-/// which re-ran two whole-tree extracts in each of the 6 tests (12
-/// extracts → 2). The keyspaces are read-only here (diff/classify only
-/// read them; per-test `diff.json` outputs go to a separate tempdir), so
-/// sharing is faithful — assertions see byte-identical data.
 fn shared_db() -> PathBuf {
     common::cached_db("classify-self-dogfood", |db| {
         common::extract(db, &common::workspace_root(), "cfdb-a", &[]);
@@ -89,7 +74,6 @@ fn classify_against_identical_keyspaces_emits_empty_buckets_and_warnings() {
     assert_eq!(envelope.diff_source.a, "cfdb-a");
     assert_eq!(envelope.diff_source.b, "cfdb-b");
 
-    // Identical keyspaces → empty diff → empty restrict set → all buckets empty.
     for (class, bucket) in &envelope.inventory.findings_by_class {
         assert!(
             bucket.is_empty(),
@@ -97,7 +81,6 @@ fn classify_against_identical_keyspaces_emits_empty_buckets_and_warnings() {
         );
     }
 
-    // AC7 regression lock: empty-bucket warnings surface for every class.
     assert!(
         !envelope.inventory.warnings.is_empty(),
         "expected per-class empty-bucket warnings + HIR caveat"
@@ -209,9 +192,6 @@ fn classify_emits_sorted_jsonl_header_and_finding_lines() {
     assert_eq!(header["diff_source"]["a"], "cfdb-a");
     assert_eq!(header["diff_source"]["b"], "cfdb-b");
 
-    // Every subsequent line is either a finding or a warning. Identical
-    // keyspaces produce an empty diff → no `op:finding` lines; but
-    // empty-bucket warnings should still emit `op:warning` lines.
     for line in lines {
         let v: serde_json::Value = serde_json::from_str(line).expect("JSONL line parses");
         let op = v["op"].as_str().expect("op is a string");

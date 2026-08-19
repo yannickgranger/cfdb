@@ -1,25 +1,3 @@
-//! `cfdb-recall` — per-crate recall gate for the cfdb-extractor.
-//!
-//! Usage:
-//!
-//! ```text
-//! cfdb-recall --workspace <cargo-workspace-root> \
-//!             --crate <lib-crate-name> [--crate <other>]... \
-//!             [--audit-list <path/to/recall-audit.toml>] \
-//!             [--threshold 0.95] \
-//!             [--gaps-file <path/to/KNOWN_GAPS.md>]
-//! ```
-//!
-//! Exit codes:
-//!   0 — every named crate is ≥ threshold (or vacuously passes)
-//!   1 — at least one crate is below threshold
-//!   2 — usage error, extractor error, or rustdoc build error
-//!
-//! The binary is deliberately small: it's a CLI wrapper around the pure
-//! `cfdb_recall::compute_recall` function and the two adapters. Anything
-//! business-rule-shaped lives in the library and is tested there; this
-//! file only handles I/O orchestration and exit-code semantics.
-
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -39,68 +17,42 @@ use cfdb_recall::{
     about = "Measure cfdb-extractor recall against cargo public-api ground truth."
 )]
 struct Cli {
-    /// Cargo workspace root containing the crates to measure. Passed
-    /// verbatim to `cfdb-extractor::extract_workspace`.
+    #[arg(
+        help = "Cargo workspace root containing the crates to measure. Passed verbatim to `cfdb-extractor::extract_workspace`"
+    )]
     #[arg(long)]
     workspace: PathBuf,
 
-    /// Library crate to measure. Can be repeated. Each name must match
-    /// a workspace member that builds rustdoc JSON cleanly.
+    #[arg(
+        help = "Library crate to measure. Can be repeated. Each name must match a workspace member that builds rustdoc JSON cleanly"
+    )]
     #[arg(long = "crate", value_name = "CRATE")]
     crates: Vec<String>,
 
-    /// Audit list file — TOML with a `[[audit]]` array-of-tables, each
-    /// entry having `qname` and `reason` fields. See `recall-audit.toml`
-    /// next to this crate for the schema.
+    #[arg(
+        help = "Audit list file — TOML with a `[[audit]]` array-of-tables, each entry having `qname` and `reason` fields. See `recall-audit.toml` next to this crate for the schema"
+    )]
     #[arg(long)]
     audit_list: Option<PathBuf>,
 
-    /// Recall threshold in the range [0.0, 1.0]. If omitted, the
-    /// per-crate threshold is sourced from `threshold_for_crate` in
-    /// `cfdb_recall::thresholds` (defaults to
-    /// `RECALL_THRESHOLD_PER_CRATE`). Raising the floor requires editing
-    /// the constant in `crates/cfdb-recall/src/thresholds.rs` and a
-    /// reviewed PR. The PR-time slim build still uses `DEFAULT_THRESHOLD`
-    /// (default: 0.95).
+    #[arg(
+        help = "Recall threshold in the range [0.0, 1.0]. If omitted, the per-crate threshold is sourced from `threshold_for_crate` in `cfdb_recall::thresholds` (defaults to `RECALL_THRESHOLD_PER_CRATE`). Raising the floor requires editing the constant in `crates/cfdb-recall/src/thresholds.rs` and a reviewed PR. The PR-time slim build still uses `DEFAULT_THRESHOLD` (default: 0.95)"
+    )]
     #[arg(long)]
     threshold: Option<f64>,
 
-    /// Where to write the human-readable gap report. If omitted, no file
-    /// is written; the summary still goes to stdout.
+    #[arg(
+        help = "Where to write the human-readable gap report. If omitted, no file is written; the summary still goes to stdout"
+    )]
     #[arg(long)]
     gaps_file: Option<PathBuf>,
 
-    /// Where to write the machine-readable per-crate + aggregate report as
-    /// JSON. Consumed by the nightly Gitea status workflow to drive
-    /// per-crate `recall/<crate>` and aggregate `recall/total` commit
-    /// statuses, and uploaded as the `recall-ratios.json` workflow artifact.
-    /// If omitted, no file is written.
-    ///
-    /// Schema:
-    /// ```json
-    /// {
-    ///   "schema_version": 1,
-    ///   "crates": [
-    ///     {
-    ///       "name": "cfdb-core",
-    ///       "recall": 0.97,
-    ///       "threshold": 0.85,
-    ///       "passes": true,
-    ///       "matched": 97,
-    ///       "adjusted_denominator": 100,
-    ///       "missing_count": 3
-    ///     }
-    ///   ],
-    ///   "total": {
-    ///     "recall": 0.93,
-    ///     "threshold": 0.90,
-    ///     "passes": true,
-    ///     "matched": 350,
-    ///     "adjusted_denominator": 376
-    ///   }
-    /// }
-    /// ```
-    /// `recall` is `null` for crates with a vacuous (empty) denominator.
+    #[arg(
+        help = "Where to write the machine-readable per-crate + aggregate report as JSON. Consumed by the nightly Gitea status workflow to drive per-crate `recall/<crate>` and aggregate `recall/total` commit statuses, and uploaded as the `recall-ratios.json` workflow artifact. If omitted, no file is written",
+        long_help = "Where to write the machine-readable per-crate + aggregate report as JSON. Consumed by the nightly Gitea status workflow to drive per-crate `recall/<crate>` and aggregate `recall/total` commit statuses, and uploaded as the `recall-ratios.json` workflow artifact. If omitted, no file is written.
+
+Schema: ```json { \"schema_version\": 1, \"crates\": [ { \"name\": \"cfdb-core\", \"recall\": 0.97, \"threshold\": 0.85, \"passes\": true, \"matched\": 97, \"adjusted_denominator\": 100, \"missing_count\": 3 } ], \"total\": { \"recall\": 0.93, \"threshold\": 0.90, \"passes\": true, \"matched\": 350, \"adjusted_denominator\": 376 } } ``` `recall` is `null` for crates with a vacuous (empty) denominator."
+    )]
     #[arg(long)]
     json_out: Option<PathBuf>,
 }
@@ -131,8 +83,6 @@ fn main() -> ExitCode {
     }
 }
 
-/// Load the optional audit list at `path`, or return an empty list when
-/// none supplied. Maps load failure to `ExitCode(2)` (usage error).
 fn load_audit_or_default(path: Option<&Path>) -> Result<AuditList, ExitCode> {
     let Some(path) = path else {
         return Ok(AuditList::new());
@@ -143,8 +93,6 @@ fn load_audit_or_default(path: Option<&Path>) -> Result<AuditList, ExitCode> {
     })
 }
 
-/// Run the extractor over `workspace` and project into per-crate item
-/// sets. Maps extractor failure to `ExitCode(2)` (usage error).
 fn extract_workspace_items(
     workspace: &Path,
 ) -> Result<BTreeMap<String, BTreeSet<PublicItem>>, ExitCode> {
@@ -154,9 +102,6 @@ fn extract_workspace_items(
     })
 }
 
-/// Build a `RecallReport` per named crate and report whether any failed.
-/// Returns `(reports, any_failed)` on success, `ExitCode(2)` on
-/// ground-truth build failure.
 fn gather_crate_reports(
     cli: &Cli,
     extracted_by_crate: &BTreeMap<String, BTreeSet<PublicItem>>,
@@ -175,12 +120,6 @@ fn gather_crate_reports(
     Ok((reports, any_failed))
 }
 
-/// Build the rustdoc ground-truth public API for `crate_name` and compute
-/// its `RecallReport` against the extractor's projection. Per-crate
-/// threshold dispatch (#340): if `--threshold` is omitted, source the
-/// floor from `threshold_for_crate` so each crate gets its own
-/// const-driven floor. Explicit `--threshold` overrides the dispatch
-/// (preserves the v0.1 PR-time 0.95 invocation contract).
 fn build_crate_report(
     cli: &Cli,
     crate_name: &str,
@@ -196,10 +135,6 @@ fn build_crate_report(
         eprintln!("cfdb-recall: ground-truth build failed for {crate_name}: {e}");
         ExitCode::from(2)
     })?;
-    // The extractor stores the `crate` node prop as the raw Cargo
-    // package name (hyphens preserved). Qnames inside the crate
-    // normalize hyphens to underscores because that is what rustc's
-    // module system does — but the top-level crate key does not.
     let extracted = extracted_by_crate
         .get(crate_name)
         .cloned()
@@ -212,9 +147,6 @@ fn build_crate_report(
     ))
 }
 
-/// Write the optional `KNOWN_GAPS.md` and `recall-ratios.json` outputs
-/// when their CLI paths are provided. Either failure maps to
-/// `ExitCode(2)`.
 fn emit_optional_outputs(cli: &Cli, reports: &[RecallReport]) -> Result<(), ExitCode> {
     if let Some(path) = cli.gaps_file.as_ref() {
         write_gaps_file(path, reports).map_err(|e| {
@@ -232,9 +164,6 @@ fn emit_optional_outputs(cli: &Cli, reports: &[RecallReport]) -> Result<(), Exit
 }
 
 fn load_audit_list(path: &std::path::Path) -> Result<AuditList, Box<dyn std::error::Error>> {
-    // Minimal TOML-free format: one qname per line, with `#` comments.
-    // Keeping this dependency-free avoids pulling `toml` into the crate
-    // just for a file we expect to stay under 50 lines.
     let text = std::fs::read_to_string(path)?;
     let items: BTreeSet<PublicItem> = text
         .lines()
@@ -326,15 +255,6 @@ fn write_gaps_file(path: &std::path::Path, reports: &[RecallReport]) -> Result<(
     std::fs::write(path, md)
 }
 
-/// Write the per-crate + aggregate report as JSON for the nightly Gitea
-/// status workflow (#340 AC-2 / AC-3). The aggregate threshold is sourced
-/// from [`RECALL_THRESHOLD_TOTAL`] in `cfdb_recall::thresholds`; per-crate
-/// thresholds are sourced from each [`RecallReport`]'s `threshold` field
-/// (which the workflow seeds from [`threshold_for_crate`]).
-///
-/// The schema is intentionally flat and version-tagged
-/// (`schema_version: 1`). Bumping it requires a coordinated edit to the
-/// workflow's jq parser.
 fn write_json_out(path: &std::path::Path, reports: &[RecallReport]) -> Result<(), std::io::Error> {
     let crates: Vec<serde_json::Value> = reports
         .iter()
@@ -342,8 +262,6 @@ fn write_json_out(path: &std::path::Path, reports: &[RecallReport]) -> Result<()
             let recall = r.recall();
             serde_json::json!({
                 "name": r.crate_name,
-                // null when the denominator is empty (vacuous pass) — the
-                // workflow distinguishes this from a real failure.
                 "recall": recall,
                 "threshold": r.threshold,
                 "passes": r.passes(),
@@ -356,9 +274,6 @@ fn write_json_out(path: &std::path::Path, reports: &[RecallReport]) -> Result<()
         })
         .collect();
 
-    // Aggregate: sum-of-numerators / sum-of-denominators. Crates with a
-    // vacuous (zero) denominator are skipped — they neither help nor
-    // hurt the aggregate ratio.
     let agg_matched: usize = reports.iter().map(|r| r.matched).sum();
     let agg_denom: usize = reports.iter().map(|r| r.adjusted_denominator).sum();
     let agg_recall: Option<f64> = if agg_denom == 0 {
@@ -367,7 +282,7 @@ fn write_json_out(path: &std::path::Path, reports: &[RecallReport]) -> Result<()
         Some(agg_matched as f64 / agg_denom as f64)
     };
     let agg_passes = match agg_recall {
-        None => true, // vacuous — no surface to measure against
+        None => true,
         Some(r) => r >= RECALL_THRESHOLD_TOTAL,
     };
 

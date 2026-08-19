@@ -1,13 +1,3 @@
-//! Gate 3 spike — LadybugDB (`lbug`).
-//!
-//! Loads the shared fixture, declares the 4-node × 3-edge schema,
-//! bulk-inserts, runs F1/F2/F3, measures latency, does a canonical-dump sha256
-//! determinism check.
-//!
-//! Run with:
-//!   cargo run --release -- small   # small fixture
-//!   cargo run --release -- large   # large fixture (15k/80k)
-
 use std::fs;
 use std::path::Path;
 use std::time::Instant;
@@ -57,8 +47,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         t0.elapsed()
     );
 
-    // Temp DB path, cleared on each run. lbug creates a single file (not a directory) at
-    // the path by default; legacy versions used a directory — handle both.
     let db_dir = std::env::temp_dir().join("cfdb-spike-ladybugdb");
     if db_dir.exists() {
         if db_dir.is_dir() {
@@ -94,11 +82,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         t3.elapsed()
     );
 
-    // F1 — fixed-hop label + property match (duplicate logical names across crates).
-    // Three variants tested: the textbook Cartesian form, the same with a pre-extracted
-    // `name` property, and the aggregation form. This is the core Pattern A test and the
-    // variant timings are the single most important Gate 3 datapoint for LadybugDB — they
-    // tell cfdb's query-surface designers which Cypher shapes are usable and which aren't.
     let t4 = Instant::now();
     let f1a_count = query_f1a_cartesian_regex(&db)?;
     println!("F1a (Cartesian + regex extract): {} results in {:.2?}", f1a_count, t4.elapsed());
@@ -107,17 +90,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let f1b_count = query_f1b_aggregation(&db)?;
     println!("F1b (aggregation / collect DISTINCT): {} results in {:.2?}", f1b_count, t4b.elapsed());
 
-    // F2 — variable-length path (bounded 1..10 CALLS chain)
     let t5 = Instant::now();
     let f2_count = query_f2(&db)?;
     println!("F2 (variable-length path): {} results in {:.2?}", f2_count, t5.elapsed());
 
-    // F3 — property regex in WHERE
     let t6 = Instant::now();
     let f3_count = query_f3(&db)?;
     println!("F3 (regex WHERE): {} results in {:.2?}", f3_count, t6.elapsed());
 
-    // Determinism check: canonical JSONL dump × 2, sha256
     let t7 = Instant::now();
     let dump1 = canonical_dump(&db)?;
     let sha1 = sha256_hex(&dump1);
@@ -148,7 +128,6 @@ fn open_db(path: &Path) -> Result<lbug::Database, Box<dyn std::error::Error>> {
 
 fn declare_schema(db: &lbug::Database) -> Result<(), Box<dyn std::error::Error>> {
     let conn = lbug::Connection::new(db)?;
-    // 4 node tables
     conn.query("CREATE NODE TABLE Crate(id STRING, name STRING, is_workspace_member BOOLEAN, PRIMARY KEY (id));")?;
     conn.query(
         "CREATE NODE TABLE Item(id STRING, qname STRING, kind STRING, crate STRING, file STRING, line INT64, signature_hash STRING, PRIMARY KEY (id));",
@@ -159,14 +138,8 @@ fn declare_schema(db: &lbug::Database) -> Result<(), Box<dyn std::error::Error>>
     conn.query(
         "CREATE NODE TABLE CallSite(id STRING, file STRING, line INT64, col INT64, in_fn STRING, PRIMARY KEY (id));",
     )?;
-    // 3 edge tables. MANY_MANY is default so duplicates allowed (S5).
-    // IN_CRATE: Item -> Crate
     conn.query("CREATE REL TABLE IN_CRATE(FROM Item TO Crate);")?;
-    // HAS_FIELD: Item -> Field
     conn.query("CREATE REL TABLE HAS_FIELD(FROM Item TO Field);")?;
-    // CALLS: carries edges from multiple source labels. Declare as multi-FROM/TO rel table.
-    // In the small fixture CALLS is CallSite -> Item AND CallSite -> CallSite (for self-refs); in the large fixture CALLS is CallSite -> Item.
-    // For this spike declare CALLS as CallSite -> Item (the dominant edge) + a second rel table CALLS_SITE for the small-fixture CallSite -> Item|Self edges.
     conn.query(
         "CREATE REL TABLE CALLS(FROM CallSite TO Item, in_fn STRING, arg_count INT64);",
     )?;
@@ -176,9 +149,6 @@ fn declare_schema(db: &lbug::Database) -> Result<(), Box<dyn std::error::Error>>
 fn bulk_insert(db: &lbug::Database, fx: &Fixture) -> Result<(), Box<dyn std::error::Error>> {
     let conn = lbug::Connection::new(db)?;
 
-    // Insert nodes — one Cypher CREATE per node.
-    // For bulk at scale, COPY FROM CSV is the documented fast path, but the spike focuses
-    // on correctness first; latency is measured on the 15k-node fixture below.
     for n in &fx.nodes {
         let cypher = match n.label.as_str() {
             "Crate" => {
@@ -240,8 +210,6 @@ fn bulk_insert(db: &lbug::Database, fx: &Fixture) -> Result<(), Box<dyn std::err
         conn.query(&cypher)?;
     }
 
-    // Insert edges — skip any with unknown src/dst labels that don't match our rel tables.
-    // For this spike we MATCH by id and CREATE the edge.
     for e in &fx.edges {
         match e.label.as_str() {
             "IN_CRATE" => {
@@ -261,8 +229,6 @@ fn bulk_insert(db: &lbug::Database, fx: &Fixture) -> Result<(), Box<dyn std::err
                 conn.query(&cypher)?;
             }
             "CALLS" => {
-                // Our CALLS rel table only covers CallSite -> Item.
-                // Small fixture may have Item -> Item CALLS; skip those for now.
                 if !e.src.starts_with("cs:") || !e.dst.starts_with("item:") {
                     continue;
                 }
@@ -285,12 +251,6 @@ fn bulk_insert(db: &lbug::Database, fx: &Fixture) -> Result<(), Box<dyn std::err
 }
 
 fn query_f1a_cartesian_regex(db: &lbug::Database) -> Result<usize, Box<dyn std::error::Error>> {
-    // F1a: the textbook Cartesian form.
-    // `MATCH (a:Item),(b:Item) WHERE f(a.p) = f(b.p) AND a <> b` — the shape that
-    // RFC §3 / methodology §4.1 canonicalizes for Pattern A. The query planner must
-    // push `f(a.p) = f(b.p)` into a hash join for this to be tractable on 5k items.
-    // Spike observation: LadybugDB does NOT push the function-equality into a hash
-    // join — this is an O(n²) scan with regex per row. Measured at ~200s on 5k items.
     let conn = lbug::Connection::new(db)?;
     let result = conn.query(
         "MATCH (a:Item), (b:Item) \
@@ -302,10 +262,6 @@ fn query_f1a_cartesian_regex(db: &lbug::Database) -> Result<usize, Box<dyn std::
 }
 
 fn query_f1b_aggregation(db: &lbug::Database) -> Result<usize, Box<dyn std::error::Error>> {
-    // F1b: aggregation form. Group items by base name, keep groups where more than one
-    // distinct crate appears. O(n) single scan with a hash group-by — the idiomatic
-    // Cypher way to express "cluster by base name, filter clusters with multiplicity > 1".
-    // This is the query shape cfdb's HSB skill should emit.
     let conn = lbug::Connection::new(db)?;
     let result = conn.query(
         "MATCH (a:Item) \
@@ -318,7 +274,6 @@ fn query_f1b_aggregation(db: &lbug::Database) -> Result<usize, Box<dyn std::erro
 }
 
 fn query_f2(db: &lbug::Database) -> Result<usize, Box<dyn std::error::Error>> {
-    // F2: variable-length path — reach Items from any CallSite through 1..5 CALLS hops.
     let conn = lbug::Connection::new(db)?;
     let result = conn.query(
         "MATCH (cs:CallSite)-[:CALLS*1..5]->(fn:Item) RETURN count(DISTINCT fn);",
@@ -327,7 +282,6 @@ fn query_f2(db: &lbug::Database) -> Result<usize, Box<dyn std::error::Error>> {
 }
 
 fn query_f3(db: &lbug::Database) -> Result<usize, Box<dyn std::error::Error>> {
-    // F3: property regex — forbidden-fn enforcement. Find items with qname matching a regex.
     let conn = lbug::Connection::new(db)?;
     let result = conn.query(
         "MATCH (i:Item) WHERE i.qname =~ '.*now_utc.*' RETURN count(*);",
@@ -336,7 +290,6 @@ fn query_f3(db: &lbug::Database) -> Result<usize, Box<dyn std::error::Error>> {
 }
 
 fn canonical_dump(db: &lbug::Database) -> Result<String, Box<dyn std::error::Error>> {
-    // Sorted canonical dump — nodes first (by id), then edges (by src, dst, label).
     let conn = lbug::Connection::new(db)?;
 
     let mut lines: Vec<String> = Vec::new();
@@ -349,7 +302,6 @@ fn canonical_dump(db: &lbug::Database) -> Result<String, Box<dyn std::error::Err
         }
     }
 
-    // Edges — each rel table in turn.
     for (rel, src_label, dst_label) in [
         ("IN_CRATE", "Item", "Crate"),
         ("HAS_FIELD", "Item", "Field"),
@@ -375,7 +327,6 @@ fn sha256_hex(s: &str) -> String {
 }
 
 fn count_rows(mut qr: lbug::QueryResult) -> usize {
-    // QueryResult is an iterator; advance once and read the COUNT column.
     if let Some(row) = qr.next() {
         if let Some(v) = row.first() {
             if let lbug::Value::Int64(n) = v {

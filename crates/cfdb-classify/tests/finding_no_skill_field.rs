@@ -1,23 +1,5 @@
-//! Architecture test — `Finding` MUST NOT carry any skill-related field
-//! (issue #48, council BLOCK-1 from RFC-cfdb.md §A2.2).
-//!
-//! Embedding a `fix_skill` / `skill` / `skill_name` field in `Finding`
-//! couples the classifier (data layer) to the orchestration policy
-//! (skill layer). A skill rename or a `/port-epic`-vs-`/sweep-epic
-//! --mode=port` decision would force a graph schema migration. Skill
-//! routing is a deliberately external concern — the consumer's, never
-//! cfdb's (there is no routing table in this repository).
-//!
-//! This test freezes the JSON shape of `Finding` against the set of
-//! forbidden field names. It runs via `serde_json::to_value(...)`
-//! round-trip, so schema drift (field rename, field add) is caught
-//! regardless of whether serde rename attributes are used.
-
 use cfdb_classify::Finding;
 
-/// Every field name that would be a DIP violation if present on
-/// `Finding`. If a new skill-related concept is invented, extend this
-/// list — the arch test is the canary for schema drift.
 const FORBIDDEN_FIELDS: &[&str] = &[
     "fix_skill",
     "skill",
@@ -59,13 +41,6 @@ fn finding_has_no_forbidden_skill_fields() {
 
 #[test]
 fn finding_carries_exactly_the_canonical_column_set() {
-    // Positive companion to the forbidden-field check: pin the exact
-    // field set so renames (not just additions) are caught. If this
-    // test fails because a legitimate column was added, update the
-    // expected set AND audit the per-class classifier rules' RETURN
-    // clauses in examples/queries/classifier-*.cypher — their
-    // projections MUST match Finding's fields or `finding_from_row`
-    // in cfdb-cli silently drops rows.
     let finding = sample_finding();
     let json = serde_json::to_value(&finding).expect("serialize Finding");
     let obj = json.as_object().expect("object");
@@ -90,11 +65,6 @@ fn finding_carries_exactly_the_canonical_column_set() {
 
 #[test]
 fn debtclass_is_not_a_field_on_finding() {
-    // `Finding` carries the structural coordinates; the class label
-    // lives on the OUTER `ScopeInventory::findings_by_class` map key.
-    // A `class` field on `Finding` would be redundant AND would pave
-    // the way for a `fix_skill` follow-up field by normalisation of
-    // "add another enum-valued column".
     let finding = sample_finding();
     let json = serde_json::to_value(&finding).expect("serialize Finding");
     let obj = json.as_object().expect("object");

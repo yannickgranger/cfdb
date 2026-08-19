@@ -1,7 +1,3 @@
-//! Persistence round-trip: save a keyspace to disk, drop it, load it back,
-//! and assert the canonical dump is byte-identical. This is the integration
-//! test that backs the CLI's extract → query file handoff (RFC §11).
-
 use std::collections::BTreeMap;
 
 use cfdb_core::fact::{Edge, Node, PropValue};
@@ -72,7 +68,6 @@ fn save_then_load_preserves_canonical_dump() {
     let dir = tempdir().expect("tempdir");
     let path = dir.path().join("test-ks.json");
 
-    // Build, save.
     let mut store_a = PetgraphStore::new();
     let (nodes, edges) = sample_nodes_edges();
     store_a
@@ -86,7 +81,6 @@ fn save_then_load_preserves_canonical_dump() {
         .canonical_dump(&ks)
         .expect("canonical_dump over populated store is infallible");
 
-    // Load into a fresh store.
     let mut store_b = PetgraphStore::new();
     persist::load(&mut store_b, &ks, &path).expect("load");
     let dump_after = store_b
@@ -130,7 +124,6 @@ fn save_is_byte_identical_across_two_calls() {
 fn load_rejects_incompatible_schema_version() {
     let dir = tempdir().expect("tempdir");
     let path = dir.path().join("bad.json");
-    // Hand-craft a file with a major version we can't read.
     let bad = r#"{
       "schema_version": { "major": 99, "minor": 0, "patch": 0 },
       "nodes": [],
@@ -147,21 +140,6 @@ fn load_rejects_incompatible_schema_version() {
     );
 }
 
-/// AC3 (RFC-035 slice 4 / #183) — legacy v0.2 keyspaces written
-/// before the index subsystem landed MUST load bit-identically. The
-/// wire format is unchanged (RFC-035 §3.7); the file carries only
-/// `schema_version` + `nodes` + `edges` (no `by_prop`, no
-/// `index_spec`). `persist::load` must accept any version `can_read`
-/// allows — i.e. same-major and `<= CURRENT`.
-///
-/// This test pins a hand-crafted V0_2_2 envelope (one minor below
-/// CURRENT V0_2_3 at slice 4 merge time) with two `:Item` nodes and
-/// asserts: load returns `Ok(())`; the loaded keyspace exposes both
-/// nodes via `export`; `canonical_dump` is non-empty. Regressions
-/// would surface if either (a) the version gate accidentally rejects
-/// a legacy compatible version, or (b) future code adds an
-/// unconditional read of an index-related field that breaks the
-/// legacy shape.
 #[test]
 fn load_accepts_legacy_v0_2_keyspace_with_no_index_fields() {
     let dir = tempdir().expect("tempdir");
@@ -213,11 +191,6 @@ fn load_accepts_legacy_v0_2_keyspace_with_no_index_fields() {
     );
 }
 
-/// #551 — the on-disk keyspace is a machine-read artifact parsed in full
-/// on every `cfdb query` invocation; pretty-printing it is pure tax
-/// (measured: qbot-core keyspace 356MB pretty). Compact serde_json emits
-/// zero newlines, so one byte-level assertion pins the choice. Humans
-/// diff the canonical dump (G6) or `jq` the file on demand.
 #[test]
 fn saved_keyspace_is_compact_json() {
     let ks = Keyspace::new("compact-ks");

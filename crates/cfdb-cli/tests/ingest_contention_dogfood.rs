@@ -1,18 +1,3 @@
-//! RFC-054 54-A (#556) inject-bite — prove `cfdb extract` makes identity
-//! contention loud instead of silently dropping nodes (#542).
-//!
-//! Planted drift (updated with RFC-054 54-B, #557): cross-TARGET collisions
-//! are retired by target-scoped identity, so the fixture plants the
-//! collision class that legitimately persists — cfg-gated fn twins in ONE
-//! file. syn walks both cfg branches; the twin `:Item`s share a file
-//! (silent per the ratified rule) but their `:Param` children carry
-//! differing `type_path` props with no `file` prop, so the full-equality
-//! fallback flags them — the exact class behind cfdb-self's 18 findings.
-//! The control fixture proves the warning is not vacuously firing.
-//!
-//! Fixture directories live under `CARGO_TARGET_TMPDIR` (never `/tmp` or
-//! a `/cache`-routed TMPDIR) per the #526-class runner-tmp-cleaner fix.
-
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -32,13 +17,6 @@ fn fixture_root(name: &str) -> PathBuf {
     root
 }
 
-/// One lib file with cfg-gated same-name fns whose params differ — the
-/// post-54-B contention shape (cfg twins share qname, file, and target,
-/// so their `:Param` children contend on the full-equality fallback).
-///
-/// The `[workspace]` table is load-bearing: the fixture lives inside
-/// cfdb's own `target/`, and without it cargo-metadata would climb to
-/// cfdb's workspace.
 fn write_cfg_twin_fixture() -> PathBuf {
     let root = fixture_root("cfgtwins");
     fs::write(
@@ -65,8 +43,6 @@ pub fn dispatch(x: &str) -> u32 {
     root
 }
 
-/// Control: one lib + one default bin, no homonyms anywhere — extraction
-/// must stay contention-silent.
 fn write_one_bin_control() -> PathBuf {
     let root = fixture_root("onebin");
     fs::write(
@@ -109,8 +85,6 @@ fn cfg_twin_contention_warns_on_extract_stderr_and_query_output() {
     let ws = write_cfg_twin_fixture();
     let db = fixture_root("cfgtwins-db");
 
-    // Inject-bite half 1: extract exits 0 (diagnostic, not failure) and
-    // surfaces the contention on stderr.
     let out = common::extract_output(&db, &ws, "cfgtwins", &[]);
     assert!(
         out.status.success(),
@@ -123,8 +97,6 @@ fn cfg_twin_contention_warns_on_extract_stderr_and_query_output() {
         "extract stderr must surface the cfg-twin param contention, got:\n{stderr}"
     );
 
-    // Inject-bite half 2: a LATER `cfdb query` process (fresh load from the
-    // persisted keyspace) still carries the warning in its result JSON.
     let q = query_by_name(&db, "cfgtwins", "dispatch");
     assert!(q.status.success());
     let stdout = String::from_utf8_lossy(&q.stdout);

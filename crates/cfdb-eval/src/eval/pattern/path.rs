@@ -1,8 +1,3 @@
-//! Path-pattern evaluation — `(from)-[edge]->(to)` MATCH, traversal, and
-//! variable-length BFS. The methods stay on `Evaluator` via a second
-//! `impl` block; node-pattern methods (`apply_node_pattern`, etc.) and
-//! `OPTIONAL MATCH` / `UNWIND` remain in the parent file.
-
 use std::collections::{BTreeSet, VecDeque};
 
 use cfdb_core::graph::{EdgeHandle, GraphReader, NodeHandle};
@@ -30,9 +25,6 @@ impl<'a, G: GraphReader + ?Sized> Evaluator<'a, G> {
         }))
     }
 
-    /// Emit the `UnknownEdgeLabel` warning for a path pattern whose declared
-    /// edge label is absent from the keyspace. Returns `true` when the caller
-    /// should short-circuit (no matches possible).
     fn warn_on_unknown_edge_label(&self, pp: &PathPattern) -> bool {
         let Some(label) = &pp.edge.label else {
             return false;
@@ -50,9 +42,6 @@ impl<'a, G: GraphReader + ?Sized> Evaluator<'a, G> {
         true
     }
 
-    /// Expand one binding row by enumerating src candidates, walking edges,
-    /// and emitting new rows for each `(src, dst)` pair that passes
-    /// [`Self::build_path_binding`].
     fn emit_path_bindings(
         &self,
         out: &mut Vec<Bindings>,
@@ -74,13 +63,6 @@ impl<'a, G: GraphReader + ?Sized> Evaluator<'a, G> {
         }
     }
 
-    /// Assemble a single output binding for a `(src, dst)` path. Runs
-    /// the destination-side filters, clones the carrying bindings, inserts
-    /// `from.var` / `to.var` / `edge.var` (or fails if a pre-bound `to.var`
-    /// disagrees with `dst`). `edge_h` is `Some` for single-hop
-    /// traversals and `None` for variable-length paths where `r` would
-    /// otherwise need to bind to a list of edges — that shape is deferred
-    /// (issue #242). Returns `None` when any filter rejects the pair.
     fn build_path_binding(
         &self,
         bindings: &Bindings,
@@ -114,9 +96,6 @@ impl<'a, G: GraphReader + ?Sized> Evaluator<'a, G> {
         Some(next)
     }
 
-    /// Resolve the source-side endpoints of a path pattern. If the endpoint
-    /// variable is already bound, we must pin to that binding; otherwise we
-    /// enumerate candidates via `candidate_nodes`.
     fn resolve_endpoint(
         &self,
         bindings: &Bindings,
@@ -131,10 +110,6 @@ impl<'a, G: GraphReader + ?Sized> Evaluator<'a, G> {
         self.candidate_nodes(np, where_clause, bindings)
     }
 
-    /// Label-and-variable membership check for the destination of a path.
-    /// We don't emit UnknownLabel warnings from here — the outer
-    /// `candidate_nodes` already warns on `from`; a `to` label is informational
-    /// and we simply filter.
     fn matches_node_pattern_for_endpoint(&self, h: NodeHandle, np: &NodePattern) -> bool {
         match &np.label {
             Some(label) => self.state.node(h).is_some_and(|n| &n.label == label),
@@ -142,19 +117,6 @@ impl<'a, G: GraphReader + ?Sized> Evaluator<'a, G> {
         }
     }
 
-    /// Traverse edges from `src` according to `edge`. Honors direction
-    /// and variable-length quantifier. Returns `(dst, edge)` pairs
-    /// for destinations reached. `edge` is `Some` only for single-hop
-    /// emissions; for variable-length paths `edge` is `None` — the
-    /// edge variable would otherwise need to bind to a list of edges, and
-    /// list-of-edges binding is deferred (issue #242).
-    ///
-    /// Single-hop (no `var_length` quantifier) emits one row per matching
-    /// edge — parallel edges (`bag` semantics per `cfdb_core::fact::Edge`)
-    /// each produce their own row, and `count(r)` equals the jq edge
-    /// count. Variable-length paths go through a BFS that dedupes by
-    /// visited node for cycle detection, matching Cypher's standard
-    /// reachability semantics.
     fn traverse(
         &self,
         src: NodeHandle,
@@ -166,8 +128,6 @@ impl<'a, G: GraphReader + ?Sized> Evaluator<'a, G> {
         self.traverse_bfs(src, edge)
     }
 
-    /// Single-hop traversal — emits one row per matching edge at depth=1.
-    /// No BFS, no visited-set, no parallel-edge dedup (each edge counts).
     fn traverse_single_hop(
         &self,
         src: NodeHandle,
@@ -184,31 +144,14 @@ impl<'a, G: GraphReader + ?Sized> Evaluator<'a, G> {
         out
     }
 
-    /// Variable-length BFS traversal — dedupes by visited node for cycle
-    /// detection (Cypher reachability semantics). Returns `(dst, None)`
-    /// since the edge variable cannot bind to a list in this subset.
     fn traverse_bfs(
         &self,
         src: NodeHandle,
         edge: &EdgePattern,
     ) -> Vec<(NodeHandle, Option<EdgeHandle>)> {
-        // Resolve the BFS frontier ceiling from the var-length quantifier.
-        // The ceiling is honoured for explicit bounds and is unbounded for
-        // the open form — it was previously clamped to `DEFAULT_VAR_LENGTH_MAX`
-        // for *every* pattern, silently truncating explicit deep traversals.
         let (min_depth, max_depth) = match edge.var_length {
-            // Open form `*N..` (B1 maps an omitted upper bound to `u32::MAX`):
-            // truly UNBOUNDED (council Q1) — the visited-set is the only bound.
-            // This BFS is O(V+E) because the `visited.insert` guard below
-            // enqueues each node at most once, so a numeric depth cap buys
-            // nothing. `DEFAULT_VAR_LENGTH_MAX` is NOT applied here.
             Some((lo, hi)) if hi == u32::MAX => (lo, u32::MAX),
-            // Explicit finite bound `*N..M`: honour `M` exactly as written —
-            // no silent clamp to `DEFAULT_VAR_LENGTH_MAX` (council Q2).
             Some((lo, hi)) => (lo, hi.max(lo)),
-            // No quantifier never reaches `traverse_bfs` (the caller gates on
-            // `var_length.is_some()`); fall back defensively to the documented
-            // ceiling. This is the *only* surviving use of the constant.
             None => (1, DEFAULT_VAR_LENGTH_MAX),
         };
 
@@ -241,9 +184,6 @@ impl<'a, G: GraphReader + ?Sized> Evaluator<'a, G> {
         out
     }
 
-    /// `(other endpoint, edge)` for every edge at `h` in the requested
-    /// direction(s) whose label satisfies `edge`. An unlabelled pattern
-    /// keeps every edge without dereferencing it.
     fn collect_directed_edges(
         &self,
         h: NodeHandle,

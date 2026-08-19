@@ -48,10 +48,6 @@ fn count_edges_by_label(store: &PetgraphStore, ks: &Keyspace, label: &str) -> us
     edges.iter().filter(|e| e.label.as_str() == label).count()
 }
 
-// ------------------------------------------------------------------
-// TOML with canonical_crate → :Concept + LABELED_AS + CANONICAL_FOR.
-// ------------------------------------------------------------------
-
 #[test]
 fn ac1_toml_emits_concept_plus_labeled_as_plus_canonical_for() {
     let tmp = tempfile::tempdir().expect("tempdir");
@@ -70,7 +66,7 @@ crates = ["domain-trading", "ports-trading"]
             ("A", "domain-trading"),
             ("B", "domain-trading"),
             ("C", "ports-trading"),
-            ("D", "application-x"), // not covered → no edges
+            ("D", "application-x"),
         ],
     );
     let ks = Keyspace::new("test");
@@ -81,13 +77,11 @@ crates = ["domain-trading", "ports-trading"]
     assert!(report.ran);
     assert_eq!(report.facts_scanned, 1, "one declared concept");
     assert_eq!(count_nodes_by_label(&store, &ks, Label::CONCEPT), 1);
-    // LABELED_AS: A, B (domain-trading) + C (ports-trading) = 3.
     assert_eq!(
         count_edges_by_label(&store, &ks, EdgeLabel::LABELED_AS),
         3,
         "3 items in TOML-listed crates → 3 LABELED_AS edges"
     );
-    // CANONICAL_FOR: A + B (both in domain-trading) = 2.
     assert_eq!(
         count_edges_by_label(&store, &ks, EdgeLabel::CANONICAL_FOR),
         2,
@@ -95,14 +89,9 @@ crates = ["domain-trading", "ports-trading"]
     );
 }
 
-// ------------------------------------------------------------------
-// Empty .cfdb/concepts/ → ran=true, zero emissions.
-// ------------------------------------------------------------------
-
 #[test]
 fn ac2_empty_concepts_dir_is_graceful_noop() {
     let tmp = tempfile::tempdir().expect("tempdir");
-    // Create the dir but put no .toml files in it.
     std::fs::create_dir_all(tmp.path().join(".cfdb/concepts")).expect("mkdir");
     let mut store = store_with_items(tmp.path(), &[("A", "domain-x")]);
     let ks = Keyspace::new("test");
@@ -123,7 +112,6 @@ fn ac2_empty_concepts_dir_is_graceful_noop() {
 #[test]
 fn no_concepts_dir_is_graceful_noop() {
     let tmp = tempfile::tempdir().expect("tempdir");
-    // No .cfdb directory at all.
     let mut store = store_with_items(tmp.path(), &[("A", "domain-x")]);
     let ks = Keyspace::new("test");
     let report = EnrichEngine::new(&mut store)
@@ -134,10 +122,6 @@ fn no_concepts_dir_is_graceful_noop() {
     assert_eq!(report.facts_scanned, 0);
     assert_eq!(report.edges_written, 0);
 }
-
-// ------------------------------------------------------------------
-// AC-3: malformed TOML → ran=false + warning naming the file.
-// ------------------------------------------------------------------
 
 #[test]
 fn ac3_malformed_toml_returns_ran_false_with_warning() {
@@ -164,10 +148,6 @@ fn ac3_malformed_toml_returns_ran_false_with_warning() {
         report.warnings
     );
 }
-
-// ------------------------------------------------------------------
-// AC-5: determinism across two runs.
-// ------------------------------------------------------------------
 
 #[test]
 fn ac5_two_runs_produce_identical_canonical_dumps() {
@@ -230,10 +210,6 @@ crates = ["domain-risk"]
     assert_eq!(d1, d2, "two runs must be byte-identical (AC-5)");
 }
 
-// ------------------------------------------------------------------
-// AC-7: integration contract for #101 — 3 concepts → 3 :Concept nodes.
-// ------------------------------------------------------------------
-
 #[test]
 fn ac7_three_toml_files_emit_three_concept_nodes() {
     let tmp = tempfile::tempdir().expect("tempdir");
@@ -272,10 +248,6 @@ fn ac7_three_toml_files_emit_three_concept_nodes() {
     );
 }
 
-// ------------------------------------------------------------------
-// AC-1 reinforcement: assigned_by = "manual" on emitted :Concept nodes.
-// ------------------------------------------------------------------
-
 #[test]
 fn concept_nodes_have_assigned_by_manual() {
     let tmp = tempfile::tempdir().expect("tempdir");
@@ -304,10 +276,6 @@ fn concept_nodes_have_assigned_by_manual() {
         Some("trading")
     );
 }
-
-// ------------------------------------------------------------------
-// Degraded paths
-// ------------------------------------------------------------------
 
 #[test]
 fn unknown_keyspace_returns_err() {
@@ -356,7 +324,6 @@ fn items_without_crate_prop_are_ignored() {
     let ks = Keyspace::new("test");
     let mut props = Props::new();
     props.insert("qname".into(), PropValue::Str("NoCrate".into()));
-    // Deliberately omit `crate` prop.
     store
         .ingest_nodes(
             &ks,
@@ -372,15 +339,13 @@ fn items_without_crate_prop_are_ignored() {
         .expect("pass");
 
     assert!(report.ran);
-    // :Concept still emitted, but no edges to the item.
     assert_eq!(report.edges_written, 0);
 }
 
 #[test]
 fn unknown_keyspace_errs_even_when_workspace_root_is_also_missing() {
-    // The keyspace guard wins when both fail — never the degraded report.
-    let mut store = PetgraphStore::new(); // no workspace root
-    let ks = Keyspace::new("never"); // and no such keyspace
+    let mut store = PetgraphStore::new();
+    let ks = Keyspace::new("never");
     let err = EnrichEngine::new(&mut store)
         .enrich_concepts(&ks)
         .expect_err("keyspace guard must win over the workspace guard");

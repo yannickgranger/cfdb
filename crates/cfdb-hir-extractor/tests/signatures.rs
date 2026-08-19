@@ -1,34 +1,14 @@
-//! Integration-seam signature pin (RFC-044 §3.2 / #428, slice 044-B).
-//!
-//! Freezes the public seam signatures of `cfdb-hir-extractor` —
-//! `build_hir_database`, `extract_call_sites`, `extract_entry_points` —
-//! in `tests/signatures.toml`. The test re-parses the defining source
-//! files with `syn`, renders each target `fn`'s [`syn::Signature`] to a
-//! deterministic token string via `quote::quote!`, and asserts
-//! byte-equality against the frozen values. A silent change (a HIR
-//! 2-tuple → 3-tuple return shift, a `where` bound, a renamed fn) fails
-//! here instead of slipping into a release.
-//!
-//! **Mechanism (council Q1.c, unanimous):** per-crate frozen TOML + an
-//! inline self-contained parser. NO shared `cfdb-signatures-check` crate.
-//!
-//! **Rotation cost:** an *intentional* signature change updates
-//! `tests/signatures.toml` in the same commit.
-
 use std::collections::BTreeMap;
 
 use quote::ToTokens;
 
-/// Defining source files for the three pinned seam functions.
 const SOURCES: &[&str] = &[
-    include_str!("../src/hir_db.rs"),              // build_hir_database
-    include_str!("../src/call_site_emitter.rs"),   // extract_call_sites
-    include_str!("../src/entry_point_emitter.rs"), // extract_entry_points
+    include_str!("../src/hir_db.rs"),
+    include_str!("../src/call_site_emitter.rs"),
+    include_str!("../src/entry_point_emitter.rs"),
 ];
-/// Frozen rendered signatures, keyed by item name.
 const FROZEN: &str = include_str!("signatures.toml");
 
-/// Render every free `fn` across `SOURCES` to `(name, rendered signature)`.
 fn rendered_free_fns() -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
     for src in SOURCES {

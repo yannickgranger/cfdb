@@ -1,20 +1,3 @@
-//! Regression coverage for issue #527: an extraction invoked through a
-//! relative `--workspace` argument (exactly the shape CI's
-//! `cfdb extract --workspace .` passes) must still emit workspace-relative
-//! `:File.path` facts.
-//!
-//! Before the fix, the workspace root was never canonicalized: `cargo
-//! metadata` always returns absolute file paths, so a relative
-//! `workspace_root` argument made every `strip_prefix` call miss, and the
-//! extractor silently fell back to shipping the absolute path. Every
-//! file-scoped fence anchored on a relative path became a silently dead
-//! rule — zero rows forever, false success.
-//!
-//! `cargo test` runs test binaries with the working directory set to the
-//! crate's manifest directory (`CARGO_MANIFEST_DIR`), so the literal
-//! relative path below is exactly the kind of argument the bug required —
-//! not an absolute path built via `env!("CARGO_MANIFEST_DIR")`.
-
 use std::path::Path;
 
 use cfdb_core::fact::PropValue;

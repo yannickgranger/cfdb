@@ -1,22 +1,3 @@
-//! Integration tests for `:EntryPoint { kind: "http_route" }` emission
-//! (Issue #124 — axum + actix-web call-expression scan).
-//!
-//! These tests cover the six required rows from the issue's `Tests:`
-//! prescription:
-//!
-//! - 4 axum variants — `.route()`, `.get()`, `.post()`, `.nest()`
-//! - 2 actix variants — `App::new().route(p, web::get().to(h))`,
-//!   `App::new().service(web::resource(p).route(web::get().to(h)))`
-//!
-//! Each test asserts exactly one `:EntryPoint` node with `kind =
-//! "http_route"` and the correct literal path + handler qname, plus
-//! one `EXPOSES` edge from the entry point to the handler's `:Item`.
-//!
-//! Fixtures use stand-in types rather than pulling in real axum /
-//! actix crates — the scan is syntactic (method-name + literal path +
-//! handler path-resolution) and does not need the real types. This
-//! matches the approach in `tests/entry_point.rs` for clap / rmcp.
-
 use std::fs;
 use std::path::Path;
 
@@ -34,10 +15,6 @@ fn write(root: &Path, rel: &str, contents: &str) {
     fs::write(p, contents).expect("fixture write");
 }
 
-/// Minimum workspace boilerplate for a single-crate fixture. Keeps
-/// each test self-contained while avoiding a `[dependencies]` pull on
-/// axum / actix (we don't need real trait impls — the scan is
-/// syntactic).
 fn write_workspace(root: &Path, lib_rs: &str) {
     write(
         root,
@@ -61,11 +38,6 @@ edition = "2021"
     write(root, "routes/src/lib.rs", lib_rs);
 }
 
-/// Like [`write_workspace`] but the `routes` member declares a local
-/// empty stub crate `dep` (path `../<dep>`), and the workspace includes
-/// it, so the loaded crate graph carries `dep` for the RFC-049 §3.1
-/// manifest gate. The stub holds no framework code — the route scan
-/// stays syntactic (method-name + literal path + handler resolution).
 fn write_workspace_with_dep(root: &Path, lib_rs: &str, dep: &str) {
     write(
         root,
@@ -91,7 +63,6 @@ fn write_workspace_with_dep(root: &Path, lib_rs: &str, dep: &str) {
     write(root, &format!("{dep}/src/lib.rs"), "");
 }
 
-/// Extract http_route :EntryPoint rows from the fixture's extract output.
 fn http_routes(root: &Path) -> (Vec<Node>, Vec<cfdb_core::fact::Edge>) {
     let (db, vfs, _pm_client, targets) =
         build_hir_database(root, false).expect("build_hir_database");
@@ -111,9 +82,6 @@ fn http_routes(root: &Path) -> (Vec<Node>, Vec<cfdb_core::fact::Edge>) {
     (http, exposes)
 }
 
-/// Assert exactly one `http_route` :EntryPoint whose handler_qname
-/// matches `expected_handler_qname`, and one EXPOSES edge whose dst
-/// is `item:<expected_handler_qname>`.
 fn assert_one_route(
     nodes: &[Node],
     edges: &[cfdb_core::fact::Edge],
@@ -155,8 +123,6 @@ fn assert_one_route(
         edges.iter().map(|e| (&e.src, &e.dst)).collect::<Vec<_>>(),
     );
 }
-
-// ---- axum variants ----------------------------------------------------
 
 #[test]
 fn axum_route_method_emits_http_route_entry_point() {
@@ -251,14 +217,9 @@ pub fn build() -> Router {
 "#,
         "axum",
     );
-    // `.nest("/api", api_router())` — arg2 is a fn call, not a bare
-    // path. The extractor resolves the path expression inside the
-    // call (the callee function).
     let (nodes, edges) = http_routes(tmp.path());
     assert_one_route(&nodes, &edges, "/api", "routes::api_router");
 }
-
-// ---- actix variants ---------------------------------------------------
 
 #[test]
 fn actix_app_route_with_web_get_to_emits_http_route_entry_point() {
@@ -292,18 +253,8 @@ pub fn build() -> App {
     assert_one_route(&nodes, &edges, "/", "routes::index");
 }
 
-// ---- false-positive regression -------------------------------------
-
 #[test]
 fn map_put_with_non_slash_key_is_not_a_route() {
-    // Scar test — locked in after target-dogfood #124 on qbot-core
-    // surfaced `.put("BTC/USD", quote(...))` being misclassified as
-    // an http_route entry point. The HTTP verb method names overlap
-    // with common map/cache APIs; gating on a leading `/` in the
-    // literal argument is the cheapest precise filter. An `axum`
-    // dependency is present so the RFC-049 §3.1 manifest gate passes
-    // and the detector runs — proving the `/`-literal filter (not the
-    // gate) is what rejects these map-style calls.
     let tmp = tempdir().expect("tempdir");
     write_workspace_with_dep(
         tmp.path(),
@@ -378,17 +329,8 @@ pub fn build() -> App {
     assert_one_route(&nodes, &edges, "/health", "routes::health");
 }
 
-// ---- manifest gate: inert off-framework (RFC-049 49-B, §4) ------------
-
 #[test]
 fn http_route_detector_inert_without_framework_dependency() {
-    // RFC-049 §3.1/§4 (no false positives off-framework): a workspace
-    // that declares the axum route idiom but depends on neither axum nor
-    // actix-web yields zero http_route :EntryPoints — the manifest gate
-    // keeps the detector inert. This is the observable behaviour 49-B
-    // adds over 49-0 (where the detector was unconditionally present);
-    // the positive path (same idiom + a framework dependency) is the
-    // route fixtures above (via `write_workspace_with_dep`).
     let tmp = tempdir().expect("tempdir");
     write_workspace(
         tmp.path(),

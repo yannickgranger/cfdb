@@ -1,25 +1,10 @@
-//! Two bounded contexts share this crate and never import from each other:
-//! debt classification (`taxonomy`, `scope`, `classify`, `explain`) and the
-//! editorial-drift triggers (`check`). The wall is a rule, not an accident —
-//! a `check` module naming a `DebtClass`, or a scope module naming a
-//! `TriggerId`, is a boundary breach even if it compiles. `engine.rs` and
-//! `lib.rs` sit above the wall: the engine dispatches to both contexts and
-//! the crate root re-exports both, so they may name each context's entry
-//! types but never a context's internal row projections.
-//!
-//! Test sources are exempt. Both halves carry a non-vacuity guard.
-
 use std::fs;
 use std::path::{Path, PathBuf};
 
 const SRC_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src");
 
-/// Vocabulary of the trigger context — must not appear in classification sources.
 const TRIGGER_VOCABULARY: &[&str] = &["TriggerId", "ContextRow", "T1Row", "T3Row", "CheckReport"];
-/// The trigger context's internal row projections — must not appear in the
-/// shared roots either: the engine dispatches, it never projects.
 const TRIGGER_INTERNALS: &[&str] = &["ContextRow", "T1Row", "T3Row"];
-/// Vocabulary of the classification context — must not appear under `src/check/`.
 const CLASSIFICATION_VOCABULARY: &[&str] = &[
     "DebtClass",
     "Finding",
@@ -61,8 +46,6 @@ fn production_lines(file: &Path) -> Vec<(usize, String)> {
     out
 }
 
-/// A `use` line or a path segment naming one of `words`. Doc comments and
-/// plain prose are not imports; only code lines count.
 fn names_any(line: &str, words: &[&str]) -> bool {
     let code = line.trim_start();
     if code.starts_with("//") {

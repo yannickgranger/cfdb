@@ -1,35 +1,3 @@
-//! VSB multi-resolver scar tests (issue #202 / RFC-036 §3.2).
-//!
-//! Asserts that `.cfdb/queries/vsb-multi-resolver.cypher` fires on the
-//! three scar shapes enumerated in the RFC-036 test row:
-//!
-//! 1. **Param-Effect Canary** — MCP boundary handler registers a
-//!    domain enum param and two reachable resolvers both produce the
-//!    same `:Item` type. The Ctrl-Z scar from RFC-036 §3.2.
-//! 2. **MCP Boundary Fix AC Template** — matches the `MCP Boundary Fix
-//!    AC Template` required triple (parser delegation + schema enum
-//!    derivation + error `valid_values` derivation): when the handler
-//!    has *two* parser paths that both produce the same domain type,
-//!    the detector fires on the split.
-//! 3. **Compound Stop Layer Isolation** — compound-stop entry point
-//!    registers the layered param and traverses a call chain that
-//!    yields two distinct fn items both returning the same compound
-//!    type. Canary-test M1 shape from the CLAUDE.md rules.
-//!
-//! ## Test approach — direct fact injection
-//!
-//! Each scar test builds a synthetic `(Vec<Node>, Vec<Edge>)` batch
-//! mirroring what the HIR extractor would emit for the corresponding
-//! Rust fixture under `crates/cfdb-extractor/tests/fixtures/vsb/`,
-//! ingests it into a fresh `PetgraphStore`, parses the query file, and
-//! runs it. Same pattern as `pattern_b_vertical_split_brain.rs` — we
-//! assert the rule SHAPE fires on the expected graph shape, not that
-//! extraction end-to-end is correct. Extractor correctness is covered
-//! by its own test suite.
-//!
-//! Direct injection is faster (sub-second) and isolates the failure
-//! signal: a #202 regression here cannot be blamed on HIR instability.
-
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -40,10 +8,6 @@ use cfdb_core::store::{QueryBackend, StoreBackend};
 use cfdb_eval::QueryEngine;
 use cfdb_petgraph::PetgraphStore;
 use cfdb_query::parse;
-
-// ---------------------------------------------------------------------
-// Helpers — builders for the fact shapes the HIR extractor would emit.
-// ---------------------------------------------------------------------
 
 fn entry_point_node(display_name: &str, handler_qname: &str, kind: &str) -> Node {
     let mut props = BTreeMap::new();
@@ -211,16 +175,6 @@ fn row_list_len(row: &BTreeMap<String, cfdb_core::result::RowValue>, key: &str) 
     })
 }
 
-// ---------------------------------------------------------------------
-// Scar 1 — Param-Effect Canary.
-//
-// An MCP handler registers a `:Param { type_normalized: "vsb_fixture::Timeframe" }`.
-// Two reachable fn items return `Timeframe`:
-//   - Timeframe::from_str      (string parser)
-//   - Timeframe::from_capital  (provider-format parser)
-// Both reachable from the single handler → one row expected.
-// ---------------------------------------------------------------------
-
 #[test]
 fn param_effect_canary_emits_one_multi_resolver_row() {
     let mut store = PetgraphStore::new();
@@ -267,15 +221,6 @@ fn param_effect_canary_emits_one_multi_resolver_row() {
     assert_eq!(row_list_len(&rows[0], "resolvers"), Some(2));
 }
 
-// ---------------------------------------------------------------------
-// Scar 2 — MCP Boundary Fix AC Template.
-//
-// An MCP handler registers a `Stop` param. Two resolvers: one delegating
-// to the domain `FromStr`, one bypassing with a handwritten parser.
-// The split-brain this models: schema enum derived from domain, but
-// handler parse path diverges — both produce `Stop` and are reachable.
-// ---------------------------------------------------------------------
-
 #[test]
 fn mcp_boundary_fix_ac_template_emits_one_row() {
     let mut store = PetgraphStore::new();
@@ -319,16 +264,6 @@ fn mcp_boundary_fix_ac_template_emits_one_row() {
     assert_eq!(row_list_len(&rows[0], "resolvers"), Some(2));
 }
 
-// ---------------------------------------------------------------------
-// Scar 3 — Compound Stop Layer Isolation.
-//
-// Entry point (CLI command) registers `CompoundStop` param. Traverses
-// a 2-hop CALLS chain; two fn items return `CompoundStop`:
-//   - CompoundStop::new         (modern builder)
-//   - CompoundStop::from_legacy (legacy path kept for back-compat)
-// Expected: one row.
-// ---------------------------------------------------------------------
-
 #[test]
 fn compound_stop_layer_isolation_emits_one_row() {
     let mut store = PetgraphStore::new();
@@ -355,7 +290,6 @@ fn compound_stop_layer_isolation_emits_one_row() {
     let edges = vec![
         exposes_edge(&ep_id, cli_handler),
         registers_param_edge(&ep_id, cli_handler, "compound_stop"),
-        // Two-hop chain — mid_fn between handler and the resolvers.
         calls_edge(cli_handler, mid_fn),
         calls_edge(mid_fn, r_new),
         calls_edge(mid_fn, r_legacy),
@@ -374,13 +308,6 @@ fn compound_stop_layer_isolation_emits_one_row() {
     );
     assert_eq!(row_list_len(&rows[0], "resolvers"), Some(2));
 }
-
-// ---------------------------------------------------------------------
-// Negative 1 — single resolver must NOT fire.
-//
-// One clean entry point with one reachable resolver. Query returns zero
-// rows — `size(resolvers) > 1` is load-bearing.
-// ---------------------------------------------------------------------
 
 #[test]
 fn single_resolver_per_entry_point_emits_no_rows() {
@@ -417,11 +344,6 @@ fn single_resolver_per_entry_point_emits_no_rows() {
         "single resolver must not be reported; rows={rows:?}"
     );
 }
-
-// ---------------------------------------------------------------------
-// Negative 2 — two resolvers under DIFFERENT entry points are not a
-// fork. The per-EP join excludes this shape by construction.
-// ---------------------------------------------------------------------
 
 #[test]
 fn two_resolvers_split_across_entry_points_emit_no_rows() {
@@ -469,12 +391,6 @@ fn two_resolvers_split_across_entry_points_emit_no_rows() {
         "resolvers under distinct entry points must not join; rows={rows:?}"
     );
 }
-
-// ---------------------------------------------------------------------
-// Negative 3 — resolver that returns a DIFFERENT type from the
-// registered param's `type_normalized` must not form a fork. The
-// `t.qname = p.type_normalized` filter is load-bearing.
-// ---------------------------------------------------------------------
 
 #[test]
 fn resolvers_returning_mismatched_type_emit_no_rows() {

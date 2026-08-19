@@ -1,31 +1,3 @@
-//! `enrich_metrics` — populate `unwrap_count`, `cyclomatic`,
-//! `test_coverage`, and `dup_cluster_id` on `:Item{kind:"Fn"}` nodes.
-//!
-//! # SRP decomposition
-//!
-//! | Submodule | Responsibility |
-//! |---|---|
-//! | [`ast_signals`] | `.unwrap()` / `.expect()` count + McCabe cyclomatic from a parsed `syn::File` |
-//! | [`coverage`] | `cargo-llvm-cov` JSON → per-qname `f64` line-coverage ratio (subfeature `llvm-cov`) |
-//! | [`clustering`] | Group items by `signature_hash`, emit `dup_cluster_id = sha256(lex_sorted(member_qnames).join("\n"))` for clusters of size ≥ 2 |
-//!
-//! # Stateless full re-walk
-//!
-//! No `changed_files` parameter; every call re-parses every distinct
-//! source file referenced by a `:Item{kind:"Fn"}.file` prop. Cheap —
-//! syn is fast and the file set is bounded by the crate count, not the
-//! item count.
-//!
-//! # Determinism
-//!
-//! Per-file parsing is sequential. Sort-before-emit: the computed
-//! `(qname, AstSignals)` pairs are collected into a
-//! `BTreeMap<String, AstSignals>` keyed by qname — deterministic
-//! iteration. `dup_cluster_id` emission order is driven by the
-//! `BTreeMap<signature_hash, Vec<qname>>` which is also inherently
-//! sorted. G1 canonical-dump sha256 is therefore stable across runs
-//! (modulo `test_coverage` which is excluded per G6).
-
 pub(crate) mod ast_signals;
 pub(crate) mod clustering;
 pub(crate) mod coverage;
@@ -40,23 +12,11 @@ use cfdb_core::schema::Label;
 
 pub(crate) const VERB: &str = "enrich_metrics";
 
-/// Per-run configuration. Exposed so the CLI composition root can decide
-/// whether to load a cargo-llvm-cov JSON file without forcing every
-/// caller to provide one. `coverage_json` is `None` on most dogfood runs
-/// — the three ast_signals / clustering attrs still populate.
 #[derive(Debug, Clone, Default)]
 pub struct Config {
-    /// Optional path to a `cargo llvm-cov --json` output file. When
-    /// `Some`, `:Item{kind:"Fn"}.test_coverage` is populated from the
-    /// file's per-function covered-line ratio. When `None`, the attr is
-    /// left absent on every item (consumers interpret absence as "no
-    /// coverage data available for this run").
     pub coverage_json: Option<std::path::PathBuf>,
 }
 
-/// Entry point called by [`crate::EnrichEngine`]. Returns `EnrichReport` by
-/// value — never `Err`. Keyspace-not-found and workspace-root-missing are
-/// handled upstream.
 pub(crate) fn run(
     view: &mut dyn GraphView,
     workspace_root: &Path,
@@ -80,21 +40,15 @@ pub(crate) fn run(
         };
     }
 
-    // ast_signals: parse each distinct source file once, index by qname.
     let signals_by_qname = ast_signals::scan_workspace(&items, workspace_root, &mut warnings);
 
-    // Coverage: optional, subfeature-gated at the call site. Absent → empty map.
     let coverage_by_qname = match config.coverage_json.as_deref() {
         Some(path) => coverage::load_from_path(path, &mut warnings),
         None => BTreeMap::new(),
     };
 
-    // Clustering: group by signature_hash prop on the node, emit
-    // dup_cluster_id for clusters of size ≥ 2.
     let cluster_id_by_qname = clustering::compute_dup_cluster_ids(&items);
 
-    // Apply all three signal maps to the graph. One pass per item;
-    // props written in sorted-qname order (items is already sorted).
     let attrs_written = apply_attrs(
         view,
         &items,
@@ -113,9 +67,6 @@ pub(crate) fn run(
     }
 }
 
-/// Projection of a `:Item{kind:"Fn"}` node needed by every submodule.
-/// Sorted by qname across the whole function so downstream iteration is
-/// deterministic without re-sorting.
 #[derive(Debug, Clone)]
 pub(crate) struct FnItem {
     pub(crate) qname: String,
@@ -133,10 +84,6 @@ fn collect_fn_items(view: &dyn GraphView) -> Vec<FnItem> {
         .filter_map(|id| {
             let node = view.node_by_id(&id)?;
             let kind = node.props.get("kind").and_then(PropValue::as_str)?;
-            // Extractor emits lowercase `"fn"` per
-            // cfdb-extractor::item_visitor::visits.rs:61. The schema
-            // describe doc uses the Rust-camel-case `Fn` in prose but
-            // the on-wire value is lowercase.
             if kind != "fn" {
                 return None;
             }
@@ -175,9 +122,6 @@ fn apply_attrs(
     count
 }
 
-/// Apply metric attrs to a single `:Item` node — extracted from
-/// [`apply_attrs`] so the `cluster_id.clone()` below lives outside any
-/// `for`/`while` loop (quality-metrics clone-in-loop rule).
 fn apply_item_attrs(
     view: &mut dyn GraphView,
     item: &FnItem,

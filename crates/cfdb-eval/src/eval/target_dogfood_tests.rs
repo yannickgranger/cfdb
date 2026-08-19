@@ -1,22 +1,3 @@
-//! Target-dogfood measurement — runs the `context_homonym`-shape
-//! cross-MATCH query against a real qbot-core extraction and asserts a
-//! wall-time threshold of **< 60 s**.
-//!
-//! `#[ignore]` by default so CI does not depend on a 150k-node
-//! extraction being on disk; the reviewer runs it explicitly via:
-//!
-//! ```bash
-//! ./target/release/cfdb extract \
-//!     --workspace /path/to/qbot-core \
-//!     --db .proofs/target.db \
-//!     --keyspace qbot-core
-//!
-//! CFDB_TARGET_DOGFOOD_KEYSPACE=.proofs/target.db/qbot-core.json \
-//!   /usr/bin/time -v \
-//!   cargo test --release -p cfdb-petgraph \
-//!     eval::target_dogfood_tests -- --ignored --nocapture
-//! ```
-
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -38,11 +19,6 @@ const ENV_CONTEXT: &str = "CFDB_TARGET_DOGFOOD_CONTEXT";
 const DEFAULT_CONTEXT: &str = "domain-trading";
 const RFC035_WALL_BUDGET_SECS: u64 = 60;
 
-/// Slice-6 spec — `(Item, qname)`, `(Item, bounded_context)`, and
-/// the computed `(Item, last_segment(qname))` bucket key. Duplicated
-/// from `eval/cross_match_tests.rs` intentionally: this module is a
-/// follow-up measurement surface and is committed to staying
-/// independent of slice-6's pure-fixture suite.
 fn slice6_spec() -> IndexSpec {
     IndexSpec {
         entries: vec![
@@ -65,9 +41,6 @@ fn slice6_spec() -> IndexSpec {
     }
 }
 
-/// `classifier-context-homonym.cypher`-shaped query (minus the
-/// `signature_divergent` UDF which is not relevant to the index
-/// mechanism being measured).
 fn build_homonym_query(ctx: &str) -> Query {
     let props = BTreeMap::new();
     let a_np = NodePattern {
@@ -157,10 +130,6 @@ fn build_homonym_query(ctx: &str) -> Query {
     }
 }
 
-/// Skip-unless-env gate. Returns `Some(path)` if the extraction is
-/// on disk at the configured location; `None` with a `eprintln!`
-/// otherwise so `--ignored --nocapture` makes the skip reason
-/// visible in the proof output.
 fn keyspace_path_from_env() -> Option<PathBuf> {
     match std::env::var(ENV_KEYSPACE) {
         Ok(s) if !s.is_empty() => {
@@ -200,9 +169,6 @@ fn target_dogfood_homonym_completes_under_rfc035_wall_budget() {
 
     let query = build_homonym_query(&ctx);
 
-    // Warm run absorbs first-touch lazy allocations so the timed
-    // run measures steady-state evaluator cost, matching the
-    // `cross_match_indexed_completes_under_100ms` convention.
     let warm_start = Instant::now();
     let engine = QueryEngine::new(&store);
     let warm = engine.execute(&ks, &query).expect("warm-up execute");

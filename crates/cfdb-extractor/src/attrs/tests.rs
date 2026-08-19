@@ -36,8 +36,6 @@ fn attrs_contain_hash_test_rejects_no_attrs() {
     assert!(!attrs_contain_hash_test(&item.attrs));
 }
 
-// ---- extract_cfg_feature_gate -------------------------------------------
-
 fn parse_attrs(src: &str) -> Vec<syn::Attribute> {
     let wrapped = format!("{src} fn dummy() {{}}");
     let item: syn::ItemFn = syn::parse_str(&wrapped).expect("test fixture parses");
@@ -111,7 +109,6 @@ fn extract_cfg_feature_gate_nested_combinators() {
 
 #[test]
 fn extract_cfg_feature_gate_multiple_attrs_conjoin() {
-    // Two separate #[cfg(...)] attributes on the same item conjoin.
     let attrs = parse_attrs(
         r#"#[cfg(feature = "a")]
            #[cfg(feature = "b")]"#,
@@ -127,7 +124,6 @@ fn extract_cfg_feature_gate_multiple_attrs_conjoin() {
 
 #[test]
 fn extract_cfg_feature_gate_non_feature_poisons_result() {
-    // Pure non-feature cfg — whole item gate drops to None.
     assert_eq!(
         extract_cfg_feature_gate(&parse_attrs(r#"#[cfg(test)]"#)),
         None
@@ -144,15 +140,12 @@ fn extract_cfg_feature_gate_non_feature_poisons_result() {
 
 #[test]
 fn extract_cfg_feature_gate_mixed_feature_and_non_feature_drops_to_none() {
-    // Even ONE non-feature leaf poisons the whole tree (all-or-nothing).
     let attrs = parse_attrs(r#"#[cfg(all(feature = "x", target_os = "linux"))]"#);
     assert_eq!(extract_cfg_feature_gate(&attrs), None);
 }
 
 #[test]
 fn extract_cfg_feature_gate_ignores_non_cfg_attrs() {
-    // #[derive(Debug)], #[serde(default)] etc. must not leak into
-    // the gate computation.
     let attrs = parse_attrs(
         r#"#[derive(Debug)]
            #[cfg(feature = "async")]
@@ -164,12 +157,6 @@ fn extract_cfg_feature_gate_ignores_non_cfg_attrs() {
     );
 }
 
-// ---- extract_deprecated_attr (#106 — RFC addendum §A2.2 row 3) ------
-//
-// Extractor-time fact per #43 council DDD + rust-systems verdicts:
-// the `#[deprecated]` attribute is syntactic; the AST walker already
-// visits item attributes, so extraction is the right layer.
-
 #[test]
 fn extract_deprecated_attr_none_when_no_attrs() {
     let attrs = parse_attrs("");
@@ -178,14 +165,12 @@ fn extract_deprecated_attr_none_when_no_attrs() {
 
 #[test]
 fn extract_deprecated_attr_bare_form() {
-    // `#[deprecated]` on its own — deprecated, no since version.
     let attrs = parse_attrs(r#"#[deprecated]"#);
     assert_eq!(extract_deprecated_attr(&attrs), (true, None));
 }
 
 #[test]
 fn extract_deprecated_attr_since_form() {
-    // `#[deprecated(since = "1.2.0")]` — since version captured.
     let attrs = parse_attrs(r#"#[deprecated(since = "1.2.0")]"#);
     assert_eq!(
         extract_deprecated_attr(&attrs),
@@ -195,7 +180,6 @@ fn extract_deprecated_attr_since_form() {
 
 #[test]
 fn extract_deprecated_attr_note_only_form() {
-    // `#[deprecated(note = "use Foo instead")]` — deprecated, no since.
     let attrs = parse_attrs(r#"#[deprecated(note = "use Foo instead")]"#);
     assert_eq!(extract_deprecated_attr(&attrs), (true, None));
 }
@@ -211,8 +195,6 @@ fn extract_deprecated_attr_since_and_note_form() {
 
 #[test]
 fn extract_deprecated_attr_ignores_non_deprecated_attrs() {
-    // `#[deprecated]` must still dominate even when other attrs
-    // surround it.
     let attrs = parse_attrs(
         r#"#[derive(Debug)]
            #[deprecated(since = "3.1.4")]
@@ -226,9 +208,6 @@ fn extract_deprecated_attr_ignores_non_deprecated_attrs() {
 
 #[test]
 fn extract_deprecated_attr_rejects_multi_segment_path() {
-    // `#[serde::deprecated(...)]` (hypothetical) is NOT the standard
-    // Rust deprecation attribute and must not be matched. Only the
-    // bare `deprecated` path counts.
     let attrs = parse_attrs(r#"#[serde(deprecated = "true")]"#);
     assert_eq!(extract_deprecated_attr(&attrs), (false, None));
 }

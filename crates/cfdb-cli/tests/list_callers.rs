@@ -1,23 +1,3 @@
-//! Typed verb `cfdb list-callers` — end-to-end behavior test (RFC §13 v0.1
-//! AC item 5 / issue #3633).
-//!
-//! Proves cfdb's polyvalence: the same schema that answers ban rules
-//! (`arch-ban-utc-now`) also answers ad-hoc agent questions of the form
-//! "where is X used?" — exercised through the typed verb, not a hand-
-//! assembled raw `cfdb query` invocation. The typed verb is sugar over
-//! the raw path and MUST produce the same result set; that is the
-//! contract this file enforces.
-//!
-//! Fixture: a synthetic workspace with a `filters` crate that defines
-//! `KalmanFilter::new`, `apply_kalman`, and `kalman_smooth`, plus a
-//! `consumer` crate with three functions that call them (both as path
-//! call and method call) and one function that doesn't touch kalman at
-//! all. The rewritten test runs `cfdb list-callers` against this keyspace
-//! with three different `$qname` patterns to prove (a) all three callers
-//! surface for a broad pattern and (b) tighter patterns return strictly
-//! narrower subsets — the parameter actually filters, not just returns
-//! everything on every call.
-
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -41,10 +21,6 @@ members = ["filters", "consumer"]
 "#,
     );
 
-    // Provider crate — defines the Kalman primitives. The extractor
-    // does not need to resolve `filters::KalmanFilter` — the consumer's
-    // call sites carry the textual path `KalmanFilter::new` which is
-    // what the discovery rule matches on.
     write(
         &root.join("filters/Cargo.toml"),
         r#"[package]
@@ -70,7 +46,6 @@ pub fn kalman_smooth(_series: &[f64]) -> Vec<f64> { Vec::new() }
 "#,
     );
 
-    // Consumer crate — three call sites reference kalman, one doesn't.
     write(
         &root.join("consumer/Cargo.toml"),
         r#"[package]
@@ -122,9 +97,6 @@ pub fn kalman_smooth(_series: &[f64]) -> Vec<f64> { Vec::new() }
     root.to_path_buf()
 }
 
-/// Build a fresh fixture workspace + extract it into a fresh keyspace.
-/// Returns (workspace_tempdir, db_tempdir) — the caller holds both
-/// TempDir values so they stay alive for the duration of the test.
 fn fresh_fixture_keyspace() -> (tempfile::TempDir, tempfile::TempDir) {
     let fixture = tempdir().expect("fixture tempdir");
     let workspace = build_fixture_workspace(fixture.path());
@@ -149,9 +121,6 @@ fn fresh_fixture_keyspace() -> (tempfile::TempDir, tempfile::TempDir) {
     (fixture, db)
 }
 
-/// Run `cfdb list-callers --db <db> --keyspace fixture --qname <qname>`
-/// and return stdout. Asserts the subprocess exits 0 so test failures
-/// surface the stderr diagnostics.
 fn run_list_callers(db_path: &Path, qname: &str) -> String {
     let output = Command::cargo_bin("cfdb")
         .expect("cfdb binary is built for integration tests")
@@ -174,11 +143,6 @@ fn run_list_callers(db_path: &Path, qname: &str) -> String {
     String::from_utf8_lossy(&output.stdout).into_owned()
 }
 
-/// Path to the generic template file — used only by the genericity
-/// cross-check test that verifies `cfdb query --params` produces the
-/// same output as the typed verb. The binary has the same bytes
-/// embedded via `include_str!`; this function just reads them from
-/// disk so the test can drive the raw-query path.
 fn list_callers_template_path() -> PathBuf {
     let cfdb_root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -193,7 +157,6 @@ fn list_callers_typed_verb_finds_all_three_kalman_call_sites() {
     let (_fixture, db) = fresh_fixture_keyspace();
     let stdout = run_list_callers(db.path(), "(?i).*kalman.*");
 
-    // 1. All three kalman callers MUST surface by name.
     assert!(
         stdout.contains("build_filter"),
         "expected build_filter (path call to KalmanFilter::new) in results:\n{stdout}"
@@ -207,13 +170,11 @@ fn list_callers_typed_verb_finds_all_three_kalman_call_sites() {
         "expected apply_to_series (method call to .apply_kalman) in results:\n{stdout}"
     );
 
-    // 2. The non-kalman function MUST NOT surface.
     assert!(
         !stdout.contains("not_a_kalman_user"),
         "not_a_kalman_user leaked into kalman-caller results:\n{stdout}"
     );
 
-    // 3. Callee paths MUST reflect what syn saw (name-based, unresolved).
     assert!(
         stdout.contains("KalmanFilter::new"),
         "expected KalmanFilter::new callee path in results:\n{stdout}"
@@ -228,15 +189,10 @@ fn list_callers_typed_verb_finds_all_three_kalman_call_sites() {
     );
 }
 
-/// Genericity proof — different `$qname` values MUST return different
-/// caller subsets. If the verb ignored `--qname` and returned everything
-/// on every call (the pre-wire-up stub behavior, or a silent unbound-
-/// param bug), every assertion in this test would fail.
 #[test]
 fn list_callers_typed_verb_filters_by_qname_pattern() {
     let (_fixture, db) = fresh_fixture_keyspace();
 
-    // Tight regex 1: only `KalmanFilter::new` callers → only `build_filter`.
     let only_new = run_list_callers(db.path(), "^KalmanFilter::new$");
     assert!(
         only_new.contains("build_filter"),
@@ -251,7 +207,6 @@ fn list_callers_typed_verb_filters_by_qname_pattern() {
         "qname=^KalmanFilter::new$ must NOT find apply_to_series:\n{only_new}"
     );
 
-    // Tight regex 2: only `kalman_smooth` callers → only `smooth_prices`.
     let only_smooth = run_list_callers(db.path(), "^kalman_smooth$");
     assert!(
         only_smooth.contains("smooth_prices"),
@@ -266,7 +221,6 @@ fn list_callers_typed_verb_filters_by_qname_pattern() {
         "qname=^kalman_smooth$ must NOT find apply_to_series:\n{only_smooth}"
     );
 
-    // Tight regex 3: only `apply_kalman` callers → only `apply_to_series`.
     let only_apply = run_list_callers(db.path(), "^apply_kalman$");
     assert!(
         only_apply.contains("apply_to_series"),
@@ -282,22 +236,14 @@ fn list_callers_typed_verb_filters_by_qname_pattern() {
     );
 }
 
-/// Contract proof — the typed verb and the raw `cfdb query --params`
-/// path MUST produce the same caller set for the same `$qname` input.
-/// This is the genericity guarantee: typed verbs are sugar over the raw
-/// path, not a second implementation. Divergence = split-brain.
 #[test]
 fn list_callers_typed_verb_equals_raw_query_with_params() {
     let (_fixture, db) = fresh_fixture_keyspace();
 
     let pattern = "(?i).*kalman.*";
 
-    // Typed verb path.
     let typed_stdout = run_list_callers(db.path(), pattern);
 
-    // Raw query path — same template bytes (the binary has them embedded
-    // via `include_str!`, the test reads the source file to feed the
-    // `query` subcommand).
     let cypher = fs::read_to_string(list_callers_template_path())
         .expect("read list-callers.cypher template");
     let params_json = format!(r#"{{"qname":"{pattern}"}}"#);
@@ -322,8 +268,6 @@ fn list_callers_typed_verb_equals_raw_query_with_params() {
     );
     let raw_stdout = String::from_utf8_lossy(&raw_output.stdout).into_owned();
 
-    // Both paths must report the same three callers AND the same
-    // three callee paths.
     for needle in [
         "build_filter",
         "smooth_prices",
@@ -341,7 +285,6 @@ fn list_callers_typed_verb_equals_raw_query_with_params() {
             "raw-query --params output missing {needle}:\n{raw_stdout}"
         );
     }
-    // Negative case must hold in BOTH outputs.
     assert!(
         !typed_stdout.contains("not_a_kalman_user"),
         "typed-verb output leaked not_a_kalman_user:\n{typed_stdout}"

@@ -1,24 +1,11 @@
-//! Query result shape — `{rows, warnings}`.
-//!
-//! Returning `{rows, warnings}` instead of plain `rows` fixes the LLM-consumer
-//! failure mode: silent-empty vs schema-mismatch look identical to an agent.
-//! A warning on "label `Ietm` not present in schema — did you mean `Item`?"
-//! is the difference between a self-correcting loop and a confidently-wrong
-//! answer. Rows are ordered `BTreeMap<column_name, PropValue>` so iteration
-//! is deterministic.
-
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
 use crate::fact::PropValue;
 
-/// A single result row. Column names come from the `RETURN` clause (explicit
-/// `AS alias` or synthesized from the projection expression).
 pub type Row = BTreeMap<String, RowValue>;
 
-/// A value appearing in a result row. Mostly `PropValue`, but `COLLECT` /
-/// `COLLECT DISTINCT` can produce lists.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 #[non_exhaustive]
@@ -57,14 +44,10 @@ impl From<PropValue> for RowValue {
     }
 }
 
-/// A warning attached to a query result. Critical for distinguishing
-/// "empty result" from "schema mismatch" (LLM specialist finding).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Warning {
     pub kind: WarningKind,
     pub message: String,
-    /// Optional suggestion ("did you mean `Item`?") — lets LLM consumers
-    /// self-correct without a round-trip to schema_describe().
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub suggestion: Option<String>,
 }
@@ -72,26 +55,14 @@ pub struct Warning {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum WarningKind {
-    /// A node label in the query is not present in the schema.
     UnknownLabel,
-    /// An edge label in the query is not present in the schema.
     UnknownEdgeLabel,
-    /// A property key accessed in the query is not known for the bound label.
     UnknownProperty,
-    /// The query shape is a known performance footgun. The evaluator refuses
-    /// to run it and the warning names the aggregation rewrite.
     PathologicalShape,
-    /// The query parsed but bound no rows.
     EmptyResult,
-    /// Two distinct nodes contended for one identity at ingest — the later
-    /// node replaced the earlier, which is the documented additive-load
-    /// behavior; the warning makes the loss loud instead of silent.
-    /// Deliberately NOT a reuse of [`Self::EmptyResult`], which already does
-    /// double duty for "no rows" and "edge dropped".
     IdentityContention,
 }
 
-/// The result of executing a query.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct QueryResult {
     pub rows: Vec<Row>,

@@ -1,15 +1,3 @@
-//! Unit surface for RFC-050 §7 slice 50-C — the up-call layering detector
-//! (`examples/queries/layering-up-call.cypher`).
-//!
-//! The shipped `.cypher` is smoke-parsed by CI, but smoke ignores structure:
-//! a silent edit could invert or defang the detector while still parsing and
-//! still passing smoke. This test pins the AST to the up-call shape so those
-//! mutations fail the build. The comparison is bound END-TO-END to the CALL
-//! direction — the caller's crate must be the LEFT (smaller) side of `<` — so
-//! a bare variable-swap (`WHERE dc.crate_tier < cc.crate_tier`), which
-//! semantically inverts the detector into flagging legitimate downward calls,
-//! is caught. Mirrors `arch_ban_rfc_rules_parse.rs`'s parse-then-walk shape.
-
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -18,7 +6,6 @@ use cfdb_core::fact::PropValue;
 use cfdb_core::query::{CompareOp, Expr, NodePattern, PathPattern, Pattern, Predicate, Query};
 use cfdb_core::schema::{EdgeLabel, Label};
 
-/// `crates/cfdb-query/` is two levels below the workspace root.
 fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -57,7 +44,6 @@ fn node_label(n: &NodePattern) -> Option<&str> {
     n.label.as_ref().map(|l| l.as_str())
 }
 
-/// The variable name of a `<var>.<name>` property access, if `e` is one.
 fn prop_var(e: &Expr) -> Option<&str> {
     match e {
         Expr::Property { var, .. } => Some(var.as_str()),
@@ -65,13 +51,10 @@ fn prop_var(e: &Expr) -> Option<&str> {
     }
 }
 
-/// True iff `e` is a property access `<var>.<name>` on the given property.
 fn is_prop(e: &Expr, name: &str) -> bool {
     matches!(e, Expr::Property { prop, .. } if prop.as_str() == name)
 }
 
-/// Flatten a WHERE predicate tree into its leaf `Compare` nodes. And/Or/Not are
-/// walked; NotExists/In/Regex/Ne are not shapes this detector uses.
 fn compares<'q>(pred: &'q Predicate, out: &mut Vec<(CompareOp, &'q Expr, &'q Expr)>) {
     match pred {
         Predicate::Compare { left, op, right } => out.push((*op, left, right)),
@@ -89,7 +72,6 @@ fn compares<'q>(pred: &'q Predicate, out: &mut Vec<(CompareOp, &'q Expr, &'q Exp
 
 #[test]
 fn up_call_query_parses_as_single_statement() {
-    // Panics inside the helper on any parse error.
     let _ = up_call_query();
 }
 
@@ -98,9 +80,6 @@ fn binds_call_direction_through_in_crate_to_the_tier_comparison() {
     let query = up_call_query();
     let all_paths = paths(&query);
 
-    // (1) The CALLS edge carries the cross-tier call:
-    //     (caller:Item)-[:CALLS]->(callee:Item). The edge DIRECTION names which
-    //     side is the caller (source) and which is the callee (dest).
     let calls = all_paths
         .iter()
         .copied()
@@ -121,9 +100,6 @@ fn binds_call_direction_through_in_crate_to_the_tier_comparison() {
     assert_eq!(caller_item, "caller", "CALLS source var");
     assert_eq!(callee_item, "callee", "CALLS dest var");
 
-    // (2) One IN_CRATE hop per call endpoint, each reaching a :Crate. Build
-    //     item_var -> crate_var so the tier comparison in (3) can be bound to
-    //     the CALL direction rather than to bare variable names.
     let mut item_to_crate: BTreeMap<&str, &str> = BTreeMap::new();
     let mut in_crate_count = 0;
     for p in all_paths.iter().copied() {
@@ -156,12 +132,6 @@ fn binds_call_direction_through_in_crate_to_the_tier_comparison() {
     assert_eq!(caller_crate, "cc", "caller's crate var");
     assert_eq!(callee_crate, "dc", "callee's crate var");
 
-    // (3) The tier comparison must read the CALLER's crate on the LEFT (the
-    //     smaller side of `<`) and the CALLEE's crate on the RIGHT — a lower
-    //     layer calling UP. Binding the operands to the crate vars derived in
-    //     (2) (which are in turn derived from the CALL direction in (1)) is
-    //     what makes a var-swap `dc.crate_tier < cc.crate_tier` — which inverts
-    //     the detector into flagging legitimate downward calls — fail here.
     let pred = query
         .where_clause
         .as_ref()
@@ -194,9 +164,6 @@ fn binds_call_direction_through_in_crate_to_the_tier_comparison() {
 
 #[test]
 fn filters_out_test_scoped_calls_on_both_endpoints() {
-    // The dev-dep test back-edge (e.g. cfdb-hir-extractor --dev--> cfdb-cli) is
-    // the one physical source of a lower->higher cross-crate call; the tier DAG
-    // excludes it via kind==Normal, so the query must exclude it via is_test.
     let query = up_call_query();
     let pred = query
         .where_clause

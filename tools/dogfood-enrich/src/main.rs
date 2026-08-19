@@ -1,16 +1,3 @@
-//! `dogfood-enrich` binary — entry point.
-//!
-//! Subprocess-driven harness. Invokes `cfdb enrich-<pass>` to verify the
-//! feature is active (I5.1 guard), then materializes the matching
-//! `.cfdb/queries/self-enrich-<pass>.cypher` template with threshold
-//! substitution, then invokes `cfdb violations` against the materialized
-//! tempfile. Exit codes:
-//!
-//! - `0`  — zero violation rows (invariant holds).
-//! - `30` — at least one violation row (invariant violated).
-//! - `1`  — runtime error: unknown pass, missing template, missing
-//!   feature (I5.1), subprocess fail, JSON parse error.
-
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -23,24 +10,25 @@ use dogfood_enrich::{
 #[derive(Debug, Parser)]
 #[command(name = "dogfood-enrich", about = "RFC-039 self-enrich dogfood harness")]
 struct Cli {
-    /// Pass name (one of the 7 RFC-039 passes — see `--list`).
+    #[arg(help = "Pass name (one of the 7 RFC-039 passes — see `--list`)")]
     #[arg(long)]
     pass: String,
 
-    /// Database directory (cfdb keyspace location).
+    #[arg(help = "Database directory (cfdb keyspace location)")]
     #[arg(long)]
     db: PathBuf,
 
-    /// Keyspace to extract + dogfood against.
+    #[arg(help = "Keyspace to extract + dogfood against")]
     #[arg(long)]
     keyspace: String,
 
-    /// Path to the `cfdb` binary. Defaults to `target/release/cfdb`.
+    #[arg(help = "Path to the `cfdb` binary. Defaults to `target/release/cfdb`")]
     #[arg(long, default_value = "target/release/cfdb")]
     cfdb_bin: PathBuf,
 
-    /// Workspace root forwarded to `cfdb enrich-<pass>` when the pass
-    /// needs it (rfc-docs, bounded-context, concepts, git-history).
+    #[arg(
+        help = "Workspace root forwarded to `cfdb enrich-<pass>` when the pass needs it (rfc-docs, bounded-context, concepts, git-history)"
+    )]
     #[arg(long)]
     workspace: Option<PathBuf>,
 }
@@ -62,7 +50,6 @@ fn run(cli: Cli) -> Result<i32, String> {
         format!("unknown pass {:?}. Valid: {}", cli.pass, names.join(", "))
     })?;
 
-    // I5.1 feature-presence guard.
     feature_guard::check_pass_ran(
         &cli.cfdb_bin,
         pass.name,
@@ -73,7 +60,6 @@ fn run(cli: Cli) -> Result<i32, String> {
     )
     .map_err(|e| format!("{e}"))?;
 
-    // Materialize template + run violations.
     let tempdir = tempfile::tempdir().map_err(|e| format!("failed to create tempdir: {e}"))?;
     let template_path = PathBuf::from(pass.query_template_path);
     let extra_owned = compute_extra_substitutions(
@@ -83,13 +69,6 @@ fn run(cli: Cli) -> Result<i32, String> {
         &cli.db,
         &cli.keyspace,
     )?;
-    // Zero-extracted blindspot guard: the sentinel template is shaped
-    // `MATCH … WITH count(i) AS extracted_count WHERE extracted_count < N`
-    // — but the evaluator yields NO rows for count() over an empty MATCH,
-    // so the template physically cannot fire when the extractor drops EVERY
-    // #[deprecated] item. That total-loss regression is this gate's primary
-    // reason to exist, so the harness closes the hole: source truth ≥ 1
-    // with a keyspace-side count of 0 is a violation in its own right.
     if pass.name == "enrich-deprecation" {
         if let Some((_, truth)) = extra_owned.iter().find(|(k, _)| k == "ground_truth_count") {
             let truth: usize = truth
@@ -142,19 +121,6 @@ fn run(cli: Cli) -> Result<i32, String> {
     }
 }
 
-/// Compute per-pass extra placeholders that the runner must substitute
-/// before submitting the materialized template to `cfdb violations`.
-///
-/// Most passes return an empty map (their templates use only the
-/// `{{ threshold }}` placeholder). `enrich-deprecation` is the
-/// exception: its sentinel compares the extracted-graph count against
-/// a source-side ground truth — attribute-position `#[deprecated]`
-/// occurrences (comments/strings stripped) counted over the keyspace's
-/// `:File` set, read from disk under `--workspace`.
-///
-/// Errors propagate to `EXIT_RUNTIME_ERROR` (1) — a missing workspace
-/// or unreadable source file is a configuration problem, not a
-/// violation.
 fn compute_extra_substitutions(
     pass_name: &str,
     workspace: Option<&Path>,
@@ -169,12 +135,6 @@ fn compute_extra_substitutions(
                  #[deprecated] ground truth"
                     .to_string()
             })?;
-            // Ground truth = attribute-position #[deprecated] occurrences
-            // (comments/strings lexically stripped) counted over exactly
-            // the files the extractor walked (the keyspace's :File set) —
-            // never a raw-text grep of the whole checkout, which counts
-            // doc comments, test string literals, and fixture crates the
-            // extractor never sees (73 raw vs 1 genuine at PR #563).
             let files = extracted_files::file_paths_in_keyspace(cfdb_bin, db, keyspace)
                 .map_err(|e| format!("failed to read :File set from keyspace: {e}"))?;
             let count = grep_deprecated::count_deprecated_in_files(root, &files).map_err(|e| {
@@ -218,24 +178,14 @@ fn compute_extra_substitutions(
                 ),
             ])
         }
-        // Keyspace-side ratio computation. The cfdb-query v0.1 subset has
-        // no arithmetic operators, so the ratio `nulls/total < threshold/100`
-        // is computed harness-side and substituted into the template as a
-        // flat absolute count.
-        "enrich-bounded-context" => {
-            ratio_substitutions(
-                cfdb_bin,
-                db,
-                keyspace,
-                None, // every :Item, no kind filter
-                thresholds::BC_COVERAGE_THRESHOLD,
-                "BC_COVERAGE_THRESHOLD",
-            )
-        }
-        // Denominator is `:Item{kind:"fn"}` for reachability + metrics
-        // rows. The kind filter is applied harness-side via
-        // `count_items_with_kind` so the sentinel template can read the
-        // matching `total_items`.
+        "enrich-bounded-context" => ratio_substitutions(
+            cfdb_bin,
+            db,
+            keyspace,
+            None,
+            thresholds::BC_COVERAGE_THRESHOLD,
+            "BC_COVERAGE_THRESHOLD",
+        ),
         "enrich-reachability" => ratio_substitutions(
             cfdb_bin,
             db,
@@ -252,8 +202,6 @@ fn compute_extra_substitutions(
             thresholds::METRICS_COVERAGE_THRESHOLD,
             "METRICS_COVERAGE_THRESHOLD",
         ),
-        // Git-history denominator is every `:Item` — same shape as
-        // bounded-context.
         "enrich-git-history" => ratio_substitutions(
             cfdb_bin,
             db,
@@ -266,19 +214,6 @@ fn compute_extra_substitutions(
     }
 }
 
-/// Helper for ratio passes — count `:Item` (or kind-filtered) in the
-/// keyspace, derive `nulls_threshold` from the passed threshold const,
-/// return both as substitutions for the `{{ total_items }}` and
-/// `{{ nulls_threshold }}` placeholders.
-///
-/// `kind` is `Some("fn")` for `enrich-reachability` + `enrich-metrics`
-/// (denominators are functions only) and `None` for the kind-agnostic
-/// passes (`enrich-bounded-context`, `enrich-git-history`).
-///
-/// `threshold` is the pre-validated `Option<u32>` from
-/// `thresholds::*_THRESHOLD`; the `name` parameter is just the const's
-/// identifier as a `&str` so the error message points the reader at the
-/// right line in `thresholds.rs` if a const accidentally drifts to None.
 fn ratio_substitutions(
     cfdb_bin: &Path,
     db: &Path,
@@ -296,9 +231,6 @@ fn ratio_substitutions(
     let threshold_pct = threshold.ok_or_else(|| {
         format!("{threshold_name} must be Some — this is a ratio pass; check tools/dogfood-enrich/src/thresholds.rs")
     })?;
-    // Integer floor — at small fixture scale the threshold floors to 0,
-    // so any single null fires the sentinel; the same math applies to all
-    // four ratio passes.
     let nulls_threshold =
         total.saturating_mul(100usize.saturating_sub(threshold_pct as usize)) / 100;
     Ok(vec![

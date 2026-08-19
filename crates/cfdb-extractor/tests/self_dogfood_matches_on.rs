@@ -1,22 +1,3 @@
-//! RFC-053 slice 53-B self-dogfood — extract cfdb's own sub-workspace via
-//! `extract_workspace` and assert the `MATCHES_ON` resolution pass against
-//! the source-verified canonical sites in cfdb's own tree (RFC-053 §4:
-//! rustdoc-json carries no match-expression facts, so `cfdb-recall`'s
-//! oracle cannot cover this fact kind — self-dogfood is the substitute).
-//!
-//! MATCHES_ON facts at slice-ship time:
-//! - `crates/cfdb-core/src/visibility.rs` `Visibility::as_wire_str` matches
-//!   `self` with UNQUALIFIED `Visibility::…` arms → prefix `Visibility` →
-//!   resolves (unique last-segment) to the WORKSPACE enum
-//!   `cfdb_core::visibility::Visibility` → a `MATCHES_ON` edge into that enum.
-//! - `crates/cfdb-extractor/src/item_visitor.rs` `parse_syn_visibility`
-//!   matches the EXTERNAL `syn::Visibility` with QUALIFIED
-//!   `syn::Visibility::…` arms → prefix `syn::Visibility` → resolves to
-//!   nothing (the homonym guard, RFC-053 §3.5: a qualified prefix must not
-//!   collapse onto the same-named workspace enum) → NO `MATCHES_ON` edge.
-//! - Every `MATCHES_ON` edge targets an `:Item{kind:"enum"}` by construction
-//!   (§3.2 kind filter).
-
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
@@ -24,7 +5,6 @@ use cfdb_core::fact::{Node, PropValue};
 use cfdb_core::schema::{EdgeLabel, Label};
 use cfdb_extractor::extract_workspace;
 
-/// Resolve the cfdb sub-workspace root — this crate's grandparent directory.
 fn cfdb_workspace_root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -50,14 +30,12 @@ fn visibility_enum_has_incoming_matches_on_from_visibility_rs() {
         .iter()
         .filter(|e| e.label.as_str() == EdgeLabel::MATCHES_ON)
         .filter(|e| {
-            // The dispatch site (src) lives in cfdb-core/src/visibility.rs …
             by_id
                 .get(e.src.as_str())
                 .and_then(|n| prop_str(n, "file"))
                 .is_some_and(|f| f.ends_with("cfdb-core/src/visibility.rs"))
         })
         .filter(|e| {
-            // … and the target (dst) is the workspace Visibility enum.
             by_id.get(e.dst.as_str()).is_some_and(|n| {
                 n.label.as_str() == Label::ITEM
                     && prop_str(n, "kind") == Some("enum")
@@ -79,8 +57,6 @@ fn visibility_enum_has_incoming_matches_on_from_visibility_rs() {
 fn syn_visibility_site_has_no_matches_on_edge() {
     let (nodes, edges) = extract_workspace(cfdb_workspace_root()).expect("extract cfdb");
 
-    // The 53-A canonical external site(s): matched_path 'syn::Visibility' in
-    // item_visitor.rs (parse_syn_visibility).
     let syn_vis_site_ids: BTreeSet<&str> = nodes
         .iter()
         .filter(|n| n.label.as_str() == Label::MATCH_SITE && is_production(n))

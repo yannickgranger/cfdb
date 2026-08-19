@@ -1,40 +1,16 @@
-//! CLEAN-3 architecture test for cfdb-core (#3628).
-//!
-//! cfdb-core is the hub of the cfdb workspace. RFC-029 §8 mandates that the
-//! dependency arrow points inward: cfdb-core MUST NOT depend on any concrete
-//! store, parser, extractor, or wire-form crate. The forbidden crates are
-//! reversed dependencies that would create a dependency cycle and let
-//! infrastructure types leak into the foundation layer.
-//!
-//! This test parses cfdb-core's own `Cargo.toml` at compile time and asserts
-//! that no forbidden crate appears in `[dependencies]`. The allow/forbid lists
-//! are NOT inlined here — they live in the inert workspace-level declaration
-//! `.cfdb/workspace-dep-rules.toml` (RFC-044 §3.3 / #422), the single source
-//! of truth shared by all five per-crate dep-rule tests.
-
 use std::collections::BTreeSet;
 
 const CARGO_TOML: &str = include_str!("../Cargo.toml");
 
-/// Inert workspace dep-direction declaration — single source of truth for the
-/// allow/forbid graph (RFC-044 §3.3 / #422). Consumed via `include_str!`; the
-/// per-crate reader below is intentionally self-contained (no shared Rust
-/// crate, no new dev-dep — clean-arch R1 / no-monolith), the same accepted
-/// duplication as `parse_dependency_names()`.
 const DEP_RULES: &str = include_str!("../../../.cfdb/workspace-dep-rules.toml");
 
-/// This crate's section name in the inert rules file.
 const CRATE_SECTION: &str = "cfdb-core";
 
-/// Read the `allowed` and `forbidden` arrays for `crate_name` from `DEP_RULES`.
-/// Line-oriented reader over hand-authored TOML (one quoted entry per array
-/// line); returns `(allowed, forbidden)`.
 fn dep_rules_for(crate_name: &str) -> (BTreeSet<String>, BTreeSet<String>) {
     let header = format!("[{crate_name}]");
     let mut allowed = BTreeSet::new();
     let mut forbidden = BTreeSet::new();
     let mut in_section = false;
-    // 0 = neither array, 1 = inside `allowed`, 2 = inside `forbidden`.
     let mut bucket = 0u8;
 
     for raw in DEP_RULES.lines() {
@@ -81,10 +57,6 @@ fn dep_rules_for(crate_name: &str) -> (BTreeSet<String>, BTreeSet<String>) {
     (allowed, forbidden)
 }
 
-/// Parse the `[dependencies]` section of cfdb-core's Cargo.toml and return
-/// the set of dependency names. Inline-table form (`name = { ... }`) and
-/// shorthand form (`name = "..."` / `name.workspace = true`) are both
-/// supported — that is the only syntax used in this workspace.
 fn parse_dependency_names() -> BTreeSet<String> {
     let mut names = BTreeSet::new();
     let mut in_deps_section = false;
@@ -107,7 +79,6 @@ fn parse_dependency_names() -> BTreeSet<String> {
 
         if let Some(eq_idx) = line.find('=') {
             let key = line[..eq_idx].trim();
-            // Strip dotted-key suffixes like `serde.workspace`.
             let crate_name = key.split('.').next().unwrap_or(key).trim();
             if !crate_name.is_empty() {
                 names.insert(crate_name.to_string());
@@ -120,9 +91,6 @@ fn parse_dependency_names() -> BTreeSet<String> {
 
 #[test]
 fn workspace_dep_rules_section_loaded() {
-    // Non-vacuity guard: if the `include_str!` path breaks or the section name
-    // drifts, both lists come back empty and every other assertion below would
-    // pass vacuously. This test fails loudly instead.
     let (allowed, forbidden) = dep_rules_for(CRATE_SECTION);
     assert!(
         !allowed.is_empty() && !forbidden.is_empty(),
@@ -170,8 +138,6 @@ fn cfdb_core_dependencies_are_all_whitelisted() {
 
 #[test]
 fn cfdb_core_keeps_serde_thiserror_minimum() {
-    // Sanity: the foundation layer must always carry serde + thiserror.
-    // If either disappears, the API contract breaks for every caller.
     let deps = parse_dependency_names();
     assert!(deps.contains("serde"), "cfdb-core must depend on serde");
     assert!(
@@ -182,9 +148,6 @@ fn cfdb_core_keeps_serde_thiserror_minimum() {
 
 #[test]
 fn parser_finds_all_current_dependencies() {
-    // Self-test: if the Cargo.toml shrinks below this floor, the parser is
-    // probably broken (returning an empty set) rather than the file being
-    // empty. This guards against silent test passes.
     let deps = parse_dependency_names();
     assert!(
         deps.len() >= 3,

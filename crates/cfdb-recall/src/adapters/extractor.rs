@@ -1,30 +1,3 @@
-//! Extractor adapter — run `cfdb-extractor` on a workspace and project the
-//! emitted `Label::ITEM` nodes into a `BTreeSet<PublicItem>`.
-//!
-//! The extractor emits every item it walks (public, private, test-scope),
-//! each tagged with `crate` and `is_test` properties. For recall we keep
-//! only items whose `crate` matches the target and whose `is_test` flag is
-//! false — public-api's rustdoc JSON ground truth is computed against the
-//! non-test build, so including test items here would create a phantom
-//! mismatch on both sides.
-//!
-//! The projection does NOT attempt to filter by visibility. The extractor
-//! emits private items too; they flow through as extra entries in the
-//! output set. That is fine — the recall formula is set intersection
-//! against the public ground truth, so extra private items on the
-//! extracted side are a harmless superset (see `lib.rs` test
-//! `extractor_superset_does_not_affect_recall`).
-//!
-//! ## Kind filter — keep only top-level items
-//!
-//! The extractor emits several `kind` values at `Label::ITEM`: `fn`,
-//! `struct`, `enum`, `trait`, `type_alias`, `const`, `static`, and
-//! `method`. The rustdoc JSON `paths` map (our ground truth, see
-//! `adapters/ground_truth.rs`) only indexes TOP-LEVEL items — impl
-//! methods live under `Crate::index` inside `Impl` items and need a
-//! separate walk. So this projection drops `kind="method"`
-//! to keep the two sides of the recall formula symmetric.
-
 use std::collections::BTreeSet;
 use std::path::Path;
 
@@ -34,10 +7,6 @@ use cfdb_extractor::{extract_workspace, ExtractError};
 
 use crate::PublicItem;
 
-/// The extractor `kind` values we consider "top-level public API items".
-/// `method` is intentionally absent — rustdoc's `paths` map does not
-/// index impl methods, so including them in the recall surface would
-/// asymmetrically inflate the extractor side of the comparison.
 pub const KEPT_ITEM_KINDS: &[&str] = &[
     "fn",
     "struct",
@@ -49,13 +18,6 @@ pub const KEPT_ITEM_KINDS: &[&str] = &[
     "union",
 ];
 
-/// Project a list of extractor nodes into `(crate_name -> PublicItem set)`.
-/// Keeps only `Label::ITEM` nodes whose `is_test` flag is false and whose
-/// `kind` is in [`KEPT_ITEM_KINDS`]. Groups by the `crate` property so
-/// the caller can look up a single crate's items without re-filtering.
-///
-/// Pure function — no I/O — so tests exercise it against synthetic node
-/// vectors.
 pub fn project_nodes(nodes: &[Node]) -> std::collections::BTreeMap<String, BTreeSet<PublicItem>> {
     let mut out: std::collections::BTreeMap<String, BTreeSet<PublicItem>> =
         std::collections::BTreeMap::new();
@@ -70,12 +32,6 @@ pub fn project_nodes(nodes: &[Node]) -> std::collections::BTreeMap<String, BTree
     out
 }
 
-/// Filter step for [`project_nodes`] — returns `Some((crate_name, qname))`
-/// when `node` is a `:Item` worth retaining under the recall corpus's
-/// projection rules, and `None` otherwise. The `.clone()` calls that used
-/// to live inside the `for node in nodes { ... }` body move into this
-/// `filter_map` closure, which is not a `for` block and so does not count
-/// against the `clones-in-loops` metric.
 fn project_kept_item(node: &Node) -> Option<(String, String)> {
     if node.label.as_str() != Label::ITEM {
         return None;
@@ -98,9 +54,6 @@ fn project_kept_item(node: &Node) -> Option<(String, String)> {
     Some((crate_name.clone(), qname.clone()))
 }
 
-/// Run the extractor against a workspace root and project the result.
-/// I/O-bound wrapper for the pure projection above — this is the function
-/// the binary and the integration test call.
 pub fn extract_and_project(
     workspace_root: &Path,
 ) -> Result<std::collections::BTreeMap<String, BTreeSet<PublicItem>>, ExtractError> {
@@ -161,9 +114,6 @@ mod tests {
 
     #[test]
     fn drops_test_scope_items() {
-        // Items marked is_test=true are dropped because the public-api
-        // ground truth runs against the non-test build and would never
-        // surface them.
         let nodes = vec![
             item_node("item:c::prod", "c", "c::prod", false),
             item_node("item:c::test_helper", "c", "c::test_helper", true),
@@ -175,8 +125,6 @@ mod tests {
 
     #[test]
     fn ignores_non_item_nodes() {
-        // CallSite, Module, Field, Crate — none of those contribute to
-        // the recall surface. Only `Label::ITEM` nodes do.
         let nodes = vec![
             item_node("item:c::foo", "c", "c::foo", false),
             Node {
@@ -197,10 +145,6 @@ mod tests {
 
     #[test]
     fn skips_item_nodes_missing_required_props() {
-        // Defensive: a malformed ITEM node without `qname` or `crate`
-        // should not crash the projection, just be silently dropped. The
-        // extractor always emits both, so this is a guard against a
-        // future schema change.
         let nodes = vec![Node {
             id: "item:c::foo".into(),
             label: Label::new(Label::ITEM),
@@ -212,9 +156,6 @@ mod tests {
 
     #[test]
     fn drops_methods_by_kind_filter() {
-        // Methods are emitted by `visit_impl_item_fn` with kind="method".
-        // The rustdoc `paths` ground truth does not index methods, so
-        // the recall formula is symmetric only if we drop them here too.
         let nodes = vec![
             item_node_with_kind("item:c::foo", "c", "c::foo", "fn", false),
             item_node_with_kind("item:c::Bar", "c", "c::Bar", "struct", false),
@@ -229,9 +170,6 @@ mod tests {
 
     #[test]
     fn keeps_all_kept_item_kinds() {
-        // Regression guard: every kind in `KEPT_ITEM_KINDS` must flow
-        // through the projection. Iterates the real constant (not a copy)
-        // so a change to the list itself is exercised here too.
         let nodes: Vec<Node> = KEPT_ITEM_KINDS
             .iter()
             .enumerate()
@@ -245,11 +183,6 @@ mod tests {
 
     #[test]
     fn kept_item_kinds_correspond_to_ground_truth_list() {
-        // The recall gate holds two views of "kept kinds": the extractor-side
-        // wire strings (`KEPT_ITEM_KINDS` above) and the rustdoc-side
-        // `ItemKind` list in `ground_truth.rs`. This test is the single place
-        // declaring their 1:1 correspondence — editing either list without
-        // the other fails here instead of silently skewing the recall gate.
         use rustdoc_types::ItemKind;
         let as_wire = |k: &ItemKind| -> &'static str {
             match k {
@@ -273,9 +206,6 @@ mod tests {
                 .collect();
         let extractor: std::collections::BTreeSet<&str> = KEPT_ITEM_KINDS.iter().copied().collect();
         assert_eq!(ground_truth, extractor);
-        // Set equality alone would let a duplicate entry in either list
-        // collapse unnoticed; assert raw lengths so both lists stay
-        // duplicate-free too.
         assert_eq!(
             crate::adapters::ground_truth::KEPT_ITEM_KINDS.len(),
             KEPT_ITEM_KINDS.len()

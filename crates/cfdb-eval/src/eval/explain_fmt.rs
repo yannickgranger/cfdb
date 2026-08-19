@@ -1,8 +1,3 @@
-//! Stable rendering of a `NodePattern` into the
-//! `(<var>:<Label>)` string used by `cfdb scope --explain`.
-//! Dogfood tests grep on the bracket shape — do not change
-//! the format without matching updates to their assertions.
-
 use cfdb_core::query::NodePattern;
 
 pub(super) fn format_node_pattern(np: &NodePattern) -> String {

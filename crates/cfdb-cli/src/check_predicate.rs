@@ -1,27 +1,3 @@
-//! `cfdb check-predicate` verb handler.
-//!
-//! Loads `.cfdb/predicates/<name>.cypher` from `workspace_root`, resolves
-//! `--param <name>:<form>:<value>` CLI args via the Slice-1
-//! [`crate::param_resolver::resolve_params`] bridge, binds them into the
-//! parsed [`cfdb_core::query::Query`], executes against the caller-pinned
-//! keyspace, and emits the canonical three-column `(qname, line, reason)`
-//! violation format — same exit contract as `cfdb violations`
-//! (`row_count > 0` → non-zero exit at the dispatch layer).
-//!
-//! Determinism: rows are sorted by `(qname asc, line asc)` BEFORE
-//! serialization so the output is stable regardless of future evaluator
-//! tie-break changes (§4.1). `ORDER BY` inside the predicate template is
-//! a necessary-but-not-sufficient condition.
-//!
-//! Visibility: `pub` as an external verb surface. Distinct from the
-//! internal `pub(crate)` plumbing because this is the integration-test /
-//! skill-consumer boundary.
-//!
-//! Output shapes:
-//! - `text` (default): stderr summary `check-predicate: N (predicate: <name>)`;
-//!   stdout `qname\tline\treason` per row.
-//! - `json`: stdout pretty-printed [`PredicateRunReport`].
-
 use std::path::{Path, PathBuf};
 
 use cfdb_core::fact::PropValue;
@@ -34,62 +10,25 @@ use crate::compose;
 use crate::param_resolver::resolve_params;
 use crate::CfdbCliError;
 
-/// Canonical column names emitted by `.cfdb/predicates/*.cypher` (RFC §3.5).
 const QNAME_COL: &str = "qname";
 const LINE_COL: &str = "line";
 const REASON_COL: &str = "reason";
 
-/// Report of one `check-predicate` invocation.
-///
-/// Serialization target when the user passes `--format json`; also the
-/// library-API return value for programmatic consumers (tests, future
-/// skill adapters). `rows` is deterministic ascending by `(qname, line)`.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct PredicateRunReport {
-    /// Bare name as passed on the CLI (e.g. `"path-regex"`) — matches the
-    /// basename of the `.cypher` file under `.cfdb/predicates/`.
     pub predicate_name: String,
-    /// Absolute path of the `.cypher` file loaded for this invocation.
-    /// Stable across runs so CI output can cite the exact source.
     pub predicate_path: PathBuf,
-    /// Number of rows in `rows`. Exit-code contract at the dispatch layer
-    /// checks this scalar — `> 0` → process exit 1.
     pub row_count: usize,
-    /// One entry per violation row, sorted ascending by `(qname, line)`.
     pub rows: Vec<PredicateRow>,
 }
 
-/// Single row of a `check-predicate` result — mirrors the three-column
-/// format `cfdb violations` emits so consumer skills can parse both with
-/// the same code path.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub struct PredicateRow {
-    /// Fully-qualified name (or path, for `:File` predicates) emitted by
-    /// the predicate's `RETURN X AS qname` clause.
     pub qname: String,
-    /// 1-based source line number, or `0` for predicates whose subject
-    /// does not have a line (e.g. `:Crate`, `:File`).
     pub line: i64,
-    /// Human-readable violation description from the predicate's
-    /// `RETURN '...' AS reason` clause.
     pub reason: String,
 }
 
-/// Execute the named predicate against the pinned keyspace with
-/// CLI-resolved params.
-///
-/// Errors surface as [`CfdbCliError`] variants:
-/// - `Io` — predicate file missing / unreadable
-/// - `Parse` — predicate file syntactically invalid
-/// - `Store` — keyspace load / execute failure
-/// - `Usage` — param resolution failure (unknown form, unknown context, …)
-///   or malformed row shape (missing `qname` / `line` / `reason` column).
-///
-/// The caller (dispatch arm) inspects `report.row_count` and exits non-zero
-/// when `> 0`. Printing is the caller's responsibility — this fn returns
-/// the structured report; text or JSON rendering happens at the dispatch
-/// boundary so the library-API path (integration tests, skills) can
-/// inspect `rows` directly without parsing stdout.
 pub fn check_predicate(
     db: &Path,
     keyspace: &str,
@@ -134,9 +73,6 @@ pub fn check_predicate(
     })
 }
 
-/// Resolve `<workspace_root>/.cfdb/predicates/<name>.cypher`. Pure path
-/// arithmetic; no I/O. Exposed as a helper so tests can reason about the
-/// resolution without triggering a file read.
 fn predicate_path(workspace_root: &Path, name: &str) -> PathBuf {
     workspace_root
         .join(".cfdb")
@@ -144,9 +80,6 @@ fn predicate_path(workspace_root: &Path, name: &str) -> PathBuf {
         .join(format!("{name}.cypher"))
 }
 
-/// Map one evaluator row into a [`PredicateRow`]. Missing columns surface
-/// as `CfdbCliError::Usage` rather than silent defaults so a broken
-/// predicate (e.g. `RETURN c.name AS qanme` — typo) fails loudly.
 fn extract_predicate_row(
     row: &cfdb_core::result::Row,
     predicate_name: &str,

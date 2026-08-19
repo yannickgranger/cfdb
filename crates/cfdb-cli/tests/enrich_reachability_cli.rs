@@ -1,19 +1,3 @@
-//! `cfdb enrich-reachability` end-to-end through the real binary, against
-//! cfdb's own tree.
-//!
-//! The reachability BFS only runs when the keyspace carries at least one
-//! `:EntryPoint`; a syn-only extract of cfdb-self carries none (entry
-//! points come from the HIR extractor). So the test extracts cfdb-self,
-//! then injects one synthetic `:EntryPoint -[:EXPOSES]-> :Item` seed
-//! straight into the on-disk keyspace file, and asserts through the
-//! binary that:
-//!
-//! 1. the report says the pass ran and wrote attributes;
-//! 2. the enriched keyspace was persisted — the seed `:Item` carries all
-//!    four reach/count attributes (both the All and the ProductionOnly
-//!    pass wrote), and every `:Item` in the keyspace carries the
-//!    `reachable_from_entry` attribute (never left null).
-
 use std::path::{Path, PathBuf};
 
 use assert_cmd::prelude::*;
@@ -47,8 +31,6 @@ fn extract_selfdog(workspace: &Path, db_path: &Path) {
         .success();
 }
 
-/// Append one `:EntryPoint -[:EXPOSES]-> :Item` seed to the persisted
-/// keyspace file so the BFS has something to walk from.
 fn inject_synthetic_seed(keyspace_file: &Path) {
     let raw = std::fs::read(keyspace_file).expect("read keyspace file");
     let mut file: Value = serde_json::from_slice(&raw).expect("keyspace file is JSON");
@@ -121,7 +103,6 @@ fn enrich_reachability_through_the_real_binary_on_cfdb_self() {
         "every :Item gets reach/count attrs from both passes: {report}"
     );
 
-    // The pass mutated the graph, so the CLI must have persisted it.
     let raw = std::fs::read(&keyspace_file).expect("re-read keyspace file");
     let file: Value = serde_json::from_slice(&raw).expect("keyspace file is JSON");
     let items: Vec<&Value> = file["nodes"]

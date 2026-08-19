@@ -1,16 +1,3 @@
-//! `PetgraphStore::with_indexes` builder + `keyspace_mut` spec propagation.
-//!
-//! The slice closes the spec-flow gap between `cfdb-cli::compose::load_store*`
-//! and per-keyspace `by_prop` posting lists: a store constructed via
-//! `PetgraphStore::new().with_indexes(spec)` carries the spec on its
-//! field, and `keyspace_mut` threads that spec into every auto-created
-//! [`KeyspaceState`] so `ingest_nodes` populates `by_prop` without any
-//! caller touching `KeyspaceState::new_with_spec` directly.
-//!
-//! These tests sit in a sibling `#[cfg(test)] mod` (declared from
-//! `lib.rs`) so they can reach `pub(crate)` items (`keyspaces`,
-//! `IndexTag`, `IndexValue`) without widening the public surface.
-
 use cfdb_core::fact::Node;
 use cfdb_core::schema::{Keyspace, Label};
 use cfdb_core::store::StoreBackend;
@@ -73,16 +60,11 @@ fn keyspace_mut_propagates_spec_to_auto_created_keyspaces() {
         .keyspaces
         .get(&ks())
         .expect("keyspace was auto-created by ingest_nodes via keyspace_mut");
-    // Two expected posting-list buckets: (Item, "qname") and
-    // (Item, "last_segment(qname)"). Non-empty by_prop proves the spec
-    // flowed all the way from `with_indexes` to the keyspace's ingest
-    // path (RFC-035 §3.8).
     assert!(
         !state.by_prop.is_empty(),
         "by_prop must be populated after ingest when the store carries a \
          non-empty IndexSpec — slice-7 propagation gap regression"
     );
-    // Inspect the canonical prop bucket: last_segment("foo::bar") = "bar"
     let qname_bucket = state
         .by_prop
         .iter()
@@ -115,10 +97,6 @@ fn keyspace_mut_propagates_spec_to_auto_created_keyspaces() {
 
 #[test]
 fn default_store_leaves_by_prop_empty_after_ingest() {
-    // The inverse of the slice-7 propagation test — a store constructed
-    // WITHOUT `with_indexes` must leave `by_prop` empty across ingest,
-    // matching pre-slice-7 behaviour. Guards against accidental always-on
-    // indexing that would defeat the opt-in `.cfdb/indexes.toml` contract.
     let mut store = PetgraphStore::new();
     store
         .ingest_nodes(&ks(), vec![item("item:a", "foo::bar")])

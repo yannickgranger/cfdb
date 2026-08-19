@@ -1,11 +1,3 @@
-//! C3 — port trait signature change detection.
-//!
-//! Fires when a changed path matches `^crates/ports[^/]*/src/`. Port trait
-//! signatures carry cross-context contract guarantees; any change belongs in
-//! pre-council review.
-//!
-//! Mechanism: regex over each changed path. No TOML input needed.
-
 use regex::Regex;
 use serde_json::json;
 use std::path::Path;
@@ -14,24 +6,16 @@ use std::sync::OnceLock;
 use crate::toml_io::{read_changed_paths, LoadError};
 use crate::triggers::TriggerOutcome;
 
-/// Matches any file under a `crates/ports*/src/` tree.
-/// The pattern is anchored at the start of the path so nested occurrences
-/// (e.g. a fixture living inside a `ports-*` crate's `tests/`) do not fire.
 fn port_regex() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
     R.get_or_init(|| Regex::new(r"^crates/ports[^/]*/src/").expect("valid port regex"))
 }
 
-/// Run the C3 check against the changed-paths file.
-///
-/// # Errors
-/// Returns [`LoadError`] if the changed-paths file cannot be read.
 pub fn run(changed_paths: &Path) -> Result<TriggerOutcome, LoadError> {
     let changed = read_changed_paths(changed_paths)?;
     Ok(evaluate(&changed))
 }
 
-/// Pure evaluator exposed for unit tests.
 #[must_use]
 pub fn evaluate(changed_paths: &[String]) -> TriggerOutcome {
     let re = port_regex();

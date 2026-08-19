@@ -1,13 +1,3 @@
-//! `:Argument` + `HAS_ARG` end-to-end emission tests
-//! (RFC-043 Slice A).
-//!
-//! Drive the full `extract_workspace` pipeline against synthetic cargo
-//! workspaces and assert on the observable extractor output: that
-//! call-site arguments produce one `:Argument` node per positional argument
-//! with the documented prop shape, and that the parent
-//! `:CallSite -[:HAS_ARG]-> :Argument` edge is emitted exactly once per
-//! argument. Also asserts receiver emission for method calls (position 0).
-
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -85,10 +75,6 @@ fn prop_int(props: &BTreeMap<String, PropValue>, key: &str) -> i64 {
     }
 }
 
-// ---- RFC-043 §3.1: ExprCall argument emission -------------------------------
-
-/// `RedisInventory::new(conn.clone())` — one ExprCall with one argument.
-/// The argument expression is a method call (`.clone()`), so `kind="method_call"`.
 #[test]
 fn expr_call_emits_one_argument_with_method_call_kind() {
     let fx = tempdir().expect("tempdir");
@@ -109,15 +95,11 @@ pub fn create_inventory(conn: Connection) -> RedisInventory {
     let (nodes, edges) = extract_workspace(fx.path()).expect("extract");
 
     let args = argument_nodes(&nodes);
-    // At minimum one :Argument for `conn.clone()` at position 0 of
-    // the `RedisInventory::new` call site.
     assert!(
         !args.is_empty(),
         "expected at least one :Argument node, got none"
     );
 
-    // Find the specific argument for `conn.clone()` — kind = "method_call",
-    // position = 0.
     let method_call_arg = args
         .iter()
         .find(|n| {
@@ -139,33 +121,28 @@ pub fn create_inventory(conn: Connection) -> RedisInventory {
     assert_eq!(prop_int(&method_call_arg.props, "position"), 0);
     assert_eq!(prop_str(&method_call_arg.props, "kind"), "method_call");
 
-    // source_text must contain "clone" — the token-stream form of `conn.clone()`.
     let src_text = prop_str(&method_call_arg.props, "source_text");
     assert!(
         src_text.contains("clone"),
         "source_text should contain 'clone'; got {src_text:?}"
     );
 
-    // line must be > 0 (real source location, not synthetic zero).
     assert!(
         prop_int(&method_call_arg.props, "line") > 0,
         "line should be > 0"
     );
 
-    // col must be > 0 (1-indexed).
     assert!(
         prop_int(&method_call_arg.props, "col") > 0,
         "col should be > 0 (1-indexed)"
     );
 
-    // The argument id must start with "arg:".
     assert!(
         method_call_arg.id.starts_with("arg:"),
         "argument id must start with 'arg:'; got {:?}",
         method_call_arg.id
     );
 
-    // There must be a corresponding HAS_ARG edge from the parent call site.
     let has_arg = has_arg_edges(&edges);
     assert!(
         !has_arg.is_empty(),
@@ -180,7 +157,6 @@ pub fn create_inventory(conn: Connection) -> RedisInventory {
                 method_call_arg.id
             )
         });
-    // The source of the HAS_ARG edge must be a call site id.
     assert!(
         edge_to_arg.src.starts_with("callsite:"),
         "HAS_ARG source must start with 'callsite:'; got {:?}",
@@ -188,9 +164,6 @@ pub fn create_inventory(conn: Connection) -> RedisInventory {
     );
 }
 
-// ---- RFC-043 §3.2: ExprMethodCall receiver emission (RECEIVER_POSITION = 0) -
-
-/// `conn.clone()` — the receiver `conn` is emitted at position 0.
 #[test]
 fn expr_method_call_emits_receiver_at_position_zero() {
     let fx = tempdir().expect("tempdir");
@@ -211,8 +184,6 @@ pub fn dup_conn(conn: Connection) -> Connection {
 
     let args = argument_nodes(&nodes);
 
-    // For `conn.clone()`, the receiver `conn` is emitted at position 0.
-    // It is a path expression, so kind = "path".
     let receiver_arg = args
         .iter()
         .find(|n| {
@@ -231,7 +202,6 @@ pub fn dup_conn(conn: Connection) -> Connection {
             )
         });
 
-    // source_text contains the receiver name.
     let src = prop_str(&receiver_arg.props, "source_text");
     assert!(
         src.contains("conn"),
@@ -240,10 +210,6 @@ pub fn dup_conn(conn: Connection) -> Connection {
     assert_eq!(prop_int(&receiver_arg.props, "position"), 0);
 }
 
-// ---- RFC-043 §4 Invariant 8: lifecycle coupling ----------------------------
-
-/// All :Argument ids for a given call site share the prefix `arg:{cs_id}#`.
-/// Deleting all nodes with id prefix `arg:{cs_id}#` removes all children.
 #[test]
 fn argument_ids_share_callsite_prefix() {
     let fx = tempdir().expect("tempdir");
@@ -263,7 +229,6 @@ pub fn caller() -> i32 {
     let (nodes, _edges) = extract_workspace(fx.path()).expect("extract");
 
     let args = argument_nodes(&nodes);
-    // Both arguments of `S::multi(1, 2)` must start with `arg:callsite:...`.
     for arg in &args {
         assert!(
             arg.id.starts_with("arg:callsite:"),

@@ -1,9 +1,3 @@
-//! C8 — pipeline-stage cross detection.
-//!
-//! Fires when a changed path set touches ≥2 stages in `pipeline-stages.toml`
-//! (`[stages.signal]`, `[stages.sizing]`, `[stages.execution]`, ...). A
-//! single change crossing stage boundaries requires pre-council inspection.
-
 use serde_json::json;
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -11,17 +5,12 @@ use std::path::Path;
 use crate::toml_io::{read_changed_paths, read_toml, LoadError};
 use crate::triggers::TriggerOutcome;
 
-/// Run the C8 check against the on-disk inputs.
-///
-/// # Errors
-/// Returns [`LoadError`] if either file is missing or malformed.
 pub fn run(pipeline_stages: &Path, changed_paths: &Path) -> Result<TriggerOutcome, LoadError> {
     let cfg = read_toml(pipeline_stages)?;
     let changed = read_changed_paths(changed_paths)?;
     Ok(evaluate(&cfg, &changed))
 }
 
-/// Pure evaluator exposed for unit tests.
 #[must_use]
 pub fn evaluate(pipeline_cfg: &toml::Value, changed_paths: &[String]) -> TriggerOutcome {
     let stages = pipeline_cfg.get("stages").and_then(toml::Value::as_table);

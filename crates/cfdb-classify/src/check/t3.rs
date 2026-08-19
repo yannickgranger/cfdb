@@ -1,10 +1,3 @@
-//! T3 trigger runner — same-name-in-≥2-crates raw Pattern A detection.
-//!
-//! See `super` module doc for the verdict / correlation rationale.
-//! Per-row `is_cross_context` + `canonical_candidate` are computed in
-//! Rust against the embedded multi-crate cypher and the canonical-crate
-//! correlation set.
-
 use std::collections::BTreeSet;
 
 use cfdb_core::fact::PropValue;
@@ -21,12 +14,6 @@ use super::{
     T3_CONCEPT_MULTI_CRATE_CYPHER,
 };
 
-/// Run the T3 trigger: execute the embedded multi-crate cypher, fetch
-/// the canonical-crate set once, then per-row derive
-/// `is_cross_context` (`n_contexts > 1`) and `canonical_candidate`
-/// (the first element of `crates[]` that appears in any
-/// `:Context.canonical_crate`, or `null` if none). Return the report
-/// with stable ordering.
 pub(crate) fn run<S: GraphBackend>(
     engine: &QueryEngine<'_, S>,
     ks: &Keyspace,
@@ -52,10 +39,6 @@ pub(crate) fn run<S: GraphBackend>(
         }
     }
 
-    // Stable order — same sort key as the cypher's ORDER BY: n DESC,
-    // name ASC. The cypher's projection already sorted by this key,
-    // but we re-sort defensively since the Rust-side projection
-    // iterates in receive order. Ties on `n` resolve by `name`.
     rows_out.sort_by(|a, b| b.n.cmp(&a.n).then_with(|| a.name.cmp(&b.name)));
 
     Ok(CheckReport {
@@ -65,11 +48,6 @@ pub(crate) fn run<S: GraphBackend>(
     })
 }
 
-/// Project one raw cypher row into a [`T3Row`], computing
-/// `is_cross_context` + `canonical_candidate` in Rust because the
-/// v0.1 cypher subset RETURN clause does not evaluate boolean or
-/// outer-bound OPTIONAL MATCH correlations reliably (see the T3 cypher
-/// header for the limitations).
 fn project_t3_row(row: &Row, canonical_crates: &BTreeSet<String>) -> Option<T3Row> {
     let name = scalar_str_owned(row, "name")?;
     let kind = scalar_str_owned(row, "kind")?;
@@ -82,11 +60,6 @@ fn project_t3_row(row: &Row, canonical_crates: &BTreeSet<String>) -> Option<T3Ro
     let files = list_str_owned(row, "files");
 
     let is_cross_context = n_contexts > 1;
-    // Pick the first crate in this row's `crates[]` list that is
-    // declared as some `:Context.canonical_crate` — this is the
-    // "canonical candidate" in the T3 row shape.
-    // `BTreeSet::contains` is O(log n); `crates[]` is small in
-    // practice (workspace-scale, not ecosystem-scale).
     let canonical_candidate = crates
         .iter()
         .find(|c| canonical_crates.contains(*c))
@@ -107,10 +80,6 @@ fn project_t3_row(row: &Row, canonical_crates: &BTreeSet<String>) -> Option<T3Ro
     })
 }
 
-/// Extract an integer value from a row column. Returns `None` for
-/// missing keys, null values, or non-integer values. Matches the
-/// `RowValue::Scalar(PropValue::Int(_))` shape produced by
-/// `count(...)` aggregations in the v0.1 evaluator.
 fn scalar_int(row: &Row, key: &str) -> Option<i64> {
     match row.get(key)? {
         RowValue::Scalar(PropValue::Int(n)) => Some(*n),
@@ -118,9 +87,6 @@ fn scalar_int(row: &Row, key: &str) -> Option<i64> {
     }
 }
 
-/// Extract a list column as owned `Vec<String>`, filtering to
-/// scalar-string elements. Matches the `RowValue::List(Vec<PropValue>)`
-/// shape produced by `collect(...)` aggregations.
 fn list_str_owned(row: &Row, key: &str) -> Vec<String> {
     match row.get(key) {
         Some(RowValue::List(items)) => items

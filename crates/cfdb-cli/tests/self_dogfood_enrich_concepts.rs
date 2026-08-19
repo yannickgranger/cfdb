@@ -1,25 +1,3 @@
-//! Self-dogfood test for `enrich_concepts` (issue #109 — slice 43-F).
-//!
-//! Extracts cfdb's own worktree (which carries `.cfdb/concepts/cfdb.toml`
-//! declaring a single `cfdb` concept with 9 crates + `canonical_crate =
-//! "cfdb-core"`), runs `enrich_concepts`, and asserts:
-//!
-//! - One `:Concept { name: "cfdb", assigned_by: "manual" }` node exists
-//! - `LABELED_AS` edges cover every cfdb `:Item` (848 items per #108's
-//!   self-dogfood report)
-//! - `CANONICAL_FOR` edges cover every `:Item` in the `cfdb-core` crate
-//!
-//! AC-4 of the issue expected "zero emissions" on cfdb's tree under the
-//! assumption that cfdb had no concepts file. cfdb.toml has since been
-//! added (council-cfdb-wiring), so the AC is reinterpreted: the pass
-//! succeeds gracefully with real emissions — the negative-case regression
-//! spirit is preserved by the module-level `no_concepts_dir_is_graceful_noop`
-//! unit test.
-//!
-//! Routes through `cfdb_enrich::EnrichEngine`, not `PetgraphStore`
-//! directly. Still never exercises `crates/cfdb-cli/src/enrich.rs`'s
-//! dispatcher, though — see `enrich_concepts_cli.rs` for that.
-
 use std::path::PathBuf;
 
 use cfdb_core::enrich::EnrichBackend;
@@ -77,46 +55,24 @@ fn self_dogfood_cfdb_concept_and_labeled_as_coverage() {
         Some("manual")
     );
 
-    // LABELED_AS coverage is over WALKED cfdb :Item nodes — i.e. items
-    // whose `crate` prop is one of the cfdb sub-workspace crates listed
-    // in `.cfdb/concepts/cfdb.toml`. Items synthesised by the post-walk
-    // pass for foreign edge dst qnames (std, serde, ...) (issue #317)
-    // carry their own crate (`std`, `serde`, ...) — those are NOT cfdb
-    // concept members and correctly get no LABELED_AS edge.
-    // Mirrors `.cfdb/concepts/cfdb.toml` `crates` list. If cfdb gains a
-    // new crate, add it both to the TOML and here — the test is the
-    // signal that enrich_concepts saw every cfdb crate's items.
     let cfdb_crates: std::collections::BTreeSet<&str> = [
         "cfdb-core",
         "cfdb-concepts",
         "cfdb-query",
         "cfdb-petgraph",
-        // Enrichment passes' destination crate. Mirror .cfdb/concepts/cfdb.toml.
         "cfdb-enrich",
-        // The evaluator crate. Mirror .cfdb/concepts/cfdb.toml.
         "cfdb-eval",
-        // The judgment layer. Mirror .cfdb/concepts/cfdb.toml.
         "cfdb-classify",
         "cfdb-extractor",
-        // RFC-041 Phase 2 / Phase 3 — concrete `LanguageProducer`
-        // impls for PHP (#264) and TypeScript (#265); same operational
-        // bounded context per council-cfdb-wiring §B.1.2.
         "cfdb-extractor-php",
         "cfdb-extractor-ts",
         "cfdb-hir-extractor",
         "cfdb-hir-petgraph-adapter",
         "cfdb-cli",
-        // RFC-041 Phase 1 / Slice 41-A — `cfdb-lang` is a cfdb-monolith
-        // member crate per `.cfdb/concepts/cfdb.toml` (council-cfdb-
-        // wiring §B.1.2). Mirror the TOML's crates list here so this
-        // test catches any drift between the two surfaces.
         "cfdb-lang",
         "cfdb-recall",
         "check-prelude-triggers",
         "dogfood-enrich",
-        // RFC-043 Slice A — shared syn-based argument-kind classifier used by
-        // both cfdb-extractor and cfdb-hir-extractor. Same operational bounded
-        // context per council-cfdb-wiring §B.1.2. Mirror .cfdb/concepts/cfdb.toml.
         "cfdb-extractor-shared",
     ]
     .into_iter()
@@ -141,8 +97,6 @@ fn self_dogfood_cfdb_concept_and_labeled_as_coverage() {
          (got {labeled_as_count} edges vs {cfdb_walked_items} cfdb-crate items)"
     );
 
-    // CANONICAL_FOR: cfdb.toml declares canonical_crate = "cfdb-core", so
-    // every :Item in cfdb-core gets a CANONICAL_FOR edge to :Concept{cfdb}.
     let canonical_for_count = all_edges
         .iter()
         .filter(|e| e.label.as_str() == EdgeLabel::CANONICAL_FOR && e.dst == cfdb_concept.id)

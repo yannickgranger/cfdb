@@ -1,19 +1,10 @@
-//! Integration tests that extract cfdb's own sub-workspace and assert
-//! invariants on the emitted node/edge set. Moved out of `lib.rs` as
-//! part of the #3718 god-module split so `lib.rs` can drop below 200 LOC.
-//!
-//! These tests use only the public API (`extract_workspace` + the re-exported
-//! `cfdb_core` facts), so they compile cleanly against the crate boundary.
-
 use std::path::Path;
 
 use cfdb_core::fact::PropValue;
 use cfdb_core::schema::{EdgeLabel, Label};
 use cfdb_extractor::extract_workspace;
 
-/// Resolve the cfdb sub-workspace root — this crate's grandparent directory.
 fn cfdb_workspace_root() -> &'static Path {
-    // The cfdb sub-workspace itself — this crate's parent Cargo.toml.
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("cfdb-extractor crate dir has parent (crates/)")
@@ -32,7 +23,6 @@ fn extracts_self_workspace() {
         nodes.iter().map(|n| &n.id).take(5).collect::<Vec<_>>()
     );
 
-    // cfdb-core defines a StoreBackend trait; we should see it as an Item.
     assert!(
         nodes.iter().any(|n| {
             n.label.as_str() == Label::ITEM
@@ -45,7 +35,6 @@ fn extracts_self_workspace() {
         "expected StoreBackend trait item"
     );
 
-    // Every Item should have an IN_CRATE edge to its crate node.
     let item_count = nodes
         .iter()
         .filter(|n| n.label.as_str() == Label::ITEM)
@@ -65,8 +54,6 @@ fn emits_call_sites_and_methods() {
     let root = cfdb_workspace_root();
     let (nodes, edges) = extract_workspace(root).expect("extract cfdb");
 
-    // At least one CallSite node exists (cfdb's own source calls
-    // `BTreeMap::new`, `format!`, `Vec::new`, etc. everywhere).
     let call_site_count = nodes
         .iter()
         .filter(|n| n.label.as_str() == Label::CALL_SITE)
@@ -76,7 +63,6 @@ fn emits_call_sites_and_methods() {
         "expected CallSite nodes; got 0 — is visit_item_fn walking bodies?"
     );
 
-    // At least one method Item exists (cfdb has plenty of impl methods).
     let method_count = nodes
         .iter()
         .filter(|n| {
@@ -93,7 +79,6 @@ fn emits_call_sites_and_methods() {
         "expected method Items; got 0 — is visit_impl_item_fn wired?"
     );
 
-    // Every CallSite has an incoming INVOKES_AT edge.
     let invokes_at_count = edges
         .iter()
         .filter(|e| e.label.as_str() == EdgeLabel::INVOKES_AT)
@@ -103,10 +88,6 @@ fn emits_call_sites_and_methods() {
         "every CallSite should have exactly one INVOKES_AT edge"
     );
 
-    // SchemaVersion v0.1.3+ self-dogfood (issue #83, RFC-029 §A1.2):
-    // every :CallSite emitted while extracting cfdb's own source tree
-    // carries `resolver="syn"` + `callee_resolved=false`. No exceptions.
-    // The syn extractor must never claim HIR resolution.
     for cs in nodes
         .iter()
         .filter(|n| n.label.as_str() == Label::CALL_SITE)
@@ -131,8 +112,6 @@ fn tags_cfg_test_modules_with_is_test() {
     let root = cfdb_workspace_root();
     let (nodes, _edges) = extract_workspace(root).expect("extract cfdb");
 
-    // cfdb's own source has `#[cfg(test)] mod tests {}` in several
-    // crates. At least one Item should be tagged as test.
     let test_items = nodes
         .iter()
         .filter(|n| {
@@ -148,8 +127,6 @@ fn tags_cfg_test_modules_with_is_test() {
         "expected at least one is_test=true Item from cfdb's own #[cfg(test)] blocks"
     );
 
-    // And at least one Item should NOT be tagged — cfdb's prod code
-    // (every lib.rs, every visit_* method) is prod.
     let prod_items = nodes
         .iter()
         .filter(|n| {
@@ -162,7 +139,6 @@ fn tags_cfg_test_modules_with_is_test() {
         "expected more prod Items than test Items in cfdb, got prod={prod_items} test={test_items}"
     );
 
-    // CallSite nodes should carry the same flag.
     let has_test_callsites = nodes.iter().any(|n| {
         n.label.as_str() == Label::CALL_SITE
             && n.props.get("is_test").and_then(PropValue::as_bool) == Some(true)
@@ -173,21 +149,11 @@ fn tags_cfg_test_modules_with_is_test() {
     );
 }
 
-/// AC: `context_node_emitted_for_each_declared_context` +
-/// `belongs_to_edge_connects_crate_to_context` (issue #3727,
-/// council-cfdb-wiring §B.1.3). Running `extract_workspace` against the
-/// cfdb sub-workspace (with the committed `.cfdb/concepts/cfdb.toml`
-/// override fixture) must emit exactly one `:Context` node named `"cfdb"`
-/// and one `BELONGS_TO` edge per cfdb crate pointing to it.
 #[test]
 fn self_workspace_emits_cfdb_context_and_belongs_to_edges() {
     let root = cfdb_workspace_root();
     let (nodes, edges) = extract_workspace(root).expect("extract cfdb");
 
-    // The committed override fixture declares ALL 6 cfdb crates under
-    // a single "cfdb" bounded context. There must be exactly one
-    // :Context{name="cfdb"} node, and it must carry the override metadata
-    // (canonical_crate, owning_rfc).
     let cfdb_context_nodes: Vec<_> = nodes
         .iter()
         .filter(|n| {
@@ -216,9 +182,6 @@ fn self_workspace_emits_cfdb_context_and_belongs_to_edges() {
         ":Context{{cfdb}} should carry owning_rfc=RFC-029 from override"
     );
 
-    // Every workspace-member Crate node must have exactly one BELONGS_TO
-    // edge, and (since the override maps them all to cfdb) every edge
-    // targets `context:cfdb`.
     let crate_nodes: Vec<_> = nodes
         .iter()
         .filter(|n| n.label.as_str() == Label::CRATE)
@@ -248,8 +211,6 @@ fn self_workspace_emits_cfdb_context_and_belongs_to_edges() {
         );
     }
 
-    // And every Item emitted from a cfdb crate must carry
-    // `bounded_context=cfdb` — the per-Item stamping side of §B.1.2.
     let sample_item = nodes
         .iter()
         .find(|n| {
@@ -267,10 +228,6 @@ fn self_workspace_emits_cfdb_context_and_belongs_to_edges() {
     );
 }
 
-/// G1 determinism (RFC §12.1): two consecutive extractions against the
-/// same workspace SHA must produce byte-identical (nodes, edges) output.
-/// Any slip into `HashMap`, `sort_unstable`, or system-clock reads in the
-/// extractor breaks this silently — the gate exists to catch it.
 #[test]
 fn extractor_is_deterministic_across_two_runs() {
     let root = cfdb_workspace_root();
@@ -289,9 +246,6 @@ fn extractor_is_deterministic_across_two_runs() {
         "edge count drifted between runs"
     );
 
-    // Compare by canonical JSON serialization — catches any property
-    // reordering that Vec-equality would miss (PropValue is BTreeMap-keyed
-    // so this should be stable, but the test asserts the guarantee).
     let json_a = serde_json::to_string(&(&nodes_a, &edges_a)).expect("serialize run 1");
     let json_b = serde_json::to_string(&(&nodes_b, &edges_b)).expect("serialize run 2");
     assert_eq!(
@@ -300,29 +254,6 @@ fn extractor_is_deterministic_across_two_runs() {
     );
 }
 
-/// F-005 / EPIC #273 self-dogfood scar: every extraction against cfdb's
-/// own source tree must produce :Item nodes with REAL source-line numbers
-/// (1-indexed, from `proc_macro2::Span::start().line`), not the 0
-/// placeholder that `span_line` returned for the entire RFC-029 era.
-///
-/// The previous implementation hardcoded `span_line() -> 0` with a stale
-/// comment claiming proc-macro2 didn't expose line info on stable Rust.
-/// False since proc-macro2 1.0.66 (May 2023). The fix:
-///
-/// 1. Workspace `Cargo.toml` enables `span-locations` on `proc-macro2`.
-/// 2. `cfdb-extractor/Cargo.toml` names `proc-macro2` directly so the
-///    feature is opted in (it's a transitive dep of `syn`).
-/// 3. `span_line` calls `ident.span().start().line` instead of returning 0.
-/// 4. `:CallSite` emission paths (body-call + attr-ref) plumb a line
-///    number through `emit_call_site_node_and_edge` instead of hardcoding 0.
-///
-/// Threshold rationale: cfdb's own tree has thousands of items; even
-/// allowing for a long tail of synthetic / macro-expanded spans we
-/// expect the OVERWHELMING majority of :Item nodes to carry a real line.
-/// 50% is the safe lower bound per the issue body — the actual share
-/// should be well over 95%. If this drops below 50% the regression is
-/// the feature flag silently turning off (`Cargo.lock` rebuild merging
-/// features the wrong way) or `span_line` reverting to a placeholder.
 #[test]
 fn test_f005_item_line_is_real_not_zero() {
     let root = cfdb_workspace_root();
@@ -349,11 +280,6 @@ fn test_f005_item_line_is_real_not_zero() {
         })
         .count();
 
-    // Issue-body threshold: ≥ 50% of :Item nodes must carry a real line.
-    // Real-world share against cfdb's own tree is far above this — the
-    // 50% figure exists so legitimate impl_block / macro-expanded spans
-    // (which legitimately render as 0) cannot mask a regression where
-    // the feature flag silently turns off.
     let percentage = (items_with_real_line * 100) / item_count;
     assert!(
         percentage >= 50,
@@ -367,27 +293,6 @@ fn test_f005_item_line_is_real_not_zero() {
 
 #[test]
 fn self_workspace_emits_render_type_inner_deltas() {
-    // #239 self-dogfood assertion: extracting cfdb's own tree must emit
-    // enough RETURNS and TYPE_OF edges to prove the `render_type_inner`
-    // third-tier wrapper unwrap is wired and effective against the
-    // real-world extractor codebase.
-    //
-    // Thresholds (calibrated against develop-tip `346eab1` baseline ×
-    // #239 worktree post-change — see `.proofs/self-dogfood-239.txt`):
-    //
-    // | Metric  | Baseline (develop) | Post-#239 | Delta | Threshold |
-    // |---------|--------------------|-----------|-------|-----------|
-    // | RETURNS | 131                | 320       | 2.4×  | ≥ 250     |
-    // | TYPE_OF | 182                | 257       | 1.4×  | ≥ 220     |
-    //
-    // Both thresholds sit above baseline with ~15-20% headroom below
-    // the observed post-fix count so day-to-day churn in the cfdb
-    // codebase (new structs added, return types changed) does not
-    // flip the test red on unrelated commits. The issue-body thresholds
-    // (RETURNS ≥ 150, TYPE_OF ≥ 300) were authored pre-measurement;
-    // actual cfdb composition is returns-heavy, type_of-thin — the
-    // 250 / 220 figures capture the shipped precision delta honestly
-    // and are reviewer-verifiable against the proof file.
     let root = cfdb_workspace_root();
     let (_nodes, edges) = extract_workspace(root).expect("extract cfdb sub-workspace");
     let returns_count = edges
@@ -408,23 +313,9 @@ fn self_workspace_emits_render_type_inner_deltas() {
     );
 }
 
-/// RFC-050 50-A self-dogfood: `:Crate.crate_tier` is the topological
-/// longest-path depth in cfdb's own intra-workspace normal-`[dependencies]`
-/// DAG. `cfdb-core` (zero in-workspace deps) is tier 0; `cfdb-cli` (the top
-/// binary that transitively normal-depends on everything) is the workspace
-/// maximum (`studies/003 §2`).
-///
-/// This also proves the **normal-deps-only** filter on real infra:
-/// extraction completing at all means the DAG did not cycle, yet cfdb's tree
-/// has `cfdb-cli --normal--> cfdb-hir-extractor` together with
-/// `cfdb-hir-extractor --dev--> cfdb-cli` — a back-edge an all-kinds DAG
-/// would reject as a cycle (RFC-050 §5, rust-systems lens). dev/build deps
-/// are excluded, so it does not.
 #[test]
 fn crate_tier_self_dogfood_core_is_zero_cli_is_max() {
     let root = cfdb_workspace_root();
-    // `expect` here also asserts the normal-deps DAG is acyclic — a
-    // `CrateTierCycle` (dev-deps not excluded) would surface as an `Err`.
     let (nodes, _edges) = extract_workspace(root).expect("extract cfdb sub-workspace");
 
     let tier_of = |crate_name: &str| -> i64 {
@@ -466,7 +357,6 @@ fn crate_tier_self_dogfood_core_is_zero_cli_is_max() {
         "cfdb-cli is the maximum-tier crate (got {cli}, workspace max {max_tier})"
     );
 
-    // Every :Crate must carry a crate_tier (no `:Crate` left without it).
     for node in nodes.iter().filter(|n| n.label.as_str() == Label::CRATE) {
         assert!(
             matches!(node.props.get("crate_tier"), Some(PropValue::Int(_))),
@@ -476,13 +366,6 @@ fn crate_tier_self_dogfood_core_is_zero_cli_is_max() {
     }
 }
 
-/// #538 self-dogfood: falsifies the (now-corrected) `:Item` describe-doc
-/// claim that only `pub`/`pub(crate)` items are ever emitted. cfdb's own
-/// tree has plenty of private (no-modifier) top-level items — helper fns,
-/// private structs backing a `pub` API, etc. — and the extractor
-/// (`item_visitor::parse_syn_visibility`) carries no visibility filter, so
-/// self-extraction must produce at least one `:Item{visibility:"private"}`
-/// node against real infra, not a synthetic fixture.
 #[test]
 fn self_workspace_emits_private_items() {
     let root = cfdb_workspace_root();
@@ -502,8 +385,6 @@ fn self_workspace_emits_private_items() {
          started filtering private items or visibility tagging broke"
     );
 
-    // And at least one `pub` item — the describe-doc's corrected claim is
-    // "any visibility", not "private only" either.
     let pub_items = nodes
         .iter()
         .filter(|n| {

@@ -1,16 +1,3 @@
-//! Static schema-reference check for `.cfdb/predicates/*.cypher` seed library
-//! (RFC-034 §7 Slice 2 — issue #146 / R1 C6 ddd-specialist non-blocking
-//! request).
-//!
-//! Iterates every `.cfdb/predicates/*.cypher` file in the workspace root,
-//! parses each via `cfdb_query::parse`, walks the AST, and asserts that
-//! every `:Label` and `[:EdgeLabel]` literal resolves to a known variant in
-//! `cfdb_core::schema::{Label, EdgeLabel}`.
-//!
-//! Catches C2.b-class regressions (RFC-034 R1 synthesis) — predicate files
-//! that reference a typo'd or out-of-schema vocabulary item (e.g. the
-//! infamous `RE_EXPORTS` that does not exist on develop).
-
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -18,9 +5,6 @@ use std::path::{Path, PathBuf};
 use cfdb_core::query::{Pattern, Predicate, Query};
 use cfdb_core::schema::{EdgeLabel, Label};
 
-/// Every node-`:Label` known to the schema on develop @ `refreshed_sha`
-/// (RFC-cfdb §7 ten labels + v0.2 additions). New labels added in a future
-/// schema RFC extend this list here.
 const KNOWN_NODE_LABELS: &[&str] = &[
     Label::CRATE,
     Label::MODULE,
@@ -37,7 +21,6 @@ const KNOWN_NODE_LABELS: &[&str] = &[
     Label::CONST_TABLE,
 ];
 
-/// Every edge-`[:EdgeLabel]` known to the schema on develop @ `refreshed_sha`.
 const KNOWN_EDGE_LABELS: &[&str] = &[
     EdgeLabel::IN_CRATE,
     EdgeLabel::IN_MODULE,
@@ -133,10 +116,6 @@ fn seed_directory_is_not_empty() {
     );
 }
 
-// --- helpers ---
-
-/// Resolve the cfdb workspace root from this crate's manifest dir.
-/// `crates/cfdb-query/` is two levels below the workspace root.
 fn workspace_root() -> PathBuf {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
     Path::new(manifest_dir)
@@ -147,10 +126,6 @@ fn workspace_root() -> PathBuf {
         .to_path_buf()
 }
 
-/// List every `.cypher` file under `<workspace_root>/.cfdb/predicates/` and
-/// read its source. Sorted by path for deterministic iteration. Returns an
-/// empty vec if the directory is missing — the `seed_directory_is_not_empty`
-/// test catches that case.
 fn seed_predicate_files() -> Vec<(PathBuf, String)> {
     let dir = workspace_root().join(".cfdb").join("predicates");
     let read = match fs::read_dir(&dir) {

@@ -1,35 +1,3 @@
-//! `extract_entry_points` — scan the HIR-loaded VFS and emit
-//! `:EntryPoint` nodes + `EXPOSES` edges for the v0.2 kind vocabulary.
-//!
-//! Framework detection is dispatched through the [`framework`]
-//! `FrameworkDetector` registry: each framework recogniser is a registered
-//! detector, so adding a framework is a registration rather than a new
-//! dispatch arm. Test/bench classification is not a framework and runs as
-//! a dedicated pass ([`scan_test_bench_fns`]). The detector recogniser
-//! contract spans two scan shapes:
-//!
-//! - **Attribute-level**: `cli_command` for `struct`/`enum`
-//!   with `#[derive(Parser/Subcommand)]`; `mcp_tool` for `fn` with an
-//!   attribute whose last path segment is `tool`.
-//! - **Call-expression-level**: `http_route` for
-//!   `axum` `Router::route|get|post|put|delete|patch|nest("/path",
-//!   handler)` and `actix_web` `.route("/p", web::<method>().to(h))` /
-//!   `.service(web::resource("/p").route(...))` chains; `cron_job` for
-//!   `Job::new_async(<cron-lit>, ..)` / `Job::new(<cron-lit>, ..)` (also
-//!   catches wrapped forms like `JobScheduler::add(Job::new_async(...))`
-//!   because the inner `Job::new*` fires the emitter); `websocket` for
-//!   `<expr>.on_upgrade(<handler>)`. `http_route` resolves the handler
-//!   via `Semantics::resolve_path`; `cron_job` stores the literal
-//!   schedule in `cron_expr` and exposes the enclosing fn (closures have
-//!   no qname); `websocket` resolves a named-fn handler and otherwise
-//!   falls back to the enclosing fn.
-//!
-//! Clap/MCP detection is attribute-textual rather than trait-resolution
-//! based so it works on unbuilt source and on struct-only derives.
-//! Route/Cron/WS detection is call-expression-based because none of
-//! those crates defines a user-facing attribute — the handler is always
-//! passed by value into a constructor or method call.
-
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -60,32 +28,9 @@ use framework::{FrameworkRegistry, Manifest};
 use registers_param::has_tool_attr;
 use test_bench::{has_bench_attr, has_test_attr, is_under_benches_dir, is_under_tests_dir};
 
-/// HTTP method verbs recognized on axum's `Router` and actix's `App`.
-/// `route` is overloaded (2-arg on axum / actix `App`, 1-arg on actix
-/// `Resource`); `nest` is axum-specific sub-router composition. The
-/// scan is method-name-syntactic — receiver type is not checked, which
-/// keeps the fixture workspace free of real axum / actix dependencies
-/// and matches the heuristic-not-annotation contract from
-/// RFC-029 §A1.1 line 77.
 const HTTP_ROUTE_METHOD_NAMES: &[&str] =
     &["route", "get", "post", "put", "delete", "patch", "nest"];
 
-/// Extract entry-point facts from a loaded HIR database.
-///
-/// See module-level docs for the detection contract. Output is
-/// sorted by node id (and edges by `(src, dst, label)`) before
-/// return for G1 byte-stability.
-///
-/// `workspace_root` is the directory the workspace was loaded from; it
-/// scopes the RFC-049 §3.1 manifest gate to the workspace's own member
-/// crates (see [`framework::Manifest::from_crate_graph`]). The caller
-/// passes the same path it handed to
-/// [`build_hir_database`](crate::build_hir_database).
-///
-/// # Errors
-///
-/// Returns [`HirError`] on VFS / parse failures. Individual items
-/// whose qname cannot be resolved are silently skipped.
 pub fn extract_entry_points<DB>(
     db: &DB,
     vfs: &Vfs,
@@ -114,14 +59,9 @@ where
     let mut nodes: Vec<Node> = Vec::new();
     let mut edges: Vec<Edge> = Vec::new();
 
-    // Workspace-scoped, workspace-relative enumeration shared with the
-    // call-site emitter.
     let files = workspace_rs_files(vfs, workspace_root)?;
 
     let registry = FrameworkRegistry::<DB>::rust_default();
-    // Populate the manifest from the workspace members' own
-    // `[dependencies]` (scoped by `workspace_root`) so each detector's
-    // `present(manifest)` gate consults them.
     let manifest = Manifest::from_crate_graph(db, vfs, workspace_root);
 
     for (file_id, file_path) in files {
@@ -130,9 +70,6 @@ where
             registry.detect_file(&manifest, &sema, &ctx, &source_file, &file_path);
         nodes.append(&mut framework_nodes);
         edges.append(&mut framework_edges);
-        // Test/bench entry points are not a manifest-gated framework, so
-        // they are classified in a dedicated pass that honours the
-        // `#[tool]` precedence.
         scan_test_bench_fns(
             &sema,
             &ctx,
@@ -155,16 +92,6 @@ where
     Ok((nodes, edges))
 }
 
-/// Emit `test` / `bench` `:EntryPoint`s for the fns in `source_file`.
-///
-/// Test/bench classification is not a manifest-gated framework, so it
-/// runs outside the [`framework`] `FrameworkDetector` registry. It
-/// preserves precedence below `#[tool]`: a `#[tool]` fn is emitted as
-/// `mcp_tool` by the MCP detector and MUST NOT also be classified
-/// test/bench, so `#[tool]` fns are skipped here. Below that,
-/// attribute-based `#[test]` / `#[bench]` wins over the `tests/` /
-/// `benches/` file-location fallback (both resolved by [`test_bench_kind`]).
-/// Exactly one `:EntryPoint` per fn is preserved (no-duplicate invariant).
 fn scan_test_bench_fns<DB>(
     sema: &Semantics<'_, DB>,
     ctx: &EmitCtx<'_>,
@@ -193,8 +120,6 @@ fn scan_test_bench_fns<DB>(
     }
 }
 
-/// Classify a non-`#[tool]` fn as `test` / `bench` / `None` per
-/// precedence below `#[tool]`: attribute first, then file-location.
 fn test_bench_kind(fn_ast: &ast::Fn, file_path: &Path) -> Option<&'static str> {
     if has_test_attr(fn_ast) {
         Some("test")
@@ -249,13 +174,6 @@ where
     })
 }
 
-/// Resolve an `ast::Fn`'s qname via the canonical HIR fn-qname formula
-/// in [`crate::call_site_emitter::function_qname`]. The formula is
-/// impl-aware and trait-aware: methods inside `impl Foo { fn bar }` get
-/// `<module>::Foo::bar`, trait impls get `<module>::Trait::bar`, free
-/// fns get `<module>::bar`. Routing through the canonical builder
-/// keeps cross-producer :Param / REGISTERS_PARAM keys bit-identical
-/// with the syn-side emitter.
 fn fn_handler<DB>(sema: &Semantics<'_, DB>, ctx: &EmitCtx<'_>, fn_ast: &ast::Fn) -> Option<Handler>
 where
     DB: HirDatabase + Sized,
@@ -271,10 +189,6 @@ where
     })
 }
 
-/// A resolved entry-point handler: display name, bare display qname,
-/// and the target discriminator of the crate that owns it. Ids derive
-/// from [`Handler::identity`]; the `handler_qname` prop stays the bare
-/// qname (display props never carry the identity suffix).
 struct Handler {
     name: String,
     qname: String,
@@ -282,15 +196,11 @@ struct Handler {
 }
 
 impl Handler {
-    /// The discriminated identity string ids derive from.
     fn identity(&self) -> std::borrow::Cow<'_, str> {
         self.target.identity(&self.qname)
     }
 }
 
-/// Resolve an argument expression to its [`Handler`] when it is a path
-/// to a named fn. Closures, blocks, and unresolved paths return `None`
-/// so the caller can fall back to the enclosing-fn policy.
 fn resolve_handler_arg<DB>(
     sema: &Semantics<'_, DB>,
     ctx: &EmitCtx<'_>,
@@ -321,10 +231,6 @@ where
     })
 }
 
-/// Walk the syntax-tree ancestors of `node` looking for the
-/// enclosing `fn` and return its [`Handler`]. Used when the
-/// registration call's handler argument has no own path-level qname
-/// (closure) or when a cron schedule lives directly inside a fn.
 fn enclosing_fn_handler<DB>(
     sema: &Semantics<'_, DB>,
     ctx: &EmitCtx<'_>,
@@ -337,9 +243,6 @@ where
     fn_handler(sema, ctx, &fn_ast)
 }
 
-/// Build `<crate>::<module_path>::<item_name>` via
-/// `cfdb_core::qname::item_qname`. Shared by all kinds so cross-kind
-/// IDs land on the same `:Item` node.
 fn build_item_qname<DB>(
     sema: &Semantics<'_, DB>,
     module: ra_ap_hir::Module,
@@ -349,13 +252,7 @@ fn build_item_qname<DB>(
 where
     DB: HirDatabase + Sized,
 {
-    // The database is monomorphic `DB: HirDatabase + Sized`. Passing
-    // `sema.db` (which is `&DB`) directly to HIR query methods preserves
-    // the monomorphisation — the trait is not object-safe.
     let db = sema.db;
-    // Key the crate segment off the PACKAGE name (not the bin TARGET name
-    // `display_name` yields) so the qname matches the syn extractor and the
-    // EXPOSES edge lands on a real :Item.
     let crate_name = crate::crate_name::crate_qname_prefix(db, krate);
 
     let mut stack: Vec<String> = module
@@ -372,12 +269,6 @@ where
     item_qname(&stack, item_name)
 }
 
-/// Emit the `:EntryPoint` node and its `EXPOSES` edge. The optional
-/// `extra_props` map is merged into the node props (e.g. `cron_expr`
-/// for `cron_job`). Ids derive from the handler's discriminated
-/// identity: two same-qname handlers in sibling bins are distinct entry
-/// points, and the `EXPOSES` dst joins the syn side's discriminated `:Item`.
-/// The `handler_qname` prop stays the bare display qname.
 fn emit(
     nodes: &mut Vec<Node>,
     edges: &mut Vec<Edge>,
@@ -397,9 +288,6 @@ fn emit(
         PropValue::Str(handler.qname.clone()),
     );
     props.insert("file".into(), PropValue::Str(file_str));
-    // Parameter JSON is reserved for follow-up enrichment (extracting
-    // clap arg shapes, MCP tool input schemas). MVP emits an empty
-    // array to satisfy the schema descriptor's `params: json` attr.
     props.insert("params".into(), PropValue::Str("[]".to_string()));
     if let Some(extra) = extra_props {
         for (k, v) in extra {

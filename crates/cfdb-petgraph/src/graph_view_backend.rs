@@ -1,12 +1,3 @@
-//! `GraphView` + `GraphReader` for `KeyspaceState`, `GraphBackend` for
-//! `PetgraphStore`.
-//!
-//! Thin delegation to `KeyspaceState`'s existing `pub(crate)` fields/methods
-//! — this file introduces no new behavior, only `pub` trait surfaces over
-//! what already exists. Handles wrap petgraph indices 1:1
-//! (`NodeIndex::index() as u32`); the graph's index type is `u32`, so the
-//! round trip is lossless and handle order is index order.
-
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -49,8 +40,6 @@ impl GraphView for KeyspaceState {
     }
 
     fn nodes_with_label(&self, label: &Label) -> Vec<String> {
-        // Delegates to the existing sorted-NodeIndex accessor, then resolves
-        // each index to its id — same order, id-based per the port contract.
         KeyspaceState::nodes_with_label(self, label)
             .into_iter()
             .filter_map(|idx| self.graph.node_weight(idx).map(|n| n.id.clone()))

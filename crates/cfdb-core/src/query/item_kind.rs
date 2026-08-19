@@ -1,15 +1,5 @@
-//! `ItemKind` vocabulary — wire-form surface for the `list_items_matching`
-//! verb. The variants map to the cfdb syn extractor's lowercase emission
-//! strings via [`ItemKind::to_extractor_str`].
-
 use serde::{Deserialize, Serialize};
 
-/// Kind vocabulary for the `list_items_matching` verb. The variants are
-/// the wire-form surface; they map to the extractor's emitted `:Item.kind`
-/// strings via [`ItemKind::to_extractor_str`].
-///
-/// Variant order is canonical — consumers that iterate [`ItemKind::variants`]
-/// get a stable order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ItemKind {
     Struct,
@@ -24,7 +14,6 @@ pub enum ItemKind {
 }
 
 impl ItemKind {
-    /// Canonical list of all variants in stable order (callers can depend on it).
     pub fn variants() -> &'static [ItemKind] {
         &[
             ItemKind::Struct,
@@ -39,12 +28,6 @@ impl ItemKind {
         ]
     }
 
-    /// Map a kind to the string the cfdb syn extractor emits as `:Item.kind`.
-    /// The extractor's vocabulary is lowercase and diverges from the kind names
-    /// in two spots: `TypeAlias → "type_alias"` and `ImplBlock → "impl_block"`.
-    /// The extractor emits one `:Item { kind: "impl_block" }` per `impl ... {}`
-    /// block alongside `IMPLEMENTS` + `IMPLEMENTS_FOR` edges. Older keyspaces
-    /// may have zero `impl_block` items.
     pub fn to_extractor_str(self) -> &'static str {
         match self {
             ItemKind::Struct => "struct",
@@ -59,8 +42,6 @@ impl ItemKind {
         }
     }
 
-    /// Human-readable council-spelled name (the same spelling users type on
-    /// the CLI).
     pub fn as_str(self) -> &'static str {
         match self {
             ItemKind::Struct => "Struct",
@@ -101,8 +82,6 @@ impl std::str::FromStr for ItemKind {
     }
 }
 
-/// Parse error for [`ItemKind`]'s `FromStr`. Carries the rejected input so the
-/// caller can format a user-facing message that enumerates valid values.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UnknownItemKind(pub String);
 
@@ -167,11 +146,6 @@ mod tests {
         assert_eq!(err2.0, "NotAKind");
     }
 
-    /// #479 red — `static` has been a wire value since the first
-    /// extractor release and `union` sits in recall's KEPT_ITEM_KINDS,
-    /// yet neither could be spelled on the CLI (`--kind Static` /
-    /// `--kind Union` errored). String-level on purpose: compiles
-    /// before the variants exist, so the red is honest.
     #[test]
     fn item_kind_fromstr_accepts_static_and_union() {
         use std::str::FromStr;
@@ -185,12 +159,6 @@ mod tests {
 
     #[test]
     fn item_kind_to_extractor_str_maps_every_variant() {
-        // Pins the AC vocabulary → extractor vocabulary mapping table.
-        // Every variant emits a concrete `kind` string that appears on
-        // real `:Item` nodes. `ImplBlock` mapped to `"<unemitted:impl_block>"`
-        // pre-#42 because the extractor did not walk impl blocks;
-        // post-#42 (SchemaVersion V0_2_2) every `impl ... {}` emits
-        // `kind = "impl_block"` so the sentinel is no longer needed.
         assert_eq!(ItemKind::Struct.to_extractor_str(), "struct");
         assert_eq!(ItemKind::Enum.to_extractor_str(), "enum");
         assert_eq!(ItemKind::Fn.to_extractor_str(), "fn");

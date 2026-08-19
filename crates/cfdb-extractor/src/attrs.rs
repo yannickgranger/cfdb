@@ -1,23 +1,7 @@
-//! Attribute extraction helpers — narrow probes that pull a single
-//! string-shaped piece of information out of a `syn::Attribute` slice.
-//! Each helper is a pure function; none of them touch the `Emitter`.
-
 use cfdb_core::CfgGate;
 use syn::punctuated::Punctuated;
 use syn::Token;
 
-/// Extract the callback path string from `#[serde(default = "Utc::now")]`
-/// or similar serde default-via-function attributes on a field.
-///
-/// Serde accepts three default shapes:
-///   1. `#[serde(default)]` — uses `T::default()`, no callback to track
-///   2. `#[serde(default = "path::to::fn")]` — the string-literal form
-///   3. `#[serde(default, rename_all = "camelCase")]` — nested meta list
-///
-/// Only shape (2) carries a callback path that the cfdb extractor can
-/// project into a CallSite. The returned string is the literal path value
-/// the author wrote (e.g. `"Utc::now"`, `"chrono::Utc::now"`,
-/// `"my_module::default_now"`).
 pub(crate) fn extract_serde_default_attr(attrs: &[syn::Attribute]) -> Option<String> {
     for attr in attrs {
         if !attr.path().is_ident("serde") {
@@ -41,13 +25,11 @@ pub(crate) fn extract_serde_default_attr(attrs: &[syn::Attribute]) -> Option<Str
     None
 }
 
-/// Extract the string value of a `#[path = "..."]` attribute, if present.
 pub(crate) fn extract_path_attr(attrs: &[syn::Attribute]) -> Option<String> {
     for attr in attrs {
         if !attr.path().is_ident("path") {
             continue;
         }
-        // `#[path = "foo.rs"]` — NameValue syntax.
         if let syn::Meta::NameValue(nv) = &attr.meta {
             if let syn::Expr::Lit(syn::ExprLit {
                 lit: syn::Lit::Str(lit_str),
@@ -61,13 +43,6 @@ pub(crate) fn extract_path_attr(attrs: &[syn::Attribute]) -> Option<String> {
     None
 }
 
-/// Return true if any of the given attributes is `#[cfg(test)]` or
-/// `#[cfg(all(test, ...))]` — the two canonical forms for gating a module
-/// on the test build profile. We deliberately don't try to handle
-/// `#[cfg(any(test, ...))]` because it's rare in practice and ambiguous:
-/// the module is *sometimes* test code. Being conservative here means
-/// prod-only filter rules keep working; false negatives are reported as
-/// test findings rather than missed prod findings.
 pub(crate) fn attrs_contain_cfg_test(attrs: &[syn::Attribute]) -> bool {
     attrs.iter().any(|attr| {
         if !attr.path().is_ident("cfg") {
@@ -93,52 +68,15 @@ pub(crate) fn attrs_contain_cfg_test(attrs: &[syn::Attribute]) -> bool {
     })
 }
 
-/// Return true if any of the given attributes is the bare `#[test]` function
-/// attribute. This complements [`attrs_contain_cfg_test`] (which checks
-/// `#[cfg(test)]` on modules) by recognising free / impl fns that are test
-/// functions without being nested inside a `#[cfg(test)]` module —
-/// council-cfdb-wiring §B.1.1.
-///
-/// Only the bare `#[test]` single-ident attribute is matched. Multi-segment
-/// paths like `#[tokio::test]` or `#[test_log::test]` are deliberately not
-/// matched because they are custom test harnesses outside libtest, and this
-/// predicate is scoped to libtest-native tests only.
 pub(crate) fn attrs_contain_hash_test(attrs: &[syn::Attribute]) -> bool {
     attrs.iter().any(|attr| {
         if !attr.path().is_ident("test") {
             return false;
         }
-        // Bare `#[test]` parses as `Meta::Path`; `#[test(arg)]` parses as
-        // `Meta::List` (not a libtest form but we reject it for safety).
         matches!(attr.meta, syn::Meta::Path(_))
     })
 }
 
-/// Extract deprecation state from an item's attribute list.
-///
-/// Returns `(is_deprecated, deprecation_since)`:
-///
-/// - `is_deprecated` is `true` when at least one `#[deprecated]` or
-///   `#[deprecated(...)]` attribute appears on the item. All three
-///   accepted forms trigger a match:
-///   `#[deprecated]`, `#[deprecated(note = "...")]`,
-///   `#[deprecated(since = "X.Y.Z", note = "...")]`.
-/// - `deprecation_since` is `Some(version_string)` when the attribute
-///   carries an explicit `since = "..."` key; `None` otherwise. The
-///   string is the literal author-supplied value — no SemVer parsing.
-///
-/// Only the bare single-segment `deprecated` path is recognised.
-/// Multi-segment paths like `#[serde(deprecated = "true")]` are NOT
-/// treated as Rust stability deprecation (the `#[serde(...)]` namespace
-/// carries unrelated semantics). This matches the discipline used by
-/// [`attrs_contain_hash_test`] for `#[test]` vs `#[tokio::test]`.
-///
-/// This is an extractor-time fact tagged `Provenance::Extractor` — the AST
-/// walker already visits item attributes, so extraction is the right layer.
-/// The [`cfdb_core::enrich::EnrichBackend::enrich_deprecation`] trait
-/// method exists for surface symmetry; its `PetgraphStore` override
-/// returns a `ran: true, attrs_written: 0` no-op naming the extractor
-/// as the real source.
 pub(crate) fn extract_deprecated_attr(attrs: &[syn::Attribute]) -> (bool, Option<String>) {
     let mut is_deprecated = false;
     let mut since: Option<String> = None;
@@ -147,28 +85,15 @@ pub(crate) fn extract_deprecated_attr(attrs: &[syn::Attribute]) -> (bool, Option
             continue;
         }
         is_deprecated = true;
-        // `#[deprecated]` parses as `Meta::Path` — carries no kv args.
-        // `#[deprecated(...)]` parses as `Meta::List` — delegate to a
-        // helper so `extract_deprecated_attr`'s nesting stays flat
-        // (cognitive complexity threshold per cfdb quality gates).
         if let syn::Meta::List(list) = &attr.meta {
             if let Some(v) = parse_deprecated_since(list) {
                 since = Some(v);
             }
         }
-        // Continue scanning in case multiple `#[deprecated]` attrs
-        // exist (not a standard pattern, but harmless — last `since`
-        // wins, matching Rust's own precedence).
     }
     (is_deprecated, since)
 }
 
-/// Pull the `since = "X.Y.Z"` string literal out of a
-/// `#[deprecated(since = "...", note = "...")]` meta list, if present.
-/// Factored out of [`extract_deprecated_attr`] so that the main loop
-/// body stays shallow enough to clear the cognitive-complexity gate.
-/// `note = "..."` is deliberately ignored — the current extractor
-/// surface only needs the version string.
 fn parse_deprecated_since(list: &syn::MetaList) -> Option<String> {
     let mut since: Option<String> = None;
     let _ = list.parse_nested_meta(|meta| {
@@ -183,32 +108,13 @@ fn parse_deprecated_since(list: &syn::MetaList) -> Option<String> {
     since
 }
 
-/// Extract the feature-only `cfg(...)` gate from the item's attribute list.
-/// Recognises `cfg(feature = "x")`, `cfg(all(...))`, `cfg(any(...))`,
-/// `cfg(not(...))` and nested combinations thereof.
-///
-/// **All-or-nothing policy.** Returns `None` when the item either (a)
-/// has no `#[cfg(...)]` attributes, or (b) carries a cfg expression with
-/// any non-feature leaf (e.g. `cfg(test)`, `cfg(target_os = "…")`,
-/// `cfg(unix)`). A mixed capture would force every consumer to decide
-/// how to interpret a partial tree — the closed vocabulary keeps
-/// downstream queries unambiguous.
-///
-/// **Conjunction across multiple attributes.** Multiple `#[cfg(...)]`
-/// attributes on the same item conjoin (Rust semantics). When an item
-/// carries both `#[cfg(feature = "a")]` and `#[cfg(feature = "b")]`
-/// this helper returns `All(vec![Feature("a"), Feature("b")])`.
 pub(crate) fn extract_cfg_feature_gate(attrs: &[syn::Attribute]) -> Option<CfgGate> {
     let mut gates: Vec<CfgGate> = Vec::new();
     for attr in attrs {
         if !attr.path().is_ident("cfg") {
             continue;
         }
-        // `#[cfg(...)]` — parse the parenthesised contents as a Meta.
         let Ok(inner) = attr.parse_args::<syn::Meta>() else {
-            // Anything that doesn't parse as a Meta (malformed or
-            // macro-generated) is treated as opaque — drop the whole
-            // item's gate rather than guess.
             return None;
         };
         let gate = meta_to_feature_gate(&inner)?;
@@ -221,8 +127,6 @@ pub(crate) fn extract_cfg_feature_gate(attrs: &[syn::Attribute]) -> Option<CfgGa
     }
 }
 
-/// Translate a single `syn::Meta` node into a `CfgGate`, or `None` if the
-/// tree contains any non-feature predicate.
 fn meta_to_feature_gate(meta: &syn::Meta) -> Option<CfgGate> {
     match meta {
         syn::Meta::NameValue(nv) if nv.path.is_ident("feature") => {
@@ -260,8 +164,6 @@ fn meta_to_feature_gate(meta: &syn::Meta) -> Option<CfgGate> {
                 Some(CfgGate::Not(Box::new(children.remove(0))))
             }
         }
-        // Any other shape (cfg(test), cfg(target_os = "linux"),
-        // cfg(unix), cfg(panic = "unwind"), …) — not a feature gate.
         _ => None,
     }
 }

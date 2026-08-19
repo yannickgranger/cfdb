@@ -1,30 +1,3 @@
-//! Exclusion test — the cfdb-hir-extractor bounded context does NOT
-//! emit `:Item`, `:Crate`, or `:Module` nodes. Those remain the
-//! exclusive domain of the syn-based `cfdb-extractor` (Issue #84 AC-6;
-//! #40 umbrella — "Leaves :Item, :Crate, :Module to existing
-//! cfdb-extractor (no overlap)").
-//!
-//! **Why this is a static file scan, not a runtime assertion.** A
-//! runtime assertion ("extract a fixture, assert no such nodes")
-//! requires the HIR extractor to actually run — but as of Issue #84
-//! the crate is an empty scaffold with no entry point. A file scan
-//! catches the drift shape we care about (a future PR adding
-//! `Label::ITEM` emission code to this crate) from the first commit,
-//! before any fixture exists.
-//!
-//! **Token set.** We forbid the literal identifiers `Label::ITEM`,
-//! `Label::CRATE`, and `Label::MODULE` anywhere in this crate's
-//! `src/`. The cfdb-extractor reaches these labels via the same
-//! constant names (`crates/cfdb-extractor/src/item_visitor.rs`), so
-//! the tokens are the canonical drift signal.
-//!
-//! **Comments are skipped.** We only fail on emission CODE, not on
-//! documentation that describes the exclusion contract. Lines whose
-//! first non-whitespace characters are `//` (`//`, `///`, `//!`) are
-//! ignored. This lets the crate's own doc comments (including this
-//! file) reference the forbidden labels to document the contract
-//! without tripping the guard.
-
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -70,9 +43,6 @@ fn cfdb_hir_extractor_does_not_emit_item_crate_or_module_labels() {
             .unwrap_or_else(|e| panic!("read {} failed: {e}", file.display()));
         let mut hits: Vec<Hit> = Vec::new();
         for (lineno, line) in contents.lines().enumerate() {
-            // Skip comment-only lines. Emission CODE never starts with
-            // `//`; doc comments describing the contract (like this
-            // file's own header) do and are legitimate references.
             if line.trim_start().starts_with("//") {
                 continue;
             }

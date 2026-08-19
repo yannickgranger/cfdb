@@ -1,15 +1,3 @@
-//! `TypeScriptProducer` `IMPLEMENTS` edges (RFC-045 slice 45-B / issue #463).
-//!
-//! Exercises the two-pass interface-implementation resolution (§3.2/§3.4):
-//! a TS `class C implements I1, I2` emits one `IMPLEMENTS` edge per interface
-//! whose reference text matches the `name` of exactly one in-workspace
-//! `:Item` (closed-world — external/generic/qualified refs produce no edge,
-//! no synthetic node). `extends` (`extends_clause`) is NOT an `IMPLEMENTS`
-//! edge (inheritance deferred — §3.3 D3-a). Every edge carries
-//! `resolver = "tree-sitter-typescript"`; the class source is
-//! `:Item{ts_construct:"class_declaration"}`, the interface target
-//! `:Item{ts_construct:"interface_declaration"}`.
-
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -19,13 +7,6 @@ use cfdb_extractor_ts::TypeScriptProducer;
 use cfdb_lang::LanguageProducer;
 use tempfile::TempDir;
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/// Build an ephemeral TS workspace (the producer requires BOTH
-/// `package.json` and `tsconfig.json` markers) from `(rel_path, source)`
-/// pairs, run `produce`, and return the `(nodes, edges)`.
 fn produce_ts(files: &[(&str, &str)]) -> (Vec<Node>, Vec<Edge>) {
     let dir = TempDir::new().expect("tempdir");
     fs::write(dir.path().join("package.json"), r#"{"name":"t"}"#).expect("package.json");
@@ -54,9 +35,6 @@ fn item_name<'a>(nodes: &'a [Node], id: &str) -> Option<&'a str> {
         .and_then(PropValue::as_str)
 }
 
-/// `(src_name, dst_name)` of every `IMPLEMENTS` edge, resolved to the
-/// `:Item.name` props (crate-name-independent — the workspace dir name is a
-/// random tempdir), sorted.
 fn implements_name_pairs(nodes: &[Node], edges: &[Edge]) -> Vec<(String, String)> {
     let mut pairs: Vec<(String, String)> = edges
         .iter()
@@ -90,12 +68,6 @@ fn prop<'a>(n: &'a Node, key: &str) -> Option<&'a str> {
     n.props.get(key).and_then(PropValue::as_str)
 }
 
-// ---------------------------------------------------------------------------
-// Unit cases (issue #463 Tests block)
-// ---------------------------------------------------------------------------
-
-/// `class C extends Base implements I1, I2` → exactly 2 `IMPLEMENTS`
-/// (C→I1, C→I2); `extends Base` produces NO edge.
 #[test]
 fn extends_plus_implements_emits_only_two_implements_edges() {
     let (nodes, edges) = produce_one(
@@ -114,7 +86,6 @@ class C extends Base implements I1, I2 {}
         "exactly C→I1, C→I2; `extends Base` must NOT appear",
     );
 
-    // resolver + ts_construct disambiguation.
     for e in implements_edges(&edges) {
         assert_eq!(
             e.props.get("resolver").and_then(PropValue::as_str),
@@ -129,10 +100,6 @@ class C extends Base implements I1, I2 {}
     assert_eq!(prop(i1, "ts_construct"), Some("interface_declaration"));
 }
 
-/// `class C implements Generic<T>` → NO edge: the reference text is the full
-/// byte-range `Generic<T>` (type arguments NOT stripped, §6), which does not
-/// match the interface's bare name `Generic`. Demonstrates the arg-stripping
-/// deferral — no false edge to `Generic`.
 #[test]
 fn generic_implements_uses_full_text_and_does_not_match_bare_name() {
     let (nodes, edges) = produce_one(
@@ -140,7 +107,6 @@ fn generic_implements_uses_full_text_and_does_not_match_bare_name() {
 class C implements Generic<T> {}
 "#,
     );
-    // The interface :Item exists and is named `Generic` (params are separate).
     assert!(item_by_name(&nodes, "Generic").is_some());
     assert!(
         implements_edges(&edges).is_empty(),
@@ -149,9 +115,6 @@ class C implements Generic<T> {}
     );
 }
 
-/// `implements ns.I2` (nested_type_identifier) → NO edge: the whole text
-/// `ns.I2` matches no bare `:Item.name` (closed-world; no namespace member
-/// resolution this RFC).
 #[test]
 fn nested_type_identifier_does_not_resolve() {
     let (nodes, edges) = produce_one(
@@ -166,9 +129,6 @@ class C implements ns.I2 {}
     );
 }
 
-/// `implements A & B` (intersection_type) → NO edge: the raw text `A & B`
-/// matches no `:Item.name` (the rust-systems R2 raw-text fallback resolves to
-/// nothing, as intended).
 #[test]
 fn intersection_type_falls_back_to_raw_text_and_drops() {
     let (nodes, edges) = produce_one(
@@ -184,8 +144,6 @@ class C implements A & B {}
     );
 }
 
-/// An external interface (not in-workspace) → ZERO edges AND no synthetic
-/// `:Item` for the absent target.
 #[test]
 fn external_interface_emits_no_edge_and_no_synthetic_item() {
     let (nodes, edges) = produce_one(
@@ -199,9 +157,6 @@ fn external_interface_emits_no_edge_and_no_synthetic_item() {
     );
 }
 
-/// D3-a negative assertion: `interface A extends B {} class C implements A {}`
-/// → C→A only; "implementors of B" is empty (transitive `extends` is not
-/// bridged; interface-`extends` uses `extends_clause`, never buffered).
 #[test]
 fn transitive_interface_extends_is_not_bridged() {
     let (nodes, edges) = produce_one(
@@ -222,8 +177,6 @@ class C implements A {}
     assert!(implementors_of_b.is_empty(), "D3-a gap must be stable");
 }
 
-/// A simple in-workspace interface declared in another file resolves by name
-/// (no import tracking needed for the closed-world name match).
 #[test]
 fn cross_file_simple_name_resolves() {
     let (nodes, edges) = produce_ts(&[
@@ -236,8 +189,6 @@ fn cross_file_simple_name_resolves() {
     );
 }
 
-/// Ambiguous name (two interfaces `Dup` in different files) → the reference
-/// is dropped (documented limitation pending import-aware resolution).
 #[test]
 fn ambiguous_name_is_dropped() {
     let (nodes, edges) = produce_ts(&[
@@ -254,9 +205,6 @@ fn ambiguous_name_is_dropped() {
     );
 }
 
-/// Re-extracting the same workspace is byte-stable (determinism — §4 I3).
-/// Produced twice against the SAME directory so the derived crate name (the
-/// dir's basename) is identical across runs.
 #[test]
 fn re_extract_is_deterministic() {
     let dir = TempDir::new().expect("tempdir");
@@ -273,8 +221,6 @@ fn re_extract_is_deterministic() {
     assert_eq!(format!("{run1:?}"), format!("{run2:?}"));
 }
 
-/// Adding one more in-workspace class implementing an in-workspace interface
-/// adds exactly one `IMPLEMENTS` edge (monotonic — §4 I3).
 #[test]
 fn adding_one_implementing_class_adds_one_edge() {
     let before = produce_one("interface I {}\nclass A implements I {}\n");
@@ -285,17 +231,10 @@ fn adding_one_implementing_class_adds_one_edge() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Self-dogfood: the on-disk ts-richer fixture
-// ---------------------------------------------------------------------------
-
 fn richer_fixture_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/ts-richer")
 }
 
-/// Extract the in-tree `ts-richer` fixture and assert the IMPLEMENTS topology:
-/// Product→{Identifiable,Serializable}, Order→Timestamped (Order extends
-/// Product must not appear).
 #[test]
 fn richer_fixture_implements_topology() {
     let (nodes, edges) = TypeScriptProducer

@@ -1,15 +1,3 @@
-//! Issue #479 / #515 — the extractor's `:Item.kind` wire vocabulary
-//! must cover `static` (pin: emitted since the beginning but absent
-//! from the `ItemKind` CLI vocabulary until #479) and `union` (red:
-//! `cfdb-recall`'s `KEPT_ITEM_KINDS` listed `"union"` aspirationally —
-//! rustdoc ground truth keeps unions — while the extractor had no
-//! `visit_item_union`, so the recall row could never be exercised).
-//!
-//! The recall corpus is cfdb-core itself, which contains no unions, so
-//! this fixture-level assertion IS the union coverage — planting a dead
-//! `pub union` in production code to feed the recall corpus would be
-//! worse than the gap.
-
 use std::collections::BTreeSet;
 use std::path::Path;
 

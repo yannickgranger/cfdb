@@ -1,27 +1,8 @@
-//! `cargo llvm-cov --json` output → per-qname line-coverage ratio.
-//!
-//! `cargo-llvm-cov` emits LLVM's standard `llvm-cov export` JSON with
-//! `data[].functions[]` entries carrying `name` + `count` + `regions`.
-//! We consume the `summary` block at `data[].functions[].summary.lines`
-//! which carries `{count, covered, percent}` — percent is already in
-//! [0.0, 100.0], so divide by 100 for the [0.0, 1.0] ratio the schema
-//! expects.
-//!
-//! Function-name → qname mapping: `name` from llvm-cov is the
-//! mangled-or-demangled Rust symbol (e.g.
-//! `cfdb_core::enrich::EnrichReport::not_implemented`). We match on
-//! suffix against the known qname set — if the target workspace was
-//! compiled with symbol mangling, the coverage mapper is a separate
-//! concern; for the dogfood path `cargo llvm-cov` unmangles by default.
-
 use std::collections::BTreeMap;
 use std::path::Path;
 
 use serde::Deserialize;
 
-/// Load coverage ratios from a cargo-llvm-cov JSON file. Missing file
-/// or parse errors push a warning and return an empty map — never
-/// panics.
 pub(crate) fn load_from_path(path: &Path, warnings: &mut Vec<String>) -> BTreeMap<String, f64> {
     let src = match std::fs::read_to_string(path) {
         Ok(s) => s,
@@ -47,13 +28,8 @@ pub(crate) fn load_from_path(path: &Path, warnings: &mut Vec<String>) -> BTreeMa
     }
 }
 
-/// Parse an `llvm-cov export --format=text` JSON blob into
-/// `qname → coverage_ratio` map (ratio in [0.0, 1.0]). `pub(crate)` —
-/// consumed by `load_from_path` + unit tests.
 pub(crate) fn parse_llvm_cov_json(json: &str) -> Result<BTreeMap<String, f64>, String> {
     let doc: LlvmCovDoc = serde_json::from_str(json).map_err(|e| format!("{e}"))?;
-    // Consume `doc` by value so `func.name: String` moves into the map
-    // without a per-iteration clone.
     Ok(doc
         .data
         .into_iter()
@@ -128,7 +104,6 @@ mod tests {
 
     #[test]
     fn percent_over_100_clamps_to_1() {
-        // Defensive: llvm-cov in theory never emits >100, but clamp is cheap.
         let json =
             r#"{"data":[{"functions":[{"name":"x","summary":{"lines":{"percent":150.0}}}]}]}"#;
         let m = parse_llvm_cov_json(json).expect("parses");

@@ -1,5 +1,3 @@
-//! Core ingest / query / dump command handlers.
-
 mod aux;
 #[cfg(feature = "classify")]
 mod classify;

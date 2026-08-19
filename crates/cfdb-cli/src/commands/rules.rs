@@ -1,6 +1,3 @@
-//! Cypher-rule command handlers — `cfdb violations` + the
-//! `run_cypher_rule` / `parse_and_execute` plumbing behind it.
-
 use std::path::{Path, PathBuf};
 
 use cfdb_core::store::QueryBackend;
@@ -9,19 +6,6 @@ use cfdb_query::{lint_shape, parse, ShapeLint};
 use crate::compose;
 use crate::output;
 
-/// Run a .cypher rule file and print violations. Returns the number of
-/// rows found so the caller can set the process exit code.
-///
-/// Prints to stderr (always):
-/// - A shape-lint warning if one fires on the rule (same as `cfdb query`).
-/// - A human-readable `violations: N (rule: <path>)` summary line.
-///
-/// Prints to stdout:
-/// - Default: pretty-printed JSON of the full `QueryResult` (rows +
-///   warnings) so callers can parse it programmatically.
-/// - When `count_only` is set: the integer row count on its own line.
-///   The JSON payload is suppressed in this mode — the caller already
-///   knows the rule file path and wants only the terse count.
 pub fn violations(
     db: PathBuf,
     keyspace: String,
@@ -34,9 +18,6 @@ pub fn violations(
     run_cypher_rule(&db, &keyspace, &cypher, &rule_tag, count_only)
 }
 
-/// Cypher-rule plumbing — parse, shape-lint, execute, and print rows.
-///
-/// `rule_tag` appears in the stderr summary line — the rule file path.
 fn run_cypher_rule(
     db: &Path,
     keyspace: &str,
@@ -57,11 +38,6 @@ fn run_cypher_rule(
     Ok(row_count)
 }
 
-/// Parse a cypher string, run shape-lint (logging any warnings to
-/// stderr), load the keyspace, and execute. Returns the raw
-/// [`cfdb_core::result::QueryResult`] without printing.
-///
-/// `rule_tag` appears in the parse-error message.
 fn parse_and_execute(
     db: &Path,
     keyspace: &str,

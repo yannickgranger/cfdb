@@ -1,8 +1,3 @@
-//! `RETURN` clause — project (with optional grouping), distinct, order, limit.
-//!
-//! Ordering defaults to row-sort-key when no `ORDER BY` is given; this is the
-//! deterministic output contract.
-
 use std::collections::BTreeSet;
 
 use cfdb_core::fact::PropValue;
@@ -75,9 +70,6 @@ impl<'a, G: GraphReader + ?Sized> Evaluator<'a, G> {
         rows
     }
 
-    /// Build one row by evaluating each projection expression against the
-    /// given bindings. The per-projection `v.clone()` does not sit inside a
-    /// `for proj in projections` loop.
     fn expr_row_for_bindings(
         &self,
         b: &Bindings,
@@ -89,9 +81,6 @@ impl<'a, G: GraphReader + ?Sized> Evaluator<'a, G> {
             .collect()
     }
 
-    /// Evaluate a single `Expr`-shaped projection for [`expr_row_for_bindings`].
-    /// Returns `None` for aggregation projections (the caller routes those
-    /// through [`apply_return`]'s group-and-aggregate branch).
     fn project_expr_for_row(
         &self,
         b: &Bindings,
@@ -101,9 +90,6 @@ impl<'a, G: GraphReader + ?Sized> Evaluator<'a, G> {
         let ProjectionValue::Expr(e) = &proj.value else {
             return None;
         };
-        // Bare `Var` references with `RowValue::List` bindings (produced
-        // by a prior WITH `collect()` aggregation) must be surfaced
-        // unchanged — `eval_expr` only returns scalars.
         if let Expr::Var(name) = e {
             if let Some(Binding::Value(v @ RowValue::List(_))) = b.get(name) {
                 return Some((alias, v.clone()));
@@ -125,8 +111,6 @@ fn bindings_to_row(bindings: &Bindings, projections: &[cfdb_core::query::Project
         .collect()
 }
 
-/// Project one [`Binding`] into its serialised [`RowValue`]. The scalar
-/// clone lands in a helper call rather than inside a `for` loop.
 fn row_value_for_binding(binding: Option<&Binding>) -> RowValue {
     match binding {
         Some(Binding::Value(v)) => v.clone(),

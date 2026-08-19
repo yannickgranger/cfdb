@@ -1,15 +1,3 @@
-//! RFC §13 headline acceptance test (Q1=(b), Pattern D).
-//!
-//! Proves cfdb replaces a handwritten Rust architecture test with one
-//! `.cypher` file. Builds a synthetic workspace containing one crate that
-//! violates the rule (`chrono::Utc::now()` inside a domain-prefixed crate)
-//! and one that doesn't, runs the extractor via the `cfdb` binary, then
-//! evaluates `examples/queries/arch-ban-utc-now.cypher` against the result
-//! and asserts the violation is surfaced while the clean crate is silent.
-//!
-//! This is the "felt win" — on a clean tree the query returns no rows; on
-//! a tree with a regression it returns the exact file + qname + callee path.
-
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -24,9 +12,6 @@ fn write(path: &Path, contents: &str) {
     fs::write(path, contents).expect("write fixture file");
 }
 
-/// Build a synthetic Cargo workspace with two member crates:
-/// - `domain-trading` calls `chrono::Utc::now()` in a fn body → violation
-/// - `domain-clean`   has no Utc::now call                     → silent
 fn build_fixture_workspace(root: &Path) -> PathBuf {
     write(
         &root.join("Cargo.toml"),
@@ -36,7 +21,6 @@ members = ["domain-trading", "domain-clean"]
 "#,
     );
 
-    // Violator crate.
     write(
         &root.join("domain-trading/Cargo.toml"),
         r#"[package]
@@ -93,7 +77,6 @@ mod tests {
 "#,
     );
 
-    // Clean crate.
     write(
         &root.join("domain-clean/Cargo.toml"),
         r#"[package]
@@ -118,7 +101,6 @@ path = "src/lib.rs"
 }
 
 fn arch_ban_utc_now_cypher() -> String {
-    // Resolved from this crate's manifest: cfdb-cli → cfdb/ → examples/queries.
     let cfdb_root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("cfdb-cli manifest dir has a parent crates/ directory")
@@ -135,7 +117,6 @@ fn arch_ban_utc_now_finds_violator_in_fixture_workspace() {
 
     let db = tempdir().expect("db tempdir");
 
-    // 1. Extract the fixture workspace into a keyspace.
     Command::cargo_bin("cfdb")
         .expect("cfdb binary is built for integration tests")
         .args([
@@ -152,7 +133,6 @@ fn arch_ban_utc_now_finds_violator_in_fixture_workspace() {
         .assert()
         .success();
 
-    // 2. Run arch-ban-utc-now.cypher.
     let cypher = arch_ban_utc_now_cypher();
     let output = Command::cargo_bin("cfdb")
         .expect("cfdb binary is built for integration tests")
@@ -174,10 +154,6 @@ fn arch_ban_utc_now_finds_violator_in_fixture_workspace() {
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
 
-    // 3. The violator crate MUST show up. Three call sites in `domain-trading`:
-    //    - free fn `stamp_trade`   (fully-qualified `chrono::Utc::now`)
-    //    - free fn `stamp_aliased` (aliased   `NotUtc::now` per AC5)
-    //    - method  `Clock::current`(fully-qualified `chrono::Utc::now`)
     assert!(
         stdout.contains("domain-trading"),
         "expected domain-trading in violations, got:\n{stdout}"
@@ -187,22 +163,11 @@ fn arch_ban_utc_now_finds_violator_in_fixture_workspace() {
         "expected Utc::now callee in violations, got:\n{stdout}"
     );
 
-    // 4. The clean crate MUST NOT show up — there is no Utc::now in it.
     assert!(
         !stdout.contains("domain-clean"),
         "domain-clean should not be in violations, got:\n{stdout}"
     );
 
-    // 5. All THREE prod Utc::now call sites (free fn + aliased free fn +
-    //    impl method) must be present. The `#[cfg(test)] mod tests {
-    //    cheat_with_utc_now }` violation in the same crate MUST NOT be in
-    //    the output — the `is_test=false` filter in arch-ban-utc-now.cypher
-    //    should drop it.
-    //
-    //    If this assertion becomes hit_count >= 4, the test-mod filter has
-    //    regressed and is leaking #[cfg(test)] items into the prod-only
-    //    rule. That would silently mask real prod violations under a flood
-    //    of test false positives on the real qbot-core tree.
     let hit_count = stdout.matches("Utc::now").count();
     assert_eq!(
         hit_count, 3,
@@ -213,11 +178,6 @@ fn arch_ban_utc_now_finds_violator_in_fixture_workspace() {
         "test-mod fn leaked into prod-only arch-ban results:\n{stdout}"
     );
 
-    // 5b. AC5 — aliased-import coverage. `use chrono::Utc as NotUtc;
-    //     NotUtc::now()` must appear in the violation set as its own row.
-    //     The cypher's `.*Utc::now` regex matches because `NotUtc::now`
-    //     ends in `Utc::now` textually. This is the incidental-true-positive
-    //     superset property per RFC-029 §13 Item 1 QA-3.
     assert!(
         stdout.contains("stamp_aliased"),
         "aliased-import violation `stamp_aliased` missing — AC5 regressed:\n{stdout}"
@@ -227,10 +187,6 @@ fn arch_ban_utc_now_finds_violator_in_fixture_workspace() {
         "aliased callee_path `NotUtc::now` missing — extractor may have resolved the alias back to the original symbol, which defeats the incidental-match design:\n{stdout}"
     );
 
-    // 6. Same rule via the typed `cfdb violations --rule <file>`
-    //    subcommand. This is the shape an architecture test actually
-    //    uses: pass a rule file, get a non-zero exit code iff the rule
-    //    fires. The fixture contains prod violations, so exit MUST be 1.
     let cfdb_root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("cfdb-cli manifest dir has a parent crates/ directory")
@@ -264,8 +220,6 @@ fn arch_ban_utc_now_finds_violator_in_fixture_workspace() {
         "expected `violations: 3` summary on stderr (fully-qualified free fn + aliased free fn + method), got:\n{v_stderr}"
     );
 
-    // 7. With --no-fail, the same command exits 0 even with hits.
-    //    This is the "inventory current state" mode for sweeps.
     Command::cargo_bin("cfdb")
         .expect("cfdb binary is built for integration tests")
         .args([
@@ -283,12 +237,6 @@ fn arch_ban_utc_now_finds_violator_in_fixture_workspace() {
         .assert()
         .success();
 
-    // 8. --count-only emits just the integer row count on stdout.
-    //    Intended for capture by `ci/cross-dogfood.sh` (RFC-033 §3.2) via
-    //    `rows=$(cfdb violations ... --count-only --no-fail)`. Combine with
-    //    --no-fail so `set -euo pipefail` doesn't kill the script at the
-    //    first non-clean rule. Stderr still carries the `violations: N`
-    //    summary + any shape-lint output for diagnostic parity.
     let count_only_output = Command::cargo_bin("cfdb")
         .expect("cfdb binary is built for integration tests")
         .args([

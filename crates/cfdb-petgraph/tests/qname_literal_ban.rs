@@ -1,42 +1,6 @@
-//! Architecture test — static ban on hand-written `:Item` node-id
-//! literals in cfdb-petgraph production source (RFC-044 §3.4 sub-band 2).
-//!
-//! The canonical `:Item` node-id formula is `item:<qname>`, owned by
-//! `cfdb_core::qname::item_node_id`. Every production site that needs an
-//! `:Item` id MUST route through that helper, never through a
-//! hand-written `format!("item:{...}")`. A scattered literal is a
-//! split-brain: if the prefix convention ever changes (or a new
-//! discriminator is added to the id formula), the helper updates but the
-//! literal silently drifts, producing dangling cross-extractor edges —
-//! exactly the failure mode `cfdb_core::qname` exists to prevent.
-//!
-//! **Scope:** prod source under `src/` only. Test code is excluded two
-//! ways, mirroring `architecture_determinism.rs`:
-//! (1) separate test-sibling files (`tests.rs`, `*_tests.rs`) are skipped
-//! by name — they legitimately build synthetic `item:` ids as fixtures;
-//! (2) inline `#[cfg(test)]` items are stripped before scanning. Test
-//! fixtures may construct synthetic node ids by hand; only PRODUCTION
-//! code must go through `item_node_id`.
-//!
-//! **Why a static file scan, not a Cypher rule.** RFC-044 §3.4 prescribes
-//! the file-scan test as the required mechanism; the optional
-//! `arch-ban-qname-literal.cypher` variant is out of scope for this slice.
-//! A file scan catches the violation in every profile in milliseconds
-//! without invoking rustc, and the shape we prevent is purely textual
-//! ("someone typed `format!(\"item:` into a prod .rs file").
-//!
-//! **Counter-check (non-vacuity).** The test asserts at least one prod
-//! `.rs` file was scanned. If the walk root resolves incorrectly the test
-//! fails rather than silently passing on an empty scan.
-
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// The forbidden literal. We match the opening of an item-id format
-/// string — `format!("item:` — without requiring the closing `}` so the
-/// pattern fires on every interpolated form (`format!("item:{qname}")`,
-/// `format!("item:{module}::{callee}")`, …). The canonical replacement is
-/// `cfdb_core::qname::item_node_id(&qname)`.
 const FORBIDDEN: &str = "format!(\"item:";
 
 #[test]
@@ -74,9 +38,6 @@ fn cfdb_petgraph_prod_source_routes_item_ids_through_item_node_id() {
     );
 }
 
-/// Collect every prod `.rs` file under `dir`, skipping separate
-/// test-sibling files by name (`tests.rs`, `*_tests.rs`) — those carry
-/// synthetic `item:` fixtures that are not production code.
 fn collect_prod_rs_files(dir: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     walk(dir, &mut out);
@@ -106,18 +67,6 @@ fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// Strip `#[cfg(test)]`-gated items and full-line `//` comments from `source`.
-///
-/// Handles both `#[cfg(test)] mod tests { ... }` (inline body, depth-counted)
-/// and `#[cfg(test)] mod tests;` (external module reference, single-statement
-/// skip). Full-line comments starting with `//`, `///`, or `//!` are elided so
-/// the pattern scan does not match the forbidden literal quoted in prose
-/// (e.g. this very test's remediation message in a doc comment).
-///
-/// Coarse by design: does not handle braces / semicolons embedded in string
-/// literals or block comments inside an inline `#[cfg(test)]` block. Separate
-/// test-sibling files are already excluded by `collect_prod_rs_files`, so the
-/// residual risk is limited to inline test mods in prod-named files.
 fn strip_test_scopes(source: &str) -> String {
     let lines: Vec<&str> = source.lines().collect();
     let mut out = String::new();

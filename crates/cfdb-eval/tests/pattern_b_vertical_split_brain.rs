@@ -1,37 +1,3 @@
-//! Pattern B vertical-split-brain scar tests (issue #44).
-//!
-//! Asserts that `examples/queries/vertical-split-brain.cypher` fires on
-//! the ground-truth shapes enumerated in
-//! `docs/RFC-cfdb.md` §A1.3 — the resolver-fork
-//! failure mode observed in qbot-core #2651, #3522, #3545, #3654.
-//!
-//! ## Test approach — direct fact injection
-//!
-//! Each scar test builds a synthetic `(Vec<Node>, Vec<Edge>)` batch
-//! mirroring what the HIR extractor would emit for the corresponding
-//! Rust fixture under `examples/queries/fixtures/vertical-split-brain/`,
-//! ingests it into a fresh `PetgraphStore`, parses the query file, and
-//! runs it. This is the same pattern as `cfdb-petgraph/src/tests.rs`'s
-//! F1b / F2 study checks: we care that the rule SHAPE fires on the
-//! expected graph shape, not that the extractor is correct end-to-end.
-//! Extractor correctness is covered by
-//! `cfdb-hir-extractor/tests/entry_point.rs` (entry point emission) and
-//! `cfdb-hir-petgraph-adapter/tests/cfdb_self_dogfood.rs` (CALLS edges
-//! end-to-end). Pattern B's concern is the query, not the extraction.
-//!
-//! Direct injection is faster (sub-second per test vs tens of seconds
-//! for HIR lowering) and isolates the failure signal: a Pattern B
-//! regression here cannot be blamed on HIR instability.
-//!
-//! ## The fixture in the repo (`examples/queries/fixtures/vsb/*`)
-//!
-//! The on-disk Rust fixture exists for two reasons: (1) a human can
-//! run `cfdb extract --workspace examples/queries/fixtures/vertical-split-brain`
-//! locally and confirm the cypher rule fires; (2) a future v0.3
-//! scar test can lower the fixture through HIR end-to-end as soon as
-//! resolution reaches the 80% recall target of RFC-032. Until then the
-//! direct-injection assertions are the regression surface.
-
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -42,11 +8,6 @@ use cfdb_core::store::{QueryBackend, StoreBackend};
 use cfdb_eval::QueryEngine;
 use cfdb_petgraph::PetgraphStore;
 use cfdb_query::parse;
-
-// ---------------------------------------------------------------------
-// Helpers — small, test-local builders for the fact shapes the HIR
-// extractor would emit.
-// ---------------------------------------------------------------------
 
 fn entry_point_node(display_name: &str, handler_qname: &str, kind: &str) -> Node {
     let mut props = BTreeMap::new();
@@ -118,8 +79,6 @@ fn keyspace() -> Keyspace {
     Keyspace::new("vsb-test")
 }
 
-/// Resolve the cfdb workspace root — two parents up from this crate's
-/// manifest dir (same formula as `cfdb-recall/tests/integration_recall`).
 fn workspace_root() -> PathBuf {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
     PathBuf::from(manifest_dir)
@@ -155,15 +114,6 @@ fn row_str<'a>(
     row.get(key).and_then(|v| v.as_str())
 }
 
-// ---------------------------------------------------------------------
-// Scar tests — one per motivating qbot-core issue.
-// ---------------------------------------------------------------------
-
-/// Scar for qbot-core #2651 — compound-stop param drop.
-///
-/// Shape: one CLI entry point, one engine method, two `StopLoss`
-/// resolvers (`from_bps`, `from_pct`) both reachable. Expected result:
-/// exactly one row with `divergence_kind = "fork"`.
 #[test]
 fn scar_2651_compound_stop_emits_one_fork_row() {
     let mut store = PetgraphStore::new();
@@ -185,8 +135,6 @@ fn scar_2651_compound_stop_emits_one_fork_row() {
     ];
     let edges = vec![
         exposes_edge(&format!("entrypoint:cli_command:{cli_qname}"), cli_qname),
-        // CALLS chain: Cli -> Cli::handle -> Engine::build_stop ->
-        // {StopLoss::from_bps, StopLoss::from_pct}.
         calls_edge(cli_qname, handle_qname),
         calls_edge(handle_qname, build_stop_qname),
         calls_edge(build_stop_qname, from_bps_qname),
@@ -216,17 +164,9 @@ fn scar_2651_compound_stop_emits_one_fork_row() {
     assert_eq!(row_str(row, "resolver_a_qname"), Some(from_bps_qname));
     assert_eq!(row_str(row, "resolver_b_qname"), Some(from_pct_qname));
     assert_eq!(row_str(row, "divergence_kind"), Some("fork"));
-    // `regexp_extract(name, '^(\w+)_(?:from|to|for|as)_')` returns
-    // the substring up to and including the first keyword boundary.
-    // For `stop_from_bps` that is `stop_from_`; both resolvers agree.
     assert_eq!(row_str(row, "concept_prefix"), Some("stop_from_"));
 }
 
-/// Scar for qbot-core #3522 — pair-resolution split.
-///
-/// Two distinct resolver names with a non-trivial shared concept
-/// prefix: `pair_from_alias` vs `pair_from_symbol`. Expected:
-/// one row; `concept_prefix` deterministically matches `pair_from_`.
 #[test]
 fn scar_3522_pair_resolution_reports_concept_prefix() {
     let mut store = PetgraphStore::new();
@@ -271,12 +211,6 @@ fn scar_3522_pair_resolution_reports_concept_prefix() {
     assert_eq!(row_str(row, "divergence_kind"), Some("fork"));
 }
 
-/// Scar for qbot-core #3545 — `build_resolved_config` 3-way scatter.
-///
-/// Three reachable resolvers sharing a `config_from_` prefix. The rule
-/// emits ALL pairs `(a.qname < b.qname)` — for 3 resolvers that's
-/// C(3,2) = 3 rows. This proves the rule scales with the scatter
-/// fan-out and does not collapse to a single "any split-brain" row.
 #[test]
 fn scar_3545_three_way_scatter_emits_three_pairs() {
     let mut store = PetgraphStore::new();
@@ -314,7 +248,6 @@ fn scar_3545_three_way_scatter_emits_three_pairs() {
         "C(3,2)=3 pairs expected for #3545 three-way scatter; got {rows:?}"
     );
 
-    // All three rows must agree on the concept prefix.
     for row in &rows {
         assert_eq!(
             row_str(row, "concept_prefix"),
@@ -324,8 +257,6 @@ fn scar_3545_three_way_scatter_emits_three_pairs() {
         assert_eq!(row_str(row, "divergence_kind"), Some("fork"));
     }
 
-    // Deterministic ordering invariant: qname a < qname b, and rows
-    // ordered by (entry_point, concept_prefix, resolver_a_qname).
     let a_qnames: Vec<&str> = rows
         .iter()
         .map(|r| row_str(r, "resolver_a_qname").unwrap())
@@ -335,9 +266,6 @@ fn scar_3545_three_way_scatter_emits_three_pairs() {
     assert_eq!(a_qnames, sorted, "rows must be sorted by resolver_a_qname");
 }
 
-/// Scar for qbot-core #3654 — seven split resolution points, same
-/// concept. Expected pair count is C(7,2) = 21. This is the
-/// upper-bound stress case on the RFC-cited backlog.
 #[test]
 fn scar_3654_seven_way_scatter_emits_twenty_one_pairs() {
     let mut store = PetgraphStore::new();
@@ -381,12 +309,6 @@ fn scar_3654_seven_way_scatter_emits_twenty_one_pairs() {
     }
 }
 
-// ---------------------------------------------------------------------
-// Negative tests — shapes the rule MUST NOT fire on.
-// ---------------------------------------------------------------------
-
-/// A single resolver reachable from the entry point is not split-brain
-/// and must not emit any row.
 #[test]
 fn single_resolver_emits_no_rows() {
     let mut store = PetgraphStore::new();
@@ -415,9 +337,6 @@ fn single_resolver_emits_no_rows() {
     );
 }
 
-/// Two resolvers reachable from DIFFERENT entry points are two separate
-/// resolution paths, not a fork inside one path. The rule's join on a
-/// single entry point must exclude this shape.
 #[test]
 fn resolvers_under_distinct_entry_points_emit_no_rows() {
     let mut store = PetgraphStore::new();
@@ -459,8 +378,6 @@ fn resolvers_under_distinct_entry_points_emit_no_rows() {
     );
 }
 
-/// Test-tagged items (`is_test = true`) must be excluded — the rule's
-/// `AND is_test = false` filter is load-bearing for noise suppression.
 #[test]
 fn test_tagged_resolvers_are_excluded() {
     let mut store = PetgraphStore::new();
@@ -472,7 +389,6 @@ fn test_tagged_resolvers_are_excluded() {
     let test_resolver = "vsb_fixture::Stop::stop_from_pct";
 
     let prod_node = fn_item_node(prod_resolver, "stop_from_bps");
-    // Build the test-tagged node by mutating is_test.
     let mut test_node = fn_item_node(test_resolver, "stop_from_pct");
     test_node
         .props

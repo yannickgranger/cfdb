@@ -1,20 +1,3 @@
-//! Regression coverage for issue #540 — the PHP producer's copy of the
-//! #527 workspace-root class of bug.
-//!
-//! The PHP producer names its synthetic `:Crate` with a constant, so
-//! unlike the TS producer it has no crate-name symptom. What it shares
-//! is the `strip_prefix(workspace_root).unwrap_or(&path)` pattern: on
-//! any mismatch an absolute path ships as if workspace-relative — the
-//! #527 silently-dead-fence class. The fix canonicalizes the root once
-//! at `produce()` entry and routes every relative-path computation
-//! through the loud shared helper (`cfdb_lang::workspace_relative`),
-//! converging all three producers on one resolver.
-//!
-//! This test pins the observable contract on both root spellings the
-//! CLI can pass (plain relative, and the `..`-terminated stand-in for
-//! CI's `--workspace .`): every emitted `file` prop is
-//! workspace-relative, never absolute, never root-prefixed.
-
 use std::path::Path;
 
 use cfdb_core::fact::PropValue;

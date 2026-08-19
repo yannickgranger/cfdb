@@ -1,20 +1,3 @@
-//! Wire envelope for `cfdb classify` — debt-class routing of diff-restricted
-//! findings.
-//!
-//! Composed of a [`ScopeInventory`] (classifier output) plus a
-//! [`DiffSourceMeta`] block that identifies the upstream `cfdb diff`
-//! envelope. Consumers deserialise this type directly — which skill handles
-//! a `DebtClass` is the consumer's decision, never a field on the finding
-//! rows (enforced by `finding_no_skill_field`).
-//!
-//! # Envelope schema versioning
-//!
-//! [`ClassifyEnvelope::schema_version`] is pinned to
-//! [`CLASSIFY_ENVELOPE_SCHEMA_VERSION`] and versions the wire shape of
-//! this envelope only — NOT `cfdb_core::SchemaVersion` (on-disk
-//! keyspaces) and NOT the diff envelope's [`cfdb_query::diff::ENVELOPE_SCHEMA_VERSION`]
-//! (which evolves independently).
-
 use std::collections::BTreeSet;
 
 use cfdb_query::DiffEnvelope;
@@ -23,29 +6,16 @@ use serde_json::Value;
 
 use crate::taxonomy::{DebtClass, Finding, ScopeInventory};
 
-/// Envelope schema version. Bumped only when the `ClassifyEnvelope` wire
-/// shape changes in a breaking way.
 pub const CLASSIFY_ENVELOPE_SCHEMA_VERSION: &str = "v1";
 
-/// Wire envelope for `cfdb classify`. Composition of a `ScopeInventory`
-/// (all 6 `DebtClass` buckets, warnings) and `DiffSourceMeta` (the
-/// upstream diff identity that drove the restriction).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ClassifyEnvelope {
-    /// Envelope schema version — always [`CLASSIFY_ENVELOPE_SCHEMA_VERSION`].
     pub schema_version: String,
-    /// Classifier output restricted to the diff's `added` ∪ `changed`
-    /// qnames. Same shape as existing scope output — consumers that already
-    /// deserialise `ScopeInventory` (e.g. `cfdb scope`) share the bucket layout.
     pub inventory: ScopeInventory,
-    /// Upstream diff identity — `(a, b)` keyspace pair + count of qnames
-    /// that survived the restriction. Does NOT embed the raw diff envelope;
-    /// consumers that need the full delta consume `cfdb diff` separately.
     pub diff_source: DiffSourceMeta,
 }
 
 impl ClassifyEnvelope {
-    /// Construct an envelope with the pinned schema version.
     pub fn new(inventory: ScopeInventory, diff_source: DiffSourceMeta) -> Self {
         Self {
             schema_version: CLASSIFY_ENVELOPE_SCHEMA_VERSION.to_string(),
@@ -55,27 +25,13 @@ impl ClassifyEnvelope {
     }
 }
 
-/// Identity of the upstream `cfdb diff` envelope that drove the
-/// classification. Projection of `DiffEnvelope.{a, b}` plus a
-/// `restrict_count` — how many distinct qnames the handler pulled out
-/// of the diff envelope's `added` ∪ `changed` facts to use as the
-/// restrict set.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct DiffSourceMeta {
-    /// Left keyspace name from the source diff (the "before").
     pub a: String,
-    /// Right keyspace name from the source diff (the "after").
     pub b: String,
-    /// Cardinality of the restrict set derived from the diff (number of
-    /// distinct qnames across `added` ∪ `changed`).
     pub restrict_count: u64,
 }
 
-/// Derive the restrict-qname set from a `DiffEnvelope`. Includes every
-/// node qname (props.qname with id fallback) from `added` and the two
-/// envelope sides of `changed`, plus edge endpoint qnames (src_qname +
-/// dst_qname) so classifier findings whose `:Item.qname` equals an edge
-/// endpoint on a changed relationship are retained.
 pub(crate) fn collect_restrict_qnames(env: &DiffEnvelope) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     for fact in &env.added {
@@ -92,8 +48,6 @@ fn extend_with_envelope_qnames(out: &mut BTreeSet<String>, envelope: &Value) {
     if let Some(kind) = envelope.get("kind").and_then(Value::as_str) {
         match kind {
             "node" => {
-                // Prefer props.qname; fall back to id (matches
-                // canonical_dump's sort-key resolution).
                 if let Some(q) = envelope
                     .get("props")
                     .and_then(|p| p.get("qname"))
@@ -118,10 +72,6 @@ fn extend_with_envelope_qnames(out: &mut BTreeSet<String>, envelope: &Value) {
 }
 
 impl ClassifyEnvelope {
-    /// Every finding in the envelope in the pinned emission order:
-    /// classes by `DebtClass::Ord`, findings within a class by `Finding::Ord`.
-    /// The sorted-JSONL renderer and any consumer that wants a stable row
-    /// order read this — the order is a contract, not a presentation choice.
     pub fn sorted_rows(&self) -> Vec<(DebtClass, &Finding)> {
         let mut out = Vec::new();
         for (class, class_findings) in &self.inventory.findings_by_class {
@@ -182,8 +132,6 @@ mod tests {
             },
         );
         let json = serde_json::to_string(&env).unwrap();
-        // Same-shape invariant as the `finding_no_skill_field` arch test,
-        // applied to the composed envelope (#213 forbidden move #1).
         for banned in [
             "fix_skill",
             "skill_name",

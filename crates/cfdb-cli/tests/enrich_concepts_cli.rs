@@ -1,14 +1,3 @@
-//! `cfdb enrich-concepts` end-to-end through the real binary, against
-//! cfdb's own tree.
-//!
-//! A synthetic fixture would prove nothing about the composition-root
-//! cutover for a content-dependent pass.
-//! `self_dogfood_enrich_concepts.rs` already exercises `EnrichEngine`
-//! in-process on cfdb-self; this test's only additional job is proving
-//! `crates/cfdb-cli/src/enrich.rs`'s dispatcher actually routes
-//! `EnrichVerb::Concepts` to it — a mis-routed dispatcher shows up here as
-//! `ran: false` even though the in-process test would still pass.
-
 use std::path::PathBuf;
 
 use assert_cmd::prelude::*;

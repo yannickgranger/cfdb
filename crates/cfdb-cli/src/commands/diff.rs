@@ -1,11 +1,3 @@
-//! `cfdb diff` — keyspace-to-keyspace delta.
-//!
-//! Loads both keyspaces via the composition root, emits the sorted-JSONL
-//! canonical dump for each, delegates set-algebra to
-//! `cfdb_query::diff::compute_diff`, and prints the resulting
-//! `DiffEnvelope` as pretty JSON (default) or line-oriented sorted-JSONL
-//! (`--format sorted-jsonl`).
-
 use std::path::PathBuf;
 use std::str::FromStr;
 
@@ -24,10 +16,6 @@ pub fn diff(
     kinds: Option<String>,
     format: String,
 ) -> Result<(), crate::CfdbCliError> {
-    // `cfdb diff` accepts `json` (default envelope) and `sorted-jsonl` (one
-    // line per `{added|removed|changed}` fact). The shared `OutputFormat`
-    // enum carries other variants (text, table) that this verb does not
-    // accept; the allowlist below enforces the per-handler subset.
     let format = OutputFormat::from_str(&format)?
         .require_one_of(&[OutputFormat::Json, OutputFormat::SortedJsonl], "diff")?;
 
@@ -55,16 +43,12 @@ pub fn diff(
         OutputFormat::SortedJsonl => {
             emit_sorted_jsonl(&envelope)?;
         }
-        // Other variants are filtered out by `require_one_of` above; the
-        // type system can't see that, so we name the contract here.
         _ => unreachable!("diff allowlist is restricted to Json | SortedJsonl"),
     }
     Ok(())
 }
 
 fn emit_sorted_jsonl(envelope: &DiffEnvelope) -> Result<(), crate::CfdbCliError> {
-    // Header line preserves the envelope's scalar metadata so downstream
-    // parsers can correlate each fact line with (a, b, schema_version).
     let header = json!({
         "op": "header",
         "a": envelope.a,

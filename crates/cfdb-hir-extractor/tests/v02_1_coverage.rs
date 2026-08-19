@@ -1,28 +1,3 @@
-//! v0.2-1 coverage gate — Issue #126, RFC-029 §A1.5.
-//!
-//! Runs the HIR extractor against the persistent fixture workspace at
-//! `tests/fixtures/entry_points/` and asserts ≥95% recall per
-//! `:EntryPoint` kind against the ground-truth set in
-//! `EXPECTED.md`. With the shipped closed set (2/2/3/2/2 = 11 rows),
-//! 95% rounds to full recall for every kind — any missing qname fails
-//! the gate and names the missing row in the assertion message (AC-4).
-//!
-//! Unlike the sibling tests in `tests/entry_point.rs` and
-//! `tests/http_route.rs` (which materialize fixtures in tempdirs),
-//! this test reads from a persistent on-disk fixture. That fixture
-//! doubles as the target of the `cfdb extract ... --features hir`
-//! runtime measurement recorded in the PR body (AC-5).
-//!
-//! # Kind coverage
-//!
-//! | Kind          | Expected | Threshold (≥95%) |
-//! | :------------ | :------- | :--------------- |
-//! | `mcp_tool`    | 2        | 2                |
-//! | `cli_command` | 2        | 2                |
-//! | `http_route`  | 3        | 3                |
-//! | `cron_job`    | 2        | 2                |
-//! | `websocket`   | 2        | 2                |
-
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -30,12 +5,7 @@ use cfdb_core::fact::{Node, PropValue};
 use cfdb_core::schema::Label;
 use cfdb_hir_extractor::{build_hir_database, extract_entry_points};
 
-/// Expected entry points — one row per `:EntryPoint` the extractor
-/// MUST emit on the fixture workspace. Kept in lockstep with
-/// `tests/fixtures/entry_points/EXPECTED.md`; divergence between the
-/// two is a maintenance bug surfaced by the `AC-2` spot-check below.
 const EXPECTED: &[(&str, &str)] = &[
-    // (kind, handler_qname)
     ("mcp_tool", "mcp_fx::echo"),
     ("mcp_tool", "mcp_fx::ping"),
     ("cli_command", "cli_fx::RunCmd"),
@@ -49,8 +19,6 @@ const EXPECTED: &[(&str, &str)] = &[
     ("websocket", "ws_fx::mount_inline"),
 ];
 
-/// Qnames that MUST NOT appear as entry points (false-positive
-/// regression surface).
 const FORBIDDEN: &[&str] = &[
     "mcp_fx::unrelated_helper",
     "cli_fx::UnrelatedConfig",
@@ -59,9 +27,6 @@ const FORBIDDEN: &[&str] = &[
     "ws_fx::unrelated_ws_helper",
 ];
 
-/// Locate the fixture workspace relative to this test file. `CARGO_MANIFEST_DIR`
-/// points at the `cfdb-hir-extractor` crate root; the fixture lives at
-/// `tests/fixtures/entry_points/` inside that crate.
 fn fixture_root() -> PathBuf {
     let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
     crate_root
@@ -78,11 +43,7 @@ fn handler_qname(n: &Node) -> Option<&str> {
     n.props.get("handler_qname").and_then(PropValue::as_str)
 }
 
-/// Ceiling of `0.95 * expected` — the per-kind recall threshold. For
-/// the closed ground-truth set this rounds to the full expected count
-/// on every kind (see module docs).
 fn threshold(expected: usize) -> usize {
-    // `ceil(0.95 * n)` without floats.
     (95 * expected).div_ceil(100)
 }
 
@@ -100,8 +61,6 @@ fn v02_1_coverage_gate_meets_95_percent_recall_per_kind() {
     let (nodes, _edges) = extract_entry_points(&db, &vfs, &root, &targets)
         .unwrap_or_else(|e| panic!("extract_entry_points on fixture failed: {e}"));
 
-    // Index emitted EntryPoints by (kind, handler_qname) so lookups
-    // are O(1) per expected row.
     let emitted: BTreeMap<(String, String), ()> = nodes
         .iter()
         .filter(|n| n.label.as_str() == Label::ENTRY_POINT)
@@ -112,7 +71,6 @@ fn v02_1_coverage_gate_meets_95_percent_recall_per_kind() {
         })
         .collect();
 
-    // Group expected rows by kind and compute recall.
     let mut by_kind: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
     for (kind, qname) in EXPECTED {
         by_kind.entry(kind).or_default().push(qname);
@@ -139,8 +97,6 @@ fn v02_1_coverage_gate_meets_95_percent_recall_per_kind() {
         }
     }
 
-    // False-positive regression — none of the control qnames may be
-    // emitted as an entry point.
     for forbidden in FORBIDDEN {
         let leaked: Vec<&str> = emitted
             .keys()
@@ -170,9 +126,6 @@ fn v02_1_coverage_gate_meets_95_percent_recall_per_kind() {
 
 #[test]
 fn v02_1_expected_total_matches_documented_ground_truth() {
-    // AC-2 spot-check — the `EXPECTED` array and the `EXPECTED.md`
-    // manifest must stay in lockstep. Counting per kind catches
-    // accidental drift where a row is added to one but not the other.
     let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
     for (kind, _) in EXPECTED {
         *counts.entry(kind).or_default() += 1;

@@ -1,7 +1,3 @@
-//! Clap subcommand enum for the `cfdb` CLI.
-//! Contains the single `#[derive(Subcommand)]` type — `Command` — and all
-//! per-verb inline field definitions.
-
 use std::path::PathBuf;
 
 #[cfg(feature = "classify")]
@@ -22,54 +18,48 @@ pub(crate) use query_args::QueryArgs;
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum Command {
-    /// Print cfdb version + schema version.
+    #[command(about = "Print cfdb version + schema version")]
     Version,
 
-    /// Extract facts from a Rust workspace into a keyspace on disk.
+    #[command(about = "Extract facts from a Rust workspace into a keyspace on disk")]
     Extract(ExtractArgs),
 
-    /// Run a Cypher-subset query against a loaded keyspace.
+    #[command(about = "Run a Cypher-subset query against a loaded keyspace")]
     Query(QueryArgs),
 
-    /// Enrich a keyspace with git-history facts — commit age, author, churn
-    /// count per `:Item` file. Behind the `git-enrich` feature flag.
+    #[command(
+        about = "Enrich a keyspace with git-history facts — commit age, author, churn count per `:Item` file. Behind the `git-enrich` feature flag"
+    )]
     EnrichGitHistory {
         #[arg(long)]
         db: PathBuf,
         #[arg(long)]
         keyspace: String,
-        /// Workspace root whose git history to consult (must enclose a git
-        /// repository). Without this flag the pass reports `ran: false` + a
-        /// warning about the missing root. Requires the `git-enrich` feature.
+        #[arg(
+            help = "Workspace root whose git history to consult (must enclose a git repository). Without this flag the pass reports `ran: false` + a warning about the missing root. Requires the `git-enrich` feature"
+        )]
         #[arg(long)]
         workspace: Option<PathBuf>,
     },
 
-    /// Enrich a keyspace with RFC-reference facts — scan `docs/rfc/*.md` and
-    /// `.concept-graph/*.md` for concept-name matches, emit `:RfcDoc` nodes
-    /// and `(:Item)-[:REFERENCED_BY]->(:RfcDoc)` edges. RFC addendum §A2.2
-    /// row 2. Phase A stub — implementation lands in #43 slice 43-D
-    /// (issue #107). Scope is RFC-file matching only; broader rustdoc
-    /// rendering is a non-goal for v0.2 per the §A2.2 amendment.
+    #[command(
+        about = "Enrich a keyspace with RFC-reference facts — scan `docs/rfc/*.md` and `.concept-graph/*.md` for concept-name matches, emit `:RfcDoc` nodes and `(:Item)-[:REFERENCED_BY]->(:RfcDoc)` edges. RFC addendum §A2.2 row 2. Phase A stub — implementation lands in #43 slice 43-D (issue #107). Scope is RFC-file matching only; broader rustdoc rendering is a non-goal for v0.2 per the §A2.2 amendment"
+    )]
     EnrichRfcDocs {
         #[arg(long)]
         db: PathBuf,
         #[arg(long)]
         keyspace: String,
-        /// Workspace root whose `docs/**/*.md` and `.concept-graph/*.md`
-        /// files to scan for item-name references. Without this flag the
-        /// pass reports `ran: false` + a warning about the missing root.
+        #[arg(
+            help = "Workspace root whose `docs/**/*.md` and `.concept-graph/*.md` files to scan for item-name references. Without this flag the pass reports `ran: false` + a warning about the missing root"
+        )]
         #[arg(long)]
         workspace: Option<PathBuf>,
     },
 
-    /// Enrich a keyspace with deprecation facts — `:Item.is_deprecated` and
-    /// `deprecation_since`. RFC addendum §A2.2 row 3. Phase A stub — the
-    /// real work lands in #43 slice 43-C (issue #106) as an
-    /// **extractor extension** in `cfdb-extractor/src/attrs.rs`, not as a
-    /// Phase D enrichment body; this CLI verb's post-43-C behavior is a
-    /// `ran: true, attrs_written: 0` report naming the extractor as the
-    /// real source.
+    #[command(
+        about = "Enrich a keyspace with deprecation facts — `:Item.is_deprecated` and `deprecation_since`. RFC addendum §A2.2 row 3. Phase A stub — the real work lands in #43 slice 43-C (issue #106) as an **extractor extension** in `cfdb-extractor/src/attrs.rs`, not as a Phase D enrichment body; this CLI verb's post-43-C behavior is a `ran: true, attrs_written: 0` report naming the extractor as the real source"
+    )]
     EnrichDeprecation {
         #[arg(long)]
         db: PathBuf,
@@ -77,50 +67,39 @@ pub(crate) enum Command {
         keyspace: String,
     },
 
-    /// Re-enrich a keyspace's `:Item.bounded_context` attribute after
-    /// `.cfdb/concepts/*.toml` has changed. RFC addendum §A2.2 row 4.
-    /// Phase A stub — implementation lands in #43 slice 43-E (issue #108).
-    /// Mostly a no-op on fresh extractions (the extractor already populates
-    /// `bounded_context`); slice 43-E's v0.2-9 ≥95% accuracy gate gates
-    /// merge of both #108 and the downstream classifier (#48).
+    #[command(
+        about = "Re-enrich a keyspace's `:Item.bounded_context` attribute after `.cfdb/concepts/*.toml` has changed. RFC addendum §A2.2 row 4. Phase A stub — implementation lands in #43 slice 43-E (issue #108). Mostly a no-op on fresh extractions (the extractor already populates `bounded_context`); slice 43-E's v0.2-9 ≥95% accuracy gate gates merge of both #108 and the downstream classifier (#48)"
+    )]
     EnrichBoundedContext {
         #[arg(long)]
         db: PathBuf,
         #[arg(long)]
         keyspace: String,
-        /// Workspace root whose `.cfdb/concepts/*.toml` files to re-read.
-        /// Without this flag the pass reports `ran: false` + a warning about
-        /// the missing root (TOML overrides live under the workspace root, so
-        /// there is no useful default).
+        #[arg(
+            help = "Workspace root whose `.cfdb/concepts/*.toml` files to re-read. Without this flag the pass reports `ran: false` + a warning about the missing root (TOML overrides live under the workspace root, so there is no useful default)"
+        )]
         #[arg(long)]
         workspace: Option<PathBuf>,
     },
 
-    /// Materialize `:Concept` nodes from `.cfdb/concepts/<name>.toml`
-    /// declarations and emit `LABELED_AS` + `CANONICAL_FOR` edges. RFC
-    /// addendum §A2.2 row 6 (sixth pass added by #43 council DDD lens).
-    /// Phase A stub — implementation lands in #43 slice 43-F (issue #109)
-    /// and unblocks issues #101 (Trigger T1) and #102 (Trigger T3).
+    #[command(
+        about = "Materialize `:Concept` nodes from `.cfdb/concepts/<name>.toml` declarations and emit `LABELED_AS` + `CANONICAL_FOR` edges. RFC addendum §A2.2 row 6 (sixth pass added by #43 council DDD lens). Phase A stub — implementation lands in #43 slice 43-F (issue #109) and unblocks issues #101 (Trigger T1) and #102 (Trigger T3)"
+    )]
     EnrichConcepts {
         #[arg(long)]
         db: PathBuf,
         #[arg(long)]
         keyspace: String,
-        /// Workspace root whose `.cfdb/concepts/*.toml` files to read.
-        /// Without this flag the pass reports `ran: false` + a warning about
-        /// the missing root (TOML overrides live under the workspace root, so
-        /// there is no useful default).
+        #[arg(
+            help = "Workspace root whose `.cfdb/concepts/*.toml` files to read. Without this flag the pass reports `ran: false` + a warning about the missing root (TOML overrides live under the workspace root, so there is no useful default)"
+        )]
         #[arg(long)]
         workspace: Option<PathBuf>,
     },
 
-    /// Enrich a keyspace with entry-point-reachability facts — BFS from
-    /// every `:EntryPoint` over `CALLS*` edges. RFC addendum §A2.2 row 5.
-    /// Phase A stub — implementation lands in #43 slice 43-G (issue #110)
-    /// and consumes `:EntryPoint` nodes produced by `cfdb-hir-extractor`
-    /// (v0.2+). When the keyspace has zero `:EntryPoint` nodes the real
-    /// implementation returns `ran: false` with a clear warning per
-    /// clean-arch B3 degraded path.
+    #[command(
+        about = "Enrich a keyspace with entry-point-reachability facts — BFS from every `:EntryPoint` over `CALLS*` edges. RFC addendum §A2.2 row 5. Phase A stub — implementation lands in #43 slice 43-G (issue #110) and consumes `:EntryPoint` nodes produced by `cfdb-hir-extractor` (v0.2+). When the keyspace has zero `:EntryPoint` nodes the real implementation returns `ran: false` with a clear warning per clean-arch B3 degraded path"
+    )]
     EnrichReachability {
         #[arg(long)]
         db: PathBuf,
@@ -128,33 +107,27 @@ pub(crate) enum Command {
         keyspace: String,
     },
 
-    /// Enrich a keyspace with quality-signal facts
-    /// (`unwrap_count`, `cyclomatic`, `test_coverage`, `dup_cluster_id`)
-    /// on `:Item{kind:"fn"}` nodes. Populated by `EnrichEngine::enrich_metrics`
-    /// when the binary is built with
-    /// `--features quality-metrics`. Without the feature the verb dispatches
-    /// to a `ran: false` report naming the missing feature flag.
-    ///
-    /// `--workspace` is required for the real pass — syn re-parses source
-    /// files referenced by `:Item.file`. A stored keyspace with its own
-    /// `workspace_root` (from a prior `--workspace` extract) overrides an
-    /// omitted `--workspace` here; otherwise the pass returns a degraded
-    /// report.
+    #[command(
+        about = "Enrich a keyspace with quality-signal facts (`unwrap_count`, `cyclomatic`, `test_coverage`, `dup_cluster_id`) on `:Item{kind:\"fn\"}` nodes. Populated by `EnrichEngine::enrich_metrics` when the binary is built with `--features quality-metrics`. Without the feature the verb dispatches to a `ran: false` report naming the missing feature flag",
+        long_about = "Enrich a keyspace with quality-signal facts (`unwrap_count`, `cyclomatic`, `test_coverage`, `dup_cluster_id`) on `:Item{kind:\"fn\"}` nodes. Populated by `EnrichEngine::enrich_metrics` when the binary is built with `--features quality-metrics`. Without the feature the verb dispatches to a `ran: false` report naming the missing feature flag.
+
+`--workspace` is required for the real pass — syn re-parses source files referenced by `:Item.file`. A stored keyspace with its own `workspace_root` (from a prior `--workspace` extract) overrides an omitted `--workspace` here; otherwise the pass returns a degraded report."
+    )]
     EnrichMetrics {
         #[arg(long)]
         db: PathBuf,
         #[arg(long)]
         keyspace: String,
-        /// Workspace-root path handed to the store before dispatching —
-        /// required for the real pass to re-parse source files. Mirrors
-        /// the `--workspace` flag shared by every workspace-scanning
-        /// enrichment verb (#43 slices B/D/E/F).
+        #[arg(
+            help = "Workspace-root path handed to the store before dispatching — required for the real pass to re-parse source files. Mirrors the `--workspace` flag shared by every workspace-scanning enrichment verb (#43 slices B/D/E/F)"
+        )]
         #[arg(long)]
         workspace: Option<PathBuf>,
     },
 
-    /// Typed verb — find the canonical definition of a concept.
-    /// Convenience composer over `query_raw` (RFC §6 TYPED). Phase A stub.
+    #[command(
+        about = "Typed verb — find the canonical definition of a concept. Convenience composer over `query_raw` (RFC §6 TYPED). Phase A stub"
+    )]
     #[cfg(feature = "classify")]
     FindCanonical {
         #[arg(long)]
@@ -165,9 +138,9 @@ pub(crate) enum Command {
         concept: String,
     },
 
-    /// Typed verb — list callers of a fully-qualified name (regex pattern).
-    /// Convenience composer over `query_raw` that binds the embedded
-    /// `list-callers.cypher` template with `$qname = --qname`.
+    #[command(
+        about = "Typed verb — list callers of a fully-qualified name (regex pattern). Convenience composer over `query_raw` that binds the embedded `list-callers.cypher` template with `$qname = --qname`"
+    )]
     ListCallers {
         #[arg(long)]
         db: PathBuf,
@@ -177,12 +150,14 @@ pub(crate) enum Command {
         qname: String,
     },
 
-    /// Blast radius — every transitive caller of the changed items
-    /// (`--item`/`--since`). RFC-047 §3.3 / slice 47-B.
+    #[command(
+        about = "Blast radius — every transitive caller of the changed items (`--item`/`--since`). RFC-047 §3.3 / slice 47-B"
+    )]
     Impact(ImpactArgs),
 
-    /// Typed verb — list bypasses of the canonical definition of a concept.
-    /// Convenience composer over `query_raw`. Phase A stub.
+    #[command(
+        about = "Typed verb — list bypasses of the canonical definition of a concept. Convenience composer over `query_raw`. Phase A stub"
+    )]
     #[cfg(feature = "classify")]
     ListBypasses {
         #[arg(long)]
@@ -193,151 +168,141 @@ pub(crate) enum Command {
         concept: String,
     },
 
-    /// Typed verb — list `:Item` nodes whose `name` matches a regex, with
-    /// optional kind filter and optional group-by-bounded_context
-    /// partitioning (council-cfdb-wiring RATIFIED §A.14). Subsumes the
-    /// three R1 proposals `list_context_owner` / `list_definitions_of` /
-    /// `list_items_matching` via a parameterized filter composed over the
-    /// existing `:Item` substrate. Syn-level only — no HIR dependency.
+    #[command(
+        about = "Typed verb — list `:Item` nodes whose `name` matches a regex, with optional kind filter and optional group-by-bounded_context partitioning (council-cfdb-wiring RATIFIED §A.14). Subsumes the three R1 proposals `list_context_owner` / `list_definitions_of` / `list_items_matching` via a parameterized filter composed over the existing `:Item` substrate. Syn-level only — no HIR dependency"
+    )]
     ListItemsMatching {
         #[arg(long)]
         db: PathBuf,
         #[arg(long)]
         keyspace: String,
-        /// openCypher-compatible regex applied to `:Item.name`.
+        #[arg(help = "openCypher-compatible regex applied to `:Item.name`")]
         #[arg(long)]
         name_pattern: String,
-        /// Optional comma-separated list of Item kinds. Accepted values:
-        /// `Struct`, `Enum`, `Fn`, `Const`, `TypeAlias`, `ImplBlock`, `Trait`
-        /// (the 7 council-ratified names). Unknown values exit with code 2.
+        #[arg(
+            help = "Optional comma-separated list of Item kinds. Accepted values: `Struct`, `Enum`, `Fn`, `Const`, `TypeAlias`, `ImplBlock`, `Trait` (the 7 council-ratified names). Unknown values exit with code 2"
+        )]
         #[arg(long, value_delimiter = ',', value_parser = parse_item_kind)]
         kinds: Option<Vec<ItemKind>>,
-        /// When set, results are grouped by `:Item.bounded_context` with a
-        /// `COLLECT` of matching items per group (subsumption target for
-        /// ddd's `list_context_owner`).
+        #[arg(
+            help = "When set, results are grouped by `:Item.bounded_context` with a `COLLECT` of matching items per group (subsumption target for ddd's `list_context_owner`)"
+        )]
         #[arg(long)]
         group_by_context: bool,
     },
 
-    /// Emit the structured infection inventory (§A3.3 shape) for a bounded
-    /// context. Pure data aggregation — JSON only, no raid-plan prose
-    /// (council-cfdb-wiring RATIFIED §A.17). Output is tier-3 ephemeral;
-    /// consumer skills (`/operate-module`, `/boy-scout --from-inventory`)
-    /// read and format it.
+    #[command(
+        about = "Emit the structured infection inventory (§A3.3 shape) for a bounded context. Pure data aggregation — JSON only, no raid-plan prose (council-cfdb-wiring RATIFIED §A.17). Output is tier-3 ephemeral; consumer skills (`/operate-module`, `/boy-scout --from-inventory`) read and format it"
+    )]
     #[cfg(feature = "classify")]
     Scope {
         #[arg(long)]
         db: PathBuf,
-        /// Required bounded-context name; filters to items where
-        /// `Item.bounded_context == <name>`. Unknown context → exit 1 with
-        /// "known contexts: ..." message.
+        #[arg(
+            help = "Required bounded-context name; filters to items where `Item.bounded_context == <name>`. Unknown context → exit 1 with \"known contexts: ...\" message"
+        )]
         #[arg(long)]
         context: String,
-        /// Optional workspace path (reserved for default-keyspace
-        /// resolution; v0.1 requires `--keyspace` to select the keyspace
-        /// when the db directory holds more than one).
+        #[arg(
+            help = "Optional workspace path (reserved for default-keyspace resolution; v0.1 requires `--keyspace` to select the keyspace when the db directory holds more than one)"
+        )]
         #[arg(long)]
         workspace: Option<PathBuf>,
-        /// Output format. v0.1 supports only `json`; `table` is deferred
-        /// to v0.2 (§A3.3) and exits 2 with an explanatory message.
+        #[arg(
+            help = "Output format. v0.1 supports only `json`; `table` is deferred to v0.2 (§A3.3) and exits 2 with an explanatory message"
+        )]
         #[arg(long, default_value = "json")]
         format: String,
-        /// Write to file path; otherwise stdout.
+        #[arg(help = "Write to file path; otherwise stdout")]
         #[arg(long)]
         output: Option<PathBuf>,
-        /// Keyspace name (defaults to `cfdb-v01` if the db directory
-        /// contains exactly one keyspace file; otherwise required).
+        #[arg(
+            help = "Keyspace name (defaults to `cfdb-v01` if the db directory contains exactly one keyspace file; otherwise required)"
+        )]
         #[arg(long)]
         keyspace: Option<String>,
-        /// Emit one `explain: <pattern> → indexed|fallback` line per
-        /// `candidate_nodes` invocation on stderr (RFC-035 slice 7).
-        /// Requires `--workspace` to be set — without a workspace,
-        /// `.cfdb/indexes.toml` is not loaded and every MATCH falls
-        /// back by default.
+        #[arg(
+            help = "Emit one `explain: <pattern> → indexed|fallback` line per `candidate_nodes` invocation on stderr (RFC-035 slice 7). Requires `--workspace` to be set — without a workspace, `.cfdb/indexes.toml` is not loaded and every MATCH falls back by default"
+        )]
         #[arg(long, default_value_t = false)]
         explain: bool,
-        /// RFC-042 042-B (issue #392): swap the `Unwired` classifier to
-        /// the production-only variant, which reads
-        /// `:Item.reachable_from_production_entry` (excludes test/bench
-        /// `:EntryPoint` kinds from the BFS seeds). Surfaces code reached
-        /// only by tests or benches — the "test-only-reached production
-        /// item" class. Other classifier classes are unaffected.
+        #[arg(
+            help = "RFC-042 042-B (issue #392): swap the `Unwired` classifier to the production-only variant, which reads `:Item.reachable_from_production_entry` (excludes test/bench `:EntryPoint` kinds from the BFS seeds). Surfaces code reached only by tests or benches — the \"test-only-reached production item\" class. Other classifier classes are unaffected"
+        )]
         #[arg(long, default_value_t = false)]
         production_only: bool,
     },
 
-    /// List snapshots in a database. v0.1 maps each on-disk keyspace to one
-    /// snapshot; sha/timestamp/schema_version columns are populated as
-    /// available (Phase A: keyspace + schema_version only).
+    #[command(
+        about = "List snapshots in a database. v0.1 maps each on-disk keyspace to one snapshot; sha/timestamp/schema_version columns are populated as available (Phase A: keyspace + schema_version only)"
+    )]
     Snapshots {
         #[arg(long)]
         db: PathBuf,
     },
 
-    /// Route `cfdb diff` findings by `DebtClass`. Consumes a
-    /// `DiffEnvelope` (`--restrict-to-diff`) and emits a
-    /// `ClassifyEnvelope` whose `findings_by_class` buckets cover only
-    /// items whose `qname` appears in the diff's added/changed sets.
-    /// Delegates to the same classifier plumbing as `cfdb scope` per
-    /// RFC-cfdb.md §A2.2. Routing to concrete skills is external to cfdb
-    /// (the consumer's concern).
+    #[command(
+        about = "Route `cfdb diff` findings by `DebtClass`. Consumes a `DiffEnvelope` (`--restrict-to-diff`) and emits a `ClassifyEnvelope` whose `findings_by_class` buckets cover only items whose `qname` appears in the diff's added/changed sets. Delegates to the same classifier plumbing as `cfdb scope` per RFC-cfdb.md §A2.2. Routing to concrete skills is external to cfdb (the consumer's concern)"
+    )]
     #[cfg(feature = "classify")]
     Classify {
         #[arg(long)]
         db: PathBuf,
-        /// Keyspace name (defaults to the single on-disk keyspace when
-        /// unambiguous). Mirrors `cfdb scope`'s resolution semantics.
+        #[arg(
+            help = "Keyspace name (defaults to the single on-disk keyspace when unambiguous). Mirrors `cfdb scope`'s resolution semantics"
+        )]
         #[arg(long)]
         keyspace: Option<String>,
-        /// Bounded-context name — filters classifier findings to items
-        /// where `Item.bounded_context == <name>`. Unknown context →
-        /// exit 1 with `known contexts: ...` message.
+        #[arg(
+            help = "Bounded-context name — filters classifier findings to items where `Item.bounded_context == <name>`. Unknown context → exit 1 with `known contexts: ...` message"
+        )]
         #[arg(long)]
         context: String,
-        /// Path to a `DiffEnvelope` JSON (output of `cfdb diff`). The
-        /// classifier restricts its `findings_by_class` buckets to
-        /// items whose `qname` appears in the diff's added/changed
-        /// sets.
+        #[arg(
+            help = "Path to a `DiffEnvelope` JSON (output of `cfdb diff`). The classifier restricts its `findings_by_class` buckets to items whose `qname` appears in the diff's added/changed sets"
+        )]
         #[arg(long)]
         restrict_to_diff: PathBuf,
-        /// Optional workspace path (enables `.cfdb/indexes.toml` per
-        /// RFC-035 slice 7, same as `cfdb scope`).
+        #[arg(
+            help = "Optional workspace path (enables `.cfdb/indexes.toml` per RFC-035 slice 7, same as `cfdb scope`)"
+        )]
         #[arg(long)]
         workspace: Option<PathBuf>,
-        /// Write to file path; otherwise stdout.
+        #[arg(help = "Write to file path; otherwise stdout")]
         #[arg(long)]
         output: Option<PathBuf>,
-        /// Output format. `json` (default) emits the full `ClassifyEnvelope`
-        /// as pretty JSON. `sorted-jsonl` emits one line per finding with an
-        /// `op: header|finding|warning` discriminator — line-diff friendly.
+        #[arg(
+            help = "Output format. `json` (default) emits the full `ClassifyEnvelope` as pretty JSON. `sorted-jsonl` emits one line per finding with an `op: header|finding|warning` discriminator — line-diff friendly"
+        )]
         #[arg(long, default_value = "json")]
         format: String,
     },
 
-    /// Diff two keyspaces — emit the `{added, removed, changed}` delta
-    /// over the canonical sorted-JSONL dump (RFC-cfdb.md §12.1). Exit 0
-    /// regardless of diff size; the consumer gate decides pass/fail.
+    #[command(
+        about = "Diff two keyspaces — emit the `{added, removed, changed}` delta over the canonical sorted-JSONL dump (RFC-cfdb.md §12.1). Exit 0 regardless of diff size; the consumer gate decides pass/fail"
+    )]
     Diff {
         #[arg(long)]
         db: PathBuf,
-        /// First keyspace (the "before").
+        #[arg(help = "First keyspace (the \"before\")")]
         #[arg(long)]
         a: String,
-        /// Second keyspace (the "after").
+        #[arg(help = "Second keyspace (the \"after\")")]
         #[arg(long)]
         b: String,
-        /// Optional comma-separated list of dump-line kinds to include
-        /// (`node`, `edge`, or `node,edge`). Default is both.
+        #[arg(
+            help = "Optional comma-separated list of dump-line kinds to include (`node`, `edge`, or `node,edge`). Default is both"
+        )]
         #[arg(long)]
         kinds: Option<String>,
-        /// Output format. `json` (default) emits the full `DiffEnvelope`
-        /// as pretty JSON. `sorted-jsonl` emits one line per fact with an
-        /// `op: added|removed|changed` discriminator — line-diff friendly.
+        #[arg(
+            help = "Output format. `json` (default) emits the full `DiffEnvelope` as pretty JSON. `sorted-jsonl` emits one line per fact with an `op: added|removed|changed` discriminator — line-diff friendly"
+        )]
         #[arg(long, default_value = "json")]
         format: String,
     },
 
-    /// Drop a keyspace from the database. The only deletion verb (RFC §6 G5).
+    #[command(about = "Drop a keyspace from the database. The only deletion verb (RFC §6 G5)")]
     Drop {
         #[arg(long)]
         db: PathBuf,
@@ -345,136 +310,119 @@ pub(crate) enum Command {
         keyspace: String,
     },
 
-    /// Print the canonical SchemaDescribe (node labels, edge labels,
-    /// per-attribute provenance) as pretty JSON. Read-only, deterministic.
+    #[command(
+        about = "Print the canonical SchemaDescribe (node labels, edge labels, per-attribute provenance) as pretty JSON. Read-only, deterministic"
+    )]
     SchemaDescribe,
 
-    /// Export a keyspace in the requested wire format. v0.1 supports the
-    /// canonical sorted JSONL dump (the same output as `cfdb dump`); the
-    /// `--format` flag exists for forward-compat with future formats.
+    #[command(
+        about = "Export a keyspace in the requested wire format. v0.1 supports the canonical sorted JSONL dump (the same output as `cfdb dump`); the `--format` flag exists for forward-compat with future formats"
+    )]
     Export {
         #[arg(long)]
         db: PathBuf,
         #[arg(long)]
         keyspace: String,
-        /// Output format. v0.1 only supports `sorted-jsonl`.
+        #[arg(help = "Output format. v0.1 only supports `sorted-jsonl`")]
         #[arg(long, default_value = "sorted-jsonl")]
         format: String,
     },
 
-    /// Run a rule file and exit 30 if any violations are found.
-    ///
-    /// Exit contract (issue #269 / EPIC #273): 0 on no findings or with
-    /// `--no-fail`; 30 on findings (gate failure); 1 on runtime error
-    /// (extractor panic, IO failure, parse error in rule). Mirrors the
-    /// `ci/cross-dogfood.sh` exit-30 convention.
-    ///
-    /// Intended as the drop-in replacement for handwritten Rust
-    /// architecture tests. Architecture tests in qbot-core can be
-    /// expressed as one `.cypher` rule file plus a one-liner shell
-    /// test that runs `cfdb violations --rule path.cypher` and fails
-    /// on exit code 30.
+    #[command(
+        about = "Run a rule file and exit 30 if any violations are found",
+        long_about = "Run a rule file and exit 30 if any violations are found.
+
+Exit contract (issue #269 / EPIC #273): 0 on no findings or with `--no-fail`; 30 on findings (gate failure); 1 on runtime error (extractor panic, IO failure, parse error in rule). Mirrors the `ci/cross-dogfood.sh` exit-30 convention.
+
+Intended as the drop-in replacement for handwritten Rust architecture tests. Architecture tests in qbot-core can be expressed as one `.cypher` rule file plus a one-liner shell test that runs `cfdb violations --rule path.cypher` and fails on exit code 30."
+    )]
     Violations {
-        /// Directory containing per-keyspace JSON files.
+        #[arg(help = "Directory containing per-keyspace JSON files")]
         #[arg(long)]
         db: PathBuf,
-        /// Keyspace to query.
+        #[arg(help = "Keyspace to query")]
         #[arg(long)]
         keyspace: String,
-        /// Path to a `.cypher` rule file. Each row in the result set is
-        /// a violation.
+        #[arg(help = "Path to a `.cypher` rule file. Each row in the result set is a violation")]
         #[arg(long)]
         rule: PathBuf,
-        /// Without `--no-fail`: rule rows return exit 30. With `--no-fail`:
-        /// rule rows return exit 0 (informational). Runtime errors always
-        /// return exit 1 regardless. Useful for inventorying current state
-        /// without failing CI.
+        #[arg(
+            help = "Without `--no-fail`: rule rows return exit 30. With `--no-fail`: rule rows return exit 0 (informational). Runtime errors always return exit 1 regardless. Useful for inventorying current state without failing CI"
+        )]
         #[arg(long)]
         no_fail: bool,
-        /// Emit only the integer row count on stdout, suppressing the
-        /// pretty-JSON payload. Intended for CI scripts like
-        /// `ci/cross-dogfood.sh` (RFC-033 §3.2) that capture the count
-        /// via `rows=$(cfdb violations ... --count-only --no-fail)` and
-        /// tally findings across rules. Stderr is unchanged.
+        #[arg(
+            help = "Emit only the integer row count on stdout, suppressing the pretty-JSON payload. Intended for CI scripts like `ci/cross-dogfood.sh` (RFC-033 §3.2) that capture the count via `rows=$(cfdb violations ... --count-only --no-fail)` and tally findings across rules. Stderr is unchanged"
+        )]
         #[arg(long)]
         count_only: bool,
     },
 
-    /// Run a cfdb editorial-drift trigger and exit 30 if any findings
-    /// fire. Issue #101 ships `T1` (concept-declared-in-TOML-but-
-    /// missing-in-code, three sub-verdicts: CONCEPT_UNWIRED,
-    /// MISSING_CANONICAL_CRATE, STALE_RFC_REFERENCE). T3 is reserved
-    /// for issue #102.
-    ///
-    /// Unlike `violations --rule <file>` which runs arbitrary cypher,
-    /// `check --trigger <ID>` dispatches to a closed registry of
-    /// embedded rules keyed by trigger id — so consumer skills can
-    /// bind to `--trigger T1` as a stable contract rather than a
-    /// filesystem path.
+    #[command(
+        about = "Run a cfdb editorial-drift trigger and exit 30 if any findings fire. Issue #101 ships `T1` (concept-declared-in-TOML-but- missing-in-code, three sub-verdicts: CONCEPT_UNWIRED, MISSING_CANONICAL_CRATE, STALE_RFC_REFERENCE). T3 is reserved for issue #102",
+        long_about = "Run a cfdb editorial-drift trigger and exit 30 if any findings fire. Issue #101 ships `T1` (concept-declared-in-TOML-but- missing-in-code, three sub-verdicts: CONCEPT_UNWIRED, MISSING_CANONICAL_CRATE, STALE_RFC_REFERENCE). T3 is reserved for issue #102.
+
+Unlike `violations --rule <file>` which runs arbitrary cypher, `check --trigger <ID>` dispatches to a closed registry of embedded rules keyed by trigger id — so consumer skills can bind to `--trigger T1` as a stable contract rather than a filesystem path."
+    )]
     #[cfg(feature = "classify")]
     Check {
-        /// Directory containing per-keyspace JSON files.
+        #[arg(help = "Directory containing per-keyspace JSON files")]
         #[arg(long)]
         db: PathBuf,
-        /// Keyspace to query.
+        #[arg(help = "Keyspace to query")]
         #[arg(long)]
         keyspace: String,
-        /// Trigger identifier — e.g. `T1`. Valid values are derived
-        /// from [`TriggerId::variants`]; unknown values fail with a
-        /// message enumerating the known set.
+        #[arg(
+            help = "Trigger identifier — e.g. `T1`. Valid values are derived from [`TriggerId::variants`]; unknown values fail with a message enumerating the known set"
+        )]
         #[arg(long, value_parser = parse_trigger_id)]
         trigger: TriggerId,
-        /// Without `--no-fail`: rule rows return exit 30. With `--no-fail`:
-        /// rule rows return exit 0 (informational). Runtime errors always
-        /// return exit 1 regardless. Matches the `violations --no-fail`
-        /// idiom for CI scripts that want to inventory without failing.
+        #[arg(
+            help = "Without `--no-fail`: rule rows return exit 30. With `--no-fail`: rule rows return exit 0 (informational). Runtime errors always return exit 1 regardless. Matches the `violations --no-fail` idiom for CI scripts that want to inventory without failing"
+        )]
         #[arg(long)]
         no_fail: bool,
     },
 
-    /// Run a named predicate from `.cfdb/predicates/<name>.cypher` and
-    /// exit 30 if any rows match — RFC-034 Slice 3.
-    ///
-    /// Unlike `violations --rule <path>` (which loads a user-supplied
-    /// `.cypher` file with no param binding) this verb loads a named
-    /// predicate from the shipped library + resolves `--param` CLI args
-    /// via [`crate::param_resolver::resolve_params`] before executing.
-    /// Exit contract matches `violations` / `check`: non-zero iff the
-    /// predicate returns ≥1 row.
+    #[command(
+        about = "Run a named predicate from `.cfdb/predicates/<name>.cypher` and exit 30 if any rows match — RFC-034 Slice 3",
+        long_about = "Run a named predicate from `.cfdb/predicates/<name>.cypher` and exit 30 if any rows match — RFC-034 Slice 3.
+
+Unlike `violations --rule <path>` (which loads a user-supplied `.cypher` file with no param binding) this verb loads a named predicate from the shipped library + resolves `--param` CLI args via [`crate::param_resolver::resolve_params`] before executing. Exit contract matches `violations` / `check`: non-zero iff the predicate returns ≥1 row."
+    )]
     CheckPredicate {
-        /// Directory containing per-keyspace JSON files.
+        #[arg(help = "Directory containing per-keyspace JSON files")]
         #[arg(long)]
         db: PathBuf,
-        /// Keyspace to query.
+        #[arg(help = "Keyspace to query")]
         #[arg(long)]
         keyspace: String,
-        /// Workspace root — used to locate `.cfdb/predicates/<name>.cypher`
-        /// AND `.cfdb/concepts/*.toml` for `context:` param resolution.
+        #[arg(
+            help = "Workspace root — used to locate `.cfdb/predicates/<name>.cypher` AND `.cfdb/concepts/*.toml` for `context:` param resolution"
+        )]
         #[arg(long)]
         workspace_root: PathBuf,
-        /// Predicate basename (without `.cypher`) — e.g. `path-regex`.
+        #[arg(help = "Predicate basename (without `.cypher`) — e.g. `path-regex`")]
         #[arg(long)]
         name: String,
-        /// Repeatable `--param <name>:<form>:<value>` CLI arg. Forms:
-        /// `context:<concept-name>` / `regex:<pattern>` /
-        /// `literal:<value>` / `list:<a,b,c>`. See RFC-034 §3.4.
+        #[arg(
+            help = "Repeatable `--param <name>:<form>:<value>` CLI arg. Forms: `context:<concept-name>` / `regex:<pattern>` / `literal:<value>` / `list:<a,b,c>`. See RFC-034 §3.4"
+        )]
         #[arg(long = "param")]
         params: Vec<String>,
-        /// Output format. `text` (default) emits the canonical
-        /// three-column `qname<TAB>line<TAB>reason` per row + a stderr
-        /// summary. `json` emits a pretty-printed
-        /// [`crate::PredicateRunReport`] on stdout.
+        #[arg(
+            help = "Output format. `text` (default) emits the canonical three-column `qname<TAB>line<TAB>reason` per row + a stderr summary. `json` emits a pretty-printed [`crate::PredicateRunReport`] on stdout"
+        )]
         #[arg(long, default_value = "text")]
         format: String,
-        /// Without `--no-fail`: rule rows return exit 30. With `--no-fail`:
-        /// rule rows return exit 0 (informational). Runtime errors always
-        /// return exit 1 regardless. Matches the `violations --no-fail`
-        /// idiom for CI scripts.
+        #[arg(
+            help = "Without `--no-fail`: rule rows return exit 30. With `--no-fail`: rule rows return exit 0 (informational). Runtime errors always return exit 1 regardless. Matches the `violations --no-fail` idiom for CI scripts"
+        )]
         #[arg(long)]
         no_fail: bool,
     },
 
-    /// Print the canonical sorted dump of a keyspace.
+    #[command(about = "Print the canonical sorted dump of a keyspace")]
     Dump {
         #[arg(long)]
         db: PathBuf,
@@ -482,7 +430,7 @@ pub(crate) enum Command {
         keyspace: String,
     },
 
-    /// List keyspaces discoverable in a database directory.
+    #[command(about = "List keyspaces discoverable in a database directory")]
     ListKeyspaces {
         #[arg(long)]
         db: PathBuf,

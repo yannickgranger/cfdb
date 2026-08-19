@@ -1,58 +1,3 @@
-//! Ground-truth adapter — produce a `BTreeSet<PublicItem>` from the
-//! authoritative public API of a crate, using rustdoc JSON as the source.
-//!
-//! ## Why rustdoc JSON and not `rg -c`?
-//!
-//! `cargo public-api` or `rustdoc --output-format json` as the recall gate's
-//! ground truth, because any text-based scan of source:
-//!
-//! 1. misses macro-generated items (`define_id!`, `#[derive(...)]`, `paste!`),
-//! 2. collapses items with the same local name at different qnames when
-//!    the ratio is count-based,
-//! 3. cannot disambiguate nested `pub` markers inside `pub mod { ... }`.
-//!
-//! `rustdoc` performs full macro expansion and visibility resolution, so
-//! the JSON it emits is the closest thing Rust has to an authoritative
-//! "what is publicly reachable from this crate's root".
-//!
-//! ## Why rustdoc JSON directly and not the `public-api` crate?
-//!
-//! `public-api` is the obvious choice — it wraps rustdoc JSON in a tidy
-//! iterator — but its Display output **flattens re-exports**: if a crate's
-//! `lib.rs` does `pub use schema::*;`, `public-api` reports `crate::Label`
-//! (the re-exported path) instead of `crate::schema::Label` (the defining
-//! path). `cfdb-extractor` only sees the defining path (it walks syn AST,
-//! not the re-export graph), so the two sources diverge systematically on
-//! re-export-heavy crates. The first run of this harness against
-//! `cfdb-core` produced **9.95% recall** for that exact reason — 670 out
-//! of 744 items "missing" were just re-export spelling mismatches.
-//!
-//! The fix: read rustdoc JSON directly via `rustdoc-types` and pull the
-//! canonical defining path from `Crate::paths[id].path`. That field is
-//! rustdoc's own "where was this item originally defined" answer, which
-//! matches `cfdb-extractor`'s syn-derived qnames symbol-for-symbol. After
-//! the switch `cfdb-core` recall climbed from 9.95% to >95% without any
-//! changes to the extractor or to the pure recall formula.
-//!
-//! ## What we keep, what we drop
-//!
-//! - **KEEP** top-level items: `Struct`, `Enum`, `Function`, `Trait`,
-//!   `TypeAlias`, `Constant`, `Static`, `Union`. These are everything the
-//!   extractor emits at `Label::ITEM` via the module-level visitor
-//!   methods in `cfdb-extractor/src/lib.rs` (`visit_item_fn`,
-//!   `visit_item_struct`, `visit_item_enum`, …).
-//! - **DROP** impl methods (`ItemKind::AssocFn`), fields, variants, trait
-//!   method declarations, modules, impls, and macros. The extractor
-//!   handles these via other labels (`Field`, `Variant`, `Module`) or
-//!   does not emit them at all — including them in the recall denominator
-//!   would create a systematic asymmetry the formula cannot resolve in
-//!   v0.1. They are deferred.
-//!
-//! The [`KEPT_ITEM_KINDS`] constant is the single source of truth for the
-//! "kept" set — every `ItemKind` variant is explicitly listed so a future
-//! rustdoc schema upgrade surfaces in a compile error instead of silently
-//! changing recall.
-
 use std::collections::BTreeSet;
 #[cfg(feature = "runner")]
 use std::path::Path;
@@ -63,11 +8,6 @@ use thiserror::Error;
 
 use crate::PublicItem;
 
-/// The top-level item kinds the recall gate measures. Every other
-/// `ItemKind` variant is dropped — see module docs for the rationale.
-///
-/// Listed explicitly (not a "deny list") so a rustdoc schema upgrade that
-/// introduces a new kind does not silently widen the measured surface.
 pub const KEPT_ITEM_KINDS: &[ItemKind] = &[
     ItemKind::Struct,
     ItemKind::Enum,
@@ -79,37 +19,17 @@ pub const KEPT_ITEM_KINDS: &[ItemKind] = &[
     ItemKind::Union,
 ];
 
-/// Pure projection from a parsed rustdoc `Crate` to a set of public items.
-///
-/// The rustdoc `paths` map is keyed by item id; each entry has the
-/// canonical DEFINING path from the crate root (`["cfdb_core", "schema",
-/// "Label"]`) and the item kind. We walk it, filter to local-crate items
-/// (`crate_id == 0`), drop kinds we do not measure, and collect the
-/// remainder into a `BTreeSet<PublicItem>`.
-///
-/// Pure function — no I/O — so the unit tests below exercise it against
-/// hand-constructed `Crate` values.
 pub fn project_rustdoc_paths(crate_data: &Crate) -> BTreeSet<PublicItem> {
     crate_data
         .paths
         .values()
-        .filter(|summary| summary.crate_id == 0) // local crate only
+        .filter(|summary| summary.crate_id == 0)
         .filter(|summary| KEPT_ITEM_KINDS.contains(&summary.kind))
         .filter(|summary| !summary.path.is_empty())
         .map(|summary| PublicItem::new(summary.path.join("::")))
         .collect()
 }
 
-// ── I/O wrapper: build rustdoc JSON + parse it ─────────────────────
-//
-// Everything from here to the end of the `runner`-gated section is only
-// compiled when the `runner` feature is on. Library consumers that only
-// want to call `project_rustdoc_paths` on a `Crate` they already parsed
-// do not need rustdoc-json's cargo-driver transitive closure.
-
-/// Error returned by [`build_public_api_for_manifest`]. Kept separate from
-/// the extractor's error type because the two failure modes are distinct
-/// and callers surface them differently in their reports.
 #[cfg(feature = "runner")]
 #[derive(Debug, Error)]
 pub enum GroundTruthError {
@@ -135,17 +55,6 @@ pub enum GroundTruthError {
     },
 }
 
-/// Build rustdoc JSON for the crate at `manifest_path` and return its
-/// public item set. Requires a nightly toolchain at runtime — that is a
-/// hard constraint of the `rustdoc-json` crate, not of this adapter.
-///
-/// Slow: invokes `cargo +nightly rustdoc --output-format=json` for the
-/// target crate. Typical cost is 5-30 seconds depending on crate size and
-/// whether the build cache is warm. Integration tests that call this must
-/// plan for that cost.
-///
-/// **Requires the `runner` feature.** Library consumers that only need
-/// the pure [`project_rustdoc_paths`] function do not pay its cost.
 #[cfg(feature = "runner")]
 pub fn build_public_api_for_manifest(
     manifest_path: &Path,
@@ -204,8 +113,6 @@ mod tests {
         }
     }
 
-    // ── Kind filter ───────────────────────────────────────────
-
     #[test]
     fn keeps_struct_enum_fn_trait_type_const_static_union() {
         let entries = vec![
@@ -242,10 +149,6 @@ mod tests {
 
     #[test]
     fn drops_foreign_crate_items() {
-        // Items reachable via re-export from another crate show up in
-        // `paths` with a non-zero crate_id. We measure recall only for
-        // the LOCAL crate — imported types belong to their owning crate's
-        // recall gate.
         let entries = vec![
             (1, summary(0, &["c", "local"], ItemKind::Struct)),
             (2, summary(1, &["other", "foreign"], ItemKind::Struct)),
@@ -258,8 +161,6 @@ mod tests {
 
     #[test]
     fn drops_entries_with_empty_path() {
-        // Defensive — rustdoc is not documented to emit these but a
-        // future schema could.
         let entries = vec![
             (1, summary(0, &["c", "ok"], ItemKind::Struct)),
             (2, summary(0, &[], ItemKind::Struct)),
@@ -271,9 +172,6 @@ mod tests {
 
     #[test]
     fn joins_path_segments_with_double_colon() {
-        // The canonical defining path is a `Vec<String>`; we render it as
-        // the same `a::b::c` form the extractor uses so set intersection
-        // on the shared `PublicItem` type just works.
         let entries = vec![(1, summary(0, &["c", "m", "Deep"], ItemKind::Struct))];
         let crate_data = crate_with_paths(&entries);
         let set = project_rustdoc_paths(&crate_data);
@@ -282,9 +180,6 @@ mod tests {
 
     #[test]
     fn deduplicates_identical_paths() {
-        // Two ids with the same defining path (e.g. a re-export shim)
-        // collapse into one `PublicItem` because the set is keyed by
-        // qname, not id.
         let entries = vec![
             (1, summary(0, &["c", "Same"], ItemKind::Struct)),
             (2, summary(0, &["c", "Same"], ItemKind::Struct)),

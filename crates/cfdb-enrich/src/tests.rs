@@ -1,5 +1,3 @@
-//! `EnrichEngine` scaffold tests.
-
 use cfdb_core::enrich::EnrichBackend;
 use cfdb_core::schema::Keyspace;
 use cfdb_core::store::StoreBackend;
@@ -47,9 +45,6 @@ fn deprecation_unknown_keyspace_returns_err() {
     assert!(format!("{err:?}").contains("UnknownKeyspace"));
 }
 
-// `git-enrich` is off in the default build — CI's `--all-features` run
-// never exercises this branch, so this only compiles/runs under a plain
-// `cargo test -p cfdb-enrich`.
 #[cfg(not(feature = "git-enrich"))]
 #[test]
 fn git_history_feature_off_pins_degraded_report() {
@@ -73,9 +68,6 @@ fn git_history_feature_off_pins_degraded_report() {
     );
 }
 
-// `quality-metrics` is off in the default build — CI's `--all-features`
-// run never exercises this branch, so this only compiles/runs under a
-// plain `cargo test -p cfdb-enrich`.
 #[cfg(not(feature = "quality-metrics"))]
 #[test]
 fn metrics_feature_off_pins_degraded_report() {

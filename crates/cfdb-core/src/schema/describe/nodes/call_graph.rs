@@ -1,8 +1,3 @@
-//! Call-graph node-label descriptors — invocation and dispatch facts:
-//! call sites, entry points, call-site arguments, and `match`-dispatch
-//! sites. Split out of `nodes.rs`; `:MatchSite` added as a sibling
-//! site-node family alongside `:CallSite`.
-
 use crate::schema::descriptors::{attr, NodeLabelDescriptor, Provenance};
 use crate::schema::labels::Label;
 

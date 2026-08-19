@@ -1,43 +1,3 @@
-//! HSB cluster scar tests (issue #204 / RFC-036 §3.4 v2).
-//!
-//! Asserts that `.cfdb/queries/hsb-cluster.cypher` fires on the two
-//! canonical HSB shapes and stays silent on negative controls:
-//!
-//! ## Scar shapes
-//!
-//! 1. **Same-name duplicate** — two `:Item{kind:"fn"}` in sibling
-//!    crates with matching `name` and `signature_hash`. Step-3's
-//!    `compute_dup_cluster_ids` groups them under the same
-//!    `dup_cluster_id`, and the query surfaces the pair.
-//! 2. **Synonym-renamed duplicate** — two fns with DIFFERENT names
-//!    but matching `signature_hash`. Step-3 still groups them (sig
-//!    hash drives the cluster key, not name), so they share
-//!    `dup_cluster_id` and the query surfaces the pair.
-//!
-//! Both shapes fire because v2 gates on signal 1 alone — see query
-//! header for the v2.1 extension points (S3 Jaccard, S4 conversion
-//! target, S2 ed1).
-//!
-//! ## Negative shapes
-//!
-//! 1. **Unique signatures** — three fns each with distinct
-//!    `signature_hash` values. Step-3 emits no cluster ids
-//!    (singletons excluded). Query returns zero rows.
-//! 2. **Test-tagged pair** — two fns with matching `dup_cluster_id`
-//!    but `is_test = true` on both. The query's `is_test = false`
-//!    filter excludes them.
-//! 3. **Mixed test + production** — a production fn and a test-scoped
-//!    helper share `dup_cluster_id`. The filter still excludes
-//!    because the `is_test = false` predicate applies to both sides.
-//!
-//! ## Test approach
-//!
-//! Synthetic fact injection (same pattern as
-//! `pattern_b_vertical_split_brain.rs` + `vsb_multi_resolver.rs`).
-//! Writes `dup_cluster_id` directly on the `:Item` nodes — bypasses
-//! the step-3 producer so the test isolates the query's correctness
-//! from extractor / enrich_metrics stability.
-
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -48,10 +8,6 @@ use cfdb_core::store::{QueryBackend, StoreBackend};
 use cfdb_eval::QueryEngine;
 use cfdb_petgraph::PetgraphStore;
 use cfdb_query::parse;
-
-// ---------------------------------------------------------------------
-// Helpers — synthetic `:Item{kind:"fn"}` nodes with full prop set.
-// ---------------------------------------------------------------------
 
 fn fn_item(
     qname: &str,
@@ -117,16 +73,11 @@ fn row_str<'a>(
     row.get(key).and_then(|v| v.as_str())
 }
 
-// ---------------------------------------------------------------------
-// Scar 1 — same-name duplicate in sibling crates.
-// ---------------------------------------------------------------------
-
 #[test]
 fn same_name_duplicate_fns_emit_one_cluster_row() {
     let mut store = PetgraphStore::new();
     let ks = keyspace();
 
-    // Same name `make_stop`, same signature_hash → same dup_cluster_id.
     let cid = "sha-same-name-cluster";
     let a = "crate_a::domain::make_stop";
     let b = "crate_b::domain::make_stop";
@@ -151,16 +102,11 @@ fn same_name_duplicate_fns_emit_one_cluster_row() {
     assert_eq!(row_str(&rows[0], "b_qname"), Some(b));
 }
 
-// ---------------------------------------------------------------------
-// Scar 2 — synonym-renamed duplicate (different names, same sig hash).
-// ---------------------------------------------------------------------
-
 #[test]
 fn synonym_renamed_duplicate_fns_emit_one_cluster_row() {
     let mut store = PetgraphStore::new();
     let ks = keyspace();
 
-    // Different names, same signature_hash → same dup_cluster_id.
     let cid = "sha-synonym-renamed-cluster";
     let a = "crate_a::stop::stop_from_bps";
     let b = "crate_b::risk::stop_from_basis_points";
@@ -186,30 +132,19 @@ fn synonym_renamed_duplicate_fns_emit_one_cluster_row() {
     );
 }
 
-// ---------------------------------------------------------------------
-// Scar 3 — three-crate fixture with two independent clusters.
-//
-// Mirrors the issue Tests row: "synthetic 3-crate fixture with two
-// known duplicates (one same-name, one synonym-renamed), assert the
-// cluster query returns both candidates with dup_cluster_id populated."
-// ---------------------------------------------------------------------
-
 #[test]
 fn three_crate_fixture_with_two_clusters_emits_both() {
     let mut store = PetgraphStore::new();
     let ks = keyspace();
 
-    // Cluster A — same-name duplicate (crate-1 + crate-2).
     let cid_a = "sha-cluster-a";
     let a1 = "crate_1::domain::make_stop";
     let a2 = "crate_2::domain::make_stop";
 
-    // Cluster B — synonym-renamed duplicate (crate-2 + crate-3).
     let cid_b = "sha-cluster-b";
     let b1 = "crate_2::risk::exposure_from_pct";
     let b2 = "crate_3::risk::exposure_from_percent";
 
-    // Plus three clean singletons — must NOT appear in the result.
     let c1 = "crate_1::util::format_price";
     let c2 = "crate_2::util::format_qty";
     let c3 = "crate_3::util::render_log";
@@ -247,17 +182,11 @@ fn three_crate_fixture_with_two_clusters_emits_both() {
     );
 }
 
-// ---------------------------------------------------------------------
-// Negative 1 — unique signatures → no clusters → no rows.
-// ---------------------------------------------------------------------
-
 #[test]
 fn unique_signatures_emit_no_rows() {
     let mut store = PetgraphStore::new();
     let ks = keyspace();
 
-    // Three fns, each with distinct signature_hash and NO
-    // dup_cluster_id (singletons per step-3 semantics).
     let nodes = vec![
         fn_item("crate_a::f1", "f1", "sig-alpha", None, false),
         fn_item("crate_b::f2", "f2", "sig-beta", None, false),
@@ -272,10 +201,6 @@ fn unique_signatures_emit_no_rows() {
         "unique signatures must produce no HSB clusters; rows={rows:?}"
     );
 }
-
-// ---------------------------------------------------------------------
-// Negative 2 — test-tagged fns on both sides of a cluster are excluded.
-// ---------------------------------------------------------------------
 
 #[test]
 fn test_tagged_pair_excluded() {
@@ -309,14 +234,6 @@ fn test_tagged_pair_excluded() {
     );
 }
 
-// ---------------------------------------------------------------------
-// Negative 3 — one-side-test pair is also excluded.
-//
-// A prod fn + a test helper with matching dup_cluster_id is NOT HSB:
-// the test helper isn't shipped code. The is_test=false filter gates
-// both sides, so mixed pairs fail too.
-// ---------------------------------------------------------------------
-
 #[test]
 fn mixed_test_and_production_pair_excluded() {
     let mut store = PetgraphStore::new();
@@ -343,13 +260,6 @@ fn mixed_test_and_production_pair_excluded() {
     );
 }
 
-/// RFC-054 54-B (#557): two bin targets carrying an identical helper share
-/// one display qname (distinct target-scoped ids). The pre-054 tie-break
-/// `a.qname < b.qname` is structurally FALSE between equal strings, so the
-/// pair was invisible to this rule — the amended tie-break falls back to
-/// `a.file < b.file` when qnames are equal (cross-target twins always
-/// differ in file; same-file cfg twins collapse to one node id and cannot
-/// pair at all).
 #[test]
 fn same_qname_cross_bin_pair_fires() {
     let mut a = fn_item("tif::helper", "helper", "sig-x", Some("c9"), false);
@@ -376,12 +286,6 @@ fn same_qname_cross_bin_pair_fires() {
     );
 }
 
-/// Altitude-lens escape case (RFC-054 simplify review): two bin targets
-/// walking ONE shared source file (`#[path]` module shared between bins,
-/// or duplicate `[[bin]] path` entries) yield pairs with equal qname AND
-/// equal file but distinct targets/ids. The file tie-break alone is
-/// structurally false there; `target` — introduced by this same diff —
-/// is the identity key that makes the ordering total for Rust items.
 #[test]
 fn same_qname_same_file_cross_target_pair_fires() {
     let mut a = fn_item(

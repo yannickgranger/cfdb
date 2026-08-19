@@ -1,21 +1,3 @@
-//! #561 (RFC-054 54-A known limitation, closed by 54-C's companion):
-//! when a syn `:CallSite` and an HIR `:CallSite` CONVERGE on one id
-//! (textual callee path == resolved path, same caller identity, same
-//! local index), the overlay must classify SILENT — the same logical
-//! node seen by two producers — not as identity contention.
-//!
-//! Pre-#561 the HIR producer emitted ABSOLUTE `file` props while syn
-//! emits workspace-relative ones, so the 54-A classifier (ratified
-//! rule: same `file` string ⇒ silent) saw two different files on one
-//! id and warned — a false positive on every `--hir` overlay extract.
-//! With both producers on the canonical workspace-relative form the
-//! representations match and the overlay is silent, as ratified.
-//!
-//! The fixture makes convergence deterministic: crate `a` calls
-//! `b::helper()` with the FULLY-QUALIFIED path, so syn's as-written
-//! callee path equals HIR's resolved qname and both derive
-//! `callsite:a::caller:b::helper:0` (lib targets — bare identities).
-
 use std::fs;
 use std::path::Path;
 
@@ -57,8 +39,6 @@ edition = "2021"
 b = { path = "../b" }
 "#,
     );
-    // Fully-qualified call — syn's textual path == HIR's resolved
-    // qname, forcing the two :CallSite ids to converge.
     write(
         root,
         "a/src/lib.rs",
@@ -78,8 +58,6 @@ edition = "2021"
     let ks = Keyspace::new("overlay");
     let mut store = PetgraphStore::new();
 
-    // Producer 1: syn — full workspace facts (:Items + :CallSites with
-    // workspace-relative file props per #527).
     let (syn_nodes, syn_edges) =
         cfdb_extractor::extract_workspace(root).expect("syn extract_workspace on overlay fixture");
     let converging_id = "callsite:a::caller:b::helper:0";
@@ -99,7 +77,6 @@ edition = "2021"
         .ingest_edges(&ks, syn_edges)
         .expect("syn edge ingest succeeds");
 
-    // Producer 2: HIR — resolved call sites through the adapter.
     let (db, vfs, _pm, targets) =
         build_hir_database(root, false).expect("build_hir_database on overlay fixture");
     let (hir_nodes, hir_edges) =
@@ -114,9 +91,6 @@ edition = "2021"
         .ingest_resolved_call_sites(hir_nodes, hir_edges)
         .expect("HIR overlay ingest succeeds");
 
-    // The ratified 54-A rule: same workspace-relative `file` string ⇒
-    // the same logical node ⇒ SILENT. Any IdentityContention here is
-    // the #561 false positive.
     let contentions: Vec<_> = store
         .ingest_warnings(&ks)
         .iter()

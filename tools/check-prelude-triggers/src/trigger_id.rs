@@ -1,12 +1,5 @@
-//! Mechanical C-trigger identifiers.
-
 use serde::Serialize;
 
-/// One of the five Tier-1 mechanical C-triggers.
-///
-/// Serializes to: `"C1"`, `"C3"`, `"C7"`, `"C8"`, `"C9"`. The set is
-/// additive — future variants append without breaking consumers that parse
-/// the string.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
 pub enum TriggerId {
     #[serde(rename = "C1")]
@@ -22,7 +15,6 @@ pub enum TriggerId {
 }
 
 impl TriggerId {
-    /// Stable string form used in JSON and diagnostics.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {

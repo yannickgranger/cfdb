@@ -1,17 +1,8 @@
-//! Sorted-JSONL rendering for `cfdb classify --format sorted-jsonl`.
-//!
-//! The `Command::Classify` dispatch and all non-sorted-jsonl logic remain
-//! in the parent module.
-
 use std::path::Path;
 
 use cfdb_classify::ClassifyEnvelope;
 use serde_json::Value;
 
-/// Build the `{"op":"header", ...}` first line of a sorted-jsonl dump.
-/// Carries the envelope's scalar metadata (schema_version, inventory
-/// context + keyspace_sha, diff_source triple). Alphabetical key order
-/// is provided by `Value::Object`'s `BTreeMap` backing.
 pub(super) fn build_sorted_jsonl_header(envelope: &ClassifyEnvelope) -> Value {
     serde_json::json!({
         "op": "header",
@@ -26,10 +17,6 @@ pub(super) fn build_sorted_jsonl_header(envelope: &ClassifyEnvelope) -> Value {
     })
 }
 
-/// Render the sorted-JSONL body (header + sorted finding lines + warning
-/// lines) as a single string — separated by LF, no trailing newline. Pure
-/// function so Gate 3 unit tests can assert byte-stable output without a
-/// tempfile / stdout capture.
 pub(super) fn render_sorted_jsonl(
     envelope: &ClassifyEnvelope,
 ) -> Result<String, serde_json::Error> {
@@ -60,14 +47,6 @@ pub(super) fn render_sorted_jsonl(
     Ok(lines.join("\n"))
 }
 
-/// Emit a `ClassifyEnvelope` as sorted-JSONL — one JSON object per line,
-/// header first, then per-finding lines in `ClassifyEnvelope::sorted_rows`
-/// order (`DebtClass::Ord`, `Finding::Ord`), then per-warning lines in
-/// envelope order.
-///
-/// Mirrors `cfdb diff --format sorted-jsonl` — the cfdb-wide convention for
-/// sorted-JSONL output carrying envelope scalars is a `{"op":"header",…}`
-/// first line, per-row `op: finding|warning` discriminators.
 pub(super) fn emit_sorted_jsonl(
     envelope: &ClassifyEnvelope,
     output: Option<&Path>,
@@ -135,7 +114,6 @@ mod tests {
         let env = envelope_with(vec![]);
         let header = build_sorted_jsonl_header(&env);
         let obj = header.as_object().expect("header is an object");
-        // Alphabetical key order, per Value::Object BTreeMap backing.
         let keys: Vec<&String> = obj.keys().collect();
         assert_eq!(
             keys,
@@ -158,11 +136,6 @@ mod tests {
 
     #[test]
     fn sorted_jsonl_sort_key_is_class_then_finding_ord() {
-        // Two classes × two findings (shuffled). DebtClass::variants() order
-        // is {Duplicated, ContextHomonym, UnfinishedRefactor, RandomScattering,
-        // CanonicalBypass, Unwired}. For BTreeMap iteration, `Ord` derives
-        // declaration order (same list). Within each class, Finding::Ord
-        // sorts by qname first (derivation order).
         let env = envelope_with(vec![
             (DebtClass::Unwired, finding("z::late", "late", "crate-z")),
             (
@@ -181,9 +154,8 @@ mod tests {
 
         let body = render_sorted_jsonl(&env).unwrap();
         let lines: Vec<&str> = body.lines().collect();
-        assert_eq!(lines.len(), 5); // header + 4 findings
+        assert_eq!(lines.len(), 5);
 
-        // Skip header (line 0); parse finding lines.
         let pairs: Vec<(String, String)> = lines[1..]
             .iter()
             .map(|l| {
@@ -265,7 +237,6 @@ mod tests {
         let v: Value = serde_json::from_str(warning_line).expect("warning line parses");
         assert_eq!(v["op"], "warning");
         let obj = v.as_object().unwrap();
-        // Alphabetical keys: "message" < "op".
         assert_eq!(
             obj.keys().collect::<Vec<_>>(),
             vec!["message", "op"],

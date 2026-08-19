@@ -1,24 +1,3 @@
-//! `:Variant` + `HAS_VARIANT` + variant-field emission tests (#218,
-//! RFC-037 §3.3).
-//!
-//! Before #218 the extractor emitted the enum as `:Item{kind:enum}` and
-//! stopped — `node.variants` was not walked. No `:Variant` nodes, no
-//! `HAS_VARIANT` edges, no variant-field `:Field` nodes. These tests
-//! assert that the producer now walks every variant and emits:
-//!
-//! - one `:Variant` node per variant with `{index, name, parent_qname,
-//!   payload_kind}` props (all four authoritative per
-//!   `variant_node_descriptor` at `cfdb-core/src/schema/describe/nodes.rs`);
-//! - one `HAS_VARIANT` edge from the enum's `:Item` to each variant;
-//! - variant payload `:Field` nodes with `HAS_FIELD` src = the variant's
-//!   `:Variant` node id (not the enum's `:Item` id — the descriptor's
-//!   `from:` widened to `[:Item, :Variant]`);
-//! - tuple-variant fields use synthetic `_0`, `_1`, ... names and
-//!   parallel the tuple-struct fields shipped in the same slice.
-//!
-//! The harness mirrors `field_emission.rs` and `param_emission.rs`: a
-//! real cargo workspace in a tempdir + `extract_workspace` end-to-end.
-
 use std::path::Path;
 
 use cfdb_core::fact::PropValue;
@@ -102,8 +81,6 @@ fn unit_tuple_and_struct_variants_all_emit_variant_nodes() {
         "three enum variants must emit three :Variant nodes"
     );
 
-    // The three variants ship in source order (index 0, 1, 2) with the
-    // matching payload_kind discriminator.
     let mut by_index: Vec<(i64, String, String)> = variants
         .iter()
         .map(|n| {
@@ -125,9 +102,6 @@ fn unit_tuple_and_struct_variants_all_emit_variant_nodes() {
         "variants must emit in declaration order with matching payload_kind"
     );
 
-    // Every :Variant carries parent_qname = the enum's qname (NOT the
-    // variant's own qname — that is the `:Field.parent_qname` for
-    // payload fields).
     for v in &variants {
         assert_eq!(
             prop_str(&v.props, "parent_qname"),
@@ -195,7 +169,6 @@ fn struct_variant_payload_emits_fields_with_variant_as_has_field_src() {
         .expect(":Variant must exist");
     let variant_id = variant.id.clone();
 
-    // Fields scoped to this variant have parent_qname = Enum::Variant.
     let variant_fields: Vec<_> = nodes
         .iter()
         .filter(|n| {
@@ -209,7 +182,6 @@ fn struct_variant_payload_emits_fields_with_variant_as_has_field_src() {
         "struct variant with 2 fields emits 2 :Field nodes"
     );
 
-    // Field names + indices match the source.
     let mut by_index: Vec<(i64, String)> = variant_fields
         .iter()
         .map(|n| {
@@ -222,9 +194,6 @@ fn struct_variant_payload_emits_fields_with_variant_as_has_field_src() {
     by_index.sort_by_key(|(i, _)| *i);
     assert_eq!(by_index, vec![(0, "a".to_string()), (1, "b".to_string())]);
 
-    // HAS_FIELD edges for these fields must have src = the :Variant id
-    // (not the enum's :Item id). This is the descriptor-widening
-    // invariant — `HAS_FIELD.from` now includes `:Variant`.
     let has_field = EdgeLabel::new(EdgeLabel::HAS_FIELD);
     let variant_field_ids: std::collections::BTreeSet<String> =
         variant_fields.iter().map(|n| n.id.clone()).collect();
@@ -313,15 +282,12 @@ fn unit_variant_emits_no_has_field_edges() {
         "unit variant payload has no fields"
     );
 
-    // The :Variant node itself does exist, with payload_kind=unit.
     let variant = nodes
         .iter()
         .find(|n| n.label == Label::new(Label::VARIANT))
         .expect(":Variant node must exist for a unit variant too");
     assert_eq!(prop_str(&variant.props, "payload_kind"), "unit");
 
-    // No HAS_FIELD edge sourced at the variant (or indeed anywhere —
-    // unit variants declare no fields).
     let has_field = EdgeLabel::new(EdgeLabel::HAS_FIELD);
     assert!(
         edges
@@ -333,11 +299,6 @@ fn unit_variant_emits_no_has_field_edges() {
 
 #[test]
 fn tuple_struct_now_emits_field_nodes_with_underscore_names() {
-    // Regression: before #218, `visit_item_struct` only handled
-    // `Fields::Named`. Tuple structs (`struct Foo(i32, String)`)
-    // emitted the :Item but no :Field nodes. `emit_field_list` now
-    // handles `Fields::Unnamed` uniformly for both structs and
-    // variants.
     let fixture = tempdir().expect("tempdir");
     write_cargo_workspace(
         fixture.path(),
@@ -378,9 +339,6 @@ fn tuple_struct_now_emits_field_nodes_with_underscore_names() {
 
 #[test]
 fn variant_node_ids_follow_canonical_formula() {
-    // The `variant_node_id(enum_qname, index)` formula lands in
-    // `cfdb-core::qname` (#215). Assert the walker routes through it
-    // and does NOT hand-forge a parallel id shape.
     let fixture = tempdir().expect("tempdir");
     write_cargo_workspace(
         fixture.path(),

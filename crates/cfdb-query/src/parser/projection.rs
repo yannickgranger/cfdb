@@ -1,5 +1,3 @@
-//! Projection layer — aggregations (count/collect/size) and RETURN/WITH projections.
-
 use cfdb_core::{Aggregation, Expr, Projection, ProjectionValue};
 use chumsky::prelude::*;
 

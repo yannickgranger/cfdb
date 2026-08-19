@@ -1,24 +1,8 @@
-//! `cfdb extract --rev` — extraction against arbitrary git revisions
-//! and `url@sha` remote pins, with the persistent clone cache.
-//!
-//! Split out of `commands/extract.rs`. The working-tree extract path stays
-//! in `extract.rs`; this module owns the rev/URL resolution, the clone
-//! cache, and the `GitWorktree` RAII guard.
-
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use super::extract::extract_at_path;
 
-/// Extract against a specific git revision (commit SHA / tag / branch).
-/// `repo` MUST be a git repository root; a temporary detached worktree
-/// is created at `<rev>`, extraction runs against that tmp path, and
-/// the worktree is removed afterwards.
-///
-/// Default keyspace when none is explicitly provided is the short (12-
-/// char) `<rev>` — keeps "extract --rev abc123 --rev def456" producing
-/// distinct keyspaces that a later `cfdb diff --a <ks-a> --b <ks-b>`
-/// can consume.
 pub(super) fn extract_at_rev(
     repo: &Path,
     rev: &str,
@@ -36,8 +20,6 @@ pub(super) fn extract_at_rev(
     }
     let ks_name = keyspace.unwrap_or_else(|| short_rev(rev));
     let tmp = tempfile::tempdir()?;
-    // `git worktree add` creates the target dir; pass a sub-path so the
-    // tempdir itself stays empty and can be dropped cleanly.
     let worktree_path = tmp.path().join("worktree");
     let worktree_guard = GitWorktree::add(repo, &worktree_path, rev)?;
 
@@ -46,8 +28,6 @@ pub(super) fn extract_at_rev(
         worktree_guard.path().display()
     );
 
-    // Run the normal extract against the temp worktree. If it fails, the
-    // guard's Drop still removes the worktree.
     let result = extract_at_path(
         worktree_guard.path(),
         db,
@@ -57,24 +37,10 @@ pub(super) fn extract_at_rev(
         profile,
     );
 
-    // Explicit remove so we surface removal errors rather than swallowing
-    // them in Drop. If removal fails, we still return the extract result —
-    // leaked worktrees are recoverable (`git worktree prune`).
     worktree_guard.remove_soft_log(repo);
     result
 }
 
-/// Extract against a specific SHA in a remote repository. Unlike
-/// [`extract_at_rev`] (which requires a local git repo and uses `git worktree add`),
-/// this clones `<url>` into a persistent cache at [`cache_dir_for`]`(url, sha)`
-/// and checks out `<sha>`. Second runs with the same `(url, sha)` reuse the cache
-/// — a sentinel file `.cfdb-extract-ok` is written after a successful
-/// clone+checkout and gates the skip.
-///
-/// Auth: inherits ambient git credentials — SSH agent
-/// (`$SSH_AUTH_SOCK`), `~/.config/git/credentials`, `GIT_ASKPASS`,
-/// `credential.helper`. Whatever `git clone` itself accepts at the
-/// shell works here — no new plumbing.
 pub(super) fn extract_at_url_rev(
     url_at_sha: &str,
     db: &Path,
@@ -113,9 +79,6 @@ pub(super) fn extract_at_url_rev(
     extract_at_path(&cache_dir, db, Some(ks_name), hir, no_proc_macro, profile)
 }
 
-/// Ensure the parent directory exists and remove any half-populated cache
-/// from an interrupted prior run (presence of the dir without the
-/// `.cfdb-extract-ok` sentinel means clone/checkout did not complete).
 fn prepare_cache_dir(cache_dir: &Path) -> Result<(), crate::CfdbCliError> {
     if let Some(parent) = cache_dir.parent() {
         std::fs::create_dir_all(parent).map_err(|e| {
@@ -136,21 +99,7 @@ fn prepare_cache_dir(cache_dir: &Path) -> Result<(), crate::CfdbCliError> {
     Ok(())
 }
 
-/// `git clone` then `git fetch origin <sha>` then `git checkout <sha>`.
-/// Fetch is explicit because `git clone <url>` fetches only the default
-/// branch; arbitrary SHAs need an explicit fetch (server must support
-/// `uploadpack.allowReachableSHA1InWant`, which Gitea has on by default).
 fn clone_and_checkout(url: &str, sha: &str, cache_dir: &Path) -> Result<(), crate::CfdbCliError> {
-    // The `--` separator before user-supplied positional arguments is
-    // defense-in-depth. `url` is user-controlled via `--rev <url>@<sha>`
-    // and an attacker-influenced value (e.g. via `.cfdb/extract-pins`)
-    // could otherwise be misinterpreted as a `git` flag — `file:///path/--option`
-    // is a valid file URL. The sha is already hex-validated by
-    // `parse_url_at_sha` (all-ASCII-hex, ≥ 7 chars — cannot start with
-    // `--`); `--` is kept on the `fetch` refspec position for symmetry.
-    // `git checkout` is left without `--` because `git checkout -- <arg>`
-    // forces pathspec mode and would treat a SHA as a filename, breaking
-    // the checkout. The hex validation upstream is sufficient there.
     let clone = Command::new("git")
         .args(["clone", "--quiet", "--", url])
         .arg(cache_dir)
@@ -195,10 +144,6 @@ fn clone_and_checkout(url: &str, sha: &str, cache_dir: &Path) -> Result<(), crat
     Ok(())
 }
 
-/// Compute the default keyspace name when `--rev` is given without
-/// `--keyspace`. Short SHAs are truncated to 12 chars so keyspace files
-/// land with a stable short name; non-SHA revs (tags/branches) are used
-/// verbatim after path-unsafe char stripping.
 pub(super) fn short_rev(rev: &str) -> String {
     if rev.len() > 12 && rev.chars().all(|c| c.is_ascii_hexdigit()) {
         rev[..12].to_string()
@@ -207,21 +152,10 @@ pub(super) fn short_rev(rev: &str) -> String {
     }
 }
 
-/// Split `<url>@<sha>` into its components, or `None` if the input does
-/// not match the Option W form.
-///
-/// Splits on the RIGHTMOST `@` because SSH URLs like `git@host:path`
-/// contain their own `@`. The SHA side must be all-ASCII-hex and
-/// ≥ 7 chars, which rejects `user@host.com` (non-hex suffix)
-/// unambiguously. Recognised URL schemes: `http://`, `https://`,
-/// `ssh://`, `file://`. The `git@host:path` SSH shorthand is NOT
-/// accepted in v1 — use the explicit `ssh://…` form instead.
-/// `file://` is accepted both for hermetic integration tests and for
-/// the self-dogfood case `file://$(pwd)/.git@$(git rev-parse HEAD)`.
 pub(super) fn parse_url_at_sha(s: &str) -> Option<(&str, &str)> {
     let idx = s.rfind('@')?;
     let (url, at_sha) = s.split_at(idx);
-    let sha = &at_sha[1..]; // skip the '@'
+    let sha = &at_sha[1..];
     if !url_has_scheme(url) {
         return None;
     }
@@ -231,9 +165,6 @@ pub(super) fn parse_url_at_sha(s: &str) -> Option<(&str, &str)> {
     Some((url, sha))
 }
 
-/// Predicate wrapper around [`parse_url_at_sha`] — the single resolution
-/// point for URL@SHA discrimination in the `extract` dispatcher. See the
-/// match guard in [`super::extract::extract`]; no other call site may re-check the form.
 pub(super) fn is_url_at_sha(s: &str) -> bool {
     parse_url_at_sha(s).is_some()
 }
@@ -245,20 +176,6 @@ fn url_has_scheme(url: &str) -> bool {
         || url.starts_with("file://")
 }
 
-/// Compute the persistent cache directory for `(url, sha)` under Option W.
-///
-/// Precedence:
-///   1. `$CFDB_CACHE_DIR` — explicit override (tests use this for isolation).
-///   2. `$XDG_CACHE_HOME/cfdb/extract` — standard XDG path.
-///   3. `$HOME/.cache/cfdb/extract` — POSIX fallback.
-///   4. `std::env::temp_dir()/cfdb/extract` — last resort, non-persistent
-///      (emits an `eprintln!` warning; unusual — typically containers
-///      without `$HOME`).
-///
-/// Per-URL subdir: first 16 hex chars of `sha256(url)` — enough collision
-/// resistance for ~100s of tracked URLs, keeps paths short.
-/// Per-SHA subdir: full `<sha>` (not [`short_rev`]) — two SHAs sharing a
-/// 12-char prefix must remain distinct on disk.
 pub(super) fn cache_dir_for(url: &str, sha: &str) -> PathBuf {
     cache_base_dir().join(url_hash_hex16(url)).join(sha)
 }
@@ -294,10 +211,6 @@ pub(super) fn url_hash_hex16(url: &str) -> String {
         })
 }
 
-/// RAII guard around `git worktree add ... <path> <rev>`. The `Drop` impl
-/// best-effort-removes the worktree so panics during extraction still
-/// clean up. Successful returns call `remove_soft_log` explicitly so
-/// removal errors surface.
 struct GitWorktree {
     path: PathBuf,
     removed: bool,
@@ -305,9 +218,6 @@ struct GitWorktree {
 
 impl GitWorktree {
     fn add(repo: &Path, path: &Path, rev: &str) -> Result<Self, crate::CfdbCliError> {
-        // `--` before the positional `<path> <rev>` blocks rev (user-
-        // supplied via `--rev <sha-or-ref>`) from being misinterpreted as
-        // an option.
         let status = Command::new("git")
             .current_dir(repo)
             .args(["worktree", "add", "--detach", "--quiet", "--"])
@@ -331,9 +241,6 @@ impl GitWorktree {
         &self.path
     }
 
-    /// Remove the worktree via `git worktree remove --force`. Logs on
-    /// failure but never panics; the tempdir-based parent will clean up
-    /// the orphan files even if git's internal state is off.
     fn remove_soft_log(mut self, repo: &Path) {
         if !self.removed {
             let _ = Command::new("git")
@@ -349,7 +256,6 @@ impl GitWorktree {
 impl Drop for GitWorktree {
     fn drop(&mut self) {
         if !self.removed {
-            // Best-effort cleanup — do not panic from Drop.
             let _ = Command::new("git")
                 .args(["worktree", "remove", "--force"])
                 .arg(&self.path)

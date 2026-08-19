@@ -1,11 +1,3 @@
-//! `TypeScriptProducer` method-level `:Item` emission (RFC-045 45-D0 / #464).
-//!
-//! The producer descends a `class_body` and emits a method `:Item{kind:"fn"}`
-//! per `method_definition` (regular/get/set/async/generator/static) and per
-//! arrow-valued `public_field_definition` (`foo = () => {}`). Abstract /
-//! signature-only members and non-arrow fields are skipped. The method qname
-//! is `{crate}::{module}::{Class}::{method}`.
-
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -24,10 +16,6 @@ fn produce_one(body: &str) -> (Vec<Node>, Vec<Edge>) {
     TypeScriptProducer.produce(dir.path()).expect("produce")
 }
 
-/// `Class::method` strings for every method `:Item` (a `kind:"fn"` item whose
-/// qname carries the 4-segment `crate::module::Class::method` shape, i.e. has
-/// the class infix — top-level functions have only 3 segments). Returned
-/// crate-name-independent and sorted.
 fn method_members(nodes: &[Node]) -> Vec<String> {
     let mut out: Vec<String> = nodes
         .iter()
@@ -54,8 +42,6 @@ fn method_item<'a>(nodes: &'a [Node], class_method: &str) -> Option<&'a Node> {
     })
 }
 
-/// A class with two methods → two method `:Item`s with the `::Class::method`
-/// qname, `kind:"fn"`, and IN_CRATE/IN_MODULE containment.
 #[test]
 fn class_with_two_methods_emits_two_method_items() {
     let (nodes, edges) = produce_one(
@@ -74,7 +60,6 @@ fn class_with_two_methods_emits_two_method_items() {
         add.props.get("kind").and_then(PropValue::as_str),
         Some("fn")
     );
-    // containment edges present for the method id.
     let in_crate = edges
         .iter()
         .filter(|e| e.label.as_str() == "IN_CRATE" && e.src == add.id)
@@ -87,8 +72,6 @@ fn class_with_two_methods_emits_two_method_items() {
     assert_eq!(in_module, 1, "method :Item has one IN_MODULE edge");
 }
 
-/// An arrow-assigned field (`foo = () => {}`) is a method; a plain field
-/// (`x = 42`) is not.
 #[test]
 fn arrow_field_is_a_method_plain_field_is_not() {
     let (nodes, _edges) = produce_one(
@@ -101,8 +84,6 @@ fn arrow_field_is_a_method_plain_field_is_not() {
     assert_eq!(method_members(&nodes), vec!["C::handler".to_string()]);
 }
 
-/// A getter and setter for the same property collapse to a single method
-/// `:Item` (first wins) — both share the `::Class::prop` qname.
 #[test]
 fn getter_and_setter_collapse_to_one_method() {
     let (nodes, _edges) = produce_one(
@@ -115,8 +96,6 @@ fn getter_and_setter_collapse_to_one_method() {
     assert_eq!(method_members(&nodes), vec!["Box::value".to_string()]);
 }
 
-/// `async`, generator, and `static` methods are all `method_definition` → all
-/// emitted.
 #[test]
 fn async_generator_static_methods_are_emitted() {
     let (nodes, _edges) = produce_one(
@@ -137,8 +116,6 @@ fn async_generator_static_methods_are_emitted() {
     );
 }
 
-/// An abstract method signature (no body) is skipped; a concrete method in the
-/// same abstract class is emitted.
 #[test]
 fn abstract_signature_skipped_concrete_emitted() {
     let (nodes, _edges) = produce_one(
@@ -151,8 +128,6 @@ fn abstract_signature_skipped_concrete_emitted() {
     assert_eq!(method_members(&nodes), vec!["Base::run".to_string()]);
 }
 
-/// Interface members (`method_signature` in an `interface_body`) are NOT
-/// methods — the producer descends `class_body` only.
 #[test]
 fn interface_method_signatures_are_not_emitted() {
     let (nodes, _edges) = produce_one(
@@ -168,7 +143,6 @@ fn interface_method_signatures_are_not_emitted() {
     );
 }
 
-/// Access modifiers map to `:Item.visibility`.
 #[test]
 fn access_modifiers_map_to_visibility() {
     let (nodes, _edges) = produce_one(
@@ -190,7 +164,6 @@ fn access_modifiers_map_to_visibility() {
     assert_eq!(vis("C::guarded").as_deref(), Some("protected"));
 }
 
-/// Re-extracting the same workspace is byte-stable (determinism — §4 I3).
 #[test]
 fn re_extract_is_deterministic() {
     let dir = TempDir::new().expect("tempdir");
@@ -207,18 +180,10 @@ fn re_extract_is_deterministic() {
     assert_eq!(format!("{r1:?}"), format!("{r2:?}"));
 }
 
-// ---------------------------------------------------------------------------
-// Self-dogfood: the on-disk ts-richer fixture (now also has methods)
-// ---------------------------------------------------------------------------
-
 fn richer_fixture_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/ts-richer")
 }
 
-/// A method named the same as an interface must NOT shadow it: `implements`
-/// resolution targets only type-kind items, so the `Handler` interface still
-/// resolves even though `Worker` has a `Handler()` method (regression guard
-/// for the 45-D0 / 45-B name-map interaction).
 #[test]
 fn method_named_like_interface_does_not_break_implements() {
     let (nodes, edges) = produce_one(
@@ -228,9 +193,7 @@ export class Worker implements Handler {
 }
 "#,
     );
-    // The method :Item exists...
     assert!(method_members(&nodes).contains(&"Worker::Handler".to_string()));
-    // ...but the IMPLEMENTS edge Worker → Handler (interface) still resolves.
     let impls: Vec<&Edge> = edges
         .iter()
         .filter(|e| e.label.as_str() == EdgeLabel::IMPLEMENTS)
@@ -243,7 +206,6 @@ export class Worker implements Handler {
     );
 }
 
-/// The ts-richer fixture's classes (Product, Order) now emit their methods.
 #[test]
 fn richer_fixture_emits_class_methods() {
     let (nodes, _edges) = TypeScriptProducer

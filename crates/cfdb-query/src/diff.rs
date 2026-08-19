@@ -1,17 +1,3 @@
-//! Two-keyspace delta over canonical sorted-JSONL dumps.
-//!
-//! `compute_diff` is backend-agnostic: it consumes the `String` output of
-//! `StoreBackend::canonical_dump` for two keyspaces and returns a
-//! [`DiffEnvelope`]. Determinism is inherited from the caller — sorted input
-//! is preserved through `BTreeMap` keying and stable iteration.
-//!
-//! # Envelope schema versioning
-//!
-//! [`DiffEnvelope::schema_version`] is pinned to [`ENVELOPE_SCHEMA_VERSION`]
-//! and versions the wire shape of the envelope itself, NOT
-//! `cfdb_core::SchemaVersion` (which versions on-disk keyspaces). Bump only
-//! when the envelope shape changes in a breaking way.
-
 use std::collections::{BTreeMap, BTreeSet};
 use std::str::FromStr;
 
@@ -19,32 +5,20 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
-/// Envelope schema version. Bumped independently of `cfdb_core::SchemaVersion`.
 pub const ENVELOPE_SCHEMA_VERSION: &str = "v1";
 
 const KIND_NODE: &str = "node";
 const KIND_EDGE: &str = "edge";
 
-/// Wire envelope for `cfdb diff` — a two-keyspace delta over the canonical
-/// sorted-JSONL dump. Consumed by downstream classifiers and drift gates.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct DiffEnvelope {
-    /// Left keyspace name (raw `--a` CLI arg).
     pub a: String,
-    /// Right keyspace name (raw `--b` CLI arg).
     pub b: String,
-    /// Envelope schema version — always [`ENVELOPE_SCHEMA_VERSION`].
     pub schema_version: String,
-    /// Facts present in B but not in A, BTreeMap-sorted order.
     pub added: Vec<DiffFact>,
-    /// Facts present in A but not in B, BTreeMap-sorted order.
     pub removed: Vec<DiffFact>,
-    /// Facts whose canonical key exists in both sides but whose envelope
-    /// JSON differs (typically `props` drift).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub changed: Vec<ChangedFact>,
-    /// Informational warnings (unknown kinds filter tokens, parse skips).
-    /// Elided from JSON when empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
 }
@@ -63,39 +37,25 @@ impl DiffEnvelope {
     }
 }
 
-/// One row of `added` or `removed`. Carries the canonical-dump envelope
-/// verbatim as a parsed JSON object.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct DiffFact {
-    /// `"node"` or `"edge"`.
     pub kind: String,
-    /// Full canonical-dump envelope
-    /// (`{id, kind:"node", label, props}` or
-    /// `{dst_qname, kind:"edge", label, props, src_qname}`).
     pub envelope: Value,
 }
 
-/// One row of `changed`. Both envelope versions are carried so consumers
-/// can diff at whatever granularity they want.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ChangedFact {
-    /// `"node"` or `"edge"`.
     pub kind: String,
-    /// Envelope as it appears in keyspace `a` (the "before").
     pub a: Value,
-    /// Envelope as it appears in keyspace `b` (the "after").
     pub b: Value,
 }
 
-/// Filter on the `kind` discriminator — restricts the diff to `node` rows,
-/// `edge` rows, or both. Parsed from the comma-separated `--kinds` CLI arg.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct KindsFilter {
     allowed: BTreeSet<String>,
 }
 
 impl KindsFilter {
-    /// `true` when the given kind string is allowed under this filter.
     pub fn allows(&self, kind: &str) -> bool {
         self.allowed.contains(kind)
     }
@@ -131,50 +91,27 @@ impl FromStr for KindsFilter {
     }
 }
 
-/// Failure modes for [`compute_diff`] and [`KindsFilter::from_str`].
 #[derive(Debug, Error)]
 pub enum DiffError {
-    /// A dump line was not valid JSON.
     #[error("diff: parse error on line {line_number} of {side} dump: {source}")]
     Parse {
-        /// Which side — `"a"` or `"b"`.
         side: String,
-        /// 1-based line number inside the respective dump string.
         line_number: usize,
-        /// Underlying serde_json failure.
         #[source]
         source: serde_json::Error,
     },
-    /// A dump line was valid JSON but missing the required canonical fields
-    /// (e.g. `kind` discriminator absent, or `kind` unknown, or key fields
-    /// missing for its kind).
     #[error("diff: malformed envelope on line {line_number} of {side} dump: {reason}")]
     InvalidEnvelope {
         side: String,
         line_number: usize,
         reason: String,
     },
-    /// The `--kinds` argument contained a token that is not `node` or `edge`.
     #[error("diff: unknown kind `{token}` — expected `node` or `edge`")]
     UnknownKind { token: String },
 }
 
-/// Canonical lookup key. Nodes key on `(kind, label, qname_or_id)`; edges
-/// on `(kind, label, src_qname, dst_qname)`. Tuple ordering matches the
-/// canonical_dump sort so BTreeMap iteration produces stable output.
 type FactKey = (String, String, String, String);
 
-/// Compute the [`DiffEnvelope`] between two canonical sorted-JSONL dumps.
-///
-/// `a_dump` and `b_dump` must be the output of `StoreBackend::canonical_dump`
-/// (one JSON object per line, LF-separated, in canonical sort order). The
-/// function is pure: given the same inputs it returns a byte-identical
-/// envelope via `BTreeMap` stable iteration.
-///
-/// # `kinds` semantics
-///
-/// - `None` — include both node and edge rows.
-/// - `Some(filter)` — include only rows whose `kind` is in the filter.
 pub fn compute_diff(
     a_name: &str,
     b_name: &str,
@@ -187,22 +124,16 @@ pub fn compute_diff(
 
     let mut envelope = DiffEnvelope::new(a_name, b_name);
 
-    // Added: present in b, not in a.
     for (key, raw_line) in b_index.iter() {
         if !a_index.contains_key(key) {
             envelope.added.push(fact_from_line(&key.0, raw_line)?);
         }
     }
-    // Removed: present in a, not in b.
     for (key, raw_line) in a_index.iter() {
         if !b_index.contains_key(key) {
             envelope.removed.push(fact_from_line(&key.0, raw_line)?);
         }
     }
-    // Changed: present in both, envelope JSON differs. Collect into a
-    // Vec via iterator chain to avoid `.clone()` inside a `for` body.
-    // `a_index` consumed by value so `key` moves into the ChangedFact
-    // construction.
     let changed_facts: Vec<ChangedFact> = a_index
         .into_iter()
         .filter_map(|(key, a_line)| b_index.get(&key).map(|b_line| (key, a_line, b_line)))
@@ -268,9 +199,6 @@ fn canonical_key(side: &str, line_number: usize, value: &Value) -> Result<FactKe
     match kind {
         KIND_NODE => {
             let label = string_field(side, line_number, value, "label")?;
-            // Sort key matches canonical_dump's resolved qname: prefer
-            // `props.qname`, fall back to `id` (matches the fallback at
-            // `crates/cfdb-petgraph/src/canonical_dump.rs:45-54`).
             let qname_or_id = value
                 .get("props")
                 .and_then(|p| p.get("qname"))
@@ -330,9 +258,6 @@ fn fact_from_line(kind: &str, line: &str) -> Result<DiffFact, DiffError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // Canonical dump snippets used across shape tests. Each line is one
-    // object, LF-separated, no trailing newline — matches RFC §12.1.
 
     const NODE_A_ID1: &str =
         r#"{"id":"item:a::X","kind":"node","label":"Item","props":{"qname":"a::X"}}"#;
@@ -406,12 +331,9 @@ mod tests {
         let a = join(&[NODE_A_ID1, NODE_A_ID2, EDGE_AB]);
         let b = join(&[NODE_A_ID1, NODE_A_ID2_DRIFTED, NODE_A_ID3, EDGE_BC]);
         let envelope = compute_diff("a", "b", &a, &b, None).unwrap();
-        // Added: NODE_A_ID3, EDGE_BC (b has them, a doesn't)
         assert_eq!(envelope.added.len(), 2);
-        // Removed: EDGE_AB (a has it, b doesn't)
         assert_eq!(envelope.removed.len(), 1);
         assert_eq!(envelope.removed[0].kind, "edge");
-        // Changed: NODE_A_ID2 → NODE_A_ID2_DRIFTED
         assert_eq!(envelope.changed.len(), 1);
     }
 
@@ -423,7 +345,6 @@ mod tests {
         let envelope = compute_diff("a", "b", &a, &b, Some(&filter)).unwrap();
         assert_eq!(envelope.added.len(), 1);
         assert_eq!(envelope.added[0].kind, "node");
-        // EDGE_BC is filtered out despite being b-only.
         assert!(envelope.removed.is_empty());
     }
 

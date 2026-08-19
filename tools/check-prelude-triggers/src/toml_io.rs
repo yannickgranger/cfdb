@@ -1,9 +1,6 @@
-//! TOML-file loading helpers.
-
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Errors surfaced while reading a TOML configuration file.
 #[derive(Debug, thiserror::Error)]
 pub enum LoadError {
     #[error("io error reading {path}: {source}")]
@@ -21,12 +18,6 @@ pub enum LoadError {
     },
 }
 
-/// Read a TOML file from disk and parse it into a [`toml::Value`].
-///
-/// Binary uses dynamic parsing (rather than concrete `#[derive(Deserialize)]`
-/// structs) so unknown keys are tolerated — future S0 schema extensions do not
-/// break existing trigger handlers. Each handler inspects only the keys it
-/// needs.
 pub fn read_toml(path: &Path) -> Result<toml::Value, LoadError> {
     let text = fs::read_to_string(path).map_err(|source| LoadError::Io {
         path: path.to_path_buf(),
@@ -38,9 +29,6 @@ pub fn read_toml(path: &Path) -> Result<toml::Value, LoadError> {
     })
 }
 
-/// Read a newline-separated paths file. Blank lines and leading/trailing
-/// whitespace are stripped. Returns the list as owned `String`s so downstream
-/// handlers can match prefixes without holding a reference to the file text.
 pub fn read_changed_paths(path: &Path) -> Result<Vec<String>, LoadError> {
     let text = fs::read_to_string(path).map_err(|source| LoadError::Io {
         path: path.to_path_buf(),

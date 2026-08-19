@@ -1,33 +1,11 @@
-//! C9 — workspace cardinality change detection.
-//!
-//! Fires when the workspace root `Cargo.toml` appears in the diff AND the
-//! current `[workspace] members = [...]` list parses successfully. This signals
-//! that the workspace is gaining or losing a crate in the changeset; cardinality
-//! growth beyond a threshold triggers pre-council review.
-//!
-//! `Cargo.toml` is parsed directly via the `toml` crate. The binary MUST NOT
-//! invoke `cargo` as a subprocess nor depend on `cargo_metadata`, which would
-//! re-enter workspace lock resolution and deadlock in nested CI contexts.
-
 use serde_json::json;
 use std::path::Path;
 
 use crate::toml_io::{read_changed_paths, read_toml, LoadError};
 use crate::triggers::TriggerOutcome;
 
-/// Run the C9 check against the on-disk inputs.
-///
-/// `workspace_root` points at the directory containing the root `Cargo.toml`;
-/// the binary parses `<workspace_root>/Cargo.toml` directly.
-///
-/// # Errors
-/// Returns [`LoadError`] if the changed-paths file cannot be read OR if the
-/// workspace `Cargo.toml` is referenced by the diff but cannot be parsed.
 pub fn run(workspace_root: &Path, changed_paths: &Path) -> Result<TriggerOutcome, LoadError> {
     let changed = read_changed_paths(changed_paths)?;
-    // Only parse the Cargo.toml when the diff actually touches it — avoids
-    // surfacing unrelated parse errors when C9 is being run on a non-manifest
-    // change.
     let cargo_touched = changed.iter().any(|p| p == "Cargo.toml");
     if !cargo_touched {
         return Ok(evaluate_absent(&changed));
@@ -37,8 +15,6 @@ pub fn run(workspace_root: &Path, changed_paths: &Path) -> Result<TriggerOutcome
     Ok(evaluate_present(&manifest, &changed))
 }
 
-/// Evaluation branch when `Cargo.toml` is NOT in the changed-paths list.
-/// C9 is silent and evidence records the rule.
 #[must_use]
 pub fn evaluate_absent(changed_paths: &[String]) -> TriggerOutcome {
     TriggerOutcome {
@@ -51,8 +27,6 @@ pub fn evaluate_absent(changed_paths: &[String]) -> TriggerOutcome {
     }
 }
 
-/// Evaluation branch when `Cargo.toml` is in the changed-paths list. Parses
-/// `workspace.members`, fires, and reports the current count.
 #[must_use]
 pub fn evaluate_present(manifest: &toml::Value, changed_paths: &[String]) -> TriggerOutcome {
     let members: Vec<String> = manifest

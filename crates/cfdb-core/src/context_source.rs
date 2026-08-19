@@ -1,27 +1,8 @@
-//! `ContextSource` — provenance discriminator for `:Context` nodes.
-//!
-//! `Declared` contexts are author-asserted in `.cfdb/concepts/<name>.toml`.
-//! `Heuristic` contexts are auto-derived from crate-name prefix stripping in
-//! `cfdb_concepts::compute_bounded_context`. The wire format is the
-//! lower-case variant name; round-trips through `:Context.source` prop via
-//! `FromStr`/`Display`.
-//!
-//! ## Closed-set wire-enum convention
-//!
-//! `ContextSource` has no variant carrying owned data. `as_wire_str` returns
-//! `&'static str` directly — no allocation. This is the closed-set convention
-//! (open-set wire enums like `Visibility::Restricted(String)` return `String`
-//! because their variants own data; this enum doesn't, so it returns the
-//! static literal).
-
 use std::fmt;
 use std::str::FromStr;
 
 use crate::fact::PropValue;
 
-/// Provenance discriminator for `:Context` nodes. `Declared` is author-asserted
-/// in `.cfdb/concepts/<name>.toml`; `Heuristic` is auto-derived by
-/// `cfdb_concepts::compute_bounded_context` via crate-name prefix stripping.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum ContextSource {
@@ -30,7 +11,6 @@ pub enum ContextSource {
 }
 
 impl ContextSource {
-    /// Canonical wire string. Round-trips through `:Context.source` prop.
     pub fn as_wire_str(&self) -> &'static str {
         match self {
             ContextSource::Declared => "declared",
@@ -57,22 +37,6 @@ impl FromStr for ContextSource {
     }
 }
 
-/// Parse a `:Context.source` prop value into [`ContextSource`], defaulting
-/// to [`ContextSource::Heuristic`] when:
-///
-/// - the prop is absent,
-/// - the prop is `Null`,
-/// - the prop is non-string (`Int`, `Float`, `Bool`),
-/// - the string fails to parse via [`ContextSource::from_str`].
-///
-/// Absence of provenance cannot be promoted to declared status; `Heuristic`
-/// is the least-confidence default. This invariant lets keyspaces with no
-/// `:Context.source` prop on disk load cleanly without misclassifying their
-/// contexts as author-asserted.
-///
-/// Centralised here so consumers in `cfdb-petgraph` / `cfdb-query` /
-/// `cfdb-cli` and downstream crates don't each reinvent the absence-handling
-/// rule.
 #[must_use]
 pub fn parse_or_default(prop_value: Option<&PropValue>) -> ContextSource {
     match prop_value {
@@ -122,7 +86,6 @@ mod tests {
 
     #[test]
     fn case_sensitive() {
-        // Wire format is canonically lower-case; mixed-case rejects.
         assert!("Declared".parse::<ContextSource>().is_err());
         assert!("DECLARED".parse::<ContextSource>().is_err());
     }

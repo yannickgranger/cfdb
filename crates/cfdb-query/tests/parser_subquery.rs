@@ -1,17 +1,3 @@
-//! Subquery WHERE grammar — `NOT EXISTS { MATCH ... WHERE ... }` bodies.
-//!
-//! Audit 2026-W17 / EPIC #273 (CFDB-QRY-H1, #271): `subquery_parser` used to
-//! re-implement a stripped-down `Compare`/`Ne`-only predicate grammar inline,
-//! split-brain with the outer `predicate_parser`. NOT EXISTS bodies could not
-//! use `=~` / `IN` / `AND` / `OR` / inner `NOT` / nested `NOT EXISTS` even
-//! though the outer WHERE supported all of them.
-//!
-//! These tests pin the post-fix behavior: the inner WHERE accepts the full
-//! v0.1 predicate subset, exercised by an end-to-end parse + AST shape check.
-//! The single-resolution-point property (RFC-035 §3.3 invariant-owner pattern)
-//! means any future extension to the outer predicate grammar lights these
-//! cases up automatically.
-
 use cfdb_core::{Predicate, Query};
 use cfdb_query::parse;
 
@@ -106,9 +92,6 @@ fn parse_not_exists_with_nested_not_exists() {
     }
 }
 
-/// Pre-fix baseline preserved: the simplest `NOT EXISTS { MATCH ... }` body
-/// (no inner WHERE) still parses to a `NotExists` with no inner WHERE clause.
-/// This is the F6 case that was always supported.
 #[test]
 fn parse_not_exists_no_inner_where_unchanged() {
     let q = parse_or_panic(

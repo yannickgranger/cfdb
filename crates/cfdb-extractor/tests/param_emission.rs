@@ -1,14 +1,3 @@
-//! `:Param` node + `HAS_PARAM` edge emission tests (#209, RFC-036 §3.1).
-//!
-//! Before #209, function parameters were encoded only as a single
-//! `:Item.signature` string attribute. After #209, each fn/method emits
-//! one `:Param` node per argument (including the receiver for methods)
-//! and one `HAS_PARAM` edge from the enclosing `:Item{kind:Fn|method}`
-//! to each `:Param` node.
-//!
-//! These tests build synthetic fixtures in `tempdir`, run `extract_workspace`,
-//! and assert on the resulting fact set.
-
 use std::path::Path;
 
 use cfdb_core::fact::PropValue;

@@ -1,14 +1,3 @@
-//! Integration tests for the `--require-fresh` global flag (cfdb #334).
-//!
-//! Per AC-5: 1 test per subcommand verifies the flag rejects an envelope when
-//! `--from-ref == --to-ref`. The validation runs in `main()` BEFORE subcommand
-//! dispatch, so per-subcommand coverage protects against regressions where a
-//! subcommand-local `Cli::parse` shape would bypass the global check.
-//!
-//! All 5 tests pass non-existent file paths for the subcommand-required args.
-//! Files are never opened because the freshness check exits the process before
-//! `run_command()` runs.
-
 use std::process::Command;
 
 use assert_cmd::prelude::*;

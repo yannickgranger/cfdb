@@ -1,7 +1,3 @@
-//! Acceptance: the builder and parser produce the same `Query` AST for a
-//! matched set of inputs. This validates the "two surfaces, one AST"
-//! invariant from study 001 §8.3 — backend-agnosticism rests on it.
-
 use cfdb_core::{Expr, Label, OrderBy, ProjectionValue, PropValue, ReturnClause};
 use cfdb_query::{parse, QueryBuilder};
 
@@ -74,7 +70,6 @@ fn return_with_order_by_limit_equivalent() {
         .limit(10)
         .build();
 
-    // Sanity-check expected AST shape.
     let expected_return = ReturnClause {
         projections: vec![cfdb_core::Projection {
             value: ProjectionValue::Expr(Expr::Property {

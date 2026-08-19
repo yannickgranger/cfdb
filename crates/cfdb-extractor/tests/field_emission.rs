@@ -1,18 +1,3 @@
-//! `:Field` node attribute alignment tests (#217, RFC-037 §3.5).
-//!
-//! The `:Field` descriptor at `cfdb-core/src/schema/describe/nodes.rs`
-//! declares five authoritative props: `{index, name, parent_qname,
-//! type_normalized, type_path}`. Before #217 the emitter shipped only
-//! three (`{name, parent_qname, type_qname}`) and `type_qname` is not
-//! part of the descriptor. These tests assert that every emitted
-//! `:Field` node carries exactly the descriptor's five props and that
-//! `index` follows declaration order.
-//!
-//! The fixture harness mirrors `param_emission.rs`: a real cargo
-//! workspace is written into a tempdir and run through the full
-//! `extract_workspace` pipeline, so assertions reflect the observable
-//! extractor output end-to-end.
-
 use std::path::Path;
 
 use cfdb_core::fact::PropValue;
@@ -136,7 +121,6 @@ fn field_nodes_carry_descriptor_five_props_only() {
     assert_eq!(fields.len(), 3);
 
     for f in &fields {
-        // Every descriptor-declared prop must be present.
         assert!(
             f.props.contains_key("index"),
             "descriptor prop `index` missing on {:?}",
@@ -163,14 +147,12 @@ fn field_nodes_carry_descriptor_five_props_only() {
             f.id
         );
 
-        // Legacy prop must be gone — the descriptor does not declare it.
         assert!(
             !f.props.contains_key("type_qname"),
             "legacy `type_qname` prop must be removed from :Field emission (found on {:?})",
             f.id
         );
 
-        // No props outside the descriptor set.
         let expected: std::collections::BTreeSet<&str> = [
             "index",
             "name",
@@ -260,9 +242,6 @@ fn field_type_normalized_and_type_path_both_populated_with_rendered_type() {
         let tp = prop_str(&f.props, "type_path");
         assert!(!tn.is_empty(), "type_normalized populated on {:?}", f.id);
         assert!(!tp.is_empty(), "type_path populated on {:?}", f.id);
-        // The split becomes meaningful only when `render_type_inner`
-        // lands (RFC-037 §6 non-goals). Today both columns carry the
-        // same rendered type string.
         assert_eq!(
             tn, tp,
             "type_normalized and type_path currently carry the same \
@@ -270,8 +249,6 @@ fn field_type_normalized_and_type_path_both_populated_with_rendered_type() {
         );
     }
 
-    // Spot-check the concrete values — extractor renders primitives
-    // as their spelled token and `String` as its bare identifier.
     let by_name: std::collections::BTreeMap<String, &&cfdb_core::Node> = fields
         .iter()
         .map(|n| (prop_str(&n.props, "name").to_string(), n))

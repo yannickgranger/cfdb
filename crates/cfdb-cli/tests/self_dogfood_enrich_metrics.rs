@@ -1,26 +1,3 @@
-//! Self-dogfood test for `enrich_metrics`.
-//!
-//! Extracts cfdb's own source tree, attaches the workspace root to the
-//! store, runs `enrich_metrics` twice, and asserts:
-//! 1. `ran: true` — real implementation executed (not feature-off stub).
-//! 2. Every `:Item{kind:"Fn"}` carries non-None `unwrap_count` + `cyclomatic`.
-//! 3. Determinism (G1): the canonical dump minus `test_coverage` is
-//!    byte-identical across two runs.
-//!
-//! The test runs only with the `quality-metrics` feature — without it the
-//! dispatcher returns `ran: false` and nothing is populated, so no
-//! assertions would hold.
-//!
-//! G6 invariant: `test_coverage` depends on the `cargo-llvm-cov` toolchain
-//! version and is therefore excluded from G1.
-//! This test does NOT exercise the `llvm-cov` subfeature — the default
-//! `Config { coverage_json: None }` leaves `test_coverage` unpopulated,
-//! so the exclusion is observed trivially.
-//!
-//! Routes through `cfdb_enrich::EnrichEngine`, not `PetgraphStore`
-//! directly. Still never exercises `crates/cfdb-cli/src/enrich.rs`'s
-//! dispatcher, though — see `enrich_metrics_cli.rs` for that.
-
 #![cfg(feature = "quality-metrics")]
 
 use std::path::PathBuf;
@@ -130,9 +107,6 @@ fn self_dogfood_every_fn_item_has_unwrap_count_and_cyclomatic() {
 
 #[test]
 fn self_dogfood_determinism_two_runs_match_minus_test_coverage() {
-    // Two independent extracts + enrich cycles; canonical-dump sha256
-    // should match modulo `test_coverage` (G6). Config::default leaves
-    // test_coverage absent so the G1 invariant holds directly.
     let (store_a, ks_a, fn_a) = build_enriched_store();
     let (store_b, ks_b, fn_b) = build_enriched_store();
 

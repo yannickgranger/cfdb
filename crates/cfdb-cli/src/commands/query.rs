@@ -1,7 +1,3 @@
-//! Query command handlers — `cfdb query` and the typed `list-callers`
-//! convenience verb. Public paths are preserved via `pub use` in
-//! `commands.rs`.
-
 use std::path::PathBuf;
 
 use cfdb_core::store::QueryBackend;
@@ -11,10 +7,6 @@ use cfdb_query::{lint_shape, parse, ShapeLint};
 use crate::compose;
 use crate::output;
 
-/// Embedded cypher template for `cfdb list-callers`. Loaded via `include_str!`
-/// at compile time so the shipped binary is self-contained — no runtime file
-/// lookup, no deployment-relative paths, and `cargo build` picks up edits to
-/// the template automatically.
 const LIST_CALLERS_CYPHER: &str = include_str!("../../../../examples/queries/list-callers.cypher");
 
 pub fn query(
@@ -48,7 +40,6 @@ pub fn query(
                 eprintln!("shape-lint: {message}");
                 eprintln!("  suggestion: {suggestion}");
             }
-            // ShapeLint is #[non_exhaustive]; v0.2 may add new variants.
             _ => eprintln!("shape-lint: {lint:?}"),
         }
     }
@@ -60,13 +51,6 @@ pub fn query(
     output::emit_json(&result)
 }
 
-/// Bind a `--params <json>` object into a parsed `Query`'s param bag. The
-/// input MUST be a JSON object whose values are scalars (string, number,
-/// bool, or null). Arrays and objects are rejected with a clear error —
-/// v0.1 only supports scalar bindings; list/typed bindings come later.
-/// This is the canonical wire-up boundary for the CLI → evaluator param
-/// flow: the parser emits an empty `Query.params` bag, this function
-/// populates it, and the evaluator reads from the populated bag.
 fn bind_json_params(
     parsed: &mut Query,
     json: &serde_json::Value,
@@ -80,11 +64,6 @@ fn bind_json_params(
     Ok(())
 }
 
-/// Bind one `(key, value)` from the `--params` JSON object into the parsed
-/// query's param bag. Factored out of [`bind_json_params`] so the `k.clone()`
-/// required by the scalar insert lives in a helper rather than in the
-/// outer `for (k, v) in obj` loop body — the quality-metrics gate treats
-/// the closure-less `for` as the clone-in-loop trigger.
 fn bind_single_param(
     parsed: &mut Query,
     k: &str,
@@ -108,14 +87,6 @@ fn bind_single_param(
     }
 }
 
-/// `cfdb list-callers --db <path> --keyspace <name> --qname <regex>` —
-/// typed convenience verb over the raw `query` path. Loads the embedded
-/// `list-callers.cypher` template, binds `$qname` to the CLI arg, executes
-/// against the named keyspace, and prints the result as pretty JSON in
-/// the same format as `cfdb query`. The template and the raw path MUST
-/// produce byte-identical output for the same `$qname` input — that is
-/// the genericity contract the typed verbs are meant to satisfy (one
-/// query, many targets, sugar over the raw path).
 pub fn list_callers(
     db: PathBuf,
     keyspace: String,

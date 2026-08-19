@@ -1,11 +1,3 @@
-//! `dogfood-enrich` — self-dogfood harness for the 7 enrichment passes.
-//! Standalone leaf binary; subprocess-driven (does NOT link `cfdb-cli` as a
-//! library).
-//!
-//! The library surface exists for unit-testing the pure helpers
-//! (template substitution, EnrichReport parsing, threshold lookup).
-//! The binary in `src/main.rs` is the CI entry point.
-
 pub mod count_items;
 pub mod extracted_files;
 pub mod feature_guard;
@@ -16,13 +8,8 @@ pub mod runner;
 pub mod scan_concepts;
 pub mod thresholds;
 
-/// Exit code on zero violation rows.
 pub const EXIT_OK: i32 = 0;
 
-/// Exit code on at least one violation row (cfdb-cli `Violations` exit-30
-/// contract).
 pub const EXIT_VIOLATIONS: i32 = 30;
 
-/// Exit code on runtime error (subprocess failure, missing template,
-/// JSON parse failure, missing feature).
 pub const EXIT_RUNTIME_ERROR: i32 = 1;

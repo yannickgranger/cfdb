@@ -1,18 +1,3 @@
-//! Canonical derivation of item qnames — the stable cross-extractor
-//! ID contract for `cfdb`'s fact graph.
-//!
-//! Both the syn-based `cfdb-extractor` and the HIR-based
-//! `cfdb-hir-extractor` emit `Item` nodes with IDs of the form `item:<qname>`.
-//! For cross-extractor edges to land on the same `:Item` node, both extractors
-//! MUST compute the `<qname>` component bit-identically for the same source item.
-//! Any formula divergence produces silently dangling edges — the worst class
-//! of graph corruption because it passes every schema validator while making
-//! every reachability query wrong.
-//!
-//! The functions in this module are the single canonical formula.
-//! All functions are pure: values in → values out, zero I/O, zero
-//! allocations beyond the return `String`.
-
 mod node_id;
 pub use node_id::{
     argument_node_id, callsite_node_id, entrypoint_node_id, field_node_id, item_node_id,
@@ -20,27 +5,11 @@ pub use node_id::{
     TargetDiscriminator,
 };
 
-/// Join the module stack into a `::`-delimited module qpath.
-///
-/// The module stack convention (matching `cfdb-extractor/src/item_visitor.rs`):
-/// the first element is the crate name with dashes replaced by underscores
-/// (e.g. `cfdb_core`), followed by nested `mod` names from the crate root
-/// to the current visit position.
-///
-/// An empty stack yields an empty string. A single-element stack yields
-/// just that element (no trailing `::`).
 #[must_use]
 pub fn module_qpath(module_stack: &[String]) -> String {
     module_stack.join("::")
 }
 
-/// Qname for a non-method item (struct, enum, fn, const, trait, impl,
-/// type-alias, static, module). Takes the enclosing module stack and the
-/// item's unqualified name; produces `<module_qpath>::<item_name>`, or
-/// just `<item_name>` when the stack is empty.
-///
-/// The empty-stack branch is a degenerate fallback — in practice the
-/// stack always contains at least the crate name.
 #[must_use]
 pub fn item_qname(module_stack: &[String], item_name: &str) -> String {
     let qpath = module_qpath(module_stack);
@@ -51,13 +20,6 @@ pub fn item_qname(module_stack: &[String], item_name: &str) -> String {
     }
 }
 
-/// Qname for a method inside an `impl Target { fn method }` block.
-/// Produces `<module_qpath>::<impl_target>::<method_name>`. The impl
-/// target is the textual rendering of `self_ty` (e.g., `Foo`,
-/// `Foo<T>`, `Vec<T>`).
-///
-/// When the module stack is empty, the `<module_qpath>::` prefix is
-/// elided so the result is `<impl_target>::<method_name>`.
 #[must_use]
 pub fn method_qname(module_stack: &[String], impl_target: &str, method_name: &str) -> String {
     let qpath = module_qpath(module_stack);
@@ -68,22 +30,6 @@ pub fn method_qname(module_stack: &[String], impl_target: &str, method_name: &st
     }
 }
 
-/// Inverse of [`item_node_id`] — strip the `item:` prefix off a node
-/// id to recover the bare qname. Callers sometimes round-trip an Item
-/// node id back to its qname to pass through a helper that expects
-/// bare qnames (e.g. emitter functions that receive a qname and
-/// internally re-wrap via `item_node_id`). Routing both directions
-/// through this module prevents the prefix literal from re-scattering
-/// into hand-written `trim_start_matches("item:")` calls.
-///
-/// If the input does not carry the `item:` prefix, it is returned
-/// unchanged — symmetric with `str::trim_start_matches` behaviour.
-///
-/// **Deprecated (RFC-054, council altitude ruling):** the prefix-only
-/// strip keeps the `#bin:{name}` identity suffix, which is a display-prop
-/// leak waiting to happen — the guard is compiler-enforced rather than
-/// prose. Zero production callers remain; tests pinning the identity
-/// round-trip carry `#[allow(deprecated)]`.
 #[must_use]
 #[deprecated(
     since = "0.8.0",
@@ -95,47 +41,15 @@ pub fn qname_from_node_id(node_id: &str) -> &str {
     node_id.strip_prefix("item:").unwrap_or(node_id)
 }
 
-/// The bare DISPLAY qname for an `:Item` node id — strips the `item:`
-/// prefix AND any RFC-054 `#bin:{name}` identity suffix. `:Item`-id
-/// scoped: `entrypoint:` ids embed the identity mid-string (http_route
-/// appends `:{path}` after it), so routing them through this helper
-/// would truncate the route path along with the discriminator — never
-/// apply it outside `item:` ids. This is the
-/// value that belongs in human-facing props (`caller_qname`,
-/// `parent_qname`); identities (suffix kept) belong in derived-id
-/// formulas. Keeping the two exits separate is what prevents identity
-/// plumbing from leaking into display values (RFC-054 §3.5.1).
 #[must_use]
 pub fn display_qname_from_node_id(node_id: &str) -> &str {
     let identity = node_id.strip_prefix("item:").unwrap_or(node_id);
-    // `#` never appears in a Rust path, so the first `#` is always the
-    // RFC-054 discriminator boundary, never qname content (memchr-backed
-    // char search per the simplify review).
     match identity.find('#') {
         Some(i) => &identity[..i],
         None => identity,
     }
 }
 
-/// Canonicalise an `impl` target rendering by dropping any generic
-/// argument list. Both the syn-based `cfdb-extractor` and the
-/// HIR-based `cfdb-hir-extractor` feed their raw type rendering
-/// through this function before calling [`method_qname`], so an
-/// `impl Vec<Node> { fn push }` produces the same qname via either
-/// extractor (`<crate>::Vec::push`, not `<crate>::Vec<Node>::push`
-/// from HIR and `<crate>::Vec::push` from syn).
-///
-/// Without this normalisation, syn's shallow renderer
-/// (`cfdb-extractor/src/type_render.rs::render_type`) produces
-/// `Vec` — which strips the generic args — while HIR's
-/// `HirDisplay::display` produces `Vec<Node>`. That divergence
-/// would make cross-extractor `CALLS(item:…, item:…)` edges dangle
-/// silently — exactly the failure mode the #40 ddd-specialist review
-/// flagged as HIGH and the #94 review caught as still unremediated.
-///
-/// Algorithm: strip every character at bracket depth ≥ 1 (where
-/// depth tracks nested `<` / `>`). Trailing whitespace that remains
-/// after a stripped region is trimmed.
 #[must_use]
 pub fn normalize_impl_target(raw: &str) -> String {
     let mut out = String::with_capacity(raw.len());
@@ -152,28 +66,6 @@ pub fn normalize_impl_target(raw: &str) -> String {
     out
 }
 
-/// Trailing segment of a `::`-delimited qname — splits at the **last**
-/// `::` and returns the portion after it. Inputs containing no `::`
-/// (a degenerate-but-valid qname carrying just an item name) are
-/// returned unchanged.
-///
-/// Canonical owner of the `last_segment` formula for the entire
-/// workspace (RFC-035 §3.3 / R1 B3 — `cfdb-core::qname` is cfdb's
-/// invariant owner for qname structure). Every consumer that needs a
-/// `last_segment` value MUST route through this function — including
-/// the `:Item` index-build dispatch in `cfdb-petgraph::index` (called
-/// via [`ComputedKey::evaluate`](../../../cfdb_petgraph/index/spec/enum.ComputedKey.html#method.evaluate),
-/// not directly), and any future consumer.
-///
-/// Round-trips with the qname constructors in this module:
-/// `last_segment(item_qname(stack, name)) == name`,
-/// `last_segment(method_qname(stack, target, method)) == method`. The
-/// `qname_contract_sync` test module asserts this property mechanically
-/// on a sampled set of stacks so a future change to either
-/// [`module_qpath`] or this function fails the build instead of
-/// silently drifting.
-///
-/// Pure: zero allocations, returns a borrowed slice into the input.
 #[must_use]
 pub fn last_segment(qname: &str) -> &str {
     qname.rsplit_once("::").map_or(qname, |(_, tail)| tail)
@@ -183,7 +75,6 @@ pub fn last_segment(qname: &str) -> &str {
 mod tests {
     use super::*;
 
-    // Helper: concise construction of a module stack from a &[&str].
     fn stack(elements: &[&str]) -> Vec<String> {
         elements.iter().map(|s| (*s).to_string()).collect()
     }
@@ -303,13 +194,11 @@ mod tests {
 
     #[test]
     fn normalize_impl_target_handles_unmatched_closing_bracket() {
-        // Defensive: saturating_sub prevents underflow on malformed
-        // input. We don't claim correctness on garbage — just no panic.
         assert_eq!(normalize_impl_target("Foo>"), "Foo");
     }
 
     #[test]
-    #[allow(deprecated)] // the pins legitimately test the deprecated identity round-trip
+    #[allow(deprecated)]
     fn qname_from_node_id_strips_item_prefix() {
         assert_eq!(
             qname_from_node_id("item:cfdb_core::schema::Label"),
@@ -318,13 +207,13 @@ mod tests {
     }
 
     #[test]
-    #[allow(deprecated)] // the pins legitimately test the deprecated identity round-trip
+    #[allow(deprecated)]
     fn qname_from_node_id_returns_input_unchanged_when_no_prefix() {
         assert_eq!(qname_from_node_id("no_prefix_here"), "no_prefix_here");
     }
 
     #[test]
-    #[allow(deprecated)] // the pins legitimately test the deprecated identity round-trip
+    #[allow(deprecated)]
     fn qname_from_node_id_round_trip_via_item_node_id() {
         let q = "cfdb_extractor::item_visitor::ItemVisitor::emit_item";
         assert_eq!(qname_from_node_id(&item_node_id(q)), q);
@@ -332,10 +221,6 @@ mod tests {
 
     #[test]
     fn method_qname_with_qualified_impl_target_preserves_path() {
-        // `impl std::fmt::Display for Foo` — the rendered self_ty is
-        // the trait target `Foo`, but nothing in the formula prevents
-        // a caller from passing a qualified path. The contract is
-        // verbatim interposition between module_qpath and method_name.
         assert_eq!(
             method_qname(&stack(&["cfdb_cli"]), "std::fmt::Display", "fmt"),
             "cfdb_cli::std::fmt::Display::fmt"
@@ -377,22 +262,6 @@ mod tests {
     }
 }
 
-/// Mechanical guarantor of the qname-contract-drift invariant
-/// (RFC-035 §3.3 invariant 2 / §5.2 solid-architect NIT).
-///
-/// `last_segment` is the inverse of the trailing-name-append operation
-/// performed by [`item_qname`] and [`method_qname`]. If either side of
-/// that pairing changes shape — for example, if [`module_qpath`] starts
-/// emitting a different separator, or [`item_qname`] alters how it
-/// joins the trailing name — these assertions fail at build time and
-/// catch the drift before any downstream consumer (the index-build
-/// dispatch in `cfdb-petgraph::index`, the Cypher `last_segment()`
-/// UDF, the extractor's `:CallSite.callee_last_segment` prop) sees
-/// silently divergent values.
-///
-/// The fixtures mirror the `module_qpath` / `item_qname` /
-/// `method_qname` test stacks so a future update to those tests
-/// naturally extends here.
 #[cfg(test)]
 mod qname_contract_sync {
     use super::*;
@@ -449,8 +318,6 @@ mod qname_contract_sync {
 
     #[test]
     fn last_segment_consistent_with_module_qpath_then_append() {
-        // last_segment(module_qpath(stack) + "::" + name) == name — the
-        // exact wording of the RFC §5.2 NIT.
         let cases: &[(&[&str], &str)] = &[
             (&["cfdb_core", "schema", "labels"], "Label"),
             (&["cfdb_cli"], "bind_json_params"),
@@ -463,12 +330,8 @@ mod qname_contract_sync {
     }
 
     #[test]
-    #[allow(deprecated)] // the pins legitimately test the deprecated identity round-trip
+    #[allow(deprecated)]
     fn last_segment_recovers_trailing_token_after_node_id_strip() {
-        // Round-trip: build a node id, strip the prefix, then ask for
-        // the last segment — the stripping is independent of the
-        // splitter, but the whole composition is what production code
-        // does (`qname_from_node_id` followed by `last_segment`).
         let q = item_qname(&stack(&["cfdb_extractor", "item_visitor"]), "ItemVisitor");
         let node_id = item_node_id(&q);
         let bare = qname_from_node_id(&node_id);
@@ -476,15 +339,13 @@ mod qname_contract_sync {
     }
 
     #[test]
-    #[allow(deprecated)] // the pins legitimately test the deprecated identity round-trip
+    #[allow(deprecated)]
     fn display_qname_strips_prefix_and_bin_suffix() {
         assert_eq!(
             display_qname_from_node_id("item:tif::main#bin:alpha"),
             "tif::main"
         );
         assert_eq!(display_qname_from_node_id("item:tif::main"), "tif::main");
-        // identity round-trip (prefix-only strip) keeps the suffix — the
-        // two exits stay distinct on purpose (RFC-054 §3.5.1).
         assert_eq!(
             qname_from_node_id("item:tif::main#bin:alpha"),
             "tif::main#bin:alpha"

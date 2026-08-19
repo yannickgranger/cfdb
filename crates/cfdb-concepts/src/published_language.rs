@@ -1,34 +1,3 @@
-//! Published-language crates loader — `.cfdb/published-language-crates.toml`.
-//!
-//! DDD Published Language marker loader. Declares which crates publish a
-//! "Published Language" intentionally consumed across bounded contexts. The
-//! `:Finding` classifier reads the materialised `:Crate.published_language`
-//! prop to suppress false Context-Homonym positives for crates that live
-//! cross-context by design (e.g. `qbot-prelude`, `qbot-types`).
-//!
-//! File shape (single file, not a directory per-context like the concepts
-//! layout):
-//!
-//! ```toml
-//! [[crate]]
-//! name = "qbot-prelude"
-//! language = "prelude"
-//! owning_context = "core"
-//! consumers = ["trading", "portfolio", "strategy"]
-//!
-//! [[crate]]
-//! name = "qbot-types"
-//! language = "types"
-//! owning_context = "core"
-//! consumers = ["*"]
-//! ```
-//!
-//! The loader returns the same [`LoadError`](crate::LoadError) as
-//! [`load_concept_overrides`](crate::load_concept_overrides) — `Io` for
-//! filesystem access failures, `Toml` for malformed TOML, and a reused
-//! `Io { InvalidData }` for duplicate `name` entries (a forbidden
-//! last-wins would hide a configuration bug).
-
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
@@ -37,40 +6,24 @@ use serde::Deserialize;
 
 use crate::LoadError;
 
-/// Public metadata for one Published-Language crate. Stored as the value
-/// type of [`PublishedLanguageCrates::by_crate`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PublishedLanguageEntry {
-    /// Short identifier for the published language (e.g., `"prelude"`).
     pub language: String,
-    /// Name of the bounded context that owns the language. Classifier
-    /// uses this to route edits through the owning context's authority.
     pub owning_context: String,
-    /// Contexts expected to consume this language. A single `"*"` entry
-    /// means wildcard — any context may consume. The loader does NOT
-    /// special-case `"*"`; classifier decides wildcard semantics.
     pub consumers: Vec<String>,
 }
 
-/// Loaded published-language marker list — reverse map from crate name
-/// to [`PublishedLanguageEntry`] for O(log n) lookups by the extractor
-/// while emitting `:Crate` nodes.
 #[derive(Debug, Default)]
 pub struct PublishedLanguageCrates {
     by_crate: BTreeMap<String, PublishedLanguageEntry>,
 }
 
 impl PublishedLanguageCrates {
-    /// `true` iff `crate_name` is declared as a Published Language crate
-    /// in `.cfdb/published-language-crates.toml`.
     #[must_use]
     pub fn is_published_language(&self, crate_name: &str) -> bool {
         self.by_crate.contains_key(crate_name)
     }
 
-    /// The owning context for a Published Language crate, or `None` if
-    /// the crate is not declared. Returned as `&str` to avoid allocating
-    /// at the lookup site.
     #[must_use]
     pub fn owning_context(&self, crate_name: &str) -> Option<&str> {
         self.by_crate
@@ -78,11 +31,6 @@ impl PublishedLanguageCrates {
             .map(|e| e.owning_context.as_str())
     }
 
-    /// The declared list of consumer contexts for a Published Language
-    /// crate, or `None` if the crate is not declared. A single `"*"`
-    /// entry in the returned slice is wildcard — any context may
-    /// consume. The loader passes `"*"` through verbatim; classifier
-    /// interprets it.
     #[must_use]
     pub fn allowed_consumers(&self, crate_name: &str) -> Option<&[String]> {
         self.by_crate
@@ -91,10 +39,6 @@ impl PublishedLanguageCrates {
     }
 }
 
-/// On-disk shape of `.cfdb/published-language-crates.toml`.
-///
-/// Private to the module — callers interact with
-/// [`PublishedLanguageCrates`] + [`PublishedLanguageEntry`] only.
 #[derive(Debug, Deserialize)]
 struct PublishedLanguageFile {
     #[serde(rename = "crate", default)]
@@ -110,18 +54,6 @@ struct PublishedLanguageCrateEntry {
     consumers: Vec<String>,
 }
 
-/// Load `.cfdb/published-language-crates.toml` under `workspace_root` into
-/// a reverse map. Missing file is NOT an error — returns an empty
-/// [`PublishedLanguageCrates`] mirroring the `load_concept_overrides`
-/// contract (per AC-3). Parse errors surface as [`LoadError::Toml`]
-/// (AC-4); duplicate `name` entries surface as [`LoadError::Io`] with
-/// `ErrorKind::InvalidData` to avoid silent last-wins.
-///
-/// # Errors
-///
-/// - [`LoadError::Io`] on filesystem access failures or duplicate-name
-///   rejection.
-/// - [`LoadError::Toml`] on malformed TOML content.
 pub fn load_published_language_crates(
     workspace_root: &Path,
 ) -> Result<PublishedLanguageCrates, LoadError> {
@@ -172,10 +104,6 @@ pub fn load_published_language_crates(
     Ok(PublishedLanguageCrates { by_crate })
 }
 
-/// Single-pass duplicate detection. Returns the first repeated `name`
-/// in TOML order, or `None` when every entry is unique. Hoisted out of
-/// the insertion loop so the per-iteration body of [`load`] holds no
-/// `.clone()` of the file path.
 fn first_duplicate_name(crates: &[PublishedLanguageCrateEntry]) -> Option<&str> {
     let mut seen: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
     for entry in crates {
@@ -200,7 +128,6 @@ mod tests {
     #[test]
     fn missing_file_returns_empty() {
         let tmp = tempfile::tempdir().expect("tempdir");
-        // Do NOT create `.cfdb/published-language-crates.toml`.
         let loaded = load_published_language_crates(tmp.path()).expect("load ok");
         assert!(!loaded.is_published_language("anything"));
         assert_eq!(loaded.owning_context("anything"), None);
@@ -210,7 +137,7 @@ mod tests {
     #[test]
     fn empty_file_returns_empty() {
         let tmp = tempfile::tempdir().expect("tempdir");
-        write_toml(tmp.path(), ""); // zero [[crate]] tables
+        write_toml(tmp.path(), "");
         let loaded = load_published_language_crates(tmp.path()).expect("load ok");
         assert!(!loaded.is_published_language("anything"));
     }
@@ -235,7 +162,6 @@ consumers = ["trading", "portfolio"]
             .allowed_consumers("qbot-prelude")
             .expect("consumers present");
         assert_eq!(consumers, &["trading".to_string(), "portfolio".to_string()]);
-        // Unmapped crate returns None/false.
         assert!(!loaded.is_published_language("cfdb-core"));
     }
 

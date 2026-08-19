@@ -1,8 +1,3 @@
-//! Node-label descriptors for `schema_describe()`.
-//!
-//! Grouped into cohesive submodules so each file stays under the
-//! 500-line architecture threshold.
-
 mod call_graph;
 mod overlay;
 mod structural;

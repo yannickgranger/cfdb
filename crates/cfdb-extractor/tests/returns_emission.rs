@@ -1,21 +1,3 @@
-//! `RETURNS` edge emission tests (#216, RFC-037 §3.2; #239 closeout).
-//!
-//! After #216, every fn/method whose `syn::ReturnType` resolves to a
-//! `:Item` qname emitted in the same workspace produces one `RETURNS`
-//! edge from the fn's `:Item` to the return-type's `:Item`. Resolution
-//! is post-walk, so a fn whose return type names an item declared
-//! later in the same file (or in a different file walked later) still
-//! emits the edge.
-//!
-//! Third-tier wrapper unwrap (#239, RFC-037 §6 closeout): when the
-//! outer rendered return-type string misses both the exact-match and
-//! unique-last-segment tiers, the resolver falls back to
-//! `render_type_inner` on the stored `syn::Type` with a depth-3
-//! budget. `fn v() -> Vec<Foo>` now emits a RETURNS edge to `Foo`;
-//! `fn r() -> Result<Ok, Err>` emits two. The closed wrapper list
-//! (`Vec`, `Option`, `Arc`, `Rc`, `Box`, `Result`, `Pin`, `Cell`,
-//! `RefCell`) is in `type_render::WRAPPER_TYPES`.
-
 use std::path::Path;
 
 use cfdb_core::fact::PropValue;
@@ -62,8 +44,6 @@ path = "src/lib.rs"
     write_fixture_file(root, &format!("{crate_name}/src/lib.rs"), lib_src);
 }
 
-/// Find the `:Item` node id for the given fn / method `name` prop.
-/// Panics with a helpful message if zero or more than one match.
 fn item_id_by_name<'a>(nodes: &'a [cfdb_core::Node], kind: &str, name: &str) -> &'a str {
     let matches: Vec<&cfdb_core::Node> = nodes
         .iter()
@@ -91,8 +71,6 @@ fn returns_edges(edges: &[cfdb_core::Edge]) -> Vec<&cfdb_core::Edge> {
 
 #[test]
 fn fn_returning_same_crate_struct_emits_returns_edge() {
-    // Bar declared first, then `foo() -> Bar`. Same-walk resolution
-    // would already work here; this is the baseline.
     let fixture = tempdir().expect("tempdir");
     write_cargo_workspace(
         fixture.path(),
@@ -128,9 +106,6 @@ pub fn foo() -> Bar {
 
 #[test]
 fn fn_returning_forward_declared_type_still_emits_returns_edge() {
-    // `use_foo() -> Foo` declared BEFORE `pub struct Foo {}`. Same-walk
-    // forward-lookup would miss this; the post-walk pass catches it.
-    // This is the slice's core invariant.
     let fixture = tempdir().expect("tempdir");
     write_cargo_workspace(
         fixture.path(),
@@ -161,9 +136,6 @@ pub struct Foo;
 
 #[test]
 fn fn_returning_unknown_type_emits_no_returns_edge() {
-    // `baz() -> CrossCrateType` — the type is not declared anywhere
-    // in the walked workspace, so there is nothing to resolve to.
-    // The deferred entry must be silently dropped.
     let fixture = tempdir().expect("tempdir");
     write_cargo_workspace(
         fixture.path(),
@@ -184,12 +156,6 @@ fn fn_returning_unknown_type_emits_no_returns_edge() {
 
 #[test]
 fn fn_returning_wrapped_same_crate_type_emits_returns_edge() {
-    // `v() -> Vec<MyType>`. The outer `render_type_string` renders
-    // `"Vec"`, which does not match any workspace `:Item` qname. The
-    // third-tier `render_type_inner` unwrap (#239) then inspects the
-    // stored `syn::Type`, matches `Vec` in `WRAPPER_TYPES`, and
-    // yields the inner candidate `"MyType"` — which resolves to the
-    // walked struct and emits one RETURNS edge.
     let fixture = tempdir().expect("tempdir");
     write_cargo_workspace(
         fixture.path(),
@@ -220,8 +186,6 @@ pub fn v() -> Vec<MyType> {
 
 #[test]
 fn returns_edge_emission_is_deterministic_across_two_extractions() {
-    // G1 byte-stability — two extractions of the same fixture produce
-    // an identical sorted RETURNS edge set.
     let fixture = tempdir().expect("tempdir");
     write_cargo_workspace(
         fixture.path(),
@@ -253,8 +217,6 @@ pub struct Late;
         a, b,
         "two extractions must produce byte-identical RETURNS edges"
     );
-    // Sanity: the fixture has 3 fns each returning a same-crate item,
-    // so we expect exactly 3 RETURNS edges in the deterministic set.
     assert_eq!(
         a.len(),
         3,
@@ -265,9 +227,6 @@ pub struct Late;
 
 #[test]
 fn method_returning_same_crate_struct_emits_returns_edge() {
-    // Methods (impl items) take a different emission path
-    // (`visit_impl_item_fn` bypasses `emit_item_with_flags`); make
-    // sure the deferred-returns push fires from there too.
     let fixture = tempdir().expect("tempdir");
     write_cargo_workspace(
         fixture.path(),
@@ -300,8 +259,6 @@ impl Holder {
 
 #[test]
 fn fn_with_no_explicit_return_type_emits_no_returns_edge() {
-    // `fn noop()` has `syn::ReturnType::Default` — no deferred entry,
-    // no RETURNS edge.
     let fixture = tempdir().expect("tempdir");
     write_cargo_workspace(
         fixture.path(),
@@ -321,11 +278,6 @@ pub fn noop() {}
 
 #[test]
 fn fn_returning_result_emits_one_returns_edge_per_arm() {
-    // `fn r() -> Result<Ok, Err>` where both `Ok` and `Err` are walked
-    // in the same workspace. `render_type_string` renders `"Result"`
-    // (no item match); third-tier `render_type_inner` at depth 3
-    // yields both inner candidates `"Ok"` and `"Err"`. The resolver
-    // must emit one RETURNS edge per resolvable arm — two edges total.
     let fixture = tempdir().expect("tempdir");
     write_cargo_workspace(
         fixture.path(),
@@ -367,10 +319,6 @@ pub fn r() -> Result<Ok, Err> {
 
 #[test]
 fn fn_returning_nested_wrappers_at_depth_three_emits_one_returns_edge() {
-    // `fn n() -> Vec<Option<Arc<Foo>>>` where `Foo` is the leaf.
-    // Outer render `"Vec"` misses; third-tier unwrap at depth 3
-    // recurses Vec → Option → Arc → Foo and yields `"Foo"` among
-    // candidates. Exactly one RETURNS edge to Foo.
     let fixture = tempdir().expect("tempdir");
     write_cargo_workspace(
         fixture.path(),
@@ -402,9 +350,6 @@ pub fn n() -> Vec<Option<Arc<Foo>>> {
 
 #[test]
 fn fn_returning_user_defined_wrapper_emits_no_returns_edge() {
-    // `MyBox<Foo>` — `MyBox` is not in the closed wrapper list
-    // (`type_render::WRAPPER_TYPES`). `render_type_inner` refuses to
-    // unwrap; the third tier also misses. No RETURNS edge.
     let fixture = tempdir().expect("tempdir");
     write_cargo_workspace(
         fixture.path(),
@@ -435,11 +380,6 @@ pub fn u() -> MyBox<Foo> {
 
 #[test]
 fn fn_returning_qualified_std_vec_emits_returns_edge_via_last_segment() {
-    // Ambiguity D: `std::vec::Vec<Foo>` renders outer as
-    // `"std::vec::Vec"` (misses). Third-tier `render_type_inner`
-    // matches by the last segment `"Vec"` — both `Vec<Foo>` and
-    // `std::vec::Vec<Foo>` unwrap the same way. Emits one RETURNS
-    // edge to `Foo`.
     let fixture = tempdir().expect("tempdir");
     write_cargo_workspace(
         fixture.path(),

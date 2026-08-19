@@ -1,23 +1,6 @@
-//! Self-dogfood test for RFC-035 slice 1 (#180).
-//!
-//! Loads the cfdb workspace's own `.cfdb/indexes.toml` through
-//! [`IndexSpec::from_path`] and asserts the three entries from
-//! RFC-035 §3.2 are present, every entry carries a non-empty `notes`
-//! rationale, and a serde round-trip preserves the spec exactly.
-//!
-//! This is the "self dogfood (cfdb on cfdb)" row of the Tests template
-//! (cfdb CLAUDE.md §2.5). At this slice boundary the loader has no
-//! downstream consumer — the build pass (slice 2), evaluator fast
-//! paths (slices 5/6), and composition-root wiring (slice 7) all land
-//! later. What this test asserts now is that *the real config cfdb
-//! authors for itself* parses without error through the surface
-//! future slices will consume.
-
 use cfdb_petgraph::index::{ComputedKey, IndexEntry, IndexSpec};
 use std::path::PathBuf;
 
-/// Return the repo's `.cfdb/indexes.toml` path. Walks up from this
-/// file's directory until `Cargo.lock` is found (the workspace root).
 fn repo_indexes_toml() -> PathBuf {
     let mut dir: PathBuf = env!("CARGO_MANIFEST_DIR").into();
     loop {
@@ -42,12 +25,6 @@ fn loads_cfdb_own_indexes_toml() {
         panic!("cfdb's own .cfdb/indexes.toml failed to parse: {e}");
     });
 
-    // RFC-035 §3.2 originally prescribed three entries (qname,
-    // bounded_context, last_segment(qname)); slice-6b added
-    // `Item.name`; the classifier slice-5 narrows added
-    // `Item.reachable_from_entry` and `Item.is_test`. Asserting
-    // `>= 6` — not `== 6` — keeps the test forward-compatible
-    // with any further index entries added for the same RFC.
     assert!(
         spec.entries.len() >= 6,
         "RFC-035 §3.2 prescribes at least six entries (qname, bounded_context, \

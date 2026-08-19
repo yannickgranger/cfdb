@@ -1,8 +1,3 @@
-//! Unit tests for `PetgraphStore`.
-//!
-//! Anchors: round-trip canonical dump, determinism, canonical-dump line
-//! shape and sort order. Query-level tests live in `cfdb-eval`.
-
 use cfdb_core::fact::{Edge, Node};
 use cfdb_core::schema::{EdgeLabel, Keyspace, Label};
 use cfdb_core::store::StoreBackend;
@@ -87,11 +82,6 @@ fn canonical_dump_is_deterministic() {
     );
 }
 
-// ---- sorted-jsonl canonical dump shape -------------------
-
-/// Helper: parse the canonical dump into a Vec of (raw_line, parsed_json).
-/// Asserts every line is a valid JSON object — guards against the old
-/// tab-prefixed `N\t...\t{json}` shape.
 fn parse_dump_lines(dump: &str) -> Vec<(String, serde_json::Value)> {
     dump.lines()
         .map(|line| {
@@ -129,7 +119,6 @@ fn canonical_dump_lines_are_pure_jsonl() {
     let dump = store
         .canonical_dump(&ks())
         .expect("canonical_dump over an ingested keyspace is infallible");
-    // Must NOT use the old tab-prefix scheme.
     for line in dump.lines() {
         assert!(
             !line.starts_with("N\t"),
@@ -140,7 +129,6 @@ fn canonical_dump_lines_are_pure_jsonl() {
             "line uses old tab-prefix format: {line}"
         );
     }
-    // Every line must parse as a JSON object.
     let parsed = parse_dump_lines(&dump);
     assert_eq!(parsed.len(), 3, "2 nodes + 1 edge = 3 lines");
 }
@@ -196,8 +184,6 @@ fn canonical_dump_field_order_is_alphabetical() {
     let dump = store
         .canonical_dump(&ks())
         .expect("canonical_dump over an ingested keyspace is infallible");
-    // The raw line text must show keys in strictly alphabetical order — checked
-    // by extracting top-level keys via a regex-free positional walk.
     let line = dump.lines().next().expect("at least one line");
     let keys = top_level_json_keys(line);
     let mut sorted = keys.clone();
@@ -208,14 +194,9 @@ fn canonical_dump_field_order_is_alphabetical() {
     );
 }
 
-/// Helper: extract top-level JSON object keys by walking the byte stream.
-/// Works because the canonical dump emits one object per line with no nested
-/// embedded objects at the top level (props is the only nested object).
 fn top_level_json_keys(line: &str) -> Vec<String> {
     let parsed: serde_json::Value = serde_json::from_str(line)
         .expect("caller has already validated line is pure JSON via parse_dump_lines");
-    // serde_json's Map iterates in BTreeMap order by default; we re-derive by
-    // re-serializing to bytes and walking the resulting string positionally.
     let bytes = serde_json::to_string(&parsed)
         .expect("re-serializing a just-parsed serde_json::Value is infallible");
     let mut keys = Vec::new();
@@ -234,13 +215,11 @@ fn top_level_json_keys(line: &str) -> Vec<String> {
                     }
                     k.push(ch);
                 }
-                // Only count if followed by ':' (key, not value)
                 while let Some(&ch) = chars.peek() {
                     if ch == ':' {
                         keys.push(k);
                         break;
                     } else if !ch.is_whitespace() {
-                        // it was a value, not a key
                         break;
                     }
                     chars.next();
@@ -255,9 +234,6 @@ fn top_level_json_keys(line: &str) -> Vec<String> {
 #[test]
 fn canonical_dump_node_sort_uses_label_then_qname() {
     let mut store = PetgraphStore::new();
-    // Two Item nodes: their qname order is baz::qux < foo::bar, so the sort
-    // by (label, qname) places item:b BEFORE item:a even though id "item:a"
-    // is lexicographically smaller.
     store
         .ingest_nodes(
             &ks(),
@@ -292,7 +268,6 @@ fn canonical_dump_node_sort_uses_label_then_qname() {
 #[test]
 fn canonical_dump_edge_sort_uses_label_then_src_qname_then_dst_qname() {
     let mut store = PetgraphStore::new();
-    // Three Item nodes whose qname order is alpha < bravo < charlie.
     store
         .ingest_nodes(
             &ks(),
@@ -303,9 +278,6 @@ fn canonical_dump_edge_sort_uses_label_then_src_qname_then_dst_qname() {
             ],
         )
         .expect("ingest into fresh in-memory store never fails");
-    // Two CALLS edges with the same label but different src qnames:
-    //   bravo -> charlie  and  alpha -> charlie
-    // Sort order on (label, src_qname, dst_qname) places alpha->charlie first.
     store
         .ingest_edges(
             &ks(),
@@ -346,7 +318,6 @@ fn canonical_dump_edge_sort_uses_label_then_src_qname_then_dst_qname() {
 #[test]
 fn canonical_dump_edge_sort_fallback_when_src_qname_absent() {
     let mut store = PetgraphStore::new();
-    // CallSite nodes have no qname prop → sort key falls back to id.
     store
         .ingest_nodes(
             &ks(),
@@ -383,8 +354,6 @@ fn canonical_dump_edge_sort_fallback_when_src_qname_absent() {
         .collect();
     assert_eq!(edge_lines.len(), 2);
 
-    // Fallback: when src has no qname prop, src_qname = src.id ("cs:apple"
-    // sorts before "cs:zebra").
     let src_qnames: Vec<&str> = edge_lines
         .iter()
         .map(|v| v.get("src_qname").and_then(|s| s.as_str()).unwrap_or(""))
@@ -411,14 +380,11 @@ fn canonical_dump_lf_separated_no_trailing_newline() {
         !dump.ends_with('\n'),
         "canonical_dump output must NOT have a trailing newline (sha256sum reproducibility)"
     );
-    // Must not contain CRLF.
     assert!(!dump.contains('\r'), "canonical_dump must use LF, not CRLF");
 }
 
 #[test]
 fn canonical_dump_byte_identity_across_two_calls() {
-    // This is the existing invariant — must continue to hold under the
-    // new format. Keeps the regression bar at parity with the old impl.
     let mut store = PetgraphStore::new();
     store
         .ingest_nodes(

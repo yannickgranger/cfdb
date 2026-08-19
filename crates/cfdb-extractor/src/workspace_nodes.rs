@@ -1,9 +1,3 @@
-//! Workspace-level node emission + per-package target walk — the
-//! `:Crate` / `:Context` producers and the per-target `visit_file` dispatch.
-//!
-//! `extract_workspace` orchestration stays in `lib.rs`; this module owns
-//! how workspace structure becomes nodes.
-
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -20,11 +14,6 @@ use crate::emitter::Emitter;
 use crate::file_walker::visit_file;
 use crate::ExtractError;
 
-/// Emit the `:Crate` node, `BELONGS_TO` edge, synthesised `:Context`
-/// entries, and walk each lib/bin target for one workspace package.
-/// Factored out of the crate-loop in [`crate::extract_workspace`] so the
-/// per-package path-string and context-name clones live in a helper
-/// rather than directly inside the outer `for` loop body.
 pub(crate) fn emit_crate_and_walk_targets(
     emitter: &mut Emitter,
     package: &cargo_metadata::Package,
@@ -37,13 +26,6 @@ pub(crate) fn emit_crate_and_walk_targets(
     let crate_id = format!("crate:{}", package.name);
     let bounded_context = compute_bounded_context(&package.name, overrides).name;
 
-    // Heuristic-synthesised contexts also need a `:Context` node so
-    // `BELONGS_TO` has a valid target. The override-declared ones are
-    // already pre-seeded in `contexts_seen` with `ContextSource::Declared`
-    // (see `extract_workspace`); the helper only inserts a `Heuristic`
-    // entry for names absent from the pre-seed. This implements the
-    // §3.3 aggregation rule: a context declared via override cannot be
-    // demoted by a later heuristic crate.
     accumulate_heuristic_context(contexts_seen, &bounded_context);
 
     emitter.emit_node(Node {
@@ -51,9 +33,6 @@ pub(crate) fn emit_crate_and_walk_targets(
         label: Label::new(Label::CRATE),
         props: {
             let mut p = BTreeMap::new();
-            // `crate_tiers` is total over the workspace member set, so the
-            // lookup always hits; `unwrap_or(0)` is a defensive non-panic
-            // for the structurally-impossible miss.
             p.insert(
                 "crate_tier".into(),
                 PropValue::Int(
@@ -69,9 +48,6 @@ pub(crate) fn emit_crate_and_walk_targets(
                 PropValue::Str(package.version.to_string()),
             );
             p.insert("is_workspace_member".into(), PropValue::Bool(true));
-            // Published Language marker: `true` iff the crate is declared in
-            // `.cfdb/published-language-crates.toml`. Every `:Crate` carries
-            // this prop — no `Option`, missing file → `false`.
             p.insert(
                 "published_language".into(),
                 PropValue::Bool(published_language.is_published_language(&package.name)),
@@ -80,8 +56,6 @@ pub(crate) fn emit_crate_and_walk_targets(
         },
     });
 
-    // Emit the Crate -> Context BELONGS_TO edge now so a single pass
-    // over edges shows the crate-to-context wiring.
     let context_id = format!("context:{bounded_context}");
     emitter.emit_edge(Edge {
         src: crate_id.clone(),
@@ -90,9 +64,6 @@ pub(crate) fn emit_crate_and_walk_targets(
         props: BTreeMap::new(),
     });
 
-    // Stop discarding target identity — each target root carries its
-    // TargetDiscriminator so distinct cargo targets of one package occupy
-    // distinct identity namespaces.
     let targets: Vec<(PathBuf, TargetDiscriminator)> = package
         .targets
         .iter()
@@ -122,10 +93,6 @@ pub(crate) fn emit_crate_and_walk_targets(
     Ok(())
 }
 
-/// Emit a single `:Context` node from its accumulated [`ContextMeta`] +
-/// [`ContextSource`] discriminator (RFC-038 §3.3). Pulled out of the
-/// context-emission loop so the per-property clones do not count against
-/// the `clones-in-loops` metric.
 pub(crate) fn emit_context_node(
     emitter: &mut Emitter,
     name: &str,
@@ -160,10 +127,6 @@ pub(crate) fn emit_context_node(
     });
 }
 
-/// Build the per-context accumulator pre-seeded with every override-declared
-/// context tagged [`ContextSource::Declared`]. RFC-038 §3.3 aggregation rule:
-/// pre-seeding declared entries before the per-crate heuristic loop means
-/// `or_insert_with` cannot demote a declared context to heuristic later on.
 pub(crate) fn seed_declared_contexts(
     overrides: &ConceptOverrides,
 ) -> BTreeMap<String, (ContextMeta, ContextSource)> {
@@ -174,10 +137,6 @@ pub(crate) fn seed_declared_contexts(
         .collect()
 }
 
-/// Insert a heuristic-synthesised context into the accumulator iff its name
-/// is unseen. The entry-level idempotence is what makes the §3.3 aggregation
-/// rule hold: a declared pre-seed for the same name suppresses this insert
-/// entirely.
 pub(crate) fn accumulate_heuristic_context(
     contexts_seen: &mut BTreeMap<String, (ContextMeta, ContextSource)>,
     name: &str,

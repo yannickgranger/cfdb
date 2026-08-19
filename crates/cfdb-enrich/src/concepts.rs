@@ -1,47 +1,3 @@
-//! `enrich_concepts` — materialize `:Concept` nodes from
-//! `.cfdb/concepts/*.toml` declarations and emit `(:Item)-[:LABELED_AS]->
-//! (:Concept)` + `(:Item)-[:CANONICAL_FOR]->(:Concept)` edges.
-//!
-//! Unlike the passes that only patch attrs on existing nodes, this one
-//! creates `:Concept` nodes from scratch via `ingest_nodes`/`ingest_edges`.
-//!
-//! # Sixth pass — concept node materialisation
-//!
-//! The original 5-pass table omitted `:Concept` node materialisation that
-//! downstream triggers depend on. Schema was already reserved
-//! (`Label::CONCEPT`, `EdgeLabel::LABELED_AS`, `EdgeLabel::CANONICAL_FOR`,
-//! and the `:Concept {name, assigned_by}` descriptor with
-//! `Provenance::EnrichConcepts`) — this implementation materialises them.
-//!
-//! # Emission rules
-//!
-//! - One `:Concept { name, assigned_by: "manual" }` node per unique context
-//!   declared in any `.cfdb/concepts/*.toml` file. `assigned_by = "manual"`
-//!   is the invariant for TOML-declared concepts (auto-discovery from code
-//!   is explicitly out of scope per the issue body).
-//! - One `(:Item)-[:LABELED_AS]->(:Concept)` edge for every `:Item` whose
-//!   `crate` prop appears in any TOML's `crates` list.
-//! - One `(:Item)-[:CANONICAL_FOR]->(:Concept)` edge for every `:Item` in
-//!   a TOML's declared `canonical_crate`. The current `ConceptFile` shape
-//!   does NOT carry a `canonical_item_patterns` field — the scope of
-//!   "canonical for a concept" is therefore every item in the canonical
-//!   crate, not a pattern-filtered subset. Narrowing via patterns is
-//!   deferred to a follow-up slice.
-//!
-//! # Graceful no-op
-//!
-//! Workspaces with no `.cfdb/concepts/*.toml` files return `ran: true,
-//! attrs_written: 0, edges_written: 0` with no warning — empty-concept-
-//! directory is a legitimate workspace shape.
-//!
-//! # Determinism
-//!
-//! - `ConceptOverrides::crate_assignments` iterates in sorted crate-name
-//!   order (backed by `BTreeMap`).
-//! - `:Concept` nodes are emitted sorted by context name.
-//! - Edges are emitted sorted by `(item_node_id, concept_name)` via
-//!   `BTreeMap<(String, String), Edge>` style ordering.
-
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -72,7 +28,6 @@ pub(crate) fn run(view: &mut dyn GraphView, workspace_root: &Path) -> EnrichRepo
         }
     };
 
-    // No TOML files at all → graceful no-op.
     let concepts = overrides.declared_contexts();
     if concepts.is_empty() {
         return EnrichReport {
@@ -85,9 +40,6 @@ pub(crate) fn run(view: &mut dyn GraphView, workspace_root: &Path) -> EnrichRepo
         };
     }
 
-    // Build item index: crate_name -> Vec<node_id>. One O(N) walk over
-    // `:Item` nodes; downstream edge emission is O(labelled crates × items
-    // in that crate).
     let items_by_crate = build_item_index(view);
 
     let concept_nodes = build_concept_nodes(&concepts);
@@ -113,13 +65,6 @@ pub(crate) fn run(view: &mut dyn GraphView, workspace_root: &Path) -> EnrichRepo
     }
 }
 
-// ---------------------------------------------------------------------------
-// Item index
-// ---------------------------------------------------------------------------
-
-/// Walk `:Item` nodes once and group their ids by the `crate` prop. Items
-/// with no `crate` prop are skipped — no LABELED_AS edge possible without a
-/// crate assignment.
 fn build_item_index(view: &dyn GraphView) -> BTreeMap<String, Vec<ItemRef>> {
     view.nodes_with_label(&Label::new(Label::ITEM))
         .into_iter()
@@ -140,10 +85,6 @@ fn build_item_index(view: &dyn GraphView) -> BTreeMap<String, Vec<ItemRef>> {
 struct ItemRef {
     node_id: String,
 }
-
-// ---------------------------------------------------------------------------
-// Node emission
-// ---------------------------------------------------------------------------
 
 fn build_concept_nodes(concepts: &BTreeMap<String, ContextMeta>) -> Vec<Node> {
     concepts
@@ -169,10 +110,6 @@ fn build_one_concept_node(name: &str) -> Node {
 fn concept_node_id(name: &str) -> String {
     format!("concept:{name}")
 }
-
-// ---------------------------------------------------------------------------
-// Edge emission
-// ---------------------------------------------------------------------------
 
 fn build_edges(
     overrides: &ConceptOverrides,
@@ -203,10 +140,6 @@ fn build_edges(
     labeled_iter.chain(canonical_iter).collect()
 }
 
-/// Emit one edge per `:Item` in `crate_name` → `:Concept { name: concept }`.
-/// Returns an empty iterator if the crate has no items in the graph. Clones
-/// of `item_node_id` + `label` happen inside an iterator chain rather than a
-/// for-loop body so the clones-in-loop metric does not flag them.
 fn edges_for_crate<'a>(
     items_by_crate: &'a BTreeMap<String, Vec<ItemRef>>,
     crate_name: &str,
@@ -225,9 +158,6 @@ fn edges_for_crate<'a>(
         })
 }
 
-/// Build `concept_name -> canonical_crate` map, deduplicating across
-/// multiple crate entries that share the same owning context. A concept
-/// with no declared `canonical_crate` does not appear in the map.
 fn canonical_crates(overrides: &ConceptOverrides) -> BTreeMap<String, String> {
     overrides
         .crate_assignments()
@@ -242,10 +172,6 @@ fn canonical_crates(overrides: &ConceptOverrides) -> BTreeMap<String, String> {
             acc
         })
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests;

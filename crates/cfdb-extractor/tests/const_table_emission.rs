@@ -1,13 +1,3 @@
-//! `:ConstTable` + `HAS_CONST_TABLE` end-to-end emission tests
-//! (RFC-040 slice 3/5, issue #325).
-//!
-//! Drive the full `extract_workspace` pipeline against synthetic cargo
-//! workspaces and assert on observable extractor output: that recognized
-//! consts produce one `:ConstTable` node with the documented prop shape,
-//! that the parent `:Item -[:HAS_CONST_TABLE]-> :ConstTable` edge is
-//! emitted exactly once, and that non-recognized consts produce no
-//! `:ConstTable` node (only the parent `:Item`).
-
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -105,8 +95,6 @@ fn prop_bool(props: &BTreeMap<String, PropValue>, key: &str) -> bool {
     }
 }
 
-// -- Positive: recognized consts --------------------------------------------
-
 #[test]
 fn pub_const_str_slice_emits_one_const_table_with_full_prop_shape() {
     let fx = tempdir().expect("tempdir");
@@ -133,15 +121,11 @@ fn pub_const_str_slice_emits_one_const_table_with_full_prop_shape() {
     assert_eq!(prop_str(&ct.props, "qname"), "ctf::CURRENCIES");
     assert_eq!(prop_str(&ct.props, "name"), "CURRENCIES");
     assert_eq!(prop_str(&ct.props, "crate"), "ctf");
-    // module_qpath matches the :Item.module_qpath convention — the
-    // fully-qualified path of the enclosing module, which at the crate
-    // root is just the crate name.
     assert_eq!(prop_str(&ct.props, "module_qpath"), "ctf");
     assert_eq!(prop_str(&ct.props, "element_type"), "str");
     assert_eq!(prop_int(&ct.props, "entry_count"), 3);
     assert!(!prop_bool(&ct.props, "is_test"));
 
-    // entries_normalized is sorted; entries_sample preserves declaration order.
     assert_eq!(
         prop_str(&ct.props, "entries_normalized"),
         r#"["EUR","GBP","USD"]"#,
@@ -151,14 +135,12 @@ fn pub_const_str_slice_emits_one_const_table_with_full_prop_shape() {
         r#"["USD","EUR","GBP"]"#,
     );
 
-    // entries_hash is lowercase hex, length 64.
     let h = prop_str(&ct.props, "entries_hash");
     assert_eq!(h.len(), 64, "sha256 hex is 64 chars; got {}", h.len());
     assert!(h
         .chars()
         .all(|c| c.is_ascii_digit() || c.is_ascii_lowercase()));
 
-    // Exactly one HAS_CONST_TABLE edge from the parent :Item.
     let hcte = has_const_table_edges(&edges);
     assert_eq!(hcte.len(), 1);
     assert_eq!(hcte[0].src, "item:ctf::CURRENCIES");
@@ -209,12 +191,8 @@ fn module_qpath_propagates_to_const_table_qname() {
     assert_eq!(prop_str(&ct.props, "module_qpath"), "ctf::normalize");
 }
 
-// -- Cardinality invariant (R2 ddd-specialist N3) ----------------------------
-
 #[test]
 fn each_const_item_has_at_most_one_const_table_child() {
-    // Mix recognized + non-recognized consts — every :Item{kind="const"}
-    // must have either zero or one outgoing HAS_CONST_TABLE edge.
     let fx = tempdir().expect("tempdir");
     write_cargo_workspace(
         fx.path(),
@@ -237,11 +215,8 @@ pub struct CustomType;
     );
 
     let hcte = has_const_table_edges(&edges);
-    // Two recognized const tables (RECOGNIZED, NUMERIC_TABLE) → exactly two edges.
     assert_eq!(hcte.len(), 2);
 
-    // Per-const cardinality check — each const_item :Item has zero or one
-    // HAS_CONST_TABLE outgoing edge.
     for item in &consts {
         let outgoing = edges
             .iter()
@@ -256,8 +231,6 @@ pub struct CustomType;
     }
 }
 
-// -- Negative: non-recognized consts ----------------------------------------
-
 #[test]
 fn scalar_const_emits_no_const_table() {
     let fx = tempdir().expect("tempdir");
@@ -270,7 +243,6 @@ fn scalar_const_emits_no_const_table() {
     let (nodes, edges) = extract_workspace(fx.path()).expect("extract");
     assert!(const_tables(&nodes).is_empty());
     assert!(has_const_table_edges(&edges).is_empty());
-    // The parent :Item must still exist.
     assert_eq!(const_items(&nodes).len(), 1);
 }
 
@@ -288,8 +260,6 @@ pub const TOKENS: &[Token] = &[];
     assert!(const_tables(&nodes).is_empty());
     assert!(has_const_table_edges(&edges).is_empty());
 }
-
-// -- is_test propagation -----------------------------------------------------
 
 #[test]
 fn const_table_inside_cfg_test_module_carries_is_test_true() {

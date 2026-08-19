@@ -1,31 +1,3 @@
-//! Static-check for the frozen RFC §4 invariant catalog
-//! (`examples/queries/arch-ban-rfc-*.cypher`) — RFC-044 §3.8 slice 044-H
-//! (issue #427).
-//!
-//! Slice 044-H converts reviewer-only RFC §4 invariants (RFC-042 :EntryPoint
-//! emission contract, RFC-043 / Label::CALL_SITE discriminator contract) into
-//! zero-tolerance `cfdb violations --rule` Cypher ban rules. The rules live in
-//! `examples/queries/` (NOT the `.cfdb/queries/` of RFC §3.8's literal wording)
-//! because the self-dogfood loop (`.gitea/workflows/ci.yml`) and the
-//! cross-dogfood loop (`ci/cross-dogfood.sh`) already glob
-//! `examples/queries/arch-ban-*.cypher` — placing the rules there auto-enforces
-//! them with zero CI-workflow edits. Each rule's header comment documents the
-//! deviation.
-//!
-//! This test is the slice's "Unit" surface: it parses every shipped
-//! `arch-ban-rfc-*.cypher` via the cfdb-query parser and asserts that
-//!
-//!   1. each file is a single, parseable Cypher statement;
-//!   2. every `:Label` and `[:EdgeLabel]` it references resolves to a known
-//!      `cfdb_core::schema::{Label, EdgeLabel}` constant (catching a typo'd or
-//!      out-of-schema vocabulary item before it ships); and
-//!   3. the glob is non-empty AND found at least the catalogued rule count —
-//!      so an accidental file deletion (which would silently make the
-//!      self/cross-dogfood loops a no-op for these invariants) fails the build.
-//!
-//! Mirrors `predicate_schema_refs.rs`'s helper shape (RFC-035 §3.3
-//! single-resolution-point: the label/edge collectors are the same walk).
-
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -33,18 +5,8 @@ use std::path::{Path, PathBuf};
 use cfdb_core::query::{Pattern, Predicate, Query};
 use cfdb_core::schema::{EdgeLabel, Label};
 
-/// Lower bound on the number of `arch-ban-rfc-*.cypher` rules slice 044-H
-/// ships. Six genuinely static-expressible RFC §4 invariants were encoded
-/// (see each file's header). New RFC §4 catalog rules (the continuous-catalog
-/// policy, RFC-044 §3.8) only RAISE this floor — they never lower it. If a
-/// rule is removed, this constant must be lowered in the same reviewed PR with
-/// a rationale, exactly like a metric threshold (`const`, no baseline file —
-/// project CLAUDE.md §6.8).
 const MIN_RFC_CATALOG_RULES: usize = 6;
 
-/// Node-`:Label` vocabulary known to the schema. Kept in lockstep with
-/// `cfdb_core::schema::Label` constants; a new schema label extends BOTH here
-/// and the impl consts (via a schema RFC).
 const KNOWN_NODE_LABELS: &[&str] = &[
     Label::CRATE,
     Label::MODULE,
@@ -63,7 +25,6 @@ const KNOWN_NODE_LABELS: &[&str] = &[
     Label::LITERAL,
 ];
 
-/// Edge-`[:EdgeLabel]` vocabulary known to the schema.
 const KNOWN_EDGE_LABELS: &[&str] = &[
     EdgeLabel::IN_CRATE,
     EdgeLabel::IN_MODULE,
@@ -163,9 +124,6 @@ fn rfc_catalog_is_not_below_floor() {
     );
 }
 
-// --- helpers ---
-
-/// `crates/cfdb-query/` is two levels below the workspace root.
 fn workspace_root() -> PathBuf {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
     Path::new(manifest_dir)
@@ -176,9 +134,6 @@ fn workspace_root() -> PathBuf {
         .to_path_buf()
 }
 
-/// Every `examples/queries/arch-ban-rfc-*.cypher` file, read and sorted by
-/// path for deterministic iteration. Empty vec if the directory is missing —
-/// `rfc_catalog_is_not_below_floor` catches that.
 fn rfc_catalog_rule_files() -> Vec<(PathBuf, String)> {
     let dir = workspace_root().join("examples").join("queries");
     let read = match fs::read_dir(&dir) {

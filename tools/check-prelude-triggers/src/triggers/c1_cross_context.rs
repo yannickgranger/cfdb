@@ -1,10 +1,3 @@
-//! C1 — cross-context change detection.
-//!
-//! Fires when a changed-path list touches ≥2 bounded contexts declared in
-//! `context-map.toml`. Mechanism: bucket each changed path against every
-//! context's `path_prefixes` list; a path that matches at least one prefix
-//! is credited to that context.
-
 use serde_json::json;
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -12,17 +5,12 @@ use std::path::Path;
 use crate::toml_io::{read_changed_paths, read_toml, LoadError};
 use crate::triggers::TriggerOutcome;
 
-/// Run the C1 check against the on-disk inputs.
-///
-/// # Errors
-/// Returns a [`LoadError`] if either file is missing or malformed.
 pub fn run(context_map: &Path, changed_paths: &Path) -> Result<TriggerOutcome, LoadError> {
     let map = read_toml(context_map)?;
     let changed = read_changed_paths(changed_paths)?;
     Ok(evaluate(&map, &changed))
 }
 
-/// Pure evaluator exposed for unit tests.
 #[must_use]
 pub fn evaluate(context_map: &toml::Value, changed_paths: &[String]) -> TriggerOutcome {
     let contexts = context_map.get("contexts").and_then(toml::Value::as_table);
@@ -37,7 +25,6 @@ pub fn evaluate(context_map: &toml::Value, changed_paths: &[String]) -> TriggerO
         };
     };
 
-    // context -> matched paths
     let mut touched: BTreeMap<String, Vec<String>> = BTreeMap::new();
 
     for (ctx_name, ctx_def) in contexts {

@@ -1,17 +1,3 @@
-//! End-to-end integration tests for `cfdb scope --context` (#3729).
-//!
-//! Extracts the cfdb sub-workspace, then invokes `cfdb scope --context
-//! <name>` against the resulting keyspace and asserts on the §A3.3 JSON
-//! envelope:
-//! - filters to the named context (`scope_filters_to_named_context`)
-//! - rejects unknown contexts with exit 1 and a "known contexts:" message
-//!   (`scope_rejects_unknown_context`)
-//! - emits the exact 6-bucket envelope shape
-//!   (`scope_emits_section_a33_shape`)
-//! - is byte-deterministic across runs (`scope_deterministic_across_runs`)
-//! - attaches per-class warnings for empty buckets
-//!   (`scope_empty_classes_warn_when_classifier_missing`)
-
 #![cfg(feature = "classify")]
 
 use std::path::{Path, PathBuf};
@@ -22,12 +8,6 @@ use tempfile::tempdir;
 
 mod common;
 
-/// Shared syn-only extract of the cfdb worktree into keyspace `cfdb-v01`,
-/// built once and reused read-only by every keyspace-backed scope test.
-/// Replaces the former per-test `extract_cfdb`, which re-extracted the
-/// whole tree in each of the 7 such tests. `scope` only reads the keyspace
-/// (per-test `--output` dumps go to a separate tempdir), so sharing is
-/// faithful — assertions see byte-identical data.
 fn shared_scope_db() -> PathBuf {
     common::cached_db("scope-cfdb-v01", |db| {
         common::extract(db, &common::workspace_root(), "cfdb-v01", &[]);
@@ -101,8 +81,6 @@ fn scope_rejects_unknown_context() {
 #[test]
 fn scope_filters_to_named_context() {
     let db = shared_scope_db();
-    // Every cfdb crate belongs to the `cfdb` bounded context via the
-    // crate-prefix heuristic (`cfdb-core` → `cfdb`, etc.).
     let out = run_scope(&db, &["--keyspace", "cfdb-v01", "--context", "cfdb"]);
     assert!(
         out.status.success(),
@@ -111,7 +89,6 @@ fn scope_filters_to_named_context() {
     );
     let parsed: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON");
     assert_eq!(parsed["context"].as_str(), Some("cfdb"));
-    // loc_per_crate contains counts for cfdb-core and cfdb-cli at minimum.
     let loc = parsed["loc_per_crate"]
         .as_object()
         .expect("loc_per_crate object");
@@ -143,9 +120,7 @@ fn scope_emits_section_a33_shape() {
     ] {
         assert!(obj.contains_key(key), "missing top-level key `{key}`");
     }
-    // reachability_map is null in v0.1 (HIR-blocked).
     assert!(obj["reachability_map"].is_null());
-    // findings_by_class carries exactly the 6 §A2.1 bucket keys.
     let classes = obj["findings_by_class"].as_object().expect("classes");
     for expected in [
         "duplicated_feature",
@@ -161,7 +136,6 @@ fn scope_emits_section_a33_shape() {
         );
     }
     assert_eq!(classes.len(), 6, "unexpected class bucket count");
-    // canonical_candidates is an array (may be empty depending on keyspace).
     assert!(obj["canonical_candidates"].is_array());
 }
 
@@ -179,45 +153,6 @@ fn scope_deterministic_across_runs() {
 
 #[test]
 fn scope_empty_buckets_carry_per_class_warning_naming_missing_input() {
-    // Issue #48 semantics (§A2.2 degradation): each classifier rule
-    // projects empty rows when its required inputs are absent; the CLI
-    // attaches a per-class warning to every empty bucket naming the
-    // likely missing input (HIR / concepts / reachability) OR noting
-    // "no finding in this context" for classes whose inputs are always
-    // present in a syn-only extract.
-    //
-    // Runs against a syn-only cfdb keyspace (no --features hir, no
-    // enrich-concepts, no enrich-reachability), so three HIR-dependent
-    // classes are GUARANTEED empty regardless of the code shape:
-    //   - random_scattering  (needs :EntryPoint + reachable_from_entry)
-    //   - canonical_bypass   (needs :Concept + CANONICAL_FOR + reachable_from_entry)
-    //   - unwired            (needs reachable_from_entry)
-    //
-    // context_homonym is asserted empty too, but for a DIFFERENT reason
-    // than the three above — and the distinction matters, because getting
-    // it wrong once already cost a real bug (#585). It is NOT
-    // HIR-dependent: :Item.signature and :Item.bounded_context are both
-    // populated at plain `cfdb extract` time
-    // (crates/cfdb-extractor/src/item_visitor/emit/mod.rs), never by the
-    // HIR extractor or an enrichment pass — the cypher's own doc comment
-    // claimed otherwise and was corrected alongside this test. Its bucket
-    // is empty on cfdb-self because of a real architectural invariant:
-    // every cfdb crate maps to the single `cfdb` bounded context
-    // (.cfdb/concepts/cfdb.toml), so cfdb's own tree has no cross-context
-    // pairs at all. That makes this assertion a live guard on the concepts
-    // override, not a degradation check — when RFC-056 added the
-    // `cfdb-enrich` crate without registering it in cfdb.toml, the crate
-    // fell to the per-crate default context and this assertion correctly
-    // went red on 22 spurious homonyms. Registering the crate returned it
-    // to 0. Keep asserting it: a future red here means either a genuinely
-    // divergent cross-context homonym or (more likely) a new crate missing
-    // its cfdb.toml entry — both worth failing on.
-    //
-    // The remaining two classes (duplicated_feature, unfinished_refactor)
-    // have inputs that ARE present in a syn-only extract — whether their
-    // bucket is empty depends on the scanned code shape, so we don't
-    // assert on them here. The integration test
-    // `classifier_taxonomy.rs` (hir-gated) covers all 6 positive paths.
     let db = shared_scope_db();
     let out = run_scope(&db, &["--keyspace", "cfdb-v01", "--context", "cfdb"]);
     assert!(out.status.success());
@@ -246,7 +181,6 @@ fn scope_empty_buckets_carry_per_class_warning_naming_missing_input() {
         );
     }
 
-    // reachability_map HIR degradation warning (independent of classifier).
     assert!(
         combined.contains("reachability_map") && combined.contains("HIR")
             || combined.contains("reachability_map") && combined.contains("cfdb-hir"),
@@ -297,7 +231,6 @@ fn scope_writes_to_output_path_when_given() {
         ],
     );
     assert!(out.status.success());
-    // stdout should be empty (everything went to the file).
     assert!(
         out.stdout.is_empty(),
         "stdout must be empty when --output is given"

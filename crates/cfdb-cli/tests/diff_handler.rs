@@ -1,9 +1,3 @@
-//! Integration tests for `cfdb diff` — exercise the CLI handler against a
-//! real cfdb binary + real on-disk keyspaces.
-//!
-//! These cover AC2 (identical keyspaces → empty envelope, exit 0), AC3
-//! (determinism across two runs), and the `--format sorted-jsonl` branch.
-
 use std::path::{Path, PathBuf};
 use std::process::Command;
 

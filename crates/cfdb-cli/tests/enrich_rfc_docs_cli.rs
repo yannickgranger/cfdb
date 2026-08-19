@@ -1,18 +1,3 @@
-//! `cfdb enrich-rfc-docs` end-to-end through the real binary, against
-//! cfdb's own tree.
-//!
-//! Unlike `enrich_deprecation_cli.rs` (safe against a minimal synthetic
-//! fixture because that report is content-independent),
-//! `enrich_rfc_docs`'s report depends on real `docs/*.md` content actually
-//! referencing real `:Item`s — a synthetic single-file fixture would prove
-//! nothing about the composition-root cutover.
-//!
-//! `self_dogfood_enrich_rfc_docs.rs` already exercises `EnrichEngine`
-//! in-process on cfdb-self; this test's only additional job is proving
-//! `crates/cfdb-cli/src/enrich.rs`'s dispatcher actually routes
-//! `EnrichVerb::RfcDocs` to it — a mis-routed dispatcher shows up here as
-//! `ran: false` even though the in-process test would still pass.
-
 use std::path::PathBuf;
 use std::process::Command;
 

@@ -1,8 +1,3 @@
-//! Group-dispatch helpers for the `cfdb` CLI. Each of the five helpers
-//! below unpacks one slice of the `Command` enum and delegates to the
-//! corresponding `cfdb_cli::*` handler. The judgment-layer verbs ride the
-//! `classify` feature as one group ([`dispatch_classify`]).
-
 use std::str::FromStr;
 
 use crate::main_exit::findings_exit;
@@ -16,9 +11,6 @@ use cfdb_cli::{
 
 use crate::main_command::{Command, ExtractArgs};
 
-/// Dispatch helper for the INGEST + RAW + AUX core verbs. Factored out of
-/// [`crate::run`] to keep the top-level match flat — each group's expansion
-/// of the `cmd @ Command::*` alternation lives in a dedicated helper.
 pub(crate) fn dispatch_core(cmd: Command) -> Result<(), CfdbCliError> {
     match cmd {
         Command::Extract(ExtractArgs {
@@ -40,8 +32,6 @@ pub(crate) fn dispatch_core(cmd: Command) -> Result<(), CfdbCliError> {
         } => {
             let rows_found = violations(db, keyspace, rule, count_only)?;
             if rows_found > 0 && !no_fail {
-                // Exit 30 = "rule rows returned, gate failure" — distinct from
-                // exit 1 (runtime error). Routed through `findings_exit()`.
                 findings_exit();
             }
             Ok(())
@@ -57,8 +47,6 @@ pub(crate) fn dispatch_core(cmd: Command) -> Result<(), CfdbCliError> {
     }
 }
 
-/// Dispatch helper for the TYPED verbs — the composer-over-Cypher
-/// shortcuts. Same rationale as [`dispatch_core`].
 pub(crate) fn dispatch_typed(cmd: Command) -> Result<(), CfdbCliError> {
     match cmd {
         Command::ListCallers {
@@ -99,9 +87,6 @@ pub(crate) fn dispatch_typed(cmd: Command) -> Result<(), CfdbCliError> {
             let report = check_predicate(&db, &keyspace, &workspace_root, &name, &params)?;
             emit_check_predicate_report(&report, &format)?;
             if report.row_count > 0 && !no_fail {
-                // Exit 30 = "rule rows returned, gate failure" — see the
-                // sibling site in `Command::Violations` above for rationale.
-                // Routed through `findings_exit()` (main_exit.rs).
                 findings_exit();
             }
             Ok(())
@@ -110,18 +95,10 @@ pub(crate) fn dispatch_typed(cmd: Command) -> Result<(), CfdbCliError> {
     }
 }
 
-/// Render a [`cfdb_cli::PredicateRunReport`] to stdout per the `--format`
-/// CLI arg. `text` emits a TSV-shaped `qname\tline\treason` per row plus
-/// a stderr summary (same rhythm as `cfdb violations`); `json` emits a
-/// pretty-printed report. Unknown formats are a [`CfdbCliError::Usage`].
 fn emit_check_predicate_report(
     report: &cfdb_cli::PredicateRunReport,
     format: &str,
 ) -> Result<(), CfdbCliError> {
-    // EPIC #273 Pattern 1 #4: parse via the canonical `OutputFormat`, then
-    // narrow to the per-handler allowlist (`text` and `json`). Other
-    // variants are rejected with the unified "expected `text` or `json`"
-    // shape.
     let format = OutputFormat::from_str(format)?
         .require_one_of(&[OutputFormat::Text, OutputFormat::Json], "check-predicate")?;
     match format {
@@ -136,14 +113,10 @@ fn emit_check_predicate_report(
             Ok(())
         }
         OutputFormat::Json => emit_json(&report),
-        // Other variants are filtered out by `require_one_of` above; the
-        // type system can't see that, so we name the contract here.
         _ => unreachable!("check-predicate allowlist is restricted to Text | Json"),
     }
 }
 
-/// Dispatch helper for the SNAPSHOT verbs. Same rationale as
-/// [`dispatch_core`].
 pub(crate) fn dispatch_snapshot(cmd: Command) -> Result<(), CfdbCliError> {
     match cmd {
         Command::Snapshots { db } => snapshots(db),
@@ -159,19 +132,7 @@ pub(crate) fn dispatch_snapshot(cmd: Command) -> Result<(), CfdbCliError> {
     }
 }
 
-/// Dispatch helper for the seven `Command::Enrich*` variants. Pulled out of
-/// [`crate::run`] so each new enrichment verb does not balloon `run`'s
-/// cyclomatic complexity — the top-level match collapses all seven arms to
-/// a single alternation arm that delegates here.
 pub(crate) fn dispatch_enrich(cmd: Command) -> Result<(), CfdbCliError> {
-    // Five verbs (git-history / rfc-docs / bounded-context / concepts /
-    // metrics) thread a `--workspace` path through the composition root
-    // (clean-arch B4 resolution, #43-A). The remaining two
-    // (deprecation / reachability) take no workspace and pass `None`.
-    // Audit 2026-W17 / EPIC #273 / Pattern 3 (cfdb-cli F-006) — the prior
-    // shape was five `if let` clones followed by a second match for the
-    // non-workspace pair. Collapsed here to a single match that extracts
-    // `(db, keyspace, EnrichVerb, Option<PathBuf>)` uniformly.
     let (db, keyspace, verb, workspace) = match cmd {
         Command::EnrichGitHistory {
             db,
@@ -205,19 +166,12 @@ pub(crate) fn dispatch_enrich(cmd: Command) -> Result<(), CfdbCliError> {
             (db, keyspace, EnrichVerb::Reachability, None)
         }
         other => {
-            // Unreachable — the caller pattern-matches on the seven enrich
-            // variants before calling us. An unexpected command here is a
-            // dispatch-site bug, not an end-user error.
             unreachable!("dispatch_enrich called with non-enrich command: {other:?}")
         }
     };
     enrich(db, keyspace, verb, workspace)
 }
 
-/// Dispatch helper for the judgment-layer verbs — `scope`, `classify`,
-/// `check` and the two Phase-A rescue stubs `find-canonical` /
-/// `list-bypasses`. Compiled only with the `classify` feature (RFC-059
-/// §3.3): the facts-only binary has neither the variants nor this arm.
 #[cfg(feature = "classify")]
 pub(crate) fn dispatch_classify(cmd: Command) -> Result<(), CfdbCliError> {
     match cmd {
@@ -265,7 +219,6 @@ pub(crate) fn dispatch_classify(cmd: Command) -> Result<(), CfdbCliError> {
         } => {
             let rows_found = check(&db, &keyspace, trigger)?;
             if rows_found > 0 && !no_fail {
-                // Exit 30 = "rule rows returned, gate failure".
                 findings_exit();
             }
             Ok(())

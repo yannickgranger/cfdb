@@ -1,22 +1,3 @@
-//! `cfdb enrich-git-history` end-to-end through the real binary, against
-//! cfdb's own tree.
-//!
-//! Two variants, mutually exclusive by feature — both the feature-on real
-//! path and the feature-off degraded path need proving through the real
-//! binary, not just in-process:
-//!
-//! - `#[cfg(feature = "git-enrich")]`: a synthetic fixture would prove
-//!   nothing about the composition-root cutover for a content-dependent
-//!   pass. `self_dogfood_enrich_git_history.rs` already exercises
-//!   `EnrichEngine` in-process; this test's only additional job is proving
-//!   the dispatcher actually routes `EnrichVerb::GitHistory` to it.
-//! - `#[cfg(not(feature = "git-enrich"))]`: proves the degraded-report path
-//!   also routes correctly — a botched feature forward in
-//!   `cfdb-cli/Cargo.toml` would show up as a generic `not implemented`
-//!   warning instead of the specific
-//!   `built without \`git-enrich\`` text `EnrichEngine`'s feature-off
-//!   variant pins.
-
 use std::path::PathBuf;
 
 use assert_cmd::prelude::*;

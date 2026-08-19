@@ -114,6 +114,15 @@ jobs:
           cd repo
           cargo fmt --all -- --check
 
+      - name: Comment fence (operator ruling 2026-08-16 — no comment in Rust code)
+        run: |
+          cd repo
+          # Token-aware: refuses any comment token in .rs under the scanned
+          # roots; fixture directories (gate-read data corpora) are excluded.
+          # The self-test is the fence's own positive control.
+          python3 scripts/comment_fence.py --self-test
+          python3 scripts/comment_fence.py crates tools studies
+
       - name: Install graph-specs (track develop — RFC-030 §1.2)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

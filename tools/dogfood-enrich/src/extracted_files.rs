@@ -1,36 +1,7 @@
-//! Extracted-file ground set for the `enrich-deprecation` dogfood.
-//!
-//! Subprocess-invokes `cfdb query` with `MATCH (f:File) RETURN f.path`
-//! and parses the JSON output into the workspace-relative file list the
-//! extractor actually walked. [`crate::grep_deprecated`] counts
-//! `#[deprecated]` occurrences over exactly this set, so the sentinel's
-//! source-side ground truth and the keyspace's graph-side count share
-//! one file universe by construction — no re-implementation of cargo
-//! target/module resolution in the harness.
-//!
-//! ## Pure-helper contract
-//!
-//! - **Input:** path to the `cfdb` binary, the keyspace `--db`
-//!   directory, and the keyspace name.
-//! - **Output:** sorted, deduplicated `Vec<String>` of
-//!   workspace-relative `.rs` paths from the keyspace's `:File` nodes.
-//! - **Error mode:** subprocess spawn / non-zero exit / unparseable
-//!   JSON / zero `:File` nodes all bubble as `io::Error` → the harness
-//!   maps to `EXIT_RUNTIME_ERROR` (1). A keyspace with zero files is a
-//!   regression caught upstream by the extract + recall gates, never a
-//!   reason to silently compare against an empty ground truth.
-//!
-//! ## Why subprocess, not direct keyspace read
-//!
-//! Same discipline as [`crate::count_items`] — the harness never links
-//! `cfdb-cli`; it invokes `cfdb` exactly as the violations sentinel will.
-
 use std::io;
 use std::path::Path;
 use std::process::Command;
 
-/// Subprocess-invoke `cfdb query` and return the sorted, deduplicated
-/// set of workspace-relative file paths recorded on `:File` nodes.
 pub fn file_paths_in_keyspace(
     cfdb_bin: &Path,
     db: &Path,
@@ -61,8 +32,6 @@ pub fn file_paths_in_keyspace(
     })
 }
 
-/// Pure JSON parser. Extracts every row's `f.path` string, sorts and
-/// dedups. Split out for unit testing.
 fn parse_file_paths(stdout: &str) -> Result<Vec<String>, String> {
     let value: serde_json::Value =
         serde_json::from_str(stdout).map_err(|e| format!("invalid JSON: {e}"))?;

@@ -1,33 +1,7 @@
-//! Architecture test — cfdb-cli must NOT depend (directly OR
-//! transitively) on this adapter crate, cfdb-hir-extractor, or any
-//! `ra-ap-*` crate.
-//!
-//! This is the load-bearing drift tripwire from #85 AC-12 /
-//! rust-systems CRITICAL finding in the architect decomposition of
-//! #40: because `cfdb-cli → cfdb-petgraph` already exists, any
-//! `cfdb-petgraph` dep on this adapter would transitively contaminate
-//! `cfdb-cli` with the 90–150s `ra-ap-*` cold-compile cost (RFC-032
-//! §3 lines 221–227).
-//!
-//! The fix is structural — this adapter lives in its OWN crate that
-//! `cfdb-cli` does not import by default. Slice 4 (Issue #86) adds a
-//! `hir` feature flag that conditionally pulls it. This test catches
-//! any accidental reintroduction of a direct-or-transitive arrow
-//! from `cfdb-cli` to anything HIR-tainted.
-//!
-//! **Why this test lives in the adapter crate, not cfdb-cli.** The
-//! adapter is the component that must STAY OUT of cfdb-cli's tree.
-//! Its existence proves a contract cfdb-cli must honor; testing it
-//! here co-locates the invariant with the source of the risk.
-
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Names / token fragments that MUST NOT appear anywhere on
-/// cfdb-cli's dependency path. Matches `cargo tree` output lines
-/// whether they use the `ra-ap-` (hyphen) or `ra_ap_` (underscore)
-/// form on package names.
 const FORBIDDEN_CRATE_FRAGMENTS: &[&str] = &[
     "ra-ap-",
     "ra_ap_",
@@ -35,7 +9,6 @@ const FORBIDDEN_CRATE_FRAGMENTS: &[&str] = &[
     "cfdb-hir-petgraph-adapter",
 ];
 
-/// Workspace root two `..` up from `CARGO_MANIFEST_DIR`.
 fn workspace_root() -> PathBuf {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     manifest
@@ -45,19 +18,6 @@ fn workspace_root() -> PathBuf {
         .to_path_buf()
 }
 
-/// Read the direct `[dependencies]` table from a crate's Cargo.toml
-/// as a set of package-name strings. The parsing is intentionally
-/// tolerant: for each line inside the `[dependencies]` section that
-/// looks like `name = ...` or `name.workspace = true`, record the
-/// name before the first `=` or `.`.
-///
-/// **Optional deps are excluded.** A dep declared `optional = true`
-/// is gated behind a Cargo feature and is NOT pulled into the default
-/// build — so it does not contaminate `cfdb-cli`'s cold compile. The
-/// architectural invariant this test enforces ("no ra-ap-* cold cost
-/// on default cfdb-cli builds") is satisfied by feature-gating,
-/// which is exactly the slice 4 (#86) wiring pattern. Only
-/// non-optional direct deps count toward the contamination graph.
 fn direct_dependencies(crate_manifest: &Path) -> HashSet<String> {
     let contents = fs::read_to_string(crate_manifest)
         .unwrap_or_else(|e| panic!("read {} failed: {e}", crate_manifest.display()));
@@ -68,10 +28,6 @@ fn direct_dependencies(crate_manifest: &Path) -> HashSet<String> {
     for line in contents.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with('[') {
-            // Track only the top-level `[dependencies]` section. The
-            // `[dev-dependencies]` table is excluded because tests
-            // can legitimately reuse adapter fixtures without landing
-            // the adapter into the CLI's release build.
             in_deps_section = trimmed == "[dependencies]";
             continue;
         }
@@ -81,13 +37,9 @@ fn direct_dependencies(crate_manifest: &Path) -> HashSet<String> {
         if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
         }
-        // Skip optional deps — they are feature-gated and do NOT land
-        // in the default build's dep closure.
         if trimmed.contains("optional = true") {
             continue;
         }
-        // Parse the package name: everything before the first `=` or
-        // `.`, trimmed of whitespace.
         if let Some(name_end) = trimmed.find(['=', '.']) {
             let name = trimmed[..name_end].trim();
             if !name.is_empty() {
@@ -99,7 +51,6 @@ fn direct_dependencies(crate_manifest: &Path) -> HashSet<String> {
     deps
 }
 
-/// All in-workspace crate names (reading `Cargo.toml` `members`).
 fn workspace_crates(root: &Path) -> Vec<String> {
     let manifest_path = root.join("Cargo.toml");
     let contents = fs::read_to_string(&manifest_path)
@@ -113,7 +64,6 @@ fn workspace_crates(root: &Path) -> Vec<String> {
             in_members = true;
         }
         if in_members {
-            // `"crates/cfdb-foo",`  →  `cfdb-foo`
             if let Some(start) = trimmed.find('"') {
                 let rest = &trimmed[start + 1..];
                 if let Some(end) = rest.find('"') {
@@ -131,12 +81,6 @@ fn workspace_crates(root: &Path) -> Vec<String> {
     members
 }
 
-/// Walk cfdb-cli's transitive direct-dependency closure within the
-/// workspace, following only `path = "../X"` / `X.workspace = true`
-/// entries that resolve to workspace members. External deps
-/// (`petgraph`, `serde`, etc.) are ignored because they are the
-/// designed dependency surface; the test is about WORKSPACE-internal
-/// contamination.
 fn cli_transitive_workspace_deps(root: &Path) -> HashSet<String> {
     let members = workspace_crates(root);
     let member_set: HashSet<String> = members.iter().cloned().collect();
@@ -153,8 +97,6 @@ fn cli_transitive_workspace_deps(root: &Path) -> HashSet<String> {
             continue;
         }
         for dep in direct_dependencies(&manifest) {
-            // Only recurse into workspace members — external crates
-            // are not the subject of this test.
             if member_set.contains(&dep) {
                 frontier.push(dep);
             }
@@ -169,11 +111,6 @@ fn cli_workspace_closure_contains_no_hir_crate() {
     let root = workspace_root();
     let closure = cli_transitive_workspace_deps(&root);
 
-    // Sanity: cfdb-cli's closure must contain cfdb-cli itself plus
-    // its known direct workspace deps (cfdb-core, cfdb-extractor,
-    // cfdb-petgraph, cfdb-query, cfdb-recall). A non-vacuous result
-    // guards against the walk resolving incorrectly and silently
-    // passing on an empty set.
     assert!(
         closure.contains("cfdb-cli"),
         "non-vacuity guard: cli closure must at least contain cfdb-cli; got {closure:?}",
@@ -183,8 +120,6 @@ fn cli_workspace_closure_contains_no_hir_crate() {
         "non-vacuity guard: cli closure must contain cfdb-core; got {closure:?}",
     );
 
-    // The forbidden set: if ANY of these appears in the closure, the
-    // boundary is breached.
     for forbidden in ["cfdb-hir-extractor", "cfdb-hir-petgraph-adapter"] {
         assert!(
             !closure.contains(forbidden),
@@ -204,9 +139,6 @@ fn adapter_direct_dependencies_include_trait_source_and_target_type() {
         .join("Cargo.toml");
     let deps = direct_dependencies(&manifest);
 
-    // Orphan-rule contract: this crate must depend on BOTH the trait
-    // source (cfdb-hir-extractor) and the target type crate
-    // (cfdb-petgraph). Either missing would make the impl ill-formed.
     for required in ["cfdb-core", "cfdb-hir-extractor", "cfdb-petgraph"] {
         assert!(
             deps.contains(required),
@@ -218,9 +150,6 @@ fn adapter_direct_dependencies_include_trait_source_and_target_type() {
 
 #[test]
 fn adapter_crate_does_not_reference_ra_ap_directly() {
-    // The adapter works on `(Vec<Node>, Vec<Edge>)` post-extraction
-    // facts and MUST NOT import any `ra-ap-*` crate. All HIR-type
-    // handling stays in `cfdb-hir-extractor` (#85c onward).
     let src = workspace_root()
         .join("crates")
         .join("cfdb-hir-petgraph-adapter")
@@ -233,18 +162,12 @@ fn adapter_crate_does_not_reference_ra_ap_directly() {
             let contents = fs::read_to_string(&path)
                 .unwrap_or_else(|e| panic!("read {} failed: {e}", path.display()));
             for (lineno, line) in contents.lines().enumerate() {
-                // Skip comment-only lines — the module header
-                // legitimately cites `ra-ap-*` for architectural
-                // rationale.
                 if line.trim_start().starts_with("//") {
                     continue;
                 }
                 for fragment in FORBIDDEN_CRATE_FRAGMENTS {
                     if *fragment == "cfdb-hir-extractor" || *fragment == "cfdb-hir-petgraph-adapter"
                     {
-                        // The adapter legitimately references its
-                        // own trait source; skip self-refs here. The
-                        // other test catches cli contamination.
                         continue;
                     }
                     assert!(

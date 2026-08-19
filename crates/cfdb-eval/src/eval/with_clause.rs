@@ -1,7 +1,3 @@
-//! `WITH` clause — project, group (if any aggregation), re-filter via
-//! trailing `WHERE`. Also hosts the shared group-and-aggregate machinery
-//! consumed by both `WITH` and `RETURN`.
-
 use std::collections::{BTreeMap, BTreeSet};
 
 use cfdb_core::fact::PropValue;
@@ -64,9 +60,6 @@ impl<'a, G: GraphReader + ?Sized> Evaluator<'a, G> {
             .filter(|p| matches!(p.value, ProjectionValue::Aggregation(_)))
             .collect();
 
-        // `PropValue` is not `Ord` (it contains `f64`), so groups are keyed by
-        // a deterministic string digest of the key vector. `key_values` keeps
-        // the raw `PropValue`s alongside for later use in the output row.
         let mut groups: BTreeMap<String, (Vec<PropValue>, Vec<&Bindings>)> = BTreeMap::new();
         let mut order: Vec<String> = Vec::new();
 
@@ -85,11 +78,6 @@ impl<'a, G: GraphReader + ?Sized> Evaluator<'a, G> {
         out
     }
 
-    /// Per-row accumulator for the group-and-aggregate body of
-    /// [`apply_with`]. Compute the key vector, derive its digest, and
-    /// route the bindings into the matching group. Extracted from the
-    /// `for bindings in table` loop so the `key_str.clone()` and
-    /// `key.clone()` live in a helper rather than the outer loop body.
     fn accumulate_group_row<'t>(
         &self,
         groups: &mut BTreeMap<String, (Vec<PropValue>, Vec<&'t Bindings>)>,
@@ -122,10 +110,6 @@ impl<'a, G: GraphReader + ?Sized> Evaluator<'a, G> {
             .push(bindings);
     }
 
-    /// Per-group emission body for the output loop of [`apply_with`].
-    /// Returns the assembled [`Bindings`] or `None` when the group key
-    /// has vanished (defensively — shouldn't happen for keys sourced
-    /// from the same map).
     fn materialise_group_row(
         &self,
         groups: &BTreeMap<String, (Vec<PropValue>, Vec<&Bindings>)>,
@@ -203,24 +187,11 @@ impl<'a, G: GraphReader + ?Sized> Evaluator<'a, G> {
                     RowValue::Scalar(PropValue::Null)
                 }
             }
-            // `Aggregation` is `#[non_exhaustive]`. A future variant added in
-            // cfdb-core surfaces here as a sentinel result row from
-            // `unsupported_aggregation_sentinel` — NOT a silent empty list or
-            // null. The hard E0004 compile error makes this branch reachable
-            // only post-cfdb-core-variant-addition. The sentinel string is
-            // unit-tested below.
             _ => unsupported_aggregation_sentinel(agg),
         }
     }
 }
 
-/// Sentinel row value for an unsupported `Aggregation` variant.
-///
-/// Returns a `RowValue::Scalar(PropValue::Str("unsupported_aggregation:<discriminant>"))`
-/// so a future variant added in `cfdb-core` becomes visible in the result row
-/// rather than silently producing an empty list or null scalar (RFC-044 §3.7
-/// AC (c)). The discriminant is rendered via `std::mem::discriminant` to
-/// avoid stringifying variant payloads (which can be arbitrarily large).
 pub(super) fn unsupported_aggregation_sentinel(agg: &Aggregation) -> RowValue {
     RowValue::Scalar(PropValue::Str(format!(
         "unsupported_aggregation:{:?}",
@@ -233,15 +204,6 @@ mod tests {
     use super::*;
     use cfdb_core::query::ast::Expr;
 
-    /// The `_ =>` arm of `eval_aggregation` returns a non-silent sentinel for
-    /// unsupported / future `Aggregation` variants.
-    ///
-    /// We cannot construct a "future" variant directly (cfdb-core's
-    /// `#[non_exhaustive]` annotation prevents that from outside the crate),
-    /// so this test exercises the sentinel-emitting helper directly with
-    /// every current variant. The helper's contract is independent of which
-    /// variant is passed — it always emits the `"unsupported_aggregation:<d>"`
-    /// shape.
     #[test]
     fn unsupported_aggregation_sentinel_has_documented_shape() {
         let variants: Vec<Aggregation> = vec![
@@ -261,9 +223,6 @@ mod tests {
                 s.starts_with("unsupported_aggregation:"),
                 "sentinel prefix invariant: got {s:?}"
             );
-            // Discriminant Debug format MUST NOT include payload data
-            // (would explode for large variants like Collect(huge_expr));
-            // the format is opaque but stable per-process.
             assert!(
                 !s.contains("Var") && !s.contains("Expr"),
                 "sentinel must not stringify payload — used std::mem::discriminant: got {s:?}"

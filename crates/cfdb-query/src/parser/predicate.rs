@@ -1,6 +1,3 @@
-//! Predicate layer — comparisons, regex, IN, NOT EXISTS, AND/OR/NOT, plus the
-//! restricted subquery grammar used by `NOT EXISTS { MATCH ... }`.
-
 use std::collections::BTreeMap;
 
 use cfdb_core::{CompareOp, Expr, Pattern, Predicate, PropValue, Query, ReturnClause};
@@ -37,9 +34,6 @@ pub(super) fn predicate_parser<'a>(expr: BoxedParser<'a, Expr>) -> BoxedParser<'
             .then(expr.clone())
             .map(|(left, right)| Predicate::In { left, right });
 
-        // NOT EXISTS { MATCH ... [WHERE ...] }
-        // We allow only a simplified inner query: MATCH ... (no nested
-        // subqueries to avoid re-entering the full parser).
         let not_exists = kw("not")
             .ignore_then(kw("exists"))
             .ignore_then(subquery_parser(pred.clone()))
@@ -89,15 +83,6 @@ pub(super) fn predicate_parser<'a>(expr: BoxedParser<'a, Expr>) -> BoxedParser<'
     .boxed()
 }
 
-// `NOT EXISTS { MATCH (a)-[:CALLS]->(b) [WHERE pred] }` — inner is a pattern
-// with an optional WHERE. No nested WITH / RETURN.
-//
-// `pred` is the outer recursive Predicate parser threaded through so the inner
-// WHERE accepts the full v0.1 predicate subset (regex, IN, AND/OR/NOT, nested
-// NOT EXISTS) — single resolution point with the top-level WHERE. The previous
-// shape rebuilt a Compare/Ne-only "inner_cmp" grammar inline, which was a
-// split-brain with `predicate_parser` — any extension to the
-// outer grammar silently bypassed the subquery body.
 fn subquery_parser<'a>(
     pred: impl Parser<'a, &'a str, Predicate, Extra<'a>> + Clone + 'a,
 ) -> BoxedParser<'a, Query> {
@@ -109,9 +94,6 @@ fn subquery_parser<'a>(
     ))
     .boxed();
 
-    // NOTE: the inner pattern matching re-uses the same path/node parsers
-    // as the top level, but we only need single-hop paths here (the study's
-    // F6 case). This is intentional — deeper subqueries can go in v0.2.
     let node_pat = node_pattern_parser(ident.clone(), prop_lit.clone());
     let edge_pat = edge_pattern_parser(ident.clone());
     let path_pat = path_pattern_parser(node_pat.clone(), edge_pat);

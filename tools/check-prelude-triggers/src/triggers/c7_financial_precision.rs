@@ -1,27 +1,15 @@
-//! C7 — financial-precision path change detection.
-//!
-//! Fires when a changed path sits under any prefix declared in
-//! `financial-precision-crates.toml` (top-level `financial_precision_prefixes`
-//! array). These are crates where `rust_decimal::Decimal` is mandatory; any
-//! touch is a signal that the agent must inspect for f64 escapes.
-
 use serde_json::json;
 use std::path::Path;
 
 use crate::toml_io::{read_changed_paths, read_toml, LoadError};
 use crate::triggers::TriggerOutcome;
 
-/// Run the C7 check against the on-disk inputs.
-///
-/// # Errors
-/// Returns [`LoadError`] if either file is missing or malformed.
 pub fn run(fin_precision: &Path, changed_paths: &Path) -> Result<TriggerOutcome, LoadError> {
     let cfg = read_toml(fin_precision)?;
     let changed = read_changed_paths(changed_paths)?;
     Ok(evaluate(&cfg, &changed))
 }
 
-/// Pure evaluator exposed for unit tests.
 #[must_use]
 pub fn evaluate(fin_config: &toml::Value, changed_paths: &[String]) -> TriggerOutcome {
     let prefixes: Vec<&str> = fin_config

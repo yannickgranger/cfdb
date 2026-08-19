@@ -1,29 +1,3 @@
-//! Architecture test — source-level determinism invariants for cfdb-hir-extractor.
-//!
-//! RFC-029 §12.1 G1 requires every fact-emitting crate to produce
-//! byte-identical output across runs. That demands at SOURCE level:
-//!
-//! - `BTreeMap` / `BTreeSet` — not `HashMap` / `HashSet` (insertion-order non-determinism)
-//! - Stable sort — `sort` / `sort_by` / `sort_by_key`, never `sort_unstable*`
-//! - Single-threaded writes — no `rayon`, `par_iter`, `parallel_bridge`, or `thread::{spawn,scope}`
-//! - No wall-clock reads — no `SystemTime`, `Instant::now`, `chrono::Utc::now`, `chrono::Local::now`
-//!
-//! This is the RFC-044 §3.5 propagation of the original
-//! `cfdb-extractor/tests/architecture_determinism.rs` gate to every sibling
-//! emitter crate. Each copy is self-contained — no shared ban-list, no shared
-//! runner — the canonical example of acceptable duplication per the
-//! no-monolith directive (RFC-044 §I1). A future contributor adding
-//! `use std::collections::HashMap;` to prod source would silently break G1;
-//! this test catches the drift at compile time, in every profile, in ms.
-//!
-//! **Scope:** prod source under `src/` only. Test code is excluded two ways:
-//! (1) separate test-sibling files (`tests.rs`, `*_tests.rs`) are skipped by
-//! name — they legitimately use `Instant::now` (perf timing) and `"chrono::Utc::now"`
-//! string fixtures; (2) inline `#[cfg(test)]` items are stripped before
-//! scanning. This dual exclusion is the RFC-044 hardening over the original
-//! cfdb-extractor gate (which relied on inline-stripping alone because its own
-//! separate test files happened to be clean).
-
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -37,7 +11,6 @@ fn cfdb_hir_extractor_src_has_no_determinism_breaking_patterns() {
         src_root.display()
     );
 
-    // Each entry: (substring to search, reason / remediation).
     let forbidden: &[(&str, &str)] = &[
         ("HashMap", "use `BTreeMap` — HashMap iteration order is nondeterministic"),
         ("HashSet", "use `BTreeSet` — HashSet iteration order is nondeterministic"),
@@ -76,9 +49,6 @@ fn cfdb_hir_extractor_src_has_no_determinism_breaking_patterns() {
     );
 }
 
-/// Collect every prod `.rs` file under `dir`, skipping separate test-sibling
-/// files by name (`tests.rs`, `*_tests.rs`) — those carry test-only fixtures
-/// (`Instant::now`, `"Utc::now"` strings) that are not production code.
 fn collect_prod_rs_files(dir: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     walk(dir, &mut out);
@@ -108,18 +78,6 @@ fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// Strip `#[cfg(test)]`-gated items and full-line `//` comments from `source`.
-///
-/// Handles both `#[cfg(test)] mod tests { ... }` (inline body, depth-counted)
-/// and `#[cfg(test)] mod tests;` (external module reference, single-statement
-/// skip). Full-line comments starting with `//`, `///`, or `//!` are elided so
-/// the pattern scan does not match text inside doc comments describing the
-/// forbidden patterns in prose.
-///
-/// Coarse by design: does not handle braces / semicolons embedded in string
-/// literals or block comments inside an inline `#[cfg(test)]` block. Separate
-/// test-sibling files are already excluded by `collect_prod_rs_files`, so the
-/// residual risk is limited to inline test mods in prod-named files.
 fn strip_test_scopes(source: &str) -> String {
     let lines: Vec<&str> = source.lines().collect();
     let mut out = String::new();

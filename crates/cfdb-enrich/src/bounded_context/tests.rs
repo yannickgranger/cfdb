@@ -16,9 +16,6 @@ fn write(root: &Path, rel: &str, contents: &str) {
     std::fs::write(&path, contents).expect("write");
 }
 
-/// Build a store containing `:Item` nodes with given `(qname, name, crate,
-/// bounded_context)` tuples. Useful for simulating a previously-extracted
-/// keyspace.
 fn store_with_items(workspace: &Path, items: &[(&str, &str, &str, &str)]) -> PetgraphStore {
     let mut store = PetgraphStore::new().with_workspace(workspace);
     let ks = Keyspace::new("test");
@@ -57,24 +54,14 @@ fn get_bounded_context(store: &PetgraphStore, keyspace: &Keyspace, qname: &str) 
         .unwrap_or_else(|| panic!("item {qname} or its bounded_context prop missing"))
 }
 
-// ------------------------------------------------------------------
-// AC-1: TOML override patches mismatched items.
-// ------------------------------------------------------------------
-
 #[test]
 fn ac1_toml_override_patches_mismatched_items() {
     let tmp = tempfile::tempdir().expect("tempdir");
-    // Declare that `domain-trading` belongs to context `"trading"` (which
-    // happens to match the heuristic — so we instead use a non-heuristic
-    // mapping to prove the override wins).
     write(
         tmp.path(),
         ".cfdb/concepts/trading.toml",
         "name = \"custom-trading\"\ncrates = [\"domain-trading\"]\n",
     );
-    // Extractor-time values: stale heuristic ("trading" from stripping
-    // "domain-"). TOML now says "custom-trading" — re-enrichment must
-    // patch.
     let mut store = store_with_items(
         tmp.path(),
         &[
@@ -100,15 +87,9 @@ fn ac1_toml_override_patches_mismatched_items() {
     );
 }
 
-// ------------------------------------------------------------------
-// AC-2: no TOML changes (or no TOML at all) → no-op, ran=true.
-// ------------------------------------------------------------------
-
 #[test]
 fn ac2_no_toml_is_noop_on_items_that_match_heuristic() {
     let tmp = tempfile::tempdir().expect("tempdir");
-    // No `.cfdb/concepts/` directory. Heuristic applies:
-    // `domain-trading` → "trading". Stored value already matches.
     let mut store = store_with_items(
         tmp.path(),
         &[("crate::A", "A", "domain-trading", "trading")],
@@ -123,10 +104,6 @@ fn ac2_no_toml_is_noop_on_items_that_match_heuristic() {
     assert_eq!(report.attrs_written, 0, "no-op on fresh-extract values");
 }
 
-// ------------------------------------------------------------------
-// AC-3: modified TOML → mismatched crates patched, matching ones untouched.
-// ------------------------------------------------------------------
-
 #[test]
 fn ac3_only_mismatched_crates_patched() {
     let tmp = tempfile::tempdir().expect("tempdir");
@@ -135,10 +112,6 @@ fn ac3_only_mismatched_crates_patched() {
         ".cfdb/concepts/trading.toml",
         "name = \"trading-v2\"\ncrates = [\"domain-trading\"]\n",
     );
-    // Two items in `domain-trading` (out of sync) + one in
-    // `ports-trading` (where stored value "trading" already matches the
-    // heuristic output for that crate; no override for ports-trading, so
-    // it stays unchanged).
     let mut store = store_with_items(
         tmp.path(),
         &[
@@ -158,11 +131,6 @@ fn ac3_only_mismatched_crates_patched() {
     assert_eq!(get_bounded_context(&store, &ks, "crate::B"), "trading-v2");
     assert_eq!(get_bounded_context(&store, &ks, "crate::C"), "trading");
 }
-
-// ------------------------------------------------------------------
-// AC-7: two runs on identical workspace + TOML produce byte-identical
-// canonical dumps.
-// ------------------------------------------------------------------
 
 #[test]
 fn ac7_two_runs_produce_identical_canonical_dumps() {
@@ -212,10 +180,6 @@ fn ac7_two_runs_produce_identical_canonical_dumps() {
     let d2 = s2.canonical_dump(&ks).expect("dump 2");
     assert_eq!(d1, d2, "two runs must be byte-identical (AC-7)");
 }
-
-// ------------------------------------------------------------------
-// Degraded paths
-// ------------------------------------------------------------------
 
 #[test]
 fn malformed_toml_returns_ran_false_with_warning() {
@@ -300,9 +264,8 @@ fn no_workspace_root_returns_degraded_report() {
 
 #[test]
 fn unknown_keyspace_errs_even_when_workspace_root_is_also_missing() {
-    // The keyspace guard wins when both fail — never the degraded report.
-    let mut store = PetgraphStore::new(); // no workspace root
-    let ks = Keyspace::new("never"); // and no such keyspace
+    let mut store = PetgraphStore::new();
+    let ks = Keyspace::new("never");
     let err = EnrichEngine::new(&mut store)
         .enrich_bounded_context(&ks)
         .expect_err("keyspace guard must win over the workspace guard");

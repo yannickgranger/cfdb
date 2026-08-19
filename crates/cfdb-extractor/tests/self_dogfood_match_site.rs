@@ -1,27 +1,9 @@
-//! RFC-053 slice 53-A self-dogfood — extract cfdb's own sub-workspace via
-//! `extract_workspace` and assert `:MatchSite` / `MATCHES_AT` against the
-//! two source-verified canonical sites in cfdb's own tree (RFC-053 §4:
-//! rustdoc-json carries no match-expression facts, so `cfdb-recall`'s
-//! oracle cannot cover this fact kind — self-dogfood is the substitute).
-//!
-//! Canonical sites at slice-ship time:
-//! - `crates/cfdb-extractor/src/item_visitor.rs` `parse_syn_visibility`
-//!   matches `syn::Visibility` (an EXTERNAL type — the exact "per-site
-//!   fact whose target may not resolve" instance the RFC exists for) →
-//!   exactly ONE `:MatchSite` with `matched_path = "syn::Visibility"`.
-//! - `crates/cfdb-core/src/visibility.rs` `Visibility::as_wire_str`
-//!   matches `self` (the WORKSPACE enum) → `matched_path = "Visibility"`.
-//! - `Visibility::FromStr::from_str` matches a `&str` — literal-scrutinee,
-//!   no path prefix → emits NO `:MatchSite` (so the only production sites
-//!   in visibility.rs carry `matched_path = "Visibility"`).
-
 use std::path::Path;
 
 use cfdb_core::fact::PropValue;
 use cfdb_core::schema::{EdgeLabel, Label};
 use cfdb_extractor::extract_workspace;
 
-/// Resolve the cfdb sub-workspace root — this crate's grandparent directory.
 fn cfdb_workspace_root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -70,7 +52,6 @@ fn visibility_enum_match_site_present_and_from_str_str_match_absent() {
         .filter(|n| prop_str(n, "file").is_some_and(|f| f.ends_with("cfdb-core/src/visibility.rs")))
         .collect();
 
-    // `as_wire_str`'s match on `self` yields the workspace-enum prefix.
     let visibility_hits = in_visibility_rs
         .iter()
         .filter(|n| prop_str(n, "matched_path") == Some("Visibility"))
@@ -81,10 +62,6 @@ fn visibility_enum_match_site_present_and_from_str_str_match_absent() {
          in visibility.rs (Visibility::as_wire_str); got {visibility_hits}"
     );
 
-    // `FromStr::from_str` matches a `&str` — a literal scrutinee with no
-    // path prefix. It must emit NO site, so EVERY production site in
-    // visibility.rs carries matched_path = 'Visibility' (the as_wire_str
-    // one). Any other value would mean the &str match leaked a site.
     for n in &in_visibility_rs {
         assert_eq!(
             prop_str(n, "matched_path"),

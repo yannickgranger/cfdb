@@ -1,11 +1,3 @@
-//! Query AST core — the shapes produced by the parser/builder and consumed by
-//! the store evaluator.
-//!
-//! This module contains only the AST node types (`Query`, `Pattern`,
-//! `Predicate`, `Expr`, `ReturnClause`, ...). The debt-inventory types
-//! (`DebtClass`, `ScopeInventory`, ...) and the `list_items_matching` composer
-//! live in sibling submodules.
-
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
@@ -13,18 +5,6 @@ use serde::{Deserialize, Serialize};
 use crate::fact::PropValue;
 use crate::schema::{EdgeLabel, Label};
 
-/// A parsed query. Top-level shape:
-///
-/// ```text
-/// MATCH <patterns>
-/// [WHERE <predicate>]
-/// [WITH <projections> [WHERE <predicate>]]
-/// RETURN <items>
-/// [ORDER BY <items>] [LIMIT <n>]
-/// ```
-///
-/// `UNWIND $list AS var` is represented as a pattern variant, not a top-level
-/// clause, to keep the AST shape uniform.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Query {
     pub match_clauses: Vec<Pattern>,
@@ -49,42 +29,29 @@ impl Query {
     }
 }
 
-/// Value bound to a `$name` parameter in a query.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ParamBinding {
     Scalar(PropValue),
     List(Vec<PropValue>),
 }
 
-/// A single MATCH pattern or UNWIND binding.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Pattern {
-    /// `MATCH (var:Label {prop: value, ...})` — a single node binding. The
-    /// label may be absent if the pattern is unlabelled (e.g. anonymous
-    /// endpoints in a path).
     Node(NodePattern),
 
-    /// `MATCH (a)-[:LABEL*1..N]->(b)` — a traversal from an existing node
-    /// binding to another, optionally with a variable-length quantifier.
     Path(PathPattern),
 
-    /// `OPTIONAL MATCH <inner>` — left-join semantics. Inner bindings become
-    /// NULL-filled on no match (F4).
     Optional(Box<Pattern>),
 
-    /// `UNWIND $list AS var` — binds each element of `$list` to `var` and
-    /// cross-joins with the rest of the match.
     Unwind { list_param: String, var: String },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct NodePattern {
-    /// Binding name: `(foo:Label)` → `Some("foo")`; anonymous `()` → None.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub var: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<Label>,
-    /// Inline property equalities: `(foo {kind: 'fn'})` → `{"kind": "fn"}`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub props: BTreeMap<String, PropValue>,
 }
@@ -103,49 +70,35 @@ pub struct EdgePattern {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<EdgeLabel>,
     pub direction: Direction,
-    /// `[:LABEL*1..5]` → `Some((1, 5))`; the open form `[:LABEL*1..]` (omitted
-    /// upper bound) → `Some((1, u32::MAX))`; `[:LABEL]` → None. The `u32::MAX`
-    /// sentinel signals an unbounded traversal to the evaluator.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub var_length: Option<(u32, u32)>,
 }
 
-/// Graph-topology vocabulary, not query-grammar — lives in `crate::schema`
-/// (peer of `Label`/`EdgeLabel`) so `cfdb-enrich`'s `GraphView` port can
-/// depend on it without pulling in the query grammar (RFC-056 §3.3).
-/// Re-exported here so every existing `cfdb_core::query::ast::Direction` /
-/// `cfdb_core::query::Direction` caller keeps compiling unchanged.
 pub use crate::schema::Direction;
 
-/// WHERE clause predicate tree.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Predicate {
-    /// `a.qname = 'foo'` or `a.qname = b.qname` or `a.line < 100`.
     Compare {
         left: Expr,
         op: CompareOp,
         right: Expr,
     },
 
-    /// `a.qname IN $list` or `a.qname IN [x, y, z]`.
     In {
         left: Expr,
         right: Expr,
     },
 
-    /// `a.qname =~ '^foo_.*'` — regex match on string.
     Regex {
         left: Expr,
         pattern: Expr,
     },
 
-    /// `a <> b`.
     Ne {
         left: Expr,
         right: Expr,
     },
 
-    /// `NOT EXISTS { MATCH (a)-[:CALLS]->(b) }` — the sub-match subquery form.
     NotExists {
         inner: Box<Query>,
     },
@@ -165,27 +118,16 @@ pub enum CompareOp {
     Ge,
 }
 
-/// Expression appearing in predicates and RETURN/WITH clauses.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Expr {
-    /// `var.prop` — property access on a bound variable.
     Property { var: String, prop: String },
-    /// `var` — reference to a full bound node/edge.
     Var(String),
-    /// A literal value.
     Literal(PropValue),
-    /// `$name` — parameter reference.
     Param(String),
-    /// A list literal.
     List(Vec<Expr>),
-    /// A function call: `regexp_extract(a.qname, '[^:]+$')`, `starts_with`,
-    /// `ends_with`, `size`, etc.
     Call { name: String, args: Vec<Expr> },
 }
 
-/// `WITH projection1 AS alias1, COUNT(x) AS n, ... [WHERE predicate]`.
-///
-/// Non-aggregated items in the projection list form the implicit GROUP BY key.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct WithClause {
     pub projections: Vec<Projection>,
@@ -193,7 +135,6 @@ pub struct WithClause {
     pub where_clause: Option<Predicate>,
 }
 
-/// `RETURN projection1 AS alias1, ... [ORDER BY ...] [LIMIT n]`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ReturnClause {
     pub projections: Vec<Projection>,
@@ -207,7 +148,6 @@ pub struct ReturnClause {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Projection {
     pub value: ProjectionValue,
-    /// `AS alias`. When absent, callers get a synthesized column name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub alias: Option<String>,
 }
@@ -218,26 +158,14 @@ pub enum ProjectionValue {
     Aggregation(Aggregation),
 }
 
-/// Supported aggregations for v0.1.
-///
-/// `#[non_exhaustive]` per RFC-044 §3.7 (slice 044-G): downstream evaluators
-/// must include a `_ =>` arm returning `StoreError::Eval("unsupported
-/// aggregation: <name>")` so adding a new variant in cfdb-core cannot silently
-/// produce empty results in older evaluators (`with_clause.rs::eval_aggregation`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum Aggregation {
-    /// `COUNT(*)` — count all bindings.
     CountStar,
-    /// `COUNT(expr)` — count non-null values of expr.
     Count(Expr),
-    /// `COUNT(DISTINCT expr)`.
     CountDistinct(Expr),
-    /// `COLLECT(expr)` — gather into a list.
     Collect(Expr),
-    /// `COLLECT(DISTINCT expr)`.
     CollectDistinct(Expr),
-    /// `SIZE(expr)` — length of a list or string.
     Size(Expr),
 }
 

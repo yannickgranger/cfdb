@@ -1,6 +1,3 @@
-//! The `schema_describe()` verb — runtime contract for the cfdb vocabulary.
-//! Deterministic and byte-stable per build.
-
 use super::descriptors::{NodeLabelDescriptor, SchemaDescribe};
 use super::version::SchemaVersion;
 
@@ -10,11 +7,6 @@ mod nodes;
 #[cfg(test)]
 mod tests;
 
-/// Return the canonical schema description for the current cfdb-core build.
-///
-/// This is the runtime contract cfdb exposes to consumers — the complete
-/// vocabulary of node labels, edge labels, attributes, and per-attribute
-/// provenance. Deterministic and byte-stable for a given build.
 pub fn schema_describe() -> SchemaDescribe {
     SchemaDescribe {
         schema_version: SchemaVersion::CURRENT,

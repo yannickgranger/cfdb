@@ -1,54 +1,3 @@
-//! TypeScript-language `LanguageProducer` MVP.
-//!
-//! Walks a Next.js-shaped TS project syntactically via
-//! [`tree-sitter-typescript`] and emits the v0.1 cfdb fact set
-//! (`:Crate`, `:Module`, `:Item`, plus `IN_CRATE` / `IN_MODULE` edges).
-//! Pairs with `cfdb-extractor` (Rust reference impl) and parallel
-//! language extractors, all plugging into the same `cfdb-cli` dispatcher.
-//!
-//! # TS → Rust closed-set `:Item.kind` mapping (load-bearing)
-//!
-//! `cfdb-core::schema::labels` declares a closed set of `:Item.kind`
-//! values (`"struct"`, `"enum"`, `"trait"`, `"fn"`, `"impl_block"`,
-//! `"const"`, `"static"`, `"type"`, `"mod"`). This producer MUST NOT
-//! emit a `kind` outside that set. This crate works around the constraint
-//! by mapping each TS construct to its closest semantic Rust analogue:
-//!
-//! | TS construct                        | Mapped to                          | Rationale                                                                 |
-//! | ----------------------------------- | ---------------------------------- | ------------------------------------------------------------------------- |
-//! | TS `module` (one per `.ts` file)    | `:Module` node (NOT `:Item.namespace`) | TS files behave like Rust file-modules; reuse the existing `:Module` label. |
-//! | TS `interface_declaration`          | `:Item { kind: "trait" }`          | Both declare a contract (set of method/property signatures) without impl. |
-//! | TS `type_alias_declaration`         | `:Item { kind: "type" }`           | Exact semantic match — already in the closed set.                          |
-//! | TS `class_declaration`              | `:Item { kind: "struct" }`         | TS classes are stateful aggregates; closest to Rust struct + impl block.  |
-//! | TS exported `function_declaration`  | `:Item { kind: "fn" }`             | Exact semantic match.                                                     |
-//! | TS top-level `const` / `let` / `var`| `:Item { kind: "const" }`          | Closed set has no `let`/`var`; collapse the three into `const` on emit.    |
-//!
-//! Non-exported items at the top level are still emitted (TS does
-//! not require an explicit `pub` to reach module scope, unlike Rust)
-//! but carry `visibility: "private"`. Exported items carry
-//! `visibility: "public"`. JSX components and `.tsx` files are out
-//! of scope for the MVP — see `LANGUAGE_TYPESCRIPT` (NOT
-//! `LANGUAGE_TSX`) below.
-//!
-//! # Determinism
-//!
-//! The walker emits files in alphabetical order (BTreeSet iteration)
-//! and items in source order within a file. The trait method sorts
-//! the final `(nodes, edges)` tuples canonically before returning,
-//! matching `cfdb-extractor`'s convention so downstream
-//! `cfdb-petgraph` ingestion hashes the same regardless of who
-//! produced the bytes. Two consecutive `produce()` calls on the same
-//! tree are byte-identical.
-//!
-//! # Acceptance criteria
-//!
-//! The MVP intentionally does NOT match `ts-morph` parity. Acceptance is
-//! satisfied if the fixture round-trips at least one `:Item { kind: "trait" }`
-//! (interface), one `:Item { kind: "type" }` (type alias), and one
-//! `:Item { kind: "fn" }` (exported function). Cross-file imports,
-//! re-exports, JSX, decorators, generics, and namespace-merging are
-//! deferred to future work.
-
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -61,29 +10,13 @@ mod call_walker;
 mod emit;
 mod methods;
 
-/// Stable producer identifier — matches the `lang-typescript` Cargo
-/// feature gate and the keyspace suffix `cfdb-cli` derives at dispatch time.
 const PRODUCER_NAME: &str = "typescript";
 
-/// Workspace-root marker filenames. BOTH must be present for a
-/// directory to be detected as a TypeScript project — `package.json`
-/// alone matches plain Node.js / JavaScript projects, which this
-/// producer does not handle. The `tsconfig.json` requirement is the
-/// TS-specific signal.
 const TSCONFIG_JSON: &str = "tsconfig.json";
 const PACKAGE_JSON: &str = "package.json";
 
-/// Directory names skipped by the file walker. `node_modules` would
-/// pull tens of thousands of vendored `.ts` files into a single
-/// extract — explicitly excluded. `dist` and `build` are common
-/// compiled-output directories that contain transpiled `.ts` (or
-/// `.d.ts`) we do not want to double-emit.
 const SKIPPED_DIRS: &[&str] = &["node_modules", "dist", "build"];
 
-/// TypeScript reference implementation of `cfdb_lang::LanguageProducer`.
-///
-/// See the crate-root docs for the TS → Rust closed-set mapping and
-/// the acceptance criteria.
 pub struct TypeScriptProducer;
 
 impl LanguageProducer for TypeScriptProducer {
@@ -105,13 +38,6 @@ impl LanguageProducer for TypeScriptProducer {
             });
         }
 
-        // Issue #540 (the #527 bug class): resolve the caller-spelled
-        // root (`.` — CI's literal `--workspace .` shape — relative,
-        // symlinked, `..`-terminated) once, up front. Before this,
-        // `derive_crate_name` silently fell back to `"ts_workspace"` on
-        // any root `Path::file_name()` cannot digest, mislabeling the
-        // `:Crate` node and every qname in the keyspace; and a
-        // `strip_prefix` miss shipped an absolute `file` prop silently.
         let workspace_root = cfdb_lang::canonical_workspace_root(workspace_root)?;
         let workspace_root = workspace_root.as_path();
 
@@ -121,11 +47,6 @@ impl LanguageProducer for TypeScriptProducer {
         let mut nodes: Vec<Node> = Vec::new();
         let mut edges: Vec<Edge> = Vec::new();
 
-        // :Crate — one per TS workspace. The `is_workspace_member`
-        // prop matches what `cfdb-extractor`'s Rust path emits; the
-        // `published_language` prop is `false` for TS workspaces by
-        // default (the marker file `.cfdb/published-language-crates.toml`
-        // applies to Rust crate names, not TS package names).
         nodes.push(Node {
             id: crate_id.clone(),
             label: Label::new(Label::CRATE),
@@ -164,14 +85,8 @@ impl LanguageProducer for TypeScriptProducer {
             )?;
         }
 
-        // Pass 2: now that every class/interface `:Item` exists, resolve the
-        // buffered `implements` references into `IMPLEMENTS` edges by name
-        // (RFC-045 §3.2 / §3.4, in-workspace-only).
         emit::resolve_implements(pending_implements, &nodes, &mut edges);
 
-        // Canonical sort — matches cfdb-extractor's contract so two
-        // producers' output streams compose deterministically when
-        // ingested into the same `:Crate`-disjoint keyspace.
         nodes.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
         edges.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
 
@@ -179,12 +94,6 @@ impl LanguageProducer for TypeScriptProducer {
     }
 }
 
-/// Derive a synthetic crate name from the workspace root. We do NOT
-/// parse `package.json` here — the MVP keeps the dep tree minimal
-/// (no `serde_json` in this crate) and uses the directory's last
-/// path segment as the crate name. A follow-up can read
-/// `package.json#name` once we have a justification for taking on
-/// the dep.
 fn derive_crate_name(workspace_root: &Path) -> String {
     workspace_root
         .file_name()
@@ -193,10 +102,6 @@ fn derive_crate_name(workspace_root: &Path) -> String {
         .to_string()
 }
 
-/// Recursive walk of `workspace_root`, collecting every `*.ts` file
-/// (NOT `*.tsx` — out of scope for the MVP). Skips `SKIPPED_DIRS`
-/// and any path that is not a real file. Output is sorted by path
-/// string for deterministic emission order.
 fn collect_ts_files(workspace_root: &Path) -> std::io::Result<Vec<PathBuf>> {
     let mut acc = Vec::new();
     visit_dir(workspace_root, &mut acc)?;
@@ -241,8 +146,6 @@ fn visit_dir(dir: &Path, acc: &mut Vec<PathBuf>) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Parse one `.ts` file and emit its `:Module` node + child `:Item`
-/// nodes + structural edges.
 #[allow(clippy::too_many_arguments)]
 fn walk_file(
     parser: &mut Parser,
@@ -261,9 +164,6 @@ fn walk_file(
     })?;
 
     let rel_path = cfdb_lang::workspace_relative(file_path, workspace_root, PRODUCER_NAME)?;
-    // Module qpath: dotted form of the relative path with `.ts`
-    // stripped, mirroring how Rust modules become `crate::foo::bar`
-    // in cfdb's qname grammar. `src/user.ts` → `src.user`.
     let module_qpath = ts_module_qpath(&rel_path);
     let module_id = format!("module:{crate_name}::{module_qpath}");
 
@@ -296,9 +196,6 @@ fn walk_file(
     Ok(())
 }
 
-/// Convert a relative file path (`src/user.ts`) to a dotted module
-/// qpath (`src.user`). Path separators collapse to `.`; the trailing
-/// `.ts` extension is stripped.
 fn ts_module_qpath(rel_path: &str) -> String {
     let trimmed = rel_path.strip_suffix(".ts").unwrap_or(rel_path);
     trimmed

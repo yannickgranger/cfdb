@@ -1,23 +1,3 @@
-//! Issue #102 — `cfdb check --trigger T3` integration test (AC-4 + AC-5).
-//!
-//! Builds TWO synthetic Cargo workspace fixtures exercising the two
-//! `is_cross_context` branches:
-//!
-//!   - `same-context` fixture: 2 crates in one bounded context
-//!     (`alpha`), both defining `pub struct OrderStatus` →
-//!     exactly 1 T3 row with `is_cross_context = false`.
-//!   - `cross-context` fixture: 2 crates in different bounded contexts
-//!     (`alpha` + `beta`), both defining `pub struct OrderStatus` →
-//!     exactly 1 T3 row with `is_cross_context = true`.
-//!
-//! Each fixture is extracted via the real `cfdb` binary and the T3
-//! trigger is run against the resulting keyspace. Assertions
-//! verify the row count, the `is_cross_context` flag, and the
-//! `canonical_candidate` derivation.
-//!
-//! Template follows `arch_ban_utc_now.rs` + `trigger_t1.rs` —
-//! `Command::cargo_bin("cfdb")` + tempdir + real keyspace. No mocks.
-
 #![cfg(feature = "classify")]
 
 use std::fs;
@@ -34,11 +14,6 @@ fn write(path: &Path, contents: &str) {
     fs::write(path, contents).expect("write fixture file");
 }
 
-/// Shared helper — builds a Cargo workspace with two library crates,
-/// both defining `pub struct OrderStatus` so T3's same-name-multi-crate
-/// detector fires on one row. Caller supplies the `.cfdb/concepts/*.toml`
-/// contents so the bounded-context assignment drives the
-/// `is_cross_context` branch under test.
 fn build_workspace_with_shared_name(root: &Path, concept_tomls: &[(&str, &str)]) -> PathBuf {
     write(
         &root.join("Cargo.toml"),
@@ -63,7 +38,6 @@ path = "src/lib.rs"
 "#
             ),
         );
-        // Same struct name in both crates — the T3 signal.
         write(
             &root.join(format!("{name}/src/lib.rs")),
             "pub struct OrderStatus;\n",
@@ -155,10 +129,6 @@ fn t3_same_context_fixture_reports_one_row_with_is_cross_context_false() {
     let db = tempdir().expect("db tempdir");
     run_extract(db.path(), &workspace, "t3-same");
 
-    // Default exit: 1 when ANY T3 row fires. The same-context dup IS
-    // a finding even though it's not a cross-context one — T3 is the
-    // raw detector; the classifier decides what to do with same-
-    // context candidates.
     let output = run_check_t3(db.path(), "t3-same", false);
     assert!(
         !output.status.success(),
@@ -242,8 +212,6 @@ fn t3_cross_context_fixture_reports_is_cross_context_true() {
         "cross-context fixture must report n_contexts=2; row:\n{row:#}"
     );
 
-    // bounded_contexts[] carries both contexts, sorted by cypher's
-    // `collect(DISTINCT ...)` emission (BTreeMap-backed → lexicographic).
     let contexts = row
         .get("bounded_contexts")
         .and_then(|v| v.as_array())
@@ -255,10 +223,6 @@ fn t3_cross_context_fixture_reports_is_cross_context_true() {
         "bounded_contexts must contain both alpha and beta; row:\n{row:#}"
     );
 
-    // The crate-a context has `canonical_crate = "crate-a"`; beta has
-    // no canonical_crate. So the canonical_candidate derivation
-    // should pick `crate-a` (the one crate in crates[] that appears
-    // in any :Context.canonical_crate).
     assert_eq!(
         row.get("canonical_candidate").and_then(|v| v.as_str()),
         Some("crate-a"),
@@ -296,8 +260,6 @@ fn t3_clean_fixture_with_no_shared_names_reports_zero_rows() {
     let fixture = tempdir().expect("fixture tempdir");
     let root = fixture.path();
 
-    // Workspace with two crates defining DIFFERENT types — no name
-    // collisions → T3 reports zero rows.
     write(
         &root.join("Cargo.toml"),
         r#"[workspace]

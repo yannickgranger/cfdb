@@ -1,11 +1,3 @@
-//! Per-keyspace graph state — a `StableDiGraph<Node, Edge>` plus an
-//! insertion-ordered id → `NodeIndex` map and a label index.
-//!
-//! Determinism: the id map uses `IndexMap` so iteration order is insertion
-//! order; the label index uses `BTreeMap` so label iteration is sorted. Two
-//! runs that ingest the same facts in the same order produce identical
-//! in-memory state — and identical canonical dumps.
-
 use std::collections::{BTreeMap, BTreeSet};
 
 use cfdb_core::fact::{Edge, Node};
@@ -19,71 +11,25 @@ use petgraph::stable_graph::{NodeIndex, StableDiGraph};
 use crate::index::build::{entry_value_for_node, IndexTag, IndexValue};
 use crate::index::spec::{IndexEntry, IndexSpec};
 
-/// In-memory state for a single keyspace.
-///
-/// Fields are crate-visible so `eval.rs` can walk the graph without extra
-/// accessor overhead. External callers go through `PetgraphStore` (which owns
-/// a `BTreeMap<Keyspace, KeyspaceState>`).
 pub(crate) struct KeyspaceState {
-    /// The underlying directed graph with stable indices. Node indices stay
-    /// valid across insertions which matters for the id → index map.
     pub(crate) graph: StableDiGraph<Node, Edge>,
 
-    /// Id → NodeIndex lookup. `IndexMap` preserves insertion order so the
-    /// first iteration at canonical-dump time is deterministic for free.
     pub(crate) id_to_idx: IndexMap<String, NodeIndex>,
 
-    /// Label → set of node indices. `BTreeMap` for sorted label iteration;
-    /// `BTreeSet<NodeIndex>` for sorted-by-index iteration within a label
-    /// (matches insertion order because `NodeIndex` increases with each add).
     pub(crate) by_label: BTreeMap<Label, BTreeSet<NodeIndex>>,
 
-    /// Set of edge labels observed during ingest. Used for unknown-label
-    /// warnings in the evaluator.
     pub(crate) edge_labels: BTreeSet<EdgeLabel>,
 
-    /// Warnings accumulated during ingest (e.g. unresolved edge endpoints).
-    /// Surfaced on every subsequent `execute` call alongside query-time
-    /// warnings so partially-ingested graphs are obvious to the caller.
     pub(crate) ingest_warnings: Vec<Warning>,
 
-    /// Identity contentions individually recorded so far. Recording stops at
-    /// [`CONTENTION_WARNING_CAP`]; see [`Self::materialized_ingest_warnings`]
-    /// for the summary row.
     pub(crate) recorded_contentions: usize,
 
-    /// Identity contentions past the cap — carried as a count and
-    /// materialized into one summary warning at read time.
     pub(crate) suppressed_contentions: usize,
 
-    /// Inverted-index spec for this keyspace. Empty by default; populated via
-    /// [`KeyspaceState::new_with_spec`] when the composition root hands
-    /// `.cfdb/indexes.toml` down. `ingest_one_node` consults this to maintain
-    /// [`Self::by_prop`] incrementally.
     pub(crate) index_spec: IndexSpec,
 
-    /// Inverted indexes by `(Label, tag) → value → node set`. Populated at
-    /// ingest time from [`Self::index_spec`]; rebuilt on load rather than
-    /// serialised to disk. Empty when `index_spec` declares no indexes.
-    ///
-    /// The `tag` is either the literal prop name (for `IndexEntry::Prop`) or
-    /// the canonical computed-key string such as `"last_segment(qname)"`
-    /// (for `IndexEntry::Computed`). See [`crate::index::build`] for the
-    /// `(IndexEntry, Node) → (tag, value)` mapping.
-    ///
-    /// **Not part of `canonical_dump`.** Indexes are rebuild-able scratch —
-    /// leaking them into the byte-stable dump would break the determinism
-    /// invariant. `canonical_dump.rs` does not touch this field.
     pub(crate) by_prop: BTreeMap<(Label, IndexTag), BTreeMap<IndexValue, BTreeSet<NodeIndex>>>,
 
-    /// Precomputed `Label.as_str() → {tag, …}` membership map derived
-    /// from `index_spec.entries` at construction. Lets the fast-path
-    /// hint walker (`index::lookup`) replace a per-row linear scan
-    /// over `entries` with a two-step `BTreeMap`/`BTreeSet` lookup
-    /// where both keys borrow `&str` (so no per-call allocation).
-    /// Kept in sync with `index_spec` because all construction routes
-    /// through [`Self::new_with_spec`] and `index_spec` is otherwise
-    /// not mutated post-construction.
     pub(crate) indexed_pairs: BTreeMap<String, BTreeSet<IndexTag>>,
 }
 
@@ -93,10 +39,6 @@ impl KeyspaceState {
         Self::new_with_spec(IndexSpec::empty())
     }
 
-    /// Construct a fresh keyspace bound to the given [`IndexSpec`].
-    /// Subsequent [`Self::ingest_nodes`] calls walk the spec and
-    /// populate [`Self::by_prop`] per RFC-035 §3.5. An empty spec is
-    /// equivalent to [`Self::new`] — no index maintenance happens.
     pub(crate) fn new_with_spec(spec: IndexSpec) -> Self {
         let indexed_pairs = indexed_pairs_for(&spec);
         Self {
@@ -113,24 +55,15 @@ impl KeyspaceState {
         }
     }
 
-    /// Add or replace a batch of nodes. Existing ids update in place so the
-    /// label index stays coherent across re-ingests.
     pub(crate) fn ingest_nodes(&mut self, nodes: Vec<Node>) {
         for node in nodes {
             self.ingest_one_node(node);
         }
     }
 
-    /// Per-node body of [`ingest_nodes`] — factored out so the `label.clone()` /
-    /// `id.clone()` calls required by the label-index + id-map don't count
-    /// as clones-in-loop (the outer loop body now contains only a helper
-    /// dispatch).
     fn ingest_one_node(&mut self, node: Node) {
         if let Some(&idx) = self.id_to_idx.get(&node.id) {
             self.record_contention(idx, &node);
-            // Snapshot pre-update index entries via an immutable graph
-            // borrow so we can reconcile `by_prop` after the mutation
-            // without fighting the borrow-checker over `self.graph`.
             let before: Vec<(Label, IndexTag, IndexValue)> = match self.graph.node_weight(idx) {
                 Some(existing) => self.compute_index_entries(existing),
                 None => return,
@@ -170,13 +103,6 @@ impl KeyspaceState {
         }
     }
 
-    /// RFC-054 §3.4 (54-A #556): a *different* node claiming an existing id
-    /// is about to silently replace it — record the loss as a warning. A
-    /// same-node re-ingest stays silent (additive-load contract). Pulled out
-    /// of [`Self::ingest_one_node`] so the branchy detect step does not
-    /// count against that function's complexity budget. Recording caps at
-    /// [`CONTENTION_WARNING_CAP`] (collisions are systemic, #542); the
-    /// suggestion line rides only the first warning.
     fn record_contention(&mut self, idx: NodeIndex, incoming: &Node) {
         let Some(mut w) = self
             .graph
@@ -196,9 +122,6 @@ impl KeyspaceState {
         self.ingest_warnings.push(w);
     }
 
-    /// The ingest-warning set as a reader sees it: the recorded warnings
-    /// plus, when the cap fired, one summary row carrying the suppressed
-    /// count. Bounded (≤ cap + per-edge log), so callers may clone freely.
     pub(crate) fn materialized_ingest_warnings(&self) -> Vec<Warning> {
         let mut out = self.ingest_warnings.clone();
         if self.suppressed_contentions > 0 {
@@ -214,10 +137,6 @@ impl KeyspaceState {
         out
     }
 
-    /// Collect every `(label, tag, value)` tuple that the spec says this
-    /// node should contribute to `by_prop`. A node with no matching spec
-    /// entries yields an empty `Vec`. Order is spec order, which is
-    /// deterministic (TOML document order preserved on parse).
     fn compute_index_entries(&self, node: &Node) -> Vec<(Label, IndexTag, IndexValue)> {
         if self.index_spec.entries.is_empty() {
             return Vec::new();
@@ -229,11 +148,6 @@ impl KeyspaceState {
             .collect()
     }
 
-    /// Reconcile `by_prop` for a node that was updated in place. Entries
-    /// present in `before` but not `after` are removed; entries present
-    /// in `after` but not `before` are inserted; unchanged entries are
-    /// left alone. Empty posting lists (and empty `(label, tag)` outer
-    /// entries) are pruned so iteration stays minimal.
     fn reconcile_index_entries(
         &mut self,
         idx: NodeIndex,
@@ -254,18 +168,12 @@ impl KeyspaceState {
         }
     }
 
-    /// Add a batch of edges. Endpoints that reference unknown ids are skipped
-    /// and reported on `ingest_warnings` (RFC §6 — bulk loads degrade
-    /// gracefully).
     pub(crate) fn ingest_edges(&mut self, edges: Vec<Edge>) {
         for edge in edges {
             self.ingest_one_edge(edge);
         }
     }
 
-    /// Per-edge body of [`ingest_edges`] — factored out so the
-    /// `edge.label.clone()` required by the edge-label index does not
-    /// register as a clone inside the outer `for` loop body.
     fn ingest_one_edge(&mut self, edge: Edge) {
         let Some(&src_idx) = self.id_to_idx.get(&edge.src) else {
             self.ingest_warnings.push(Warning {
@@ -293,7 +201,6 @@ impl KeyspaceState {
         self.graph.add_edge(src_idx, dst_idx, edge);
     }
 
-    /// Look up the node indices for a given label, in sorted order.
     pub(crate) fn nodes_with_label(&self, label: &Label) -> Vec<NodeIndex> {
         self.by_label
             .get(label)
@@ -301,7 +208,6 @@ impl KeyspaceState {
             .unwrap_or_default()
     }
 
-    /// All node indices in sorted id order (for unlabelled patterns).
     pub(crate) fn all_nodes_sorted(&self) -> Vec<NodeIndex> {
         let mut ids: Vec<(&String, NodeIndex)> =
             self.id_to_idx.iter().map(|(id, idx)| (id, *idx)).collect();
@@ -309,24 +215,15 @@ impl KeyspaceState {
         ids.into_iter().map(|(_, idx)| idx).collect()
     }
 
-    /// True iff the given label was ever observed on a node in this keyspace.
     pub(crate) fn has_label(&self, label: &Label) -> bool {
         self.by_label.contains_key(label)
     }
 
-    /// True iff the given edge label was ever observed on an edge in this
-    /// keyspace.
     pub(crate) fn has_edge_label(&self, label: &EdgeLabel) -> bool {
         self.edge_labels.contains(label)
     }
 }
 
-/// Project an [`IndexSpec`] to the `label → {tag, …}` membership map
-/// consumed by `index::lookup`. Built once at construction time so
-/// the per-row hint walker can replace its linear scan over `entries`
-/// with a two-step `BTreeMap`/`BTreeSet` lookup. Keys are owned
-/// `String` (label) and `IndexTag` (already `String`) to let the
-/// lookup borrow `&str` on the query side.
 fn indexed_pairs_for(spec: &IndexSpec) -> BTreeMap<String, BTreeSet<IndexTag>> {
     let mut out: BTreeMap<String, BTreeSet<IndexTag>> = BTreeMap::new();
     for entry in &spec.entries {
