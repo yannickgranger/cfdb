@@ -15,8 +15,7 @@ mod common;
 
 const SEED: &str = "cfdb_core::qname::node_id::item_node_id";
 
-const KNOWN_DIRECT_CALLER: &str =
-    "cfdb_petgraph::enrich::attr_call_resolution::resolve_callee_to_item";
+const KNOWN_DIRECT_CALLER: &str = "cfdb_enrich::attr_call_resolution::resolve_callee_to_item";
 
 fn resolved_calls_keyspace() -> (PetgraphStore, Keyspace) {
     let root = common::workspace_root();
@@ -61,7 +60,7 @@ fn impact_over_hir_calls_finds_cross_crate_blast_radius() {
 
     assert!(
         blast.contains(KNOWN_DIRECT_CALLER),
-        "known direct cfdb-petgraph caller `{KNOWN_DIRECT_CALLER}` must be in the blast radius; got {blast:?}"
+        "known direct cfdb-enrich caller `{KNOWN_DIRECT_CALLER}` must be in the blast radius; got {blast:?}"
     );
 
     assert!(
