@@ -64,6 +64,8 @@ This RFC commissions Phase 1 of META #266: refactor the existing Rust extractor 
 
 ### 3.1 The `LanguageProducer` trait
 
+#### 3.1.1 `LanguageProducer`
+
 ```rust
 // crates/cfdb-lang/src/lib.rs
 
@@ -103,6 +105,11 @@ pub trait LanguageProducer: Send {
         workspace_root: &Path,
     ) -> Result<(Vec<Node>, Vec<Edge>), LanguageError>;
 }
+```
+
+#### 3.1.2 `LanguageError`
+
+```rust
 
 /// Errors a producer may surface.
 #[derive(Debug, thiserror::Error)]
@@ -117,6 +124,8 @@ pub enum LanguageError {
     Parse { producer: &'static str, message: String },
 }
 ```
+
+#### 3.1.3 The trait is object-safe
 
 The trait is **object-safe** under the actual object-safety conditions (per the rust-systems R1 factual correction): no generic methods, no `where Self: Sized` clauses, all method receivers are `&self`, no associated types. `Send` (alone) is the supertrait bound — `Sync` is not required because the v0.1 dispatcher (`cfdb-cli`'s `available_producers()`, §3.4) is single-threaded sequential. `Sync` is added in a follow-up RFC if a polyglot-parallel-dispatch design ever needs it. `Box<dyn LanguageProducer>` is the dispatch shape (§3.4).
 
