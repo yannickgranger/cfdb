@@ -8,7 +8,9 @@ Test suites depend on `cfdb-petgraph` in `[dev-dependencies]` only (a concrete `
 
 ## QueryEngine
 
-Wraps any `GraphBackend` implementor (borrowed shared — evaluation is read-only) and implements `cfdb_core::store::QueryBackend` generically over it. Pure dispatch: resolve the keyspace to its `GraphReader` (the `UnknownKeyspace` guard lives there), run the evaluator, prepend the keyspace's ingest diagnostics to `QueryResult.warnings`. The inherent `execute_explained` returns the same result plus one `ExplainRow` per candidate-set resolution; it stays off the `QueryBackend` trait because it is an evaluator diagnostic, not part of the execution contract.
+<!-- parent:rfc:cfdb-057-eval-port-split#3.2 anchor:"pub struct QueryEngine<'s, S> { store: &'s S }" -->
+
+Wraps any `GraphBackend` implementor (borrowed shared — evaluation is read-only) and implements `cfdb_core::store::QueryBackend` generically over it. Pure dispatch: resolve the keyspace to its `GraphReader` (the `UnknownKeyspace` guard lives there), run the evaluator, prepend the keyspace's ingest diagnostics to `QueryResult.warnings`. The inherent `execute_explained` returns the same result plus one `ExplainRow` per index-consulted candidate-set resolution (the unknown-label branch returns empty without a row); it stays off the `QueryBackend` trait because it is an evaluator diagnostic, not part of the execution contract.
 
 ## ExplainRow
 

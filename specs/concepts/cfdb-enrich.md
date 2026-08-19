@@ -8,7 +8,9 @@ Test suites depend on `cfdb-petgraph` in `[dev-dependencies]` only (a concrete `
 
 ## EnrichEngine
 
-Wraps any `GraphBackend` implementor (borrowed, not owned) and implements `cfdb_core::enrich::EnrichBackend` generically over it. Pure dispatch plus the two guards every verb needs (keyspace existence via `GraphBackend::graph_view`; workspace-root presence via `require_workspace`). No pass-level logic lives here — that responsibility stays with each pass module.
+<!-- parent:rfc:cfdb-056-enrich-port-split#3.2 anchor:"pub struct EnrichEngine<'s, S> { store: &'s mut S }" -->
+
+Wraps any `GraphBackend` implementor (borrowed, not owned) and implements `cfdb_core::enrich::EnrichBackend` generically over it. Pure dispatch plus the two pre-existing guards (keyspace existence via `GraphBackend::graph_view`; workspace-root presence via `require_workspace` — the two verbs that read no workspace take only the first). No pass-level logic lives here — that responsibility stays with each pass module.
 
 ## AstSignals
 
