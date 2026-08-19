@@ -63,6 +63,7 @@ clap = { version = "4", features = ["derive"] }
 
 # Testing / utilities
 regex = "1"
+libc = "0.2"
 indexmap = "2"
 tempfile = "3"
 assert_cmd = "2"
@@ -109,3 +110,33 @@ ra_ap_load-cargo = "=0.0.328"
 # bundle.
 ra_ap_edition = "=0.0.328"
 ra-ap-rustc_type_ir = "=0.161.0"
+
+[profile.dev.package.cfdb-eval]
+opt-level = 2
+
+[profile.dev.package.cfdb-core]
+opt-level = 2
+
+[profile.dev.package.cfdb-query]
+opt-level = 2
+
+[profile.dev.package.regex]
+opt-level = 2
+
+[profile.dev.package.regex-automata]
+opt-level = 2
+
+[profile.dev.package.regex-syntax]
+opt-level = 2
+
+[profile.dev.package.aho-corasick]
+opt-level = 2
+
+[profile.dev.package.memchr]
+opt-level = 2
+
+[profile.dev.package.cfdb-classify]
+opt-level = 2
+
+[profile.test.package.cfdb-classify]
+opt-level = 2

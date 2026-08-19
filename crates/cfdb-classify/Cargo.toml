@@ -19,3 +19,4 @@ thiserror.workspace = true
 # against; PetgraphStore is the only implementor. Dev-only — no production
 # edge to cfdb-petgraph.
 cfdb-petgraph = { path = "../cfdb-petgraph" }
+libc.workspace = true
