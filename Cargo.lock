@@ -273,6 +273,7 @@ dependencies = [
  "cfdb-eval",
  "cfdb-petgraph",
  "cfdb-query",
+ "libc",
  "serde",
  "serde_json",
  "thiserror",

@@ -63,6 +63,7 @@ clap = { version = "4", features = ["derive"] }
 
 # Testing / utilities
 regex = "1"
+libc = "0.2"
 indexmap = "2"
 tempfile = "3"
 assert_cmd = "2"

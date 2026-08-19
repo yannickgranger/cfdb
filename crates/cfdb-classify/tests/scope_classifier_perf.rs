@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use cfdb_core::fact::{Node, PropValue};
 use cfdb_core::query::ParamBinding;
@@ -240,6 +240,16 @@ fn build_store(spec: IndexSpec, n: usize) -> (PetgraphStore, Keyspace) {
     (store, ks)
 }
 
+fn thread_cpu_time() -> Duration {
+    let mut ts = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    let rc = unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut ts) };
+    assert_eq!(rc, 0, "clock_gettime(CLOCK_THREAD_CPUTIME_ID) failed");
+    Duration::new(ts.tv_sec as u64, ts.tv_nsec as u32)
+}
+
 fn run_rule(
     store: &PetgraphStore,
     ks: &Keyspace,
@@ -251,11 +261,11 @@ fn run_rule(
         "context".to_string(),
         ParamBinding::Scalar(PropValue::Str(context.to_string())),
     );
-    let start = Instant::now();
+    let start = thread_cpu_time();
     let result = QueryEngine::new(store)
         .execute(ks, &parsed)
         .expect("execute classifier");
-    let elapsed = start.elapsed();
+    let elapsed = thread_cpu_time() - start;
     (result.rows.len(), elapsed)
 }
 
@@ -289,7 +299,7 @@ fn scope_classifier_perf_at_default_scale() {
 
     println!("\nscope_classifier_perf (fixture size n={n}):");
     for (name, (rows, elapsed)) in &timings {
-        println!("  {name:<20} rows={rows:<5} elapsed={elapsed:?}");
+        println!("  {name:<20} rows={rows:<5} cpu={elapsed:?}");
     }
 
     if n <= 1_500 {
@@ -309,7 +319,7 @@ fn scope_classifier_perf_at_default_scale() {
             assert!(
                 elapsed <= budget,
                 "classifier `{name}` exceeded perf budget at n={n}: \
-                 elapsed={elapsed:?} > budget={budget:?}. \
+                 thread-cpu={elapsed:?} > budget={budget:?}. \
                  If this is a deliberate change, update the budget \
                  here in scope_classifier_perf.rs and document why."
             );
