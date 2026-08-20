@@ -22,9 +22,13 @@ Comparison operators available in predicates (`Eq`, `Ne`, `Lt`, `Le`, `Gt`, `Ge`
 
 ## ContextSource
 
+<!-- parent:rfc:cfdb-038-context-source-discriminator#3.1 anchor:"pub enum ContextSource {" -->
+
 Provenance discriminator for `:Context` nodes (RFC-038). `Declared` is author-asserted in `.cfdb/concepts/<name>.toml`; `Heuristic` is auto-derived by `cfdb_concepts::compute_bounded_context` via crate-name prefix stripping. Wire form via `Display`/`FromStr` round-trips through `:Context.source` prop. Closed-set wire enum (no variant carries owned data), so `as_wire_str` returns `&'static str` per RFC-038 §3.1.
 
 ## Direction
+
+<!-- parent:rfc:cfdb-056-enrich-port-split#3.3 anchor:"reuses the existing enum at (pre-move)" -->
 
 Traversal direction for a path pattern — outgoing, incoming, or either. Graph-topology vocabulary, not query-grammar: lives in `schema` (peer of `Label`/`EdgeLabel`), re-exported from `query::ast` for backward compat (RFC-056 §3.3). Shared by the query evaluator's pattern matching AND `GraphView::neighbors`.
 
@@ -91,6 +95,8 @@ A query expression used in `WITH` and `RETURN` — literal, property access, fun
 
 ## GraphBackend
 
+<!-- parent:rfc:cfdb-056-enrich-port-split#3.1.2 anchor:"pub trait GraphBackend: Send + Sync {" -->
+
 The per-store factory that resolves a `Keyspace` into a `GraphView` (`graph_view`, RFC-056) or a read-only `GraphReader` (`graph_reader`, RFC-057), plus `workspace_root()`. `Send + Sync` so a generic `EnrichEngine<S: GraphBackend>` can itself be `Send + Sync`. `cfdb-petgraph::PetgraphStore` is the sole v0.1 implementor. Sibling of `StoreBackend`/`EnrichBackend` — narrower, id-based, dyn-safe, and deliberately ignorant of any concrete storage representation.
 
 ## GraphReader
@@ -100,6 +106,8 @@ The per-store factory that resolves a `Keyspace` into a `GraphView` (`graph_view
 The per-keyspace, read-only, handle-based surface the Cypher evaluator needs (RFC-057): label / edge-label existence and vocabulary, ordered node scans (`nodes_with_label`, `all_nodes_sorted`), node/edge dereference by handle, adjacency (`edges_out`/`edges_in`), the RFC-035 index-accelerated candidate lookup (`index_candidates`, `indexed_prop_is_populated`), and the keyspace's ingest diagnostics (`ingest_warnings`). Every method takes `&self`, so a query cannot mutate a keyspace (G2) by construction. Sibling of `GraphView` (read/write, id-based) — reached via `GraphBackend::graph_reader`. `cfdb-petgraph::KeyspaceState` is the sole v0.1 implementor; every ordered read wraps the storage's existing ordered accessor rather than re-deriving an order.
 
 ## GraphView
+
+<!-- parent:rfc:cfdb-056-enrich-port-split#3.1.1 anchor:"pub trait GraphView {" -->
 
 The per-keyspace read/write surface an enrichment pass needs — id-based node/edge lookup, neighbor traversal by `Direction`, single-attribute writes, and node/edge ingestion (RFC-056). `cfdb-petgraph::KeyspaceState` is the sole v0.1 implementor, reached via `GraphBackend::graph_view`. Exists so `cfdb-enrich`'s enrichment passes never depend on a concrete graph representation (`petgraph::NodeIndex`, `StableDiGraph`) — the seam the pre-RFC-056 `cfdb-petgraph` lacked.
 
@@ -254,6 +262,8 @@ The verb surface stays **closed** under the 11-verb API (RFC-036 §3 + RFC-029 �
 Error type produced by backend operations — `UnknownKeyspace`, `SchemaMismatch`, `Eval`, `Ingest`, `Io`, `Other`.
 
 ## TargetDiscriminator
+
+<!-- parent:rfc:cfdb-054-target-identity-namespace#3.1 anchor:"pub enum TargetDiscriminator {" -->
 
 Which cargo build target an item was walked from (RFC-054 §3.1) — `Lib` or `Bin { name }`. A plain domain enum in `cfdb_core::qname`, deliberately not a re-export of `cargo_metadata`/`ra_ap` types (producers convert at their boundary). Owns the identity formula: `identity(qname)` yields the bare qname for lib targets and `qname#bin:{name}` for bin targets — the string every derived node id (`callsite:`, `param:`, `field:`, `variant:`, `matchsite:`, `arg:`) builds from. `as_wire_str()` renders the `:Item.target` attribute value (`lib` / `bin:{name}`).
 
