@@ -12,13 +12,19 @@ The on-disk persistence envelope for a serialised keyspace. Wraps the canonical 
 
 ## IndexSpec
 
+<!-- parent:rfc:cfdb-035-persistent-inverted-indexes#3.1 anchor:"backend-optimisation artefacts with no stable abstract meaning" -->
+
 Parsed `.cfdb/indexes.toml` — the set of `(Label, prop)` or `(Label, computed-key)` pairs that the build pass (RFC-035 slice 2) should materialise into an inverted posting-list index at ingest time. Owned by `cfdb-petgraph` per RFC-035 R1 B1 — backend-optimisation artefact, not a stable abstraction over `cfdb-core`. Missing `.cfdb/indexes.toml` yields an empty spec (no error).
 
 ## IndexEntry
 
+<!-- parent:rfc:cfdb-035-persistent-inverted-indexes#3.2 anchor:"The required `notes` string on each entry documents the rationale" -->
+
 A single `[[index]]` TOML row. Two shapes — plain prop (`label` + `prop` + `notes`) or computed key (`label` + `computed` + `notes`). The `notes` string is required and documents the rationale per RFC-035 R1 R2; an entry missing it is rejected at parse time.
 
 ## ComputedKey
+
+<!-- parent:rfc:cfdb-035-persistent-inverted-indexes#3.3 anchor:"wrappers around canonical qname-formula functions" -->
 
 The closed `const`-sized allowlist of pure functions that may be used as a computed index key. v0.1 ships only `LastSegment` (`last_segment(qname)`). Each variant wraps a canonical `cfdb-core::qname::*` helper (RFC-035 §3.3); extending the allowlist is an RFC-gated change per RFC-035 §3.4.
 

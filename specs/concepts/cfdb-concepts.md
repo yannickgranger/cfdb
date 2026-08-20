@@ -8,6 +8,8 @@ Dependency discipline: no `syn`, no `cargo_metadata`, no `ra-ap-hir`. Pure TOML 
 
 ## BoundedContext
 
+<!-- parent:rfc:cfdb-038-context-source-discriminator#3.2.1 anchor:"pub struct BoundedContext {" -->
+
 Return type of `compute_bounded_context` (RFC-038 slice 2). Pairs the resolved context `name` (the same string the function returned pre-RFC-038) with a `cfdb_core::ContextSource` discriminator that surfaces the override-vs-heuristic provenance previously discarded at the API boundary. `Declared` when the result came from a `.cfdb/concepts/<name>.toml` override; `Heuristic` when it came from prefix stripping or the no-prefix fallback. Slice 3 (#302) plumbs `.source` to `:Context.source` emission; this slice exposes the discriminator at the API surface so every caller is forced to decide what to do with provenance.
 
 ## ConceptOverrides
@@ -15,6 +17,8 @@ Return type of `compute_bounded_context` (RFC-038 slice 2). Pairs the resolved c
 Loaded override map — reverse lookup from crate name to the owning `ContextMeta`. Returned by `load_concept_overrides`; consumed by `compute_bounded_context`. Internally a sorted `BTreeMap` for determinism. Provides `lookup(crate_name)` for per-crate resolution and `declared_contexts()` for enumerating every context declared across all TOML files.
 
 ## ContextMeta
+
+<!-- parent:rfc:cfdb-038-context-source-discriminator#3.3 anchor:"the full `ContextMeta` (canonical_crate, owning_rfc)" -->
 
 The resolved context metadata for one bounded context. Carries the context `name`, an optional `canonical_crate` (the crate that holds the canonical implementation of the context's concepts), and an optional `owning_rfc` reference (doc path). Emitted as a `:Context` node during extraction; also used as the per-Crate `BELONGS_TO` edge target and as the source of `Item.bounded_context` stamping.
 
