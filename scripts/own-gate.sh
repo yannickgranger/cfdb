@@ -26,6 +26,9 @@ git -C "$DOXA_DIR" fetch -q origin || true
 git -C "$DOXA_DIR" checkout -q "$DOXA_REV" || { echo "FATAL: doxa rev $DOXA_REV not in the clone — the corpus is unreadable at its pin, unavailable, never a pass (keel-harness §3.1; keel-dialect §3.3)" >&2; exit 1; }
 [ -f "$DOXA_DIR/index.json" ] || { echo "FATAL: doxa checkout carries no index.json — unreadable at its pin, unavailable (keel-harness §3.1)" >&2; exit 1; }
 
+echo "==> mirror: docs/RFC-*.md is a byte-identical mirror of the doxa corpus at $DOXA_REV — read-only, the corpus is the one source"
+python3 scripts/doxa-mirror-check.py --doxa "$DOXA_DIR" --repo yg/cfdb --mirror 'docs/RFC-*.md' || exit 1
+
 echo "==> own gate: keel level --repo . --declaration keel.json --corpus $DOXA_DIR@$DOXA_REV (cascade at $(tr -d '[:space:]' < cascade.rev))"
 level_json=$($KEEL level --repo . --declaration keel.json --corpus "$DOXA_DIR" --json 2>/dev/null) && level_rc=0 || level_rc=$?
 if [ "$level_rc" -eq 1 ]; then

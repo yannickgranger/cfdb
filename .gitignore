@@ -22,3 +22,4 @@ council/
 .cfdb/db/
 examples/queries/fixtures/*/Cargo.lock
 .doxa/
+__pycache__/
