@@ -25,7 +25,9 @@ master RFC is `cfdb-v1-code-facts-database`; the corpus rev this repo reads
 is pinned in `doxa.rev`. **No RFC file is authored in this tree.** A council
 synthesizes into a doxa PR against `develop`; the operator merges; slices and
 issues cite `<id>#<clause>`. `docs/RFC-*.md` remains only as a byte-identical
-MIRROR of the corpus at the pin (CI refuses any divergence), because the
+MIRROR of the corpus at the pin — `scripts/doxa-mirror-check.py` refuses a
+diverging, missing or undeclared file, run by `scripts/own-gate.sh` on the
+host and in CI job `own-gate`, and by CI job `doxa-mirror` — because the
 `enrich-rfc-docs` pass and its self-dogfood test still scan `docs/`; the
 mirror is deleted when that pass reads the pinned corpus (`keel-harness` §7,
 `keel-dialect` §3.3, §6.5).
