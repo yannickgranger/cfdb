@@ -40,6 +40,8 @@ Does **not** ship (see §6): any change to `eval/`; any change to Node/Edge/`:Co
 
 ### 3.1 The port
 
+#### 3.1.1 `GraphView`
+
 ```rust
 // cfdb-core::graph (new sibling module, parallel to store/enrich — solid R1:
 // not enrich.rs; ddd R2: named for the domain noun like its siblings, not
@@ -54,6 +56,11 @@ pub trait GraphView {
     fn ingest_edges(&mut self, edges: Vec<Edge>);
 }
 
+```
+
+#### 3.1.2 `GraphBackend`
+
+```rust
 pub trait GraphBackend: Send + Sync {
     fn graph_view(&mut self, keyspace: &Keyspace) -> Result<&mut dyn GraphView, StoreError>;
     fn workspace_root(&self) -> Option<&Path>;
