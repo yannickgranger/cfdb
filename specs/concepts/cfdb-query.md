@@ -16,6 +16,8 @@ The JSON wire envelope emitted by `cfdb diff` (#212) — `{a, b, schema_version,
 
 ## DiffError
 
+<!-- parent:spec:DiffEnvelope -->
+
 Error type for `compute_diff` and `KindsFilter::from_str` — `Parse { side, line_number, source }` for bad JSON with 1-based line diagnostics, `InvalidEnvelope { side, line_number, reason }` for JSON that lacks the required canonical-dump fields, `UnknownKind { token }` for `--kinds` values other than `node`/`edge`.
 
 ## DiffFact
@@ -25,6 +27,8 @@ Error type for `compute_diff` and `KindsFilter::from_str` — `Parse { side, lin
 One row of `DiffEnvelope::added` or `removed` — `{kind, envelope}` where `envelope` is the full canonical-dump JSON object (`{id, kind:"node", label, props}` for nodes, `{dst_qname, kind:"edge", label, props, src_qname}` for edges). `kind` is hoisted out of the envelope so consumers can filter without re-parsing.
 
 ## KindsFilter
+
+<!-- parent:spec:DiffEnvelope -->
 
 Filter on the `kind` discriminator for `cfdb diff --kinds`. Parsed from a comma-separated string (`node`, `edge`, `node,edge`); `FromStr` rejects unknown tokens with `DiffError::UnknownKind`. Restricts `compute_diff` to node rows, edge rows, or both — the taxonomy here is dump-line `kind` (`node`/`edge`), NOT the schema-level `ItemKind` used by `list-items-matching`.
 

@@ -46,6 +46,8 @@ Projection of the upstream `DiffEnvelope`'s identity — `{a, b, restrict_count}
 
 ## ExplainSink
 
+<!-- parent:spec:ScopeInventory -->
+
 The `--explain` accumulator handed to `ClassifyEngine::scope`: interior-mutable (`&self` everywhere) so every scope helper can share one `&ExplainSink`. `enabled()` collects one `ExplainRow` batch per query run through it (via `QueryEngine::execute_explained`); `disabled()` takes the plain `execute` path with zero overhead; `drain()` hands the rows to the caller once. The rows themselves are `cfdb_eval::explain::ExplainRow`.
 
 ## Finding
@@ -68,6 +70,8 @@ The JSON envelope returned by `cfdb scope` — findings grouped by `DebtClass`, 
 
 ## ScopeOptions
 
+<!-- parent:spec:ScopeInventory -->
+
 Knobs for a `scope` run — today only `production_only: bool`, which swaps the `Unwired` classifier rule to its production-only variant (`reachable_from_production_entry`); `cfdb classify` never sets it. Every knob defaults to off (`Default`).
 
 ## TriggerId
@@ -77,6 +81,8 @@ Knobs for a `scope` run — today only `production_only: bool`, which swaps the 
 Editorial-drift trigger identifier used by the `cfdb check --trigger <ID>` verb (qbot-core council-4046 Phase 2 naming) — a closed enum, `T1` (concept-declared-in-TOML-but-missing-in-code) and `T3` (concept-name-in-≥2-crates). `TriggerId::variants()` is the single source of truth for valid values — the `FromStr` impl iterates it and the `UnknownTriggerId::Display` impl enumerates it, so the valid-values list in parse-error strings never diverges from the enum (global `CLAUDE.md` §7 MCP/CLI boundary-fix AC). DDD homonym of `check_prelude_triggers::TriggerId` (the `C1..C9` mechanical pre-council triggers, `specs/tools/check-prelude-triggers.md`): different bounded contexts, different serialization namespaces, independent change vectors.
 
 ## UnknownDebtClass
+
+<!-- parent:spec:DebtClass -->
 
 Error type for unrecognised `DebtClass` string values during deserialisation.
 
