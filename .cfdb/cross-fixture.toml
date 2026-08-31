@@ -13,6 +13,6 @@
 [companion]
 repo      = "yg/graph-specs-rust"
 branch    = "develop"
-sha       = "1c862db3922d52ed905afa365fbbe13a9e4ddef8"
-bumped_at = "2026-08-24T06:00:58Z"
+sha       = "b0185da5bc9050366d8b6886e1040b10a024c342"
+bumped_at = "2026-08-31T06:01:19Z"
 bumped_by = "cron — cross-bump (Mon 06:00 UTC)"
