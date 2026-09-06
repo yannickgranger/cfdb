@@ -18,4 +18,5 @@ jobs:
           DOXA_REV=$(tr -d '[:space:]' < doxa.rev)
           git clone -q https://agency.lab:3000/yg/doxa.git .doxa
           git -C .doxa checkout -q "$DOXA_REV"
-          python3 scripts/doxa-mirror-check.py --doxa .doxa --repo yg/cfdb --mirror 'docs/RFC-*.md'
+          python3 scripts/doxa-mirror-check.py --self-test
+          python3 scripts/doxa-mirror-check.py --doxa .doxa --prefix cfdb --path-template 'docs/RFC-{tail}.md' --mirror 'docs/RFC-*.md'
