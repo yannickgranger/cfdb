@@ -18,7 +18,7 @@ Wraps any `GraphBackend` implementor (borrowed shared — evaluation is read-onl
 
 One observability row emitted by `QueryEngine::execute_explained` (RFC-035 slice 7 / #186). Carries the rendered `(var:Label)` pattern string and a `hit: ExplainHit` tag naming whether the evaluator's `candidate_nodes` invocation was satisfied through the index fast path or fell back to a full label scan. Stable side-band from `QueryResult` — no explain rows leak into the canonical dump or the keyspace wire format, preserving the RFC-035 §4 determinism invariant. The renderer (`format_line`) is the stable contract consumed by `cfdb scope --explain` dogfood tests.
 
-## ExplainHit
+### ExplainHit
 
 <!-- parent:spec:ExplainRow -->
 

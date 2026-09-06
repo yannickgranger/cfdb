@@ -16,7 +16,42 @@
 # Exit 0 = the declared level holds on this tree; anything else refuses.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-KEEL="${KEEL:-keel}"
+CACHE="${CFDB_BINARY_CACHE:-$HOME/.local/share/cfdb/binaries}"
+
+resolve_pin() {
+  name=$1; bin=$2
+  revfile="$name.rev"
+  [ -r "$revfile" ] || { echo "FATAL: $revfile is absent — the gate has no rev to resolve $bin against, and a gate that cannot name its pin is not one that passed (keel-harness §6.5)" >&2; return 1; }
+  rev=$(tr -d '[:space:]' < "$revfile")
+  [ "${#rev}" -eq 40 ] || { echo "FATAL: $revfile holds ${#rev} characters, not a 40-character rev" >&2; return 1; }
+  path="$CACHE/$bin-$rev"
+  [ -x "$path" ] || { echo "FATAL: $bin @ ${rev:0:12} is absent from $CACHE or not executable — run scripts/provision-instruments.sh; the gate resolves every instrument through this tree's pins and never through PATH, where a bare name is whatever build is nearby (keel-harness §6.5)" >&2; return 1; }
+  target=$(readlink -f "$path")
+  case "$target" in
+    "$(readlink -f "$CACHE")"/*) ;;
+    *) echo "FATAL: $bin @ ${rev:0:12} resolves to $target, outside $CACHE — a convenience symlink is not a pinned binary" >&2; return 1 ;;
+  esac
+  RESOLVED="$path"
+}
+
+resolve_pin cascade cascade || exit 1
+CASCADE_BIN="$RESOLVED"
+resolve_pin cascade vocab || exit 1
+VOCAB_BIN="$RESOLVED"
+resolve_pin keel keel || exit 1
+KEEL="$RESOLVED"
+
+if [ -n "${KEEL_OVERRIDE:-}" ]; then
+  case "$(readlink -f "$KEEL_OVERRIDE")" in
+    "$(readlink -f "$CACHE")"/keel-"$(tr -d '[:space:]' < keel.rev)") KEEL="$KEEL_OVERRIDE" ;;
+    *) echo "FATAL: KEEL_OVERRIDE does not point at $CACHE/keel-$(tr -d '[:space:]' < keel.rev) — an override that is not the pinned binary is the PATH problem with a different name" >&2; exit 1 ;;
+  esac
+fi
+
+BIN_DIR=$(mktemp -d)
+trap 'rm -rf "$BIN_DIR"' EXIT
+ln -s "$CASCADE_BIN" "$BIN_DIR/cascade"
+ln -s "$VOCAB_BIN" "$BIN_DIR/vocab"
 DOXA_REV=$(tr -d '[:space:]' < doxa.rev)
 DOXA_DIR="${DOXA_DIR:-.doxa}"
 if [ ! -d "$DOXA_DIR/.git" ]; then
@@ -29,8 +64,12 @@ git -C "$DOXA_DIR" checkout -q "$DOXA_REV" || { echo "FATAL: doxa rev $DOXA_REV 
 echo "==> mirror: docs/RFC-*.md is a byte-identical mirror of the doxa corpus at $DOXA_REV — read-only, the corpus is the one source"
 python3 scripts/doxa-mirror-check.py --doxa "$DOXA_DIR" --repo yg/cfdb --mirror 'docs/RFC-*.md' || exit 1
 
-echo "==> own gate: keel level --repo . --declaration keel.json --corpus $DOXA_DIR@$DOXA_REV (cascade at $(tr -d '[:space:]' < cascade.rev))"
-level_json=$($KEEL level --repo . --declaration keel.json --corpus "$DOXA_DIR" --json 2>/dev/null) && level_rc=0 || level_rc=$?
+echo "==> instruments resolved from this tree's pins into $CACHE, handed to keel as --bin-dir; PATH is not consulted (keel-harness §6.5)"
+echo "    cascade @ $(tr -d '[:space:]' < cascade.rev | cut -c1-12) <- $CASCADE_BIN"
+echo "    vocab   @ $(tr -d '[:space:]' < cascade.rev | cut -c1-12) <- $VOCAB_BIN"
+echo "    keel    @ $(tr -d '[:space:]' < keel.rev | cut -c1-12) <- $KEEL"
+echo "==> own gate: keel level --repo . --declaration keel.json --corpus $DOXA_DIR@$DOXA_REV --bin-dir <pinned>"
+level_json=$("$KEEL" level --repo . --declaration keel.json --corpus "$DOXA_DIR" --bin-dir "$BIN_DIR" --json 2>/dev/null) && level_rc=0 || level_rc=$?
 if [ "$level_rc" -eq 1 ]; then
   echo "FATAL: keel could not measure the declared level (exit 1): $level_json" >&2
   exit 1

@@ -31,21 +31,12 @@ jobs:
           BRANCH=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}
           git config --global url."https://oauth2:${GITHUB_TOKEN}@agency.lab:3000/".insteadOf "https://agency.lab:3000/"
           git clone --depth=1 --branch="$BRANCH" "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" repo
-      - name: Install cascade + keel at the pinned revs
+      - name: Provision cascade, vocab and keel at the pinned revs
         run: |
           set -e
           cd repo
-          CASCADE_REV=$(tr -d '[:space:]' < cascade.rev)
-          KEEL_REV=$(tr -d '[:space:]' < keel.rev)
-          TOOL_HOME=/cache/cargo/harness-tools
-          mkdir -p "$TOOL_HOME"
-          echo "Installing cascade @ ${CASCADE_REV}"
-          CARGO_HOME="$TOOL_HOME" cargo install --force --git https://agency.lab:3000/yg/cascade.git --rev "$CASCADE_REV" --locked --root "$TOOL_HOME" cascade
-          echo "Installing keel @ ${KEEL_REV}"
-          CARGO_HOME="$TOOL_HOME" cargo install --force --git https://agency.lab:3000/yg/keel.git --rev "$KEEL_REV" --locked --root "$TOOL_HOME" keel
-          echo "PATH=${TOOL_HOME}/bin:${PATH}" >> "$GITHUB_ENV"
+          bash scripts/provision-instruments.sh
       - name: Own gate — keel level, corpus-wide, zero silence
         run: |
           cd repo
-          cascade --version && keel --version
           bash scripts/own-gate.sh
