@@ -7,6 +7,7 @@ use cfdb_lang::{LanguageError, LanguageProducer};
 mod call_walker;
 mod emitter;
 mod implements;
+mod imports;
 use emitter::{item_id, module_id, Emitter};
 
 const PRODUCER_NAME: &str = "php";
@@ -101,6 +102,7 @@ fn walk_file(path: &Path, file: &str, emitter: &mut Emitter) -> Result<(), Langu
 }
 
 fn walk_top_level(program: tree_sitter::Node, src: &[u8], file: &str, emitter: &mut Emitter) {
+    let imports = imports::collect(program, src);
     let mut current_ns: Option<String> = None;
     let mut cursor = program.walk();
     for child in program.children(&mut cursor) {
@@ -113,10 +115,10 @@ fn walk_top_level(program: tree_sitter::Node, src: &[u8], file: &str, emitter: &
                 current_ns = ns_name;
             }
             "class_declaration" | "interface_declaration" | "trait_declaration" => {
-                emit_class_like(child, src, current_ns.as_deref(), file, emitter);
+                emit_class_like(child, src, current_ns.as_deref(), &imports, file, emitter);
             }
             "function_definition" => {
-                emit_function(child, src, current_ns.as_deref(), file, emitter);
+                emit_function(child, src, current_ns.as_deref(), &imports, file, emitter);
             }
             _ => {}
         }
@@ -149,6 +151,7 @@ fn emit_class_like(
     node: tree_sitter::Node,
     src: &[u8],
     current_ns: Option<&str>,
+    imports: &imports::ImportTable,
     file: &str,
     emitter: &mut Emitter,
 ) {
@@ -183,14 +186,14 @@ fn emit_class_like(
     let mut clause_cursor = node.walk();
     for child in node.children(&mut clause_cursor) {
         if child.kind() == "class_interface_clause" {
-            implements::buffer_implements_targets(child, src, current_ns, &id, emitter);
+            implements::buffer_implements_targets(child, src, current_ns, imports, &id, emitter);
         }
     }
 
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         if child.kind() == "declaration_list" {
-            walk_declaration_list(child, src, current_ns, &qname, file, emitter);
+            walk_declaration_list(child, src, current_ns, imports, &qname, file, emitter);
         }
     }
 }
@@ -199,6 +202,7 @@ fn walk_declaration_list(
     list: tree_sitter::Node,
     src: &[u8],
     current_ns: Option<&str>,
+    imports: &imports::ImportTable,
     parent_qname: &str,
     file: &str,
     emitter: &mut Emitter,
@@ -206,7 +210,7 @@ fn walk_declaration_list(
     let mut cursor = list.walk();
     for child in list.children(&mut cursor) {
         if child.kind() == "method_declaration" {
-            emit_method(child, src, current_ns, parent_qname, file, emitter);
+            emit_method(child, src, current_ns, imports, parent_qname, file, emitter);
         }
     }
 }
@@ -215,6 +219,7 @@ fn emit_method(
     node: tree_sitter::Node,
     src: &[u8],
     current_ns: Option<&str>,
+    imports: &imports::ImportTable,
     parent_qname: &str,
     file: &str,
     emitter: &mut Emitter,
@@ -249,10 +254,13 @@ fn emit_method(
     call_walker::walk_call_sites(
         node,
         src,
-        &qname,
-        Some(parent_qname),
-        current_ns,
-        file,
+        &call_walker::CallScope {
+            caller_qname: &qname,
+            enclosing_class_qname: Some(parent_qname),
+            current_ns,
+            imports,
+            file,
+        },
         emitter,
     );
 }
@@ -261,6 +269,7 @@ fn emit_function(
     node: tree_sitter::Node,
     src: &[u8],
     current_ns: Option<&str>,
+    imports: &imports::ImportTable,
     file: &str,
     emitter: &mut Emitter,
 ) {
@@ -291,7 +300,18 @@ fn emit_function(
         ));
     }
 
-    call_walker::walk_call_sites(node, src, &qname, None, current_ns, file, emitter);
+    call_walker::walk_call_sites(
+        node,
+        src,
+        &call_walker::CallScope {
+            caller_qname: &qname,
+            enclosing_class_qname: None,
+            current_ns,
+            imports,
+            file,
+        },
+        emitter,
+    );
 }
 
 fn find_named_child(node: tree_sitter::Node, kind: &str, src: &[u8]) -> Option<String> {

@@ -401,3 +401,44 @@ fn calls_fixture_is_deterministic() {
     let run2 = PhpProducer.produce(&calls_fixture_root()).expect("run2");
     assert_eq!(format!("{run1:?}"), format!("{run2:?}"));
 }
+
+#[test]
+fn a_scoped_call_through_a_use_import_resolves_to_the_imported_class() {
+    let (nodes, edges) = produce_php(&[
+        (
+            "src/Helpers.php",
+            "<?php\nnamespace App\\Support;\nclass Clock { public static function now() {} }\n",
+        ),
+        (
+            "src/Enrolling.php",
+            "<?php\nnamespace App\\Enrolment;\nuse App\\Support\\Clock;\nclass Enrolling { public function at() { Clock::now(); } }\n",
+        ),
+    ]);
+    let site = call_site_by_path(&nodes, "Clock::now");
+    assert_eq!(
+        resolved(site),
+        Some(true),
+        "the scoped callee goes through the same import table before the CALLS decision"
+    );
+    assert_eq!(
+        calls_pairs(&edges),
+        vec![(
+            item_id("App\\Enrolment\\Enrolling::at"),
+            item_id("App\\Support\\Clock::now")
+        )]
+    );
+}
+
+#[test]
+fn a_scoped_call_to_an_out_of_workspace_class_still_resolves_to_nothing() {
+    let (nodes, edges) = produce_php(&[(
+        "src/Enrolling.php",
+        "<?php\nnamespace App\\Enrolment;\nuse Symfony\\Component\\Clock\\Clock;\nclass Enrolling { public function at() { Clock::now(); } }\n",
+    )]);
+    let site = call_site_by_path(&nodes, "Clock::now");
+    assert_eq!(resolved(site), Some(false));
+    assert!(
+        calls_pairs(&edges).is_empty(),
+        "closed-world holds: the import resolves the name, the workspace decides the edge"
+    );
+}
