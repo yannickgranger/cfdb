@@ -144,9 +144,9 @@ def self_test():
         ("an id lives where its provenance entry recorded, and a doxa-born id under the template",
          corpus, recorded_mirror, 0, "mirror ok: 2 files", prov),
         ("a provenance-pathed id whose file is missing",
-         corpus, {"002-second.md": "two\n"}, 1, "the path its provenance entry records", prov),
+         corpus, {"002-second.md": "two\n"}, 1, "missing in mirror: docs/rfc/legacy.md", prov),
         ("a doxa-born id missing under the template",
-         corpus, {"legacy.md": "one\n"}, 1, "the path template, this id being born in doxa", prov),
+         corpus, {"legacy.md": "one\n"}, 1, "missing in mirror: docs/rfc/002-second.md", prov),
     ]
     failures = []
     for case in cases:

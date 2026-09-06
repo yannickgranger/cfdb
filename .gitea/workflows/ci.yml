@@ -128,7 +128,12 @@ jobs:
           # second+ runs and we'd silently gate against a stale dialect.
           cargo install --git https://agency.lab:3000/yg/graph-specs-rust \
             --branch develop --root /cache/cargo --bin graph-specs --force application
-          graph-specs --version
+          # cfdb-030 §7.4 forbids a pin, so the run records which build answered:
+          # the rev develop carried at install time, printed here and in the
+          # verdict line, so a verdict is reproducible without pinning.
+          GS_REV=$(git ls-remote https://agency.lab:3000/yg/graph-specs-rust.git refs/heads/develop | cut -f1)
+          echo "GS_REV=$GS_REV" >> "$GITHUB_ENV"
+          echo "graph-specs $(graph-specs --version | awk '{print $NF}') from yg/graph-specs-rust@${GS_REV}"
 
       - name: Graph-specs check (RFC-030 §3.1 anti-drift gate)
         run: |
@@ -137,6 +142,7 @@ jobs:
           # single-value, so crates/ and tools/ are gated independently.
           # Widened in #137 to onboard tools/check-prelude-triggers/.
           # spikes/ stays structurally excluded (not walked by either pass).
+          echo "gate answered by graph-specs $(graph-specs --version | awk '{print $NF}') from yg/graph-specs-rust@${GS_REV:-unrecorded}"
           graph-specs check --specs specs/concepts/ --code crates/ \
             && graph-specs check --specs specs/tools/ --code tools/
 
