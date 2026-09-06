@@ -56,14 +56,13 @@ BIN_DIR=$(mktemp -d)
 trap 'rm -rf "$BIN_DIR"' EXIT
 ln -s "$CASCADE_BIN" "$BIN_DIR/cascade"
 ln -s "$VOCAB_BIN" "$BIN_DIR/vocab"
-DOXA_REV=$(tr -d '[:space:]' < doxa.rev)
-DOXA_DIR="${DOXA_DIR:-.doxa}"
-if [ ! -d "$DOXA_DIR/.git" ]; then
-  git clone -q https://agency.lab:3000/yg/doxa.git "$DOXA_DIR" || { echo "FATAL: doxa could not be cloned — the corpus is unavailable, never a pass (keel-harness §3.1)" >&2; exit 1; }
-fi
-git -C "$DOXA_DIR" fetch -q origin || true
-git -C "$DOXA_DIR" checkout -q "$DOXA_REV" || { echo "FATAL: doxa rev $DOXA_REV not in the clone — the corpus is unreadable at its pin, unavailable, never a pass (keel-harness §3.1; keel-dialect §3.3)" >&2; exit 1; }
-[ -f "$DOXA_DIR/index.json" ] || { echo "FATAL: doxa checkout carries no index.json — unreadable at its pin, unavailable (keel-harness §3.1)" >&2; exit 1; }
+PINNED_REV=$(tr -d '[:space:]' < doxa.rev)
+CORPUS_CACHE="${CFDB_CORPUS_CACHE:-$HOME/.local/share/cfdb/corpus}"
+DOXA_DIR="${DOXA_DIR:-$CORPUS_CACHE/$PINNED_REV}"
+[ -d "$DOXA_DIR/.git" ] || { echo "FATAL: the corpus at ${PINNED_REV:0:12} is absent from $DOXA_DIR — run scripts/provision-instruments.sh, which stages the corpus at doxa.rev beside the instruments; the gate reads the corpus from that cache and never fetches one itself, because a gate that fetches what it measures decides its own input (keel-harness §3.1, §6.5)" >&2; exit 1; }
+DOXA_REV=$(git -C "$DOXA_DIR" rev-parse HEAD 2>/dev/null || true)
+[ "$DOXA_REV" = "$PINNED_REV" ] || { echo "FATAL: $DOXA_DIR is checked out at ${DOXA_REV:0:12}, not the ${PINNED_REV:0:12} doxa.rev pins — a directory named for a rev is a claim, and rev-parse is what checks it" >&2; exit 1; }
+[ -f "$DOXA_DIR/index.json" ] || { echo "FATAL: the corpus at ${DOXA_REV:0:12} carries no index.json — unreadable at its pin, unavailable (keel-harness §3.1)" >&2; exit 1; }
 
 echo "==> mirror: docs/RFC-*.md is a byte-identical mirror of the doxa corpus at $DOXA_REV — read-only, the corpus is the one source"
 python3 scripts/doxa-mirror-check.py --self-test || { echo "FATAL: the mirror check's own positive control does not fire — the check proves nothing, never a pass" >&2; exit 1; }
