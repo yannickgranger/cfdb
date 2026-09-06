@@ -2,7 +2,7 @@
 
 The judgment layer over cfdb's code facts: the six-class `DebtClass` taxonomy, `Finding` rows, the `ScopeInventory` / `ClassifyEnvelope` wire envelopes, the closed `TriggerId` registry with its `CheckReport`, and the `ClassifyEngine` that runs the classifier rules for `cfdb scope` / `cfdb classify` and the editorial-drift triggers for `cfdb check`. Two bounded contexts share the crate and never import from each other (debt classification; triggers) — `tests/module_wall.rs`. Generic over `cfdb_core::graph::GraphBackend` (through `cfdb_eval::QueryEngine`) — never names a storage engine, never does I/O; the composition root (`cfdb-cli`) loads the store, prints, writes and exits. Skill routing is external to cfdb (RFC-cfdb §A2.3): no routing table or loader lives here (`tests/finding_no_skill_field.rs`, `cfdb-query/tests/skill_routing_deleted.rs`). One section per `pub` type (graph-specs gate).
 
-## CanonicalCandidate
+### CanonicalCandidate
 
 <!-- parent:spec:ScopeInventory -->
 
@@ -38,25 +38,25 @@ Everything a `scope` / `classify` / `check` run can fail with — `Store(StoreEr
 
 The six-variant canonical debt taxonomy used by the `cfdb scope` verb (`DuplicatedFeature`, `ContextHomonym`, `UnfinishedRefactor`, `RandomScattering`, `CanonicalBypass`, `Unwired`). Serde key naming is snake_case to match the RFC-029 addendum §A2.1 JSON schema.
 
-## DiffSourceMeta
+### DiffSourceMeta
 
 <!-- parent:spec:ClassifyEnvelope -->
 
 Projection of the upstream `DiffEnvelope`'s identity — `{a, b, restrict_count}`. Carried on every `ClassifyEnvelope` (#213) so consumers can correlate classify output with the specific diff that drove the restriction. `restrict_count` is the cardinality of the qname set derived from the diff's `added` ∪ `changed` facts.
 
-## ExplainSink
+### ExplainSink
 
 <!-- parent:spec:ScopeInventory -->
 
 The `--explain` accumulator handed to `ClassifyEngine::scope`: interior-mutable (`&self` everywhere) so every scope helper can share one `&ExplainSink`. `enabled()` collects one `ExplainRow` batch per query run through it (via `QueryEngine::execute_explained`); `disabled()` takes the plain `execute` path with zero overhead; `drain()` hands the rows to the caller once. The rows themselves are `cfdb_eval::explain::ExplainRow`.
 
-## Finding
+### Finding
 
 <!-- parent:spec:ScopeInventory -->
 
 A structured debt finding — qname, pattern, class (`DebtClass`), confidence, canonical side, other sides, evidence, age delta, RFC references, bounded contexts. Emitted by the classifier (Phase B / RFC-032 Group D #48).
 
-## ReachabilityEntry
+### ReachabilityEntry
 
 <!-- parent:spec:ScopeInventory -->
 
@@ -68,7 +68,7 @@ An entry in the reachability map — item qname, `reachable_from_entry` boolean,
 
 The JSON envelope returned by `cfdb scope` — findings grouped by `DebtClass`, canonical candidates, reachability map, LoC per crate, plus warnings. Consumed by `/operate-module` and similar skills.
 
-## ScopeOptions
+### ScopeOptions
 
 <!-- parent:spec:ScopeInventory -->
 
@@ -80,13 +80,13 @@ Knobs for a `scope` run — today only `production_only: bool`, which swaps the 
 
 Editorial-drift trigger identifier used by the `cfdb check --trigger <ID>` verb (qbot-core council-4046 Phase 2 naming) — a closed enum, `T1` (concept-declared-in-TOML-but-missing-in-code) and `T3` (concept-name-in-≥2-crates). `TriggerId::variants()` is the single source of truth for valid values — the `FromStr` impl iterates it and the `UnknownTriggerId::Display` impl enumerates it, so the valid-values list in parse-error strings never diverges from the enum (global `CLAUDE.md` §7 MCP/CLI boundary-fix AC). DDD homonym of `check_prelude_triggers::TriggerId` (the `C1..C9` mechanical pre-council triggers, `specs/tools/check-prelude-triggers.md`): different bounded contexts, different serialization namespaces, independent change vectors.
 
-## UnknownDebtClass
+### UnknownDebtClass
 
 <!-- parent:spec:DebtClass -->
 
 Error type for unrecognised `DebtClass` string values during deserialisation.
 
-## UnknownTriggerId
+### UnknownTriggerId
 
 <!-- parent:spec:ClassifyError -->
 
