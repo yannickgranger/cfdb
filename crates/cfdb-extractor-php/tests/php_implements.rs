@@ -302,3 +302,127 @@ fn richer_fixture_is_deterministic() {
     let run2 = PhpProducer.produce(&richer_fixture_root()).expect("run2");
     assert_eq!(format!("{run1:?}"), format!("{run2:?}"));
 }
+
+const ERASABLE: &str =
+    "<?php\nnamespace App\\Privacy;\ninterface Erasable {}\ninterface Wiper {}\n";
+
+#[test]
+fn a_use_imported_interface_yields_the_edge() {
+    let (_nodes, edges) = produce_php(&[
+        ("src/Privacy.php", ERASABLE),
+        (
+            "src/Enrolling.php",
+            "<?php\nnamespace App\\Enrolment;\nuse App\\Privacy\\Erasable;\nclass Enrolling implements Erasable {}\n",
+        ),
+    ]);
+    assert_eq!(
+        implements_pairs(&edges),
+        vec![(
+            item_id("App\\Enrolment\\Enrolling"),
+            item_id("App\\Privacy\\Erasable")
+        )],
+        "the idiomatic form — use import then bare name — resolves"
+    );
+}
+
+#[test]
+fn an_aliased_use_import_yields_the_edge_under_its_alias() {
+    let (_nodes, edges) = produce_php(&[
+        ("src/Privacy.php", ERASABLE),
+        (
+            "src/Enrolling.php",
+            "<?php\nnamespace App\\Enrolment;\nuse App\\Privacy\\Wiper as Cleaner;\nclass Enrolling implements Cleaner {}\n",
+        ),
+    ]);
+    assert_eq!(
+        implements_pairs(&edges),
+        vec![(
+            item_id("App\\Enrolment\\Enrolling"),
+            item_id("App\\Privacy\\Wiper")
+        )]
+    );
+}
+
+#[test]
+fn a_grouped_use_import_yields_the_edge_for_each_member() {
+    let (_nodes, edges) = produce_php(&[
+        ("src/Privacy.php", ERASABLE),
+        (
+            "src/Enrolling.php",
+            "<?php\nnamespace App\\Enrolment;\nuse App\\Privacy\\{Erasable, Wiper as Cleaner};\nclass Enrolling implements Erasable, Cleaner {}\n",
+        ),
+    ]);
+    assert_eq!(
+        implements_pairs(&edges),
+        vec![
+            (
+                item_id("App\\Enrolment\\Enrolling"),
+                item_id("App\\Privacy\\Erasable")
+            ),
+            (
+                item_id("App\\Enrolment\\Enrolling"),
+                item_id("App\\Privacy\\Wiper")
+            ),
+        ]
+    );
+}
+
+#[test]
+fn a_use_import_does_not_resolve_to_the_current_namespace() {
+    let (nodes, edges) = produce_php(&[
+        ("src/Privacy.php", ERASABLE),
+        (
+            "src/Enrolling.php",
+            "<?php\nnamespace App\\Enrolment;\nuse App\\Privacy\\Erasable;\nclass Enrolling implements Erasable {}\n",
+        ),
+    ]);
+    assert!(
+        node(&nodes, &item_id("App\\Enrolment\\Erasable")).is_none(),
+        "no placeholder is invented for the imported name in the importing namespace"
+    );
+    assert!(
+        implements_edges(&edges)
+            .iter()
+            .all(|e| e.dst != item_id("App\\Enrolment\\Erasable")),
+        "resolving a use-imported name to the current namespace is the defect this fixes"
+    );
+}
+
+#[test]
+fn an_out_of_workspace_interface_still_yields_no_edge_and_no_placeholder() {
+    let (nodes, edges) = produce_php(&[(
+        "src/Enrolling.php",
+        "<?php\nnamespace App\\Enrolment;\nuse Symfony\\Component\\Serializer\\Serializable;\nclass Enrolling implements Serializable {}\n",
+    )]);
+    assert!(
+        implements_edges(&edges).is_empty(),
+        "closed-world: a vendor interface resolves to a qname no :Item carries"
+    );
+    assert!(
+        node(
+            &nodes,
+            &item_id("Symfony\\Component\\Serializer\\Serializable")
+        )
+        .is_none(),
+        "stubs are not arrows"
+    );
+}
+
+#[test]
+fn a_function_use_import_does_not_enter_the_class_table() {
+    let (_nodes, edges) = produce_php(&[
+        ("src/Privacy.php", ERASABLE),
+        (
+            "src/Enrolling.php",
+            "<?php\nnamespace App\\Privacy;\nuse function App\\Helpers\\Erasable;\nclass Enrolling implements Erasable {}\n",
+        ),
+    ]);
+    assert_eq!(
+        implements_pairs(&edges),
+        vec![(
+            item_id("App\\Privacy\\Enrolling"),
+            item_id("App\\Privacy\\Erasable")
+        )],
+        "a `use function` import is a different namespace and must not shadow the class name"
+    );
+}
