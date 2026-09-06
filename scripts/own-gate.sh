@@ -31,6 +31,10 @@ resolve_pin() {
     "$(readlink -f "$CACHE")"/*) ;;
     *) echo "FATAL: $bin @ ${rev:0:12} resolves to $target, outside $CACHE — a convenience symlink is not a pinned binary" >&2; return 1 ;;
   esac
+  [ -r "$path.sha256" ] || { echo "FATAL: $bin @ ${rev:0:12} carries no digest at $path.sha256 — the file name is a claim the cache does not check; re-run scripts/provision-instruments.sh, which writes the digest as it stages" >&2; return 1; }
+  recorded=$(tr -d '[:space:]' < "$path.sha256")
+  actual=$(sha256sum "$path" | cut -d' ' -f1)
+  [ "$recorded" = "$actual" ] || { echo "FATAL: $bin @ ${rev:0:12} is not the file provisioning staged — recorded ${recorded:0:16}, found ${actual:0:16}; a binary copied under a pin's name answers as that pin until the digest is read" >&2; return 1; }
   RESOLVED="$path"
 }
 
