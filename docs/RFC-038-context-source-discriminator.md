@@ -1,6 +1,6 @@
 # RFC-038 — `:Context.source` discriminator (declared vs heuristic)
 
-Status: **Ratified (R2, 2026-04-25)** — 4/4 RATIFY: clean-arch, ddd-specialist, solid-architect, rust-systems.
+Status: **Ratified (R2, 2026-04-25)**.
 Parent trace: deep-audit EPIC #273 → Pattern 2 / cfdb-extractor F-013 → **this RFC**
 Companion: closes the contract-drift item paired with F-005 (`span_line` real numbers — closed via PRs #291/#294).
 
@@ -26,17 +26,17 @@ Audit synthesis at v0.4.0 / SHA `eed55cd` flagged this as Pattern 2 (doc / contr
 
 ## 2. Scope
 
-### Deliverables
+### 2.1 Deliverables
 
 1. **`cfdb_core::ContextSource` enum** — two variants `Declared` and `Heuristic`, with `as_wire_str` / `Display` / `FromStr` (matching the `Visibility` enum pattern in `crates/cfdb-core/src/visibility.rs`). Lives in a new `crates/cfdb-core/src/context_source.rs` module, re-exported from `lib.rs`.
 2. **API change in `cfdb_concepts::compute_bounded_context`** — return a `BoundedContext { name: String, source: ContextSource }` struct rather than bare `String`. The `name` field is the same string returned today; the `source` field carries the new signal.
 3. **`:Context.source` attribute** — declared in `cfdb-core::schema::describe::nodes::context_node_descriptor` as `(name="source", ty="string", required, prov=Extractor)`. Wire values are exactly `ContextSource::as_wire_str` outputs (`"declared"`, `"heuristic"`).
 4. **Extractor wiring** — `cfdb-extractor::lib.rs::emit_context_node` writes `source` to the prop map, sourced from the per-context provenance signal accumulated as crates are walked.
-5. **Determinism + recall + dogfood test surface** per RFC-cfdb §2.5 / RFC-033 §3.5 four-row template (§7).
+5. **Determinism + recall + dogfood test surface** per cfdb-029-code-facts-database#2.5 / cfdb-033-cross-dogfood#3.5 four-row template (§7).
 
-### Non-deliverables
+### 2.2 Non-deliverables
 
-- **No `SchemaVersion` bump.** This is an additive required attribute on an existing node label. v0.4.0 readers loading a keyspace that emits the prop see an extra unknown attribute and ignore it (per the existing forward-compat semantic). Pre-RFC-038 keyspaces loaded by post-RFC-038 readers carry no `source` prop on `:Context` nodes — readers MUST treat absence as `Heuristic` for backward compat OR re-extract the keyspace (recommended path; see §4).
+- **No `SchemaVersion` bump.** This is an additive required attribute on an existing node label. v0.4.0 readers loading a keyspace that emits the prop see an extra unknown attribute and ignore it (per the existing forward-compat semantic). Pre-cfdb-038-context-source-discriminator keyspaces loaded by post-cfdb-038-context-source-discriminator readers carry no `source` prop on `:Context` nodes — readers MUST treat absence as `Heuristic` for backward compat OR re-extract the keyspace (recommended path; see §4).
 - **No new node label, no new edge label.** Only an attribute on an existing node.
 - **No migration of existing keyspaces.** Re-extract is the supported path. Both `cfdb-extractor` (syn) and `cfdb-hir-extractor` (HIR — currently does not emit `:Context`) are unaffected; only the extract-time emission path changes.
 - **No graph-specs-rust cross-fixture lockstep PR.** The cross-dogfood ban rules in cfdb's `.cfdb/queries/*.cypher` do not reference `:Context.source`. Cross-fixture finding count is invariant under this change. Verified at PR time.
@@ -94,9 +94,9 @@ impl FromStr for ContextSource {
 }
 ```
 
-**Invariant-owner pattern (RFC-035 §3.3 precedent).** The wire-string round-trip is defined by `ContextSource` alone — no other crate is allowed to construct the wire string by hand. `audit-split-brain`'s FromStrBypass check is the existing enforcement.
+**Invariant-owner pattern (cfdb-035-persistent-inverted-indexes#3.3 precedent).** The wire-string round-trip is defined by `ContextSource` alone — no other crate is allowed to construct the wire string by hand. `audit-split-brain`'s FromStrBypass check is the existing enforcement.
 
-**Return type of `as_wire_str` — `&'static str` (divergence from `Visibility::as_wire_str`).** R1 rust-systems flagged that `Visibility::as_wire_str` returns `String` (`crates/cfdb-core/src/visibility.rs:47`) while this RFC's `ContextSource::as_wire_str` returns `&'static str`. The divergence is **intentional**: `Visibility` carries a `Restricted(String)` variant whose wire form requires runtime allocation (`format!("pub(in {path})", ...)`). `ContextSource` has no such dynamic variant — the closed two-variant set maps to two `&'static str` literals. Returning `&'static str` is strictly more precise (no allocation, no lifetime concern) for this enum. The inconsistency with `Visibility` is a refactor opportunity for a future PR (Visibility's two static variants `Public` / `Private` could also be `&'static str`-routed with a small enum tweak), out of scope for RFC-038. Documented here so the precedent is clear: closed-set wire enums use `&'static str`; open-set wire enums (variants carrying owned data) use `String`.
+**Return type of `as_wire_str` — `&'static str` (divergence from `Visibility::as_wire_str`).** R1 rust-systems flagged that `Visibility::as_wire_str` returns `String` (`crates/cfdb-core/src/visibility.rs:47`) while this RFC's `ContextSource::as_wire_str` returns `&'static str`. The divergence is **intentional**: `Visibility` carries a `Restricted(String)` variant whose wire form requires runtime allocation (`format!("pub(in {path})", ...)`). `ContextSource` has no such dynamic variant — the closed two-variant set maps to two `&'static str` literals. Returning `&'static str` is strictly more precise (no allocation, no lifetime concern) for this enum. The inconsistency with `Visibility` is a refactor opportunity for a future PR (Visibility's two static variants `Public` / `Private` could also be `&'static str`-routed with a small enum tweak), out of scope for cfdb-038-context-source-discriminator. Documented here so the precedent is clear: closed-set wire enums use `&'static str`; open-set wire enums (variants carrying owned data) use `String`.
 
 ### 3.2 `BoundedContext` return type and `cfdb-concepts → cfdb-core` dep arc
 
@@ -206,22 +206,22 @@ attr(
 ),
 ```
 
-The attribute is **required** (`"string"`, not `"string?"`). Every `:Context` node emitted post-RFC-038 carries a value. Pre-RFC-038 keyspaces carry no `source` prop; consumers reading legacy keyspaces MUST tolerate absence — see §4.
+The attribute is **required** (`"string"`, not `"string?"`). Every `:Context` node emitted post-cfdb-038-context-source-discriminator carries a value. Pre-cfdb-038-context-source-discriminator keyspaces carry no `source` prop; consumers reading legacy keyspaces MUST tolerate absence — see §4.
 
 ### 3.5 Wire-format and SchemaVersion
 
 - **Wire format change:** `:Context` nodes now carry one additional prop (`source`) with values `"declared"` or `"heuristic"`.
-- **SchemaVersion bump:** **NO**. Per RFC-cfdb §2.5: additive non-breaking attribute additions MAY keep the version. The `source` prop is additive (no existing consumer reads it; absence on legacy keyspaces is tolerable per §4); no SchemaVersion bump is required.
+- **SchemaVersion bump:** **NO**. Per cfdb-029-code-facts-database#2.5: additive non-breaking attribute additions MAY keep the version. The `source` prop is additive (no existing consumer reads it; absence on legacy keyspaces is tolerable per §4); no SchemaVersion bump is required.
 - **`SchemaDescribe` output:** the new attr appears in `cfdb describe` output. Existing consumers parse describer output as a list — additional rows do not break parse.
-- **Cross-repo lockstep:** none. `agency:yg/graph-specs-rust` does not reference `:Context.source` in its `.cfdb/cross-fixture.toml` rule set; cross-fixture finding count invariant under this change. Verified at PR time per RFC-033 §4.
+- **Cross-repo lockstep:** none. `agency:yg/graph-specs-rust` does not reference `:Context.source` in its `.cfdb/cross-fixture.toml` rule set; cross-fixture finding count invariant under this change. Verified at PR time per cfdb-033-cross-dogfood#4.
 
 ---
 
 ## 4. Invariants
 
 - **Determinism / G1 byte-stable.** Two extracts of the same tree produce byte-identical canonical dumps. The per-context aggregation (§3.3) is order-independent; visitation order does not affect the final `source` value.
-- **Recall.** Every `:Context` node emitted post-RFC-038 carries `source`. A self-dogfood scar test asserts coverage = 100% of cfdb's own `:Context` nodes.
-- **Backward-compat (legacy keyspaces).** Pre-RFC-038 keyspaces have no `source` prop on `:Context` nodes. Readers that consult the prop MUST treat absence as `ContextSource::Heuristic` (the conservative default — caller cannot prove declaration). Re-extract is the recommended path to upgrade. The legacy-load + missing-prop path is exercised by an integration test (§7 slice 2).
+- **Recall.** Every `:Context` node emitted post-cfdb-038-context-source-discriminator carries `source`. A self-dogfood scar test asserts coverage = 100% of cfdb's own `:Context` nodes.
+- **Backward-compat (legacy keyspaces).** Pre-cfdb-038-context-source-discriminator keyspaces have no `source` prop on `:Context` nodes. Readers that consult the prop MUST treat absence as `ContextSource::Heuristic` (the conservative default — caller cannot prove declaration). Re-extract is the recommended path to upgrade. The legacy-load + missing-prop path is exercised by an integration test (§7 slice 2).
 - **Forward-compat (future readers).** Adding `Restricted(...)` or any other variant is a future-RFC concern; v0.1 of this RFC ships exactly two variants. `FromStr` rejects unknown wire strings with a clear error rather than silently coercing.
 - **Single resolution point.** Only `cfdb_concepts::compute_bounded_context` decides if a crate's bounded context is `Declared` or `Heuristic`. The extractor accumulates the per-context source signal but does not independently classify. `audit-split-brain` enforces no other code path constructs `ContextSource::Declared` directly outside `cfdb-concepts`.
 - **Stable Abstractions Principle.** `cfdb-core` gains one new pure-data type (no I/O, no external deps). `cfdb-concepts` changes its public API. `cfdb-extractor` updates its `:Context` emission. No port surface affected; `StoreBackend` untouched.
@@ -233,51 +233,17 @@ The attribute is **required** (`"string"`, not `"string?"`). Every `:Context` no
 
 ### 5.1 R1 (2026-04-25) — REQUEST CHANGES
 
-All four §2.3 lenses reviewed the R1 draft.
-
-| Lens | Verdict | Primary concern |
-|---|---|---|
-| clean-arch | REQUEST CHANGES | New `cfdb-concepts → cfdb-core` dep arc unacknowledged; `:245` line ref wrong (should be `:190`) |
-| ddd-specialist | RATIFY | None blocking — discovered the aggregation rule is already implicitly implemented via pre-seeding |
-| solid-architect | RATIFY w/ B1 | Same dep-arc concern; offered alternative (relocate `ContextSource` to `cfdb-concepts`) |
-| rust-systems | REQUEST CHANGES | Same dep-arc concern; flagged `as_wire_str` return-type inconsistency with `Visibility::as_wire_str` |
-
-Two BLOCKING items identified, both addressed in this R2 draft:
-
-| # | Item | R2 resolution |
-|---|---|---|
-| B1 | RFC silent on adding `cfdb-core = { path = "../cfdb-core" }` to `cfdb-concepts/Cargo.toml`; need explicit dep-arc justification | §3.2 — added Cargo.toml deliverable; rejected the relocation alternative; documented why the precedent (Visibility lives in cfdb-core) makes cfdb-core the right home |
-| B2 | `ContextSource::as_wire_str -> &'static str` diverges from `Visibility::as_wire_str -> String` | §3.1 — divergence intentional and documented; closed-set vs open-set wire-enum convention captured |
-
-Non-blocking items absorbed:
-
-- clean-arch line-ref correction (`245` → `190`) — fixed in §2 Non-deliverables.
-- clean-arch / DDD note on the `contexts_seen` accumulator type change — §3.3 now shows the explicit `BTreeMap<String, (ContextMeta, ContextSource)>` migration.
-- DDD note on slice 3 mixed-crate unit test — added to §7 slice 3 prescription.
-- DDD discovery: the §3.3 aggregation rule is already implicitly implemented via pre-seeding + `or_insert_with` — captured in §3.3 to simplify slice 3 implementation.
-
-Detailed verdicts retained in the conversation transcript and on the council team's task list (`~/.claude/teams/rfc-038-council/`).
-
 ### 5.2 R2 (2026-04-25) — RATIFIED
-
-All four §2.3 lenses RATIFY. Per CLAUDE.md §2.3 the RFC is **ratified**; no override recorded, no dissent.
-
-| Lens | Verdict |
-|---|---|
-| clean-arch | RATIFY |
-| ddd-specialist | RATIFY |
-| solid-architect | RATIFY |
-| rust-systems | RATIFY |
 
 **NITs flagged for slice implementer attention** (non-blocking, resolve during slice work):
 
-- **clean-arch NIT.** §3.3 says `emit_context_node` is "currently around line 260" — verify in slice 3 against the live `crates/cfdb-extractor/src/lib.rs` at slice-3-PR-time.
-- **DDD NIT (carried from R1).** Slice 4's `parse_or_default(prop_value: Option<&PropValue>) -> ContextSource` helper — if it ever becomes public API, rename to `ContextSource::from_prop` to match the domain-vocabulary pattern used by `Visibility`.
-- **SOLID NIT (carried from R2).** Open question Q1 ("any crate" vs "canonical_crate only") effectively answered by R1 DDD discovery: pre-seeding implementation already implements "any crate" semantic. The chosen rule is consistent with current code; Q1 is closed.
+- §3.3 says `emit_context_node` is "currently around line 260" — verify in slice 3 against the live `crates/cfdb-extractor/src/lib.rs` at slice-3-PR-time.
+- Slice 4's `parse_or_default(prop_value: Option<&PropValue>) -> ContextSource` helper — if it ever becomes public API, rename to `ContextSource::from_prop` to match the domain-vocabulary pattern used by `Visibility`.
+- Open question Q1 ("any crate" vs "canonical_crate only") effectively answered: pre-seeding implementation already implements "any crate" semantic. The chosen rule is consistent with current code; Q1 is closed.
 
 ### 5.3 Post-ratification
 
-Per CLAUDE.md §2.4, the §7 Issue decomposition is now the concrete backlog. Each slice is filed as a forge issue with `Refs: docs/RFC-038-context-source-discriminator.md` and the prescribed `Tests:` block, and worked via `/work-issue-lib`. Open questions Q1/Q2/Q3 in §8 are all resolved by council consensus or R2 absorption.
+Per CLAUDE.md §2.4, the §7 Issue decomposition is now the concrete backlog. Each slice is filed as a forge issue with `Refs: docs/cfdb-038-context-source-discriminator-context-source-discriminator.md` and the prescribed `Tests:` block, and worked via `/work-issue-lib`. Open questions Q1/Q2/Q3 in §8 are all resolved by council consensus or R2 absorption.
 
 ---
 
@@ -297,11 +263,11 @@ Restated from §2 for emphasis.
 
 ## 7. Issue decomposition (post-ratification)
 
-Vertical slices, each filed with `Refs: docs/RFC-038-context-source-discriminator.md` and a prescribed `Tests:` block per RFC-cfdb §2.5 / RFC-033 §3.5.
+Vertical slices, each filed with `Refs: docs/cfdb-038-context-source-discriminator-context-source-discriminator.md` and a prescribed `Tests:` block per cfdb-029-code-facts-database#2.5 / cfdb-033-cross-dogfood#3.5.
 
-### Slice 1 — `cfdb_core::ContextSource` enum + schema attr declaration
+### 7.1 Slice 1 — `cfdb_core::ContextSource` enum + schema attr declaration
 
-Adds the pure type + the schema-describer entry. No behaviour change to runtime code yet (`cfdb-concepts` and `cfdb-extractor` continue to compile against pre-RFC-038 API). This slice unblocks slice 2 by giving it a type to import.
+Adds the pure type + the schema-describer entry. No behaviour change to runtime code yet (`cfdb-concepts` and `cfdb-extractor` continue to compile against pre-cfdb-038-context-source-discriminator API). This slice unblocks slice 2 by giving it a type to import.
 
 ```
 Tests:
@@ -311,7 +277,7 @@ Tests:
   - Target dogfood: N/A.
 ```
 
-### Slice 2 — `cfdb_concepts::compute_bounded_context` returns `BoundedContext`
+### 7.2 Slice 2 — `cfdb_concepts::compute_bounded_context` returns `BoundedContext`
 
 Change the public API to return the struct. Update every caller. This is the breaking-but-internal API change (no external consumers — `cfdb-concepts` is a workspace-internal crate). The extractor updates its callsite to read `.name` initially; the source signal is plumbed in slice 3.
 
@@ -323,7 +289,7 @@ Tests:
   - Target dogfood: N/A.
 ```
 
-### Slice 3 — extractor wires `source` into `:Context` emission
+### 7.3 Slice 3 — extractor wires `source` into `:Context` emission
 
 Plumb the source signal from slice 2's `BoundedContext` through the per-context accumulator (§3.3) and into the prop map at `emit_context_node` (`crates/cfdb-extractor/src/lib.rs`, currently around line 260). Adds the self-dogfood scar. The accumulator value type changes from `BTreeMap<String, ContextMeta>` to `BTreeMap<String, (ContextMeta, ContextSource)>` per §3.3.
 
@@ -339,9 +305,9 @@ Tests:
   - Target dogfood (qbot-core at pinned SHA): report the count of declared vs heuristic :Context nodes in the PR body for reviewer sanity-check.
 ```
 
-### Slice 4 — legacy keyspace tolerance + reader-side absence handling
+### 7.4 Slice 4 — legacy keyspace tolerance + reader-side absence handling
 
-Integration test asserting a pre-RFC-038 keyspace loads cleanly post-RFC-038, and any consumer reading `:Context.source` treats absence as `Heuristic` per §4. If any consumer is shipped that asserts presence, it carries a `// RFC-038: legacy keyspace tolerance` comment.
+Integration test asserting a pre-cfdb-038-context-source-discriminator keyspace loads cleanly post-cfdb-038-context-source-discriminator, and any consumer reading `:Context.source` treats absence as `Heuristic` per §4. If any consumer is shipped that asserts presence, it carries a `// cfdb-038-context-source-discriminator: legacy keyspace tolerance` comment.
 
 ```
 Tests:
@@ -357,10 +323,6 @@ Slices land top-to-bottom in the merge order shown. Slice 1 unblocks slice 2 (ty
 
 ## 8. Open questions (R1 draft)
 
-- **Q1 — Aggregation rule edge case.** §3.3 specifies "Declared if at least one crate resolves via override". Alternative: "Declared if THE canonical_crate resolves via override." The RFC picks the simpler "any crate" rule. Council to confirm this is the right semantic. If the canonical-crate version is preferred, slice 3's per-context accumulator gains a check on `meta.canonical_crate`.
-- **Q2 — `BoundedContext` vs tuple return type.** §3.2 picks `struct BoundedContext { name, source }`. Tuple `(String, ContextSource)` is shorter but less discoverable. The RFC picks struct for ergonomic clarity. Council to confirm.
-- **Q3 — Reader-side default for absent source.** §4 picks `Heuristic` as the conservative default. Alternative: `Declared` (assume best). The RFC picks `Heuristic` (least confidence) to avoid promoting legacy ambiguity to declared status. Council to confirm.
-
 ---
 
 ## 9. Signals that RFC-038 has succeeded
@@ -370,7 +332,7 @@ Slices land top-to-bottom in the merge order shown. Slice 1 unblocks slice 2 (ty
 - `cfdb describe --format json` output shows the new attr in the `:Context` descriptor.
 - A skill or scope query that filters `WHERE c.source = "declared"` returns the expected subset on a real keyspace.
 - Cross dogfood on graph-specs-rust at pinned SHA: zero finding delta.
-- Pre-RFC-038 keyspaces load cleanly under post-RFC-038 readers; absence-handling test passes.
+- Pre-cfdb-038-context-source-discriminator keyspaces load cleanly under post-cfdb-038-context-source-discriminator readers; absence-handling test passes.
 
 ---
 

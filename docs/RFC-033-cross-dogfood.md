@@ -1,12 +1,8 @@
----
-title: RFC-033 — Cross-dogfood discipline with graph-specs-rust
-status: Ratified
-date: 2026-04-19
-authors: cross-dogfood-review team (team-lead drafted; clean-arch, ddd, solid, rust-systems ratified)
-companion: yg/graph-specs-rust RFC-002 (same topic, mirror)
----
-
 # RFC-033 — Cross-dogfood discipline with graph-specs-rust
+
+**Status:** Ratified
+**Date:** 2026-04-19
+**Companion:** yg/graph-specs-rust graph-specs-002-cross-dogfood (same topic, mirror)
 
 ## §1 — Problem
 
@@ -16,7 +12,7 @@ The failure mode this RFC prevents: **"rescue tools that work on a synthetic fix
 
 1. cfdb adds a new fact type, but graph-specs (which vendors cfdb as a pinned git dep) doesn't know how to consume it. Discovered when a target-workspace PR breaks.
 2. graph-specs adds a new equivalence level, but cfdb's self-audit flags it as a false positive on cfdb's own tree. Discovered when cfdb CI flaps.
-3. A new classifier Cypher rule (Phase 3, RFC-032 §4) flags findings on cfdb or graph-specs themselves. Shipped anyway because nobody ran it on the author-repos first — then it carpets the target workspace with false positives and the rescue loses credibility.
+3. A new classifier Cypher rule (Phase 3, cfdb-032-v02-extractor#4) flags findings on cfdb or graph-specs themselves. Shipped anyway because nobody ran it on the author-repos first — then it carpets the target workspace with false positives and the rescue loses credibility.
 4. cfdb bumps `SchemaVersion`; downstream graph-specs CI misses the window because the bump wasn't coordinated.
 
 The symmetric truth: both tools ARE Rust workspaces. Both have public surfaces, bounded contexts (however minimal), and the same patterns they're designed to detect in the target workspace. If the tools can't verify they work cleanly on their own authors' trees, they can't be trusted against the target workspace at rescue time.
@@ -45,9 +41,9 @@ Out of scope (explicit non-goals in §6):
 
 ### §3.1 — `.cfdb/cross-fixture.toml`
 
-Single file at `.cfdb/cross-fixture.toml` in each repo. This honours the RFC-030 §4 registry boundary (the repo root is reserved for `docs/` rationale and `specs/` contracts; infrastructure config lives under `.cfdb/` alongside `.cfdb/queries/` and `.cfdb/db/`).
+Single file at `.cfdb/cross-fixture.toml` in each repo. This honours the cfdb-030-anti-drift-gate#4 registry boundary (the repo root is reserved for `docs/` rationale and `specs/` contracts; infrastructure config lives under `.cfdb/` alongside `.cfdb/queries/` and `.cfdb/db/`).
 
-Vocabulary note: "companion repo" is used throughout this RFC to mean the paired tool's repository (cfdb ↔ graph-specs-rust). "sibling" is reserved for RFC-001-style DDD context-sibling relationships inside a single repo — do not cross the two terms.
+Vocabulary note: "companion repo" is used throughout this RFC to mean the paired tool's repository (cfdb ↔ graph-specs-rust). "sibling" is reserved for graph-specs-001-bounded-context-equivalence-style DDD context-sibling relationships inside a single repo — do not cross the two terms.
 
 ```toml
 # .cfdb/cross-fixture.toml — cross-dogfood fixture pin per RFC-033.
@@ -64,7 +60,7 @@ bumped_at = "2026-04-19T00:00:00Z"
 bumped_by = "initial"
 ```
 
-**Parse discipline (SOLID RC3):** CI parses with an anchored-and-equals-anchored grep to prevent false matches on future TOML comments:
+**Parse discipline:** CI parses with an anchored-and-equals-anchored grep to prevent false matches on future TOML comments:
 
 ```bash
 # SAFE: matches `sha = "…"` only, rejects `# sha = "…"`.
@@ -75,7 +71,7 @@ No TOML crate dependency on the CI step. The parse is centralised in a shared he
 
 ### §3.2 — CI cross-dogfood step (via shared helper)
 
-Per CCP (solid RC1) and composition-root clarity (clean-arch CA-2), the cross-dogfood shell logic is extracted into two shared helpers committed under `ci/`:
+Per CCP and composition-root clarity, the cross-dogfood shell logic is extracted into two shared helpers committed under `ci/`:
 
 - `ci/read-cross-fixture-sha.sh` — parses `.cfdb/cross-fixture.toml` and echoes the pinned companion SHA. Single source of truth for the parse pattern; used by both the PR-time cross-dogfood step AND the weekly bump / closed-loop jobs (§3.3, §3.6).
 - `ci/cross-dogfood.sh` — clones the companion repo at the pinned SHA into `/tmp/companion` and runs the local tool against it. Exit codes are differentiated (see below).
@@ -144,7 +140,7 @@ The `--count-only` flag on `cfdb violations` is a small addition this RFC assume
 
 ### §3.3 — Bump protocol
 
-**Weekly automatic bump** (distinct cron per repo to avoid collision, rust-systems C3):
+**Weekly automatic bump** (distinct cron per repo to avoid collision):
 
 - cfdb — **Monday 06:00 UTC**
 - graph-specs-rust — **Monday 06:30 UTC**
@@ -166,11 +162,11 @@ Each scheduled workflow:
 
 ### §3.4 — Zero-false-positive invariant
 
-**This is a named obligation on every Cypher-rule author and every equivalence-level contributor** (SOLID RC2). The invariant is:
+**This is a named obligation on every Cypher-rule author and every equivalence-level contributor**. The invariant is:
 
 > A new `.cypher` rule or a new equivalence-level activation MUST produce zero findings against the companion repo at the currently-pinned `.cfdb/cross-fixture.toml` SHA. The PR shipping the new rule/level includes a CI run of `ci/cross-dogfood.sh` as part of its acceptance, same as the `Tests:` prescription mandates (§3.5 / CLAUDE.md §2.5).
 
-This is not an implicit CI behaviour — it is a contract. Issue A2 (§7 decomposition) names this obligation explicitly and every new-rule/new-level issue derived from RFC-032 / RFC-002 §5.2 must carry a `Tests: Cross dogfood` line asserting zero findings on the companion.
+This is not an implicit CI behaviour — it is a contract. Issue A2 (§7 decomposition) names this obligation explicitly and every new-rule/new-level issue derived from cfdb-032-v02-extractor / graph-specs-002-cross-dogfood#5.2 must carry a `Tests: Cross dogfood` line asserting zero findings on the companion.
 
 Enforcement path at CI time: `ci/cross-dogfood.sh` exits with code 30 on any non-empty rule match. The shipping PR is blocked.
 
@@ -195,7 +191,7 @@ The "Cross dogfood" line is new. An architect CAN prescribe it as `Cross dogfood
 
 ### §3.6 — Weekly closed-loop housekeeping
 
-Separate from the pin-bump jobs (§3.3), each repo runs a closed-loop job at **distinct cron times to prevent issue-tracker noise collision** (rust-systems C3):
+Separate from the pin-bump jobs (§3.3), each repo runs a closed-loop job at **distinct cron times to prevent issue-tracker noise collision**:
 
 - cfdb closed-loop — **Tuesday 06:00 UTC** (24h after the cfdb bump job on Monday)
 - graph-specs-rust closed-loop — **Tuesday 06:30 UTC**
@@ -209,7 +205,7 @@ Any failure opens an issue `cross-drift-YYYY-WW` in the failing repo with the fa
 
 This job catches the window between "companion landed a change" and "our next manual pin bump" — if a companion change would break us at HEAD, we know within a week, not at rescue time.
 
-**Shared keyspace accumulation** (rust-systems C2): both the PR-time self-audit (keyspace `cfdb-self`) and the cross-dogfood step (keyspace `cross-companion-<sha12>`) write to the same `.cfdb/db/` directory. This is intentional — keyspaces are isolated by name in the persisted graph, and the determinism check (`ci/determinism-check.sh`) only validates the `cfdb-self` keyspace shape. The cross-dogfood keyspace is not determinism-checked (different workspace, different SHA), which is correct.
+**Shared keyspace accumulation**: both the PR-time self-audit (keyspace `cfdb-self`) and the cross-dogfood step (keyspace `cross-companion-<sha12>`) write to the same `.cfdb/db/` directory. This is intentional — keyspaces are isolated by name in the persisted graph, and the determinism check (`ci/determinism-check.sh`) only validates the `cfdb-self` keyspace shape. The cross-dogfood keyspace is not determinism-checked (different workspace, different SHA), which is correct.
 
 ## §4 — Invariants
 
@@ -223,39 +219,13 @@ Every change under this RFC must preserve:
 
 ## §5 — Architect lenses
 
-Dedicated subsections per architect perspective. Verdicts captured inline after review.
-
 ### §5.1 — Clean architecture (`clean-arch`)
-
-Open question resolved: `.cfdb/cross-fixture.toml` (§3.1). Rationale: RFC-030 §4 registry boundary reserves repo root for `docs/` + `specs/`; infrastructure pin files live in `.cfdb/` alongside `.cfdb/queries/` and `.cfdb/db/`.
-
-Open question resolved: cross-dogfood step lives in `.gitea/workflows/ci.yml` but delegates all shell to `ci/cross-dogfood.sh` + `ci/read-cross-fixture-sha.sh`. The composition concern is the shell extraction, not which YAML file the step lives in.
-
-**Verdict (round 2, 2026-04-19): RATIFY.** All two blockers (CA-1, CA-3) and four non-blockers (CA-2, CA-4, vocabulary, forward-compat) resolved with file:line citations against revision 1 (commit `2fa9e22`). Dependency rule clean: CI runs tool against companion repo, no reverse import, no inner-layer coupling. Port purity preserved — cross-dogfood invokes the CLI binary (published surface), not `application/`'s lib internals. Zero-false-positive invariant with no-allowlist escape hatch consistent with RATIFIED.md §A.9. Composition root explicit (`ci/cross-dogfood.sh`). Keyspace naming SHA-namespaced and determinism-safe.
 
 ### §5.2 — DDD (`ddd-specialist`)
 
-Open question resolved: two bounded contexts with a shared kernel (cfdb's NDJSON/Cypher output format). Vocabulary disambiguated — "companion repo" for the cross-tool relationship, "sibling" reserved for RFC-001-style DDD sibling-context vocabulary inside a single repo.
-
-Open question resolved: `:Finding` (cfdb, persistent classifier node with git-history signals) and `Violation` (graph-specs, ephemeral per-run diff output) are semantically distinct on temporal and subject axes. The RFC correctly does not unify them; unification would force cfdb to know about spec files and graph-specs to know about git history.
-
-**Verdict (round 1, 2026-04-19): RATIFY** with three recorded non-blocking concerns (H1 context-vocabulary qualification, C2 emerging third-context ownership, C3 dependency-direction precision). All three addressed in revision 1 (§3.1 vocabulary notes, §6 item 4, §6 item 3; Issue C2 names the runbook as canonical orchestration-vocabulary home).
-
 ### §5.3 — SOLID (`solid-architect`)
 
-Open question resolved: stable grep pattern `^\s*sha\s*=` (robust against future TOML comment additions or field reordering). No TOML crate dependency at the CI step. Parse centralised in `ci/read-cross-fixture-sha.sh` (SOLID RC1 — CCP fix; single parse source used by PR-time, bump, and closed-loop jobs).
-
-Open question resolved: bump-protocol job cohesion is acceptable as one job — the three sub-responsibilities (clone, test, open-PR-or-issue) all change for the same reason ("weekly companion-SHA maintenance"). CCP satisfied.
-
-**Verdict (round 1, 2026-04-19): RATIFY conditional.** All three required changes (RC1 shared parser, RC2 zero-false-positive invariant named as explicit author obligation, RC3 stable grep) resolved in revision 1. Component-metrics impact: Zone of Pain scores for cfdb-core and graph-specs-rust's domain crate are unchanged (RFC-033 adds no Rust crate dependencies); ISP/CRP/SDP directions all satisfied; ADP no cycle at Rust-crate level (SHA pin cycle is human-mediated deployment protocol, not a compile-time dependency edge).
-
 ### §5.4 — Rust systems (`rust-systems`)
-
-Open question resolved: cross-dogfood overhead is ~20–30s on cfdb side (clone + syn extract). Binary caching (`/cache/cargo/bin/<tool>-<sha>`) is NOT needed; sccache warmth is sufficient. On graph-specs side, sccache must be added to graph-specs CI as part of Issue B2 (previously absent — overdue independent of this RFC).
-
-Open question resolved: the two SHA universes (Mechanism A `cargo install --branch develop` for CI self-gates vs Mechanism B pinned-SHA in `.cfdb/cross-fixture.toml` for cross-dogfood test target) are intentionally decoupled. They answer different questions: A is "does my tool work against its own tree?"; B is "does my current tool handle the companion's code?". The `ci/cross-dogfood.sh` script carries a multi-line comment (§3.2) explaining this so future maintainers do not "fix" the divergence by unifying the SHAs.
-
-**Verdict (round 2, 2026-04-19): RATIFY.** Both blockers (B1 sccache gap, B2 failure-mode differentiation) and three mandatory prose additions (C1 SHA-universe clarifier, C2 dual-keyspace note, C3 distinct cron schedules) resolved in revision 1. RFC-032's four sequencing traps are orthogonal to this RFC. `cfdb-recall::runner` feature is irrelevant. No circular SHA contamination. Workspace Cargo.toml impact: zero new Rust dependencies.
 
 ## §6 — Non-goals
 
@@ -271,18 +241,18 @@ One vertical slice per issue. Each carries the `Tests:` line prescribed by the a
 
 **Group A — fixture file + CI wiring (cfdb):**
 
-- Issue A1: Add `.cfdb/cross-fixture.toml` to cfdb with initial graph-specs-rust SHA. Schema per §3.1. Add `ci/read-cross-fixture-sha.sh` shared parser (solid RC1).
-- Issue A2: Wire cross-dogfood CI step in cfdb's `.gitea/workflows/ci.yml` via `ci/cross-dogfood.sh`. Exit codes 10/20/30 differentiated per §3.2 (rust-systems B2). **Must also add `--count-only` (or equivalent) to `cfdb violations` if it does not emit a terse row count today.** The zero-false-positive invariant obligation (§3.4) is named in the issue body as an author-facing contract for every future rule addition (SOLID RC2).
+- Issue A1: Add `.cfdb/cross-fixture.toml` to cfdb with initial graph-specs-rust SHA. Schema per §3.1. Add `ci/read-cross-fixture-sha.sh` shared parser.
+- Issue A2: Wire cross-dogfood CI step in cfdb's `.gitea/workflows/ci.yml` via `ci/cross-dogfood.sh`. Exit codes 10/20/30 differentiated per §3.2. **Must also add `--count-only` (or equivalent) to `cfdb violations` if it does not emit a terse row count today.** The zero-false-positive invariant obligation (§3.4) is named in the issue body as an author-facing contract for every future rule addition.
 
 **Group B — fixture file + CI wiring (graph-specs-rust):**
 
 - Issue B1: Add `.cfdb/cross-fixture.toml` to graph-specs-rust with initial cfdb SHA. Mirror of A1. Add `ci/read-cross-fixture-sha.sh` shared parser.
-- Issue B2: Wire cross-dogfood CI step in graph-specs-rust's CI via `ci/cross-dogfood.sh`. **Must include sccache setup** (rust-systems B1) — cfdb clone + build is ~60–120s cold without sccache; mirror the setup step from cfdb's `ci.yml` lines 60–72. Alternative: document cold-run cost as accepted in the issue and move on; RFC recommends the setup-step add since it's overdue independent of this RFC. The cross-dogfood integration test (if one is added beyond the CI step) belongs in `tests/cross_dogfood.rs`, NOT in `application/` (clean-arch CA-4). Zero-false-positive invariant (§3.4) named in issue body.
+- Issue B2: Wire cross-dogfood CI step in graph-specs-rust's CI via `ci/cross-dogfood.sh`. **Must include sccache setup** — cfdb clone + build is ~60–120s cold without sccache; mirror the setup step from cfdb's `ci.yml` lines 60–72. Alternative: document cold-run cost as accepted in the issue and move on; RFC recommends the setup-step add since it's overdue independent of this RFC. The cross-dogfood integration test (if one is added beyond the CI step) belongs in `tests/cross_dogfood.rs`, NOT in `application/`. Zero-false-positive invariant (§3.4) named in issue body.
 
 **Group C — bump protocol:**
 
 - Issue C1: Weekly cron workflow in both repos that attempts a pin bump to the companion's develop HEAD. Cron schedules per §3.3 (cfdb Monday 06:00 UTC, graph-specs-rust Monday 06:30 UTC). Opens PR on success, `cross-drift-YYYY-WW` issue on failure with exit code 10/20/30.
-- Issue C2: Author `docs/cross-fixture-bump.md` runbook. **This runbook also declares the cross-dogfood orchestration vocabulary** (ddd C2): `.cfdb/cross-fixture.toml` schema, "pinned SHA", "companion repo", the `cross-drift-YYYY-WW` issue naming convention, and the `ci/cross-dogfood.sh` exit-code contract. The runbook is the canonical home for cross-repo orchestration terminology — neither cfdb's `docs/RFC-*` nor graph-specs' `docs/rfc/*` owns these concepts; the runbook does.
+- Issue C2: Author `docs/cross-fixture-bump.md` runbook. **This runbook also declares the cross-dogfood orchestration vocabulary**: `.cfdb/cross-fixture.toml` schema, "pinned SHA", "companion repo", the `cross-drift-YYYY-WW` issue naming convention, and the `ci/cross-dogfood.sh` exit-code contract. The runbook is the canonical home for cross-repo orchestration terminology — neither cfdb's `docs/RFC-*` nor graph-specs' `docs/rfc/*` owns these concepts; the runbook does.
 
 **Group D — schema-version lockstep:**
 
@@ -297,5 +267,3 @@ One vertical slice per issue. Each carries the `Tests:` line prescribed by the a
 - Issue F1: Extend CLAUDE.md §2.5 in both repos to include the cross-dogfood line in the `Tests:` template.
 
 Each issue's `Tests:` section is prescribed by the architect team during review (§5). Default: unit test for fixture parsing, integration test running the cross-dogfood step on a fresh checkout, dogfood assertion that the cross-dogfood step itself doesn't flag the sibling at the initial pinned SHA.
-
-Acceptance of this RFC requires all four architect lenses to RATIFY after reviewing §5.

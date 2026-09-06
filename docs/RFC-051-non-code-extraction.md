@@ -1,6 +1,6 @@
 # RFC-051 — Non-code / infrastructure-as-code + DDL extraction
 
-- **Status:** **COUNCIL-TRIAGED → KEEP-PARKED (unanimous)** pending (1) a named downstream consumer and (2) a non-rustdoc recall ground-truth design. Verdicts: [`council/RFC-047-052/`](../council/RFC-047-052/). The format-parser registry design is sound; only the *trigger* is absent. (Borrowed candidate **C5** from [`studies/002`](../studies/002-borrowed-from-understand-anything.md).)
+- **Status:** **COUNCIL-TRIAGED → KEEP-PARKED (unanimous)** pending (1) a named downstream consumer and (2) a non-rustdoc recall ground-truth design. Verdicts: [`council/cfdb-047-impact-blast-radius-052/`](../council/cfdb-047-impact-blast-radius-052/). The format-parser registry design is sound; only the *trigger* is absent. (Borrowed candidate **C5** from [`studies/002`](../studies/002-borrowed-from-understand-anything.md).)
 - **Issue:** none (will not be filed until both blockers in §1 clear).
 - **Schema impact:** **large** — multiple new node labels (`:Resource`, `:Table`, `:Pipeline`, `:Service`) + infra edges, across several minor `SchemaVersion` bumps.
 - **Companion:** **required per bump** — each new label is a lockstep `graph-specs-rust` fixture bump.
@@ -37,12 +37,10 @@ Mirror `Understand-Anything`'s per-format parser plugins, ported to cfdb's extra
 
 ## 5. Architect lenses
 
-> **TRIAGED by the RFC-047..052 council — KEEP-PARKED (unanimous).** The design is sound; the trigger is absent. No lens objects to the parked status.
-
 - **ddd — KEEP-PARKED.** `:Service`/`:Resource`/`:Table`/`:Pipeline` describe a *deployment/infrastructure* bounded context, not cfdb's *code-graph* context. Admitting them imports another context's ubiquitous language into cfdb-core with no anti-corruption layer and no ground-truth gate (the §1.2 blocker is real — no rustdoc analog). The one on-charter sliver — modelling cfdb's own `.cfdb/queries/*.cypher` as nodes — is genuinely cfdb's domain but is a separate, much smaller RFC; do not use it to justify the 12-format surface.
 - **clean-arch — KEEP-PARKED.** The per-format-parser-behind-the-extractor-registry seam is the right shape *if ever unblocked* (one adapter per format, `cfdb-core` declaring only the new labels; no infra-format type leaking into core), but there is nothing to ratify without consumer pull (§1.1) + ground-truth (§1.2).
 - **solid — KEEP-PARKED.** One vertical slice per format (CCP) is good component design; filing the largest schema surface with no reuser would be CRP-inverted. When unblocked, the `.cfdb/queries/*.cypher`-as-nodes slice is the CCP-minimal first slice (the rule files are their own ground-truth).
-- **rust-systems — KEEP-PARKED.** Compile cost is real but secondary: each new tree-sitter grammar adds a vendored grammar crate + generated C parser (PHP/TS already vendored per RFC-045; Dockerfile/HCL/K8s/SQL/GraphQL/Protobuf would roughly double the grammar surface). When unblocked: one grammar per slice, measure incremental compile cost per slice, prefer formats with an already-vendored grammar or a pure-Rust parser (`toml`/`serde_yaml` are in-tree; Terraform-HCL is not).
+- **rust-systems — KEEP-PARKED.** Compile cost is real but secondary: each new tree-sitter grammar adds a vendored grammar crate + generated C parser (PHP/TS already vendored per cfdb-045-polyglot-relationship-edges; Dockerfile/HCL/K8s/SQL/GraphQL/Protobuf would roughly double the grammar surface). When unblocked: one grammar per slice, measure incremental compile cost per slice, prefer formats with an already-vendored grammar or a pure-Rust parser (`toml`/`serde_yaml` are in-tree; Terraform-HCL is not).
 
 ## 6. Non-goals
 

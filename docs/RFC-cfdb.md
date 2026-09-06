@@ -1,56 +1,14 @@
----
-title: cfdb — code facts database (v1)
-status: Implemented — v0.1 shipped (cfdb v0.1.0 → v0.7.0, tag 2026-08-01) and extended by cfdb-030 … cfdb-057; the v1.0 repositioning is tracked as cfdb #279. Header corrected 2026-08-18 (cfdb #570).
-date: 2026-04-13
-supersedes: .concept-graph/PLAN-v1-code-facts-database.md (kept as background)
-audience: agent-teams council (see §1)
----
-
 # RFC: cfdb — code facts database (v1)
+
+**Status:** Implemented — v0.1 shipped (cfdb v0.1.0 → v0.7.0, tag 2026-08-01) and extended by cfdb-030 … cfdb-057; the v1.0 repositioning is tracked as cfdb #279. Header corrected 2026-08-18 (cfdb #570).
+**Date:** 2026-04-13
+**Supersedes:** .concept-graph/PLAN-v1-code-facts-database.md (kept as background)
 
 A stand-alone Rust tool that indexes one or more Rust workspaces into a queryable graph of typed code facts, then exposes a small orthogonal API so skills, agents, and humans can ask structural questions about the codebase without re-extracting or re-reasoning from raw source.
 
 ---
 
 ## 1. Council briefing — how to use this RFC
-
-This RFC is written for review by an **agent team** (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`), not by a single reader. It is structured so different specialists can take different sections in parallel without reading the whole document.
-
-**Council composition (6 teammates):**
-
-| Role | Lens | Primary sections | Adversarial scope |
-|---|---|---|---|
-| **Chief Product Officer** | product strategy | §3 Problems, §13 v0.1 scope, §16 roadmap, §14 Q1/Q4/Q8 | "Are these the right 9 problems to solve? Does v0.1 produce a felt win? What's the strategic fit against the open backlog?" |
-| **Clean architect** | Clean Architecture (boundaries, dependency rule, layers) | §6 API, §8 Architecture, §9 Multi-project, §14 Q3/Q5 | "Where does the API leak infrastructure into the domain? Is the project registry the right boundary? Does Kuzu live where it should?" |
-| **SOLID architect** | SOLID principles (SRP, OCP, LSP, ISP, DIP) | §6 API, §7 Schema, §14 Q6/Q7 | "Where do the 11 verbs violate ISP? Is the schema Open/Closed under v1.x? Does the extractor own one responsibility or three?" |
-| **Rust guru coder** | Rust ecosystem, idiomatic patterns, ownership | §10 Stack, §10.1 store, §8.1 crate layout, §14 Q2 | "Is `syn` enough for cross-crate resolution? Are the Kuzu Rust bindings production-ready? Is the 10-crate layout idiomatic or fragmented?" |
-| **LLM specialist (@anthropic)** | LLM-as-consumer + LLM-as-enrichment | §3.5–§3.7, §11 ad-hoc agents row, §16 v0.3 LLM enrichment, §17 references | "Where does the LLM fit in the loop, and where doesn't it? Can an agent actually compose Cypher against this schema with typical session context? Is the prompt-construction story for /prescribe grounding spelled out?" |
-| **QA tester** | testability, determinism, regression coverage | §12 Determinism, §13 acceptance gate, §15 Risks, §14 Q1/Q7 | "How do you test extractor recall? How does the determinism CI check actually run? What breaks first under schema churn? Are the v0.1 acceptance gate items 1–6 actually verifiable?" |
-
-The 6 roles cover product strategy, two architectural lenses (Clean and SOLID — intentionally adversarial to each other), implementation-language fluency, the LLM-consumer angle (this is a tool LLM-driven skills will use, so an Anthropic-side specialist is load-bearing), and end-to-end testability. **Domain-specific target-workspace knowledge stays with the user**; it does not need its own council seat — the user is in the loop for any backlog-grounded question.
-
-**How to spawn the team:**
-
-```text
-Create an agent team to review the RFC at .concept-graph/RFC-cfdb.md.
-Spawn 6 teammates matching the §1 composition table:
-  - chief-product-officer
-  - clean-architect
-  - solid-architect
-  - rust-guru-coder
-  - llm-specialist-anthropic
-  - qa-tester
-Each takes its primary sections from §1, posts findings to the shared
-task list, and challenges other teammates' conclusions. Clean architect
-and SOLID architect should disagree productively; QA tester should
-challenge every claimed guarantee in §6/§12/§13; LLM specialist owns
-the consumer-angle review for the ad-hoc agents row in §11. Converge on
-§14 decisions when all six report. Require plan approval for any
-teammate proposing structural changes to the API verb set or the fact
-schema.
-```
-
-**Convergence target:** the council outputs a vote on §14's decisions plus a "must-fix before v0.1 starts" list. Lead synthesizes; user reviews the synthesis.
 
 ---
 
@@ -68,7 +26,7 @@ cfdb is the deterministic Rust successor to the LLM-based concept graph in `.con
 
 ## 3. Problems cfdb solves (with backlog evidence)
 
-Earlier drafts of this plan listed 4 problems (HSB, VSB, raid, Kalman/Ledger questions). The the motivating P0/P1 backlog reveals **9 distinct patterns**. Each pattern below is a class of bug that recurs across issues; cfdb expresses each as a Cypher composition over the §7 schema, replacing what is currently handwritten Rust architecture tests, manual grep audits, or "found this in code review" one-offs.
+The motivating P0/P1 backlog reveals **9 distinct patterns**. Each pattern below is a class of bug that recurs across issues; cfdb expresses each as a Cypher composition over the §7 schema, replacing what is currently handwritten Rust architecture tests, manual grep audits, or "found this in code review" one-offs.
 
 ### 3.1 Pattern A — Horizontal split-brain (HSB)
 
@@ -258,7 +216,7 @@ This is not theoretical — issue **#3578** (`feat: architecture-rfc-enforcement
 - **Not tied to the target workspace.** Multi-workspace from day one.
 - **Not an audit reporter.** Returns JSON; consumers format.
 - **Not opinionated about workflows.** Knows nothing about "raids", "/prescribe", "RFCs". Those are consumer-side compositions.
-- **Not a prompt builder.** The query verbs return raw qnames + structured attributes. cfdb never returns pre-formatted prompt fragments, never embeds model-family conventions, never knows what `/prescribe` will do with the result. Prompt construction is the consumer skill's job; cfdb provides the structured facts. (LLM specialist [LLM-Q2] — preserves §4 opinion-agnosticism and G1 determinism by keeping cfdb's output decoupled from any LLM model family.)
+- **Not a prompt builder.** The query verbs return raw qnames + structured attributes. cfdb never returns pre-formatted prompt fragments, never embeds model-family conventions, never knows what `/prescribe` will do with the result. Prompt construction is the consumer skill's job; cfdb provides the structured facts. (preserves §4 opinion-agnosticism and G1 determinism by keeping cfdb's output decoupled from any LLM model family.)
 
 ---
 
@@ -314,9 +272,9 @@ As an agent analyzing multiple projects (post-v0.1),
 
 ## 6. API (the contract)
 
-Full spec is in PLAN-v1 §6A. Summary for council:
+Full spec is in PLAN-v1 §6A.
 
-**11 core verbs + 4 typed convenience verbs (council revision):**
+**11 core verbs + 4 typed convenience verbs:**
 
 ```
 INGEST    extract(workspace, keyspace)                       -> ExtractReport
@@ -344,7 +302,7 @@ SCHEMA    schema_version(keyspace)                           -> SemVer
           schema_describe()                                  -> JSON               // per-attribute provenance — SOLID [SOLID-5]
 ```
 
-**Total: 15 verbs (11 core + 4 typed).** Typed verbs are convenience composers built on `query_raw` — they exist to keep consumers off the Cypher dialect for the common cases, addressing Clean architect's [CLEAN-1] dialect-leak finding. Internally they reduce to one `query_raw` call; the schema and substrate are unchanged. The "verb count under 20" design principle holds.
+**Total: 15 verbs (11 core + 4 typed).** Typed verbs are convenience composers built on `query_raw` — they exist to keep consumers off the Cypher dialect for the common cases. Internally they reduce to one `query_raw` call; the schema and substrate are unchanged. The "verb count under 20" design principle holds.
 
 **3 wire forms** (identical verb set across all three):
 
@@ -366,13 +324,11 @@ G5. Snapshots are immutable. Once written, never rewritten in place — only dro
 
 **Explicitly NOT in the API:** named queries per use case, output formatting, skill adapters, refactoring actions, auto-fix, multi-language support (v1), opinionated workflows, caching.
 
-> **SOLID architect + Clean architect council lens:** is 11 the right number? Where does the orthogonality break (ISP)? Does the API leak any infrastructure concept into its surface (Clean Architecture dependency rule)? What's the smallest realistic use case (drawn from §3) that cannot be expressed via `query` or `query_with_input` over §7's schema? If you can name one, that's a 12th verb — and the 12th verb is a smell.
-
 ---
 
 ## 7. Fact schema (the data model)
 
-Full spec in PLAN-v1 §6. Summary for council:
+Full spec in PLAN-v1 §6.
 
 **Nodes:** `:Crate`, `:Module`, `:File`, `:Item`, `:Field`, `:Variant`, `:Param`, `:CallSite`, `:EntryPoint`, `:Concept`
 
@@ -388,8 +344,6 @@ Full spec in PLAN-v1 §6. Summary for council:
 
 **Attributes on `:Item`:** `qname`, `name`, `kind`, `crate`, `module_qpath`, `file`, `line`, `signature_hash`, `doc_text`, plus quality signals `unwrap_count`, `test_coverage`, `dup_cluster_id`, `cyclomatic`. The quality attributes are load-bearing for Pattern I (raid plan validation) — they let one query join structural facts with quality signals.
 
-> **SOLID architect + CPO council lens:** does the schema in §7 cover all 9 patterns in §3? Map each pattern to the nodes/edges/attributes it touches. If any pattern needs something not in §7, that's a schema gap to flag before v0.1 starts. CPO sanity-check: are any of the 9 patterns over-engineered relative to the actual backlog evidence in §3.10?
-
 ### 7.1 Rust encoding — open newtypes, not typed enums (ratified 2026-04-13)
 
 **Amendment status:** ratified 2026-04-13 after the #3624 scaffold + #3625 `schema_describe()` review. Supersedes the earlier implicit assumption (carried over from PLAN-v1 and encoded in the original #3625 AC) that each `:Label` in §7 would map to a per-label Rust struct and each edge type to a variant of a `Node` / `Edge` enum.
@@ -403,9 +357,9 @@ Full spec in PLAN-v1 §6. Summary for council:
 
 **Why the open shape, not the typed shape:**
 
-1. **Cypher is the primary query language.** Every consumer class — CLI, HTTP, Rust lib, LLM / skill adapters, `.cypher` rule files — operates on a string-keyed graph (`n.callee_path`). If the Rust types were enum-typed per label, the two schemas (Rust field names vs. Cypher attribute names) would have to be kept in sync forever. That is split-brain by construction, and RFC-cfdb's whole §3 problem statement is split-brain elimination.
+1. **Cypher is the primary query language.** Every consumer class — CLI, HTTP, Rust lib, LLM / skill adapters, `.cypher` rule files — operates on a string-keyed graph (`n.callee_path`). If the Rust types were enum-typed per label, the two schemas (Rust field names vs. Cypher attribute names) would have to be kept in sync forever. That is split-brain by construction, and cfdb-029-code-facts-database's whole §3 problem statement is split-brain elimination.
 2. **Extensibility is load-bearing, not cosmetic.** The QA-5 spike (#3623) shipped twelve hours after the scaffold merged and added two new values to `CallSite.kind` (`fn_ptr`, `serde_default`) to cover patterns the initial extractor missed. Under an enum-variant shape, those would have been breaking changes forcing every consumer with an exhaustive `match` to update. Under the open shape, the extractor just started emitting them and nothing in core had to change. This extension rate is expected to continue through v0.1 / v0.2 as Patterns B/E/G/H/I come online.
-3. **ISP compliance.** A 10-variant `Node` enum forces every consumer into an exhaustive `match`, pulling a dependency on all 10 labels whether they care or not. Open newtypes let each consumer depend only on the labels it queries against. Per the SOLID architect council lens (§1 table), this is the more ISP-compliant shape.
+3. **ISP compliance.** A 10-variant `Node` enum forces every consumer into an exhaustive `match`, pulling a dependency on all 10 labels whether they care or not. Open newtypes let each consumer depend only on the labels it queries against. This is the more ISP-compliant shape.
 4. **Schema-version friendliness.** Minor-version additions (new attributes, new labels) are purely additive on the wire — `BTreeMap` ignores unknown keys on read, old queries keep working, new queries reference new keys. An enum-variant shape would require `#[serde(default)]` migration dances on every read, and type changes would silently drop data.
 5. **One schema, one source.** The schema lives in `schema_describe()` and on the wire. Not in Rust types, not in `.cypher` files, not in prose documentation. One place to update.
 
@@ -420,10 +374,6 @@ The open shape loses compile-time safety on attribute access. The mitigations fo
 | Forward + reverse guard together | `schema_describe_covers_all_edge_labels` in `cfdb-core::schema::tests` locks the reverse direction — every `EdgeLabel::*` const must appear in `schema_describe()`. Add a new const and the test fires. | ✅ Shipped in #3625. |
 
 Together, (schema_describe as contract) + (forward/reverse guards) + (query-time validation) give the consumer equivalent end-to-end safety to a typed-Rust shape **without** duplicating the schema across the Rust type system and the Cypher vocabulary.
-
-**What the council got wrong in the original PLAN-v1 text:**
-
-PLAN-v1 §6.1 described the fact schema as a table of labels with attribute lists, and the readers of that table (both the council and the #3625 issue author) reasonably translated it into "one Rust struct per row." That translation was the Rust-default idiom but was never debated as a design choice — no council member argued *for* the typed shape because no council member raised the Cypher-alignment cost as a counter. The 2026-04-13 scaffold review surfaced the cost the moment the QA-5 spike proved extensibility matters in week one, and the cfdb council's §7 intent — "a vocabulary shared between the extractor, the parser, and the evaluator" — turned out to be better served by an open newtype than an enum. This amendment blesses that outcome formally so the RFC stops drifting against the implementation.
 
 **What does not change:**
 
@@ -512,8 +462,6 @@ cfdb lives under `<consuming-project>/.concept-graph/cfdb/` as a sub-Cargo-works
     └── ARCHITECTURE.md # synced from RFC §8
 ```
 
-> **Clean architect + Rust guru coder council lens:** is the crate split right? `cfdb-extractor` and `cfdb-store` are the only crates with hard external dependencies (`syn` / `kuzu`); the rest are pure logic. Clean architect: is the 10-crate layout correctly hexagonal — does the dependency rule point only inward? Rust guru: is splitting into 10 crates idiomatic for a tool of this size, or fragmented? At what crate count does build time and dev-loop friction outweigh the boundary clarity?
-
 ---
 
 ## 9. Multi-project support
@@ -543,8 +491,6 @@ arch_rules_dir = ".cfdb/rules/beta/"
 
 **Cross-project queries are post-v0.1.** They require either a join layer (federated query) or a merged keyspace. Both are tractable but out of scope for v1.
 
-> **Clean architect + QA tester council lens:** is the registry too rigid? Clean architect: is the project the right boundary, or should the boundary be the workspace (a project may have multiple workspaces)? QA tester: what happens when the same project lives in two checkouts on the same machine? When two projects share a concept name? When a project moves on disk between extractions? Each is a corner case that needs a defined behavior or an explicit "undefined" disclaimer.
-
 ---
 
 ## 10. Technical stack
@@ -554,7 +500,7 @@ arch_rules_dir = ".cfdb/rules/beta/"
 | Language | Rust 1.93 stable | User-mandated; native to analyzed workspaces; best AST tooling via `syn` |
 | Workspace discovery | `cargo_metadata` crate | Authoritative source for Cargo workspaces |
 | AST parsing | `syn` (full feature) | Industry standard; fast; full grammar; unambiguous parse |
-| Cross-crate resolution | `syn` symbol table + `use` resolution for **Q1=(b) Pattern D only**; **`ra-ap-hir` is a Phase B *blocker*** for Patterns B/E/G/H/I, not a fallback | `syn` ceiling per Rust guru: ~70–80% item recall, ~40–60% call-edge recall. Enough to ship arch-ban-utc-now; insufficient for anything that needs method dispatch, macro expansion, or re-export chains |
+| Cross-crate resolution | `syn` symbol table + `use` resolution for **Q1=(b) Pattern D only**; **`ra-ap-hir` is a Phase B *blocker*** for Patterns B/E/G/H/I, not a fallback | `syn` ceiling: ~70–80% item recall, ~40–60% call-edge recall. Enough to ship arch-ban-utc-now; insufficient for anything that needs method dispatch, macro expansion, or re-export chains |
 | **Graph store** | **LadybugDB** (`lbug` crate, embedded, openCypher, cxx FFI) — *recommended* | **Kuzu was archived 2025-10-13** after Apple acquired Kùzu Inc.; the `kuzu` crate is frozen at v0.11.3. LadybugDB is the credible successor (fork by Kuzu co-founder Arun Sharma), active weekly–biweekly cadence Jan–Apr 2026. See §10.1. |
 | **Canonical fact format** | **JSONL** (blake3-keyed, sorted by `(node_label, qname)` then `(edge_label, src_qname, dst_qname)`) | The graph store is a *cache*, not a fixture. Determinism is asserted on the JSONL dump, not the backend file. JSONL is portable, diffable, and streamable. |
 | Query language | openCypher (subset both LadybugDB and DuckDB+DuckPGQ accept) | Standard; expressive enough for all 9 patterns in §3 |
@@ -570,7 +516,7 @@ arch_rules_dir = ".cfdb/rules/beta/"
 
 ### 10.1 Graph store decision (the load-bearing one) — **revised after council §14 Q2 vote**
 
-**Status:** Kuzu (the prior recommendation) was archived 2025-10-13 after Apple acquired Kùzu Inc. The `kuzu` crate on crates.io is frozen at v0.11.3 (July 2025). No maintainer. No CVE response. **The original §10.1 recommendation was dead on arrival** — verified by Rust guru via web research during council review.
+**Status:** Kuzu (the prior recommendation) was archived 2025-10-13 after Apple acquired Kùzu Inc. The `kuzu` crate on crates.io is frozen at v0.11.3 (July 2025). No maintainer. No CVE response. **The original §10.1 recommendation was dead on arrival**
 
 PLAN-v1 inherited **FalkorDB** (Redis module) from v0 because it was already deployed on LXC 501. That was fine for a single-project tool. It is **wrong for cfdb** because:
 
@@ -578,17 +524,17 @@ PLAN-v1 inherited **FalkorDB** (Redis module) from v0 because it was already dep
 2. **Portability.** Snapshots should be diffable artifacts: movable between machines, committable as test fixtures, attachable to bug reports.
 3. **Test isolation.** Integration tests should create and destroy graph stores per-test without a daemon.
 
-**Revised recommendation (council Q2 vote outcome): LadybugDB primary, DuckDB+DuckPGQ documented plan B, store-agnostic core.**
+**Revised recommendation: LadybugDB primary, DuckDB+DuckPGQ documented plan B, store-agnostic core.**
 
 #### The three-part decision
 
-1. **Backend: LadybugDB** (`lbug` crate, currently v0.15.3, cxx-based FFI). Forked by Kuzu co-founder Arun Sharma; active weekly-to-biweekly release cadence Jan–Apr 2026 shipping MVCC fixes, CVE sweeps, `CREATE GRAPH`, parquet memory-corruption fixes, WASM/OPFS support. Pin to `lbug = "=0.15.x"` minor. **Caveat (council-flagged):** docs ~61% coverage, extensions rework ongoing, no on-disk format stability promise yet — treat the `.ldb` file as a **rebuildable cache, not a portable fixture**.
+1. **Backend: LadybugDB** (`lbug` crate, currently v0.15.3, cxx-based FFI). Forked by Kuzu co-founder Arun Sharma; active weekly-to-biweekly release cadence Jan–Apr 2026 shipping MVCC fixes, CVE sweeps, `CREATE GRAPH`, parquet memory-corruption fixes, WASM/OPFS support. Pin to `lbug = "=0.15.x"` minor. **Caveat:** docs ~61% coverage, extensions rework ongoing, no on-disk format stability promise yet — treat the `.ldb` file as a **rebuildable cache, not a portable fixture**.
 
 2. **Canonical fact format: JSONL** (blake3-keyed, sorted by `(node_label, qname)` then `(edge_label, src_qname, dst_qname)`). This is the **immutable, portable, diffable artifact**. Determinism (G1) is asserted by hashing the JSONL dump, not the backend file. Test fixtures are JSONL. Snapshots committed to repo are JSONL. The backend is a query accelerator over the JSONL canonical truth.
 
 3. **Plan B: DuckDB + DuckPGQ.** DuckDB's DuckPGQ community extension ships SQL/PGQ (the SQL:2023 graph query standard, Cypher-inspired `MATCH` syntax). The 2025 SIGMOD `USING KEY` optimization fixes the recursive-CTE memory blowup that previously ruled DuckDB out. **All 9 patterns in §3 are expressible in SQL/PGQ**, including Pattern I variable-length paths. The `duckdb-rs` Rust binding is the most mature analytical-embedded crate in the ecosystem. If LadybugDB destabilizes, swapping is a `StoreBackend` impl change, not a query rewrite.
 
-4. **Store-agnostic `cfdb-core`:** the 11 API verbs and §7 schema are defined against a `StoreBackend` trait in `cfdb-core`. `cfdb-store-lbug` and `cfdb-store-duckpgq` are sibling impl crates. `cfdb-core`'s `Cargo.toml` does **not** depend on `lbug`, `duckdb`, or `syn` — verified by an architecture test (Clean architect must-fix item).
+4. **Store-agnostic `cfdb-core`:** the 11 API verbs and §7 schema are defined against a `StoreBackend` trait in `cfdb-core`. `cfdb-store-lbug` and `cfdb-store-duckpgq` are sibling impl crates. `cfdb-core`'s `Cargo.toml` does **not** depend on `lbug`, `duckdb`, or `syn` — verified by an architecture test.
 
 **Alternatives considered:**
 
@@ -608,11 +554,11 @@ Because the backend file is now a *cache*, not a *fixture*, **the determinism co
 
 #### `syn` cross-crate ceiling — promoted to a Phase B blocker
 
-Council-verified ceiling on `syn`-only extraction: **~70–80% item recall, ~40–60% call-edge recall**. This is enough for **Q1=(b) Pattern D arch-ban-utc-now only** — the simplest pattern, single-name `CALLS` lookup. It is **insufficient for Patterns B/E/G/H/I**, which require method dispatch, macro expansion, and re-export chain following.
+Ceiling on `syn`-only extraction: **~70–80% item recall, ~40–60% call-edge recall**. This is enough for **Q1=(b) Pattern D arch-ban-utc-now only** — the simplest pattern, single-name `CALLS` lookup. It is **insufficient for Patterns B/E/G/H/I**, which require method dispatch, macro expansion, and re-export chain following.
 
 **`ra-ap-hir` is therefore promoted from "fallback if blocked" to a hard Phase B dependency.** Q1=(a) Pattern C and Q1=(c) Pattern I cannot ship without it. The original §10 wording ("escalate only if blocked") understated the cost — Patterns B/E/G/H/I land in v0.2 *with* `ra-ap-hir`, not as add-ons.
 
-> **Rust guru coder council lens (closed):** Q2 vote = ABSTAIN both Kuzu and FalkorDB. Counter-proposal adopted above (LadybugDB primary, DuckDB+DuckPGQ plan B, JSONL canonical, store-agnostic core). Open: defer the StoreBackend trait shape to a v0.1 design note before code starts.
+> Open: defer the StoreBackend trait shape to a v0.1 design note before code starts.
 
 ---
 
@@ -633,11 +579,9 @@ cfdb is consumed, not consuming. Every integration below is a Cypher composition
 | Rust unit tests in the target workspace | Rust lib | `query` | Replace handwritten architecture tests with declarative queries (Patterns D, E) |
 | Weekly audit cron | CLI | `query`, `diff` | Batch markdown reports over HEAD snapshot |
 | Drift gate at PR time | CLI | `diff` | PR comment listing new drift introduced by this branch |
-| **`check-prelude-consistency` skill (qbot-core)** | CLI | `check-predicate` | Non-negotiable predicate library at `.cfdb/predicates/*.cypher` — one file per Non-negotiable, deterministic binary exit per predicate. Added by RFC-034 (Slices 1–5, issues #145–#149). See [`docs/query-dsl.md`](./query-dsl.md) for the user guide. |
+| **`check-prelude-consistency` skill (qbot-core)** | CLI | `check-predicate` | Non-negotiable predicate library at `.cfdb/predicates/*.cypher` — one file per Non-negotiable, deterministic binary exit per predicate. Added by cfdb-034-query-dsl (Slices 1–5, issues #145–#149). See [`docs/query-dsl.md`](./query-dsl.md) for the user guide. |
 
 **Key insight:** the architecture-rfc-enforcement CI gate (#3578) and the in-repo Rust architecture tests are both consumers, not features. cfdb does not "ship CI integration"; cfdb ships the API, and the CI wraps it. This is the orthogonality test — if the user can wire a new consumer in their own code without touching cfdb, the API is right.
-
-> **LLM specialist (@anthropic) council lens:** the "Ad-hoc agents" row is the load-bearing path for the LLM-consumer angle, and the most under-specified in this RFC. Open questions for the LLM specialist to answer: (1) Can a Claude session running with the project's `CLAUDE.md` and ~50k tokens of working state actually compose Cypher against the §7 schema, or does it need a "Cypher cheat sheet for agents" doc bundled in `examples/queries/`? (2) What's the prompt-construction story for `/prescribe` grounding when it lands in v0.2 — does cfdb return raw `:Item` qnames or pre-formatted prompt fragments? (3) Should the bundled example library include "agent-grade" templates (parameterized Cypher with placeholder hints) alongside the human-grade ones? (4) Where does v0.3 LLM enrichment introduce risk that the Layer 1/Layer 2 firewall (no LLM in structural truth) gets blurred?
 
 ---
 
@@ -652,7 +596,7 @@ cfdb is consumed, not consuming. Every integration below is a Cypher composition
 
 The one-line "byte-diff the Kuzu file" of earlier drafts was unverifiable as written (LadybugDB has page allocation, catalog timestamps, WAL scratch — none guaranteed byte-stable). The recipe is now defined on the **JSONL canonical dump**, not the backend file:
 
-1. **Canonical dump format.** `cfdb dump --db <path> --keyspace <name>` emits one JSON object per node and edge, sorted by `(node_label, qname)` then `(edge_label, src_qname, dst_qname)`. Numeric and string fields ordered alphabetically within each object. UTF-8, LF newlines, no trailing whitespace. Each emitted object carries a `kind: "node" | "edge"` discriminator so a stream-parser does not need positional context. (The original RFC draft named this verb `cfdb export --format=sorted-jsonl`; the shipped CLI uses `cfdb dump` — a one-name verb is cleaner than a verb+flag pair with a single legal flag value, and the format itself is unaffected. Reconciled in #3630.)
+1. **Canonical dump format.** `cfdb dump --db <path> --keyspace <name>` emits one JSON object per node and edge, sorted by `(node_label, qname)` then `(edge_label, src_qname, dst_qname)`. Numeric and string fields ordered alphabetically within each object. UTF-8, LF newlines, no trailing whitespace. Each emitted object carries a `kind: "node" | "edge"` discriminator so a stream-parser does not need positional context.
 2. **Two-run harness:**
    ```
    cfdb extract --workspace <ws> --db <db-A> --keyspace ks && cfdb dump --db <db-A> --keyspace ks | sha256sum > a.sha
@@ -689,7 +633,7 @@ This is non-negotiable because:
 - `cfdb-server`: HTTP `POST /v1/query` endpoint (warm process, axum)
 - Project registry (single project supported; multi-project file structure in place)
 - Determinism guarantees G1, G2, G5 active in CI
-- Integration with **one** chosen consumer (council picks, §14 Q1)
+- Integration with **one** chosen consumer (§14 Q1)
 - Bundled query library in `examples/queries/`: ~8 Cypher files covering Patterns A, C, D (one ban rule), the kalman-callers example, and the ledger-split-brain example
 
 **Out of scope for v0.1:**
@@ -701,7 +645,7 @@ This is non-negotiable because:
 - LLM enrichment — v0.3+
 - IDE integration
 
-**Acceptance gate for v0.1** (revised after council review — items 1, 2, 5 changed; item 6 promoted to headline):
+**Acceptance gate for v0.1** (items 1, 2, 5 changed; item 6 promoted to headline):
 
 1. **[Headline] Pattern D equivalence demo.** `arch-ban-utc-now.cypher` returns a result set **equivalent to or a superset of** the existing handwritten Rust architecture test (`architecture_test_banning_utc_now.rs`). The handwritten test is replaced by the `.cypher` rule and CI stays green. **Reference test must be AST-based** (not regex) to avoid macro-body false negatives. Extra true positives count as improvements, not failures.
 2. **Extraction recall ≥ 95% per crate**, measured *as a set*, against `cargo public-api` (or `rustdoc --output-format json`) ground truth — **not** `rg -c` (count-based, misses macro-generated items, doesn't handle nested `pub`, doesn't follow re-exports). Recall = `|syn_items ∩ rustdoc_items| / |rustdoc_items|`. Macro-generated items (`define_id!` etc.) handled via the special-case audit list (§15 Risk 2).
@@ -710,53 +654,31 @@ This is non-negotiable because:
 5. **`kalman-callers.cypher` returns ≥3 known callers** of `qbot_indicators::kalman::*` against `rg` ground truth (smoke test for the ad-hoc agent path; "non-empty" was unfalsifiable).
 6. **~~`ledger-split-brain.cypher` returns the actual #3525 finding~~** — **REMOVED pending Q7 resolution.** The smoke test depends on `CANONICAL_FOR` edges which are Layer 2 enrichment output, explicitly out-of-scope for v0.1. Q7 in §14 documents the SOLID vs QA disagreement on whether to (a) add a `cfdb-concepts-manual` sub-crate to v0.1 to load `.cfdb/concepts/<project>.toml` rules at extract time (SOLID Option 3), or (b) drop the Pattern C smoke test from v0.1 and defer to v0.2 with proper enrichment (QA position). **User must resolve Q7 before v0.1 starts.**
 7. **QA-5 macro-spike contingency on Item 1.** Before v0.1 starts, a pre-flight spike must classify every `Utc::now()` call site in the target workspace into (a) direct call visible to syn, (b) inside macro body, (c) test-only. If category (a) does not cover ≥95% of total, then Risk 1/2 mitigations (`ra-ap-hir` escalation) must land **inside v0.1**, not v0.2 — see §10.1 syn ceiling discussion.
-8. **Enriched horizontal split-brain rule** (promoted from example → gate item via issue #3675). `hsb-by-name.cypher` returns, in a single pass, rows of shape `(name, kind, n, crates[], qnames[], files[])` over every `struct` / `enum` / `trait` whose `name` + `kind` is declared in **more than one crate** (`count(DISTINCT a.crate) > 1`), excluding `is_test = true` items. The enriched `collect()` output eliminates the 58-candidate manual-triage loop that the original count-only version imposed — a reader can classify each candidate without running a follow-up query. The rule ships with a **triage note** warning readers that cross-crate candidates may be legitimate `context_homonym`s (routed to `/operate-module`) rather than `duplicated_feature`s (routed to `/sweep-epic`); bounded-context classification is v0.2 work per the RFC-029 v0.2 addendum §A2.2. Determinism validated via §12.1 (stable `ORDER BY n DESC, name ASC`). **Out-of-scope for Item 8:** signature-hash Jaccard clustering for synonym-renamed duplicates (`OrderStatus` vs `OrderState`), classification of each candidate into `duplicated_feature` / `context_homonym`, and visibility-column output (the v0.1 extractor only emits pub-visible items, so visibility is uniform).
-
-> **QA tester + SOLID architect council lens (closed):** the original Item 5 was unverifiable under v0.1 scope. The split is now an explicit Q7 decision for the user to resolve. SOLID's Option 3 unblocks Pattern C in v0.1 by making concept rules a hand-authored Layer 1 input rather than an LLM-derived Layer 2 enrichment; QA's counter-position is that this introduces a bespoke file format and the cleaner move is to drop the smoke test and defer Pattern C entirely to v0.2.
-
-> **QA tester + SOLID architect council lens:** v0.1 acceptance gate item 5 — does the schema in §7 contain enough to express ledger-split-brain.cypher? QA tester: if `CANONICAL_FOR` is set by Layer 2 enrichment and Layer 2 is out of scope for v0.1, how does the smoke test actually pass? SOLID architect: does that imply the extractor (Phase A) and the enricher (Phase B) violate SRP because the smoke test forces them to ship together? Resolve before v0.1 starts — this is §14 Q7.
+8. **Enriched horizontal split-brain rule** (promoted from example → gate item via issue #3675). `hsb-by-name.cypher` returns, in a single pass, rows of shape `(name, kind, n, crates[], qnames[], files[])` over every `struct` / `enum` / `trait` whose `name` + `kind` is declared in **more than one crate** (`count(DISTINCT a.crate) > 1`), excluding `is_test = true` items. The enriched `collect()` output eliminates the 58-candidate manual-triage loop that the original count-only version imposed — a reader can classify each candidate without running a follow-up query. The rule ships with a **triage note** warning readers that cross-crate candidates may be legitimate `context_homonym`s (routed to `/operate-module`) rather than `duplicated_feature`s (routed to `/sweep-epic`); bounded-context classification is v0.2 work per the cfdb-029-code-facts-database v0.2 addendum §A2.2. Determinism validated via §12.1 (stable `ORDER BY n DESC, name ASC`). **Out-of-scope for Item 8:** signature-hash Jaccard clustering for synonym-renamed duplicates (`OrderStatus` vs `OrderState`), classification of each candidate into `duplicated_feature` / `context_homonym`, and visibility-column output (the v0.1 extractor only emits pub-visible items, so visibility is uniform).
 
 ---
 
 ## 14. Decisions for council
 
-Each decision below is structured for parallel council deliberation. **Suggested owner role** in italics.
+**Suggested owner role** in italics.
 
 ### Q1. Which consumer use case ships first? *(CPO + QA tester)* — **COUNCIL VOTE: (b), 6/6**
 
-- **(a) Pattern C — ledger-split-brain** for `/quality-architecture` or `/prescribe`. Highest stakes (P0 bugs in #3525, #3523, #3521 today). Requires call-graph extraction in Phase A AND `ra-ap-hir` escalation (raises Phase A cost). Coupled to Q7 (Layer 2 enrichment dependency).
-- **(b) Pattern D — arch-ban-utc-now** for the architecture-rfc-enforcement CI gate (#3578). Lowest schema cost (only `CALLS`-by-name). Replaces a handwritten Rust test 1:1 — clearest before/after demo. Highest backlog volume (7+ open issues). **Within `syn`-only ceiling per §10.1 Rust guru analysis.**
-- **(c) Pattern I — raid plan validation** for `/gate-raid-plan` against the live #3593 raid. Highest leverage per use. Largest Phase A. Parallel risk: `/gate-raid-plan` skill does not exist yet (§15 Risk 8).
+**(b) Pattern D — arch-ban-utc-now** for the architecture-rfc-enforcement CI gate (#3578). Lowest schema cost (only `CALLS`-by-name). Replaces a handwritten Rust test 1:1 — clearest before/after demo. Highest backlog volume (7+ open issues). **Within `syn`-only ceiling per §10.1 analysis.**
 
-**Council vote: (b)** — unanimous across CPO, QA, LLM specialist, and implicit votes from Clean/SOLID/Rust guru. Reasoning converged on:
-- Lowest schema cost (no enrichments, no ra-ap-hir for v0.1)
-- 1:1 replacement of an existing artifact (`architecture_test_banning_utc_now.rs` → `arch-ban-utc-now.cypher`) — the clearest before/after demo for the user
-- Unblocks the largest backlog category (7 open RFC sweep issues)
-- Cashes out the strategic shift from O(reviewer-hours per PR) to O(one-time per RFC)
-- Sidesteps Q7 entirely
-
-**QA-imposed contingency:** vote (b) is contingent on the **QA-5 macro spike** showing ≥95% of `Utc::now()` call sites in the target workspace are direct-syn-visible. If the spike fails, the (b) vote stands but Risk 1/2 mitigations (`ra-ap-hir`) must move from v0.2 into v0.1 — significantly raising Phase A cost. Run the spike before committing.
+**Contingency:** vote (b) is contingent on the **QA-5 macro spike** showing ≥95% of `Utc::now()` call sites in the target workspace are direct-syn-visible. If the spike fails, the (b) vote stands but Risk 1/2 mitigations (`ra-ap-hir`) must move from v0.2 into v0.1 — significantly raising Phase A cost. Run the spike before committing.
 
 ### Q2. Graph store: Kuzu or FalkorDB? *(Rust guru coder)* — **COUNCIL VOTE: ABSTAIN both, switch to LadybugDB primary + DuckDB+DuckPGQ plan B**
 
-The original Q2 framing was invalidated by web research during council review:
-
-- **Kuzu — REJECTED.** Archived 2025-10-13 after Apple acquired Kùzu Inc. Crate frozen at v0.11.3. No maintainer. No CVE response. Format never stabilized.
-- **FalkorDB — REJECTED.** Requires Redis daemon, breaks portability, blocks Q5 per-developer-local recommendation.
-- **LadybugDB (`lbug` crate) — SELECTED PRIMARY.** Fork by Kuzu co-founder Arun Sharma, active weekly–biweekly cadence Jan–Apr 2026, cxx FFI, openCypher support. Caveat: format stability not yet promised — backend file is a *cache*, not a fixture. Pin `lbug = "=0.15.x"`.
-- **DuckDB + DuckPGQ — SELECTED PLAN B.** SQL/PGQ (SQL:2023) via community extension; SIGMOD 2025 `USING KEY` optimization fixes recursive CTE memory; expressivity sufficient for all 9 patterns; `duckdb-rs` is the most mature analytical-embedded Rust binding.
-- **JSONL canonical fact format — also SELECTED.** The immutable, portable, diffable artifact. Determinism is asserted on the JSONL dump (§12.1), not the backend.
-- **Store-agnostic `cfdb-core` with `StoreBackend` trait** — `cfdb-core/Cargo.toml` does not depend on `lbug`, `duckdb`, or `syn`. Architecture test enforces.
-
-See §10.1 (revised) for the full decision and rationale.
+See §10.1 for the full decision and rationale.
 
 ### Q3. Repo location *(Clean architect)* — **USER OVERRIDE: in-tree now, extract later**
 
-- **(a) Stand-alone repo** (e.g. `yg/cfdb`) — independent versioning, reusable across projects, can be forked by other users. **Council vote (Clean architect): this option.**
+- **(a) Stand-alone repo** (e.g. `yg/cfdb`) — independent versioning, reusable across projects, can be forked by other users.
 - **(b) In-tree under `<consuming-project>/.concept-graph/cfdb/`** as a sub-Cargo-workspace — proximity to first consumer, no separate CI, no separate Cargo workspace setup, lowest friction for v0.1. Extract to `yg/cfdb` cleanly via `git filter-repo` or `git mv` when a second consumer project actually arrives.
 - **(c) In-tree forever** — locks cfdb to the target workspace's release cycle. Rejected — incompatible with the multi-project capability requirement.
 
-**Resolution (user, post-vote): (b) in-tree now, extract later.** The "must work on multiple Rust projects" requirement is a *capability* (cfdb knows how to index any workspace), not a *repo-layout* requirement at v0.1. v0.1 only consumes the target workspace. Repo extraction is a tax to pay when the second consumer arrives, not on day one. Cargo workspace structure makes future extraction trivial.
+**Resolution (user): (b) in-tree now, extract later.** The "must work on multiple Rust projects" requirement is a *capability* (cfdb knows how to index any workspace), not a *repo-layout* requirement at v0.1. v0.1 only consumes the target workspace. Repo extraction is a tax to pay when the second consumer arrives, not on day one. Cargo workspace structure makes future extraction trivial.
 
 **Trigger to revisit (= when to extract to `yg/cfdb`):**
 - A second consumer project (orchestrator, qbot-dashboard, quant-core, ...) needs to depend on cfdb, OR
@@ -819,9 +741,7 @@ The two co-owners reached opposite conclusions. Both are coherent. The user pick
 
 ### Q8. Council composition for *future* RFCs *(CPO; meta)* — **COUNCIL VOTE: 6-role default**
 
-**Errata:** earlier drafts said "5-role council" — drafting bug. §1 has 6 roles (CPO, Clean architect, SOLID architect, Rust guru, LLM specialist, QA tester). The "5" was a typo from before LLM specialist was added. Corrected.
-
-**Vote:** keep the 6-role default for cfdb-related RFCs and any substrate-level RFC that touches product/architecture/Rust/testing/LLM-consumer dimensions. Per-RFC augmentation rules:
+keep the 6-role default for cfdb-related RFCs and any substrate-level RFC that touches product/architecture/Rust/testing/LLM-consumer dimensions. Per-RFC augmentation rules:
 - **Add security specialist** for any auth/credential/money-path RFC
 - **Add data-engineering specialist** for any RFC touching migrations or schema evolution
 - **Add domain SME** (user-in-the-loop, no agent seat) for any RFC touching trading primitives
@@ -835,11 +755,10 @@ The two co-owners reached opposite conclusions. Both are coherent. The user pick
 
 1. **`syn` cannot fully resolve cross-crate calls.** Mitigation: emit unresolved as `:Symbol` placeholders; escalate to `ra-ap-hir` if coverage proves insufficient. (PLAN-v1 Risk 1.)
 2. **Macro-defined items are invisible to `syn`.** Mitigation: special-case known internal macros (`define_id!`); audit via `rg 'macro_rules!.*pub (struct|enum)'`. (PLAN-v1 Risk 2.)
-3. **~~Kuzu maturity~~ → resolved during council review: Kuzu archived 2025-10-13.** Apple acquired Kùzu Inc.; the `kuzu` crate is frozen; no maintainer. Resolution baked into §10.1: LadybugDB (`lbug`) primary, DuckDB+DuckPGQ documented plan B, JSONL canonical fact format, store-agnostic `cfdb-core` with `StoreBackend` trait. Backend file is now treated as a *cache* (rebuildable from JSONL), not a fixture. The "trait-abstract the store" mitigation that was originally a future intention is now mandatory and ships in v0.1.
+3. **~~Kuzu maturity~~ → resolved: Kuzu archived 2025-10-13.** Apple acquired Kùzu Inc.; the `kuzu` crate is frozen; no maintainer. Resolution baked into §10.1: LadybugDB (`lbug`) primary, DuckDB+DuckPGQ documented plan B, JSONL canonical fact format, store-agnostic `cfdb-core` with `StoreBackend` trait. Backend file is now treated as a *cache* (rebuildable from JSONL), not a fixture. The "trait-abstract the store" mitigation that was originally a future intention is now mandatory and ships in v0.1.
 4. **Schema churn.** v0.1's schema will prove wrong somewhere. Mitigation: schema versioning from day one, migration tooling in v0.2, breaking changes are major-version events.
 5. **Determinism regression.** Easy to break via HashMap iteration, parallel writes, unstable sorts. Mitigation: G1 is verified by a CI determinism check.
 6. **Multi-project scope creep.** v0.1 line must hold. Mitigation: cross-project queries explicitly out of v0.1 AC.
-7. **Council-team coordination overhead.** Agent teams use significantly more tokens than single sessions. Mitigation: scope §1's review to specific sections per role; converge via §14 decisions, not free-form discussion.
 8. **`/gate-raid-plan` skill does not exist yet.** If Q1=(c) is picked, building cfdb and the new skill in parallel doubles risk. Mitigation: ship Q1=(b) first, build `/gate-raid-plan` against a working cfdb in v0.2.
 
 ---
@@ -865,7 +784,6 @@ The roadmap is **optional**; v0.1 must stand alone. Each post-v0.1 version is in
 
 ## 17. References
 
-- **Council mechanism:** Claude Code agent teams docs (`https://code.claude.com/docs/en/agent-teams`) — experimental feature, requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`, requires Claude Code v2.1.32+
 - **Background plan:** `.concept-graph/PLAN-v1-code-facts-database.md` — full architectural plan, schema, build phases (this RFC supersedes it but keeps it as the long-form source)
 - **v0 retrospective:** `.concept-graph/README.md` — LLM-based concept graph lessons
 - **v0 audit:** `.concept-graph/phase3-audit.md` — first-pass findings on the target workspace
@@ -874,10 +792,9 @@ The roadmap is **optional**; v0.1 must stand alone. Each post-v0.1 version is in
 - **Reference architectures:** Glean (Meta, open source), CodeQL (GitHub) — same shape, different scope
 - **Storage primary:** LadybugDB (`lbug` crate on crates.io) — embedded graph database with openCypher support, fork by Kuzu co-founder Arun Sharma. Active weekly–biweekly cadence Jan–Apr 2026.
 - **Storage plan B:** DuckDB + DuckPGQ extension — SQL/PGQ (SQL:2023 graph query standard) with the 2025 SIGMOD `USING KEY` optimization that fixes recursive-CTE memory blowup.
-- **Storage rejected:** Kuzu — archived 2025-10-13 after Apple acquired Kùzu Inc.; the `kuzu` crate is frozen at v0.11.3 (July 2025). Verified by Rust guru via web research during council review on 2026-04-13.
+- **Storage rejected:** Kuzu — archived 2025-10-13 after Apple acquired Kùzu Inc.; the `kuzu` crate is frozen at v0.11.3 (July 2025).
 - **AST primary:** `syn` (full feature) — sufficient for Pattern D arch-ban-utc-now (Q1=(b)) only.
-- **AST Phase B blocker:** rust-analyzer `ra-ap-*` crates — `syn`-only ceiling per council analysis is ~70–80% item recall, ~40–60% call-edge recall. Patterns B/E/G/H/I require `ra-ap-hir` and it ships in v0.2 as a hard dependency, not a fallback.
-- **Council review record:** see `~/.claude/teams/cfdb-council/config.json` and `~/.claude/tasks/cfdb-council/` for the 6 specialist reviews that drove the §10.1 / §12.1 / §13 / §14 revisions.
+- **AST Phase B blocker:** rust-analyzer `ra-ap-*` crates — `syn`-only ceiling is ~70–80% item recall, ~40–60% call-edge recall. Patterns B/E/G/H/I require `ra-ap-hir` and it ships in v0.2 as a hard dependency, not a fallback.
 
 **Backlog issue numbers referenced in §3 (internal tracker of the target workspace):**
 
@@ -909,31 +826,18 @@ Per council-cfdb-wiring `RATIFIED.md §B.1` (same-day addendum), four strictly *
 
 ## Addendum B — v0.2 scope expansion + Rescue Mission Protocol (issue #51, merged 2026-04-23)
 
-**Status:** Council-approved 2026-04-14 (SECOND-PASS GREEN), merged into parent per issue #51 on 2026-04-23. Formerly lived at `docs/RFC-cfdb.md`.
-**Council verdict:** YELLOW → GREEN after second pass. 4 reviewers (clean-arch, ddd-specialist, rust-systems, solid-architect); 7 fixes applied in revision 1.
-
-**Change log — revision 1 (pre-merge):**
-
-| Fix | Section | Council source | Summary |
-|---|---|---|---|
-| #1 | §A2.2, §A2.3 | clean-arch WARN-2, solid-architect BLOCK-1 | Strip `fix_skill` from `:Finding` schema; move to external `SkillRoutingTable` (DIP-clean) |
-| #2 | §A2.2 | clean-arch BLOCK-1 | Recast classifier from "a `.cypher` rule" to enrichment passes + Cypher query joining on enriched graph |
-| #3 | §A3.3 | clean-arch BLOCK-2, solid-architect BLOCK-2 | cfdb returns structured inventory only; `/operate-module` formats raid plan markdown (parent RFC §4 invariant) |
-| #4 | §A3.4 | solid-architect BLOCK-2 | `/operate-module` SRP-split from 4 to 2 responsibilities (threshold + raid plan), other concerns route externally |
-| #5 | §A2.1, §A2.2, §A3.2 | ddd-specialist BLOCK-1 | Added 6th class "Context Homonym"; Context Mapping fix strategy, not mechanical sweep |
-| #6 | §A3.2, §A3.3 | ddd-specialist BLOCK-2 | Scope `/operate-module` + raid plan to bounded contexts, not crates; context identification via crate-prefix heuristic + `.cfdb/concepts/*.toml` override |
-| #7 | §A1.2, §A1.5, §A6 | rust-systems B1/B2/B3, clean-arch WARN-1 | Reframe `ra-ap-hir` as new parallel `cfdb-hir-extractor` crate (not upgrade); split compile/runtime costs; weekly upgrade tax acknowledged as budgeted cost; boundary architecture test; rust-version floor pin |
+**Status:** merged into parent per issue #51 on 2026-04-23. Formerly lived at `cfdb-029-code-facts-database`.
 
 ---
 
 
 ### A0. Why this addendum exists
 
-v0.1 of cfdb as locked in RFC-029 §13 ships **one** Pattern D rule + **one** CI gate. The triple objective the user holds for the tool is larger than that:
+v0.1 of cfdb as locked in cfdb-029-code-facts-database#13 ships **one** Pattern D rule + **one** CI gate. The triple objective the user holds for the tool is larger than that:
 
 1. **Horizontal split-brain** — same concept duplicated across crates (covered partially in v0.1 as `hsb-by-name.cypher` example, not as a gate item)
 2. **Vertical split-brain** — trace from user-facing entry point DOWN through the call chain to identify unwired logic, duplicate implementations, and unclear paths (Pattern B in §3.2, **structurally blocked** in v0.1 per §13 because `:EntryPoint` + `CALLS` edges + `ra-ap-hir` are explicitly out of scope)
-3. **Debt-causation taxonomy** — classify findings into root causes (duplicated feature / unfinished refactoring / random scattering / canonical bypass / unwired logic) so they can be acted on with different strategies (`/sweep-epic` vs `/port-epic` vs `/boy-scout`). This is **absent** from RFC-029 entirely — the RFC taxonomizes by *query shape*, not by *root cause*.
+3. **Debt-causation taxonomy** — classify findings into root causes (duplicated feature / unfinished refactoring / random scattering / canonical bypass / unwired logic) so they can be acted on with different strategies (`/sweep-epic` vs `/port-epic` vs `/boy-scout`). This is **absent** from cfdb-029-code-facts-database entirely — the RFC taxonomizes by *query shape*, not by *root cause*.
 
 Beyond the triple objective, the user has framed a **project rescue mission** dimension:
 
@@ -983,23 +887,23 @@ Entry-point detection is **heuristic, not annotation-driven** in v0.2 — users 
 
 #### A1.2 `ra-ap-hir` adoption — new parallel extractor crate, not a dependency upgrade
 
-**Architectural correction (council BLOCK, rust-systems B3).** Adopting `ra-ap-hir` is NOT an incremental dependency upgrade to the existing `cfdb-extractor`. `ra-ap-hir` does not parse — it type-checks. To resolve a method dispatch call, it must load a `ChangeSet` for the entire workspace, run type inference across all crates in dependency order, and materialize a `HirDatabase` (salsa database) for the type system. This is an **architectural replacement** of the extraction model (from file-by-file syn traversal to workspace-scoped type-checked HIR analysis), not an API swap.
+**Architectural correction.** Adopting `ra-ap-hir` is NOT an incremental dependency upgrade to the existing `cfdb-extractor`. `ra-ap-hir` does not parse — it type-checks. To resolve a method dispatch call, it must load a `ChangeSet` for the entire workspace, run type inference across all crates in dependency order, and materialize a `HirDatabase` (salsa database) for the type system. This is an **architectural replacement** of the extraction model (from file-by-file syn traversal to workspace-scoped type-checked HIR analysis), not an API swap.
 
 **Resolution:** v0.2 ships a **new parallel crate `cfdb-hir-extractor`** alongside the existing syn-based `cfdb-extractor`. The new crate populates `:CallSite`, `CALLS`, `INVOKES_AT`, and `:EntryPoint` edges using HIR. The existing `cfdb-extractor` continues to populate `:Item`, `:Crate`, `:Module` using syn. v0.3 switches the Pattern B/C CI gate to consume `cfdb-hir-extractor` output once a release cycle of stability is proven.
 
-**Boundary test (council WARN-1, clean-arch + rust-systems risk 1):** the architecture test covering parent RFC §14 Q2 (*"cfdb-core/Cargo.toml does not depend on lbug, duckdb, or syn — verified by an architecture test"*) is extended to assert: **no `ra_ap_*` type appears in any `cfdb-core` public type signature**. `ra-ap-hir` is confined to `cfdb-hir-extractor`; conversion to the graph schema happens inside the crate, never at the public boundary.
+**Boundary test:** the architecture test covering parent RFC §14 Q2 (*"cfdb-core/Cargo.toml does not depend on lbug, duckdb, or syn — verified by an architecture test"*) is extended to assert: **no `ra_ap_*` type appears in any `cfdb-core` public type signature**. `ra-ap-hir` is confined to `cfdb-hir-extractor`; conversion to the graph schema happens inside the crate, never at the public boundary.
 
-**Object safety constraint (council rust-systems risk 2):** `HirDatabase` is a salsa query database, explicitly NOT object-safe (uses associated types and generic methods). `cfdb-hir-extractor` must accept it as a monomorphic concrete type, not behind `dyn HirDatabase`. This is a design constraint the extractor must honor.
+**Object safety constraint:** `HirDatabase` is a salsa query database, explicitly NOT object-safe (uses associated types and generic methods). `cfdb-hir-extractor` must accept it as a monomorphic concrete type, not behind `dyn HirDatabase`. This is a design constraint the extractor must honor.
 
-**Toolchain floor (council WARN-2, rust-systems):** `cfdb` workspace Cargo.toml must pin `rust-version = "1.85"` — `ra-ap-hir 0.0.328` uses `edition = "2024"` which stabilized in 1.85. Without this, developers on older toolchains get confusing compile errors.
+**Toolchain floor:** `cfdb` workspace Cargo.toml must pin `rust-version = "1.85"` — `ra-ap-hir 0.0.328` uses `edition = "2024"` which stabilized in 1.85. Without this, developers on older toolchains get confusing compile errors.
 
 **What `ra-ap-hir` gives us that `syn` cannot:**
 - Method-dispatch resolution through trait impls (`self.resolve(input)` where `resolve` is a trait method with 5 impls)
 - Macro expansion body analysis (procedural and declarative macros generate functions that `syn` cannot see without running the macros)
-- Re-export chain resolution (`pub use foo::Bar` → knowing `Bar` refers to `foo::Bar` at the import site) — verified by council as a genuine gap that only hir fills
+- Re-export chain resolution (`pub use foo::Bar` → knowing `Bar` refers to `foo::Bar` at the import site) — a genuine gap that only hir fills
 - Type inference for local variable receivers (`let x = foo(); x.bar()` → what type does `x.bar()` dispatch to?)
 
-**Cost — two distinct categories, not one (council B1, rust-systems):**
+**Cost — two distinct categories, not one:**
 
 | Category | Revised estimate | Basis |
 |---|---|---|
@@ -1007,15 +911,15 @@ Entry-point detection is **heuristic, not annotation-driven** in v0.2 — users 
 | **Compile time** (sccache warm, extractor-only change) | ~5–10s | Only the touched crate recompiles |
 | **Runtime peak RSS** (cfdb extract on the target workspace) | 2–4 GB, **plausible but unverified** | HirDatabase for 23-crate workspace; no public benchmark found; v0.2 gate item measures this, see §A1.5 |
 
-**Maintenance tax — upgraded from "risk" to acknowledged category concern (council B2, rust-systems):** `ra-ap-hir` releases **every 7 days without exception** (9 releases in 9 weeks verified on crates.io). All 10 `ra-ap-*` sub-crates are pinned with `=0.0.N` exact version constraints — every upgrade requires updating 10+ exact-pinned versions in Cargo.toml simultaneously, plus `ra-ap-rustc_type_ir` on independent versioning (2–3×/week). This is not a manageable risk; it is a **weekly maintenance tax** that must be budgeted.
+**Maintenance tax — upgraded from "risk" to acknowledged category concern:** `ra-ap-hir` releases **every 7 days without exception** (9 releases in 9 weeks verified on crates.io). All 10 `ra-ap-*` sub-crates are pinned with `=0.0.N` exact version constraints — every upgrade requires updating 10+ exact-pinned versions in Cargo.toml simultaneously, plus `ra-ap-rustc_type_ir` on independent versioning (2–3×/week). This is not a manageable risk; it is a **weekly maintenance tax** that must be budgeted.
 
-**Protocol required (council proposal):** a dedicated `chore/ra-ap-upgrade-<version>` branch runs weekly, updates all `=0.0.N` pins, runs the cfdb determinism test suite, and either merges or files a compatibility issue. The cfdb CI gate does NOT consume a new `ra-ap-*` version until the chore branch lands. Runbook documented in `.concept-graph/cfdb/docs/ra-ap-upgrade-protocol.md` (post-v0.2 deliverable).
+**Protocol required:** a dedicated `chore/ra-ap-upgrade-<version>` branch runs weekly, updates all `=0.0.N` pins, runs the cfdb determinism test suite, and either merges or files a compatibility issue. The cfdb CI gate does NOT consume a new `ra-ap-*` version until the chore branch lands. Runbook documented in `.concept-graph/cfdb/docs/ra-ap-upgrade-protocol.md` (post-v0.2 deliverable).
 
-**Breaking changes observed:** rust-systems verified ~4 breaking API changes per year historically. These are not hypothetical — the `fall back to syn if API breaks` mitigation means `cfdb-hir-extractor` must be compilable and its outputs consumable even when the latest `ra-ap-*` release is incompatible. Practically: pin to last-known-good, upgrade deliberately, rollback freely.
+**Breaking changes observed:** ~4 breaking API changes per year historically. These are not hypothetical — the `fall back to syn if API breaks` mitigation means `cfdb-hir-extractor` must be compilable and its outputs consumable even when the latest `ra-ap-*` release is incompatible. Practically: pin to last-known-good, upgrade deliberately, rollback freely.
 
-**Alternatives considered and rejected (council-verified):**
+**Alternatives considered and rejected:**
 - **`rust-analyzer` LSP IPC** — too slow, not deterministic, external process dependency
-- **Regex-based call resolution** — fails on any trait dispatch, rejected in RFC-029 §10.1
+- **Regex-based call resolution** — fails on any trait dispatch, rejected in cfdb-029-code-facts-database#10.1
 - **`cargo-call-stack`** — verified unmaintained (last release 2024-10-28, 0.1.16), does NOT handle trait dispatch or generics. Removed from the Q9(c) fallback option.
 - **`syn` + manual re-export resolver** — viable for shallow chains, degrades badly on nested re-exports (`qbot-ports` re-exporting from `qbot-domain`). Only hir fills this completely.
 - **Wait for user annotations** — violates "heuristic not annotation-driven" principle; defeats the purpose of scanning legacy code
@@ -1058,16 +962,16 @@ In addition to v0.1 items 1–6 (§13), v0.2 gates on:
 | v0.2-1 | `:EntryPoint` catalog covers ≥95% of MCP tools + CLI commands on develop | `cfdb query` count compared against `rg`-based baseline of known entry points |
 | v0.2-2 | `vertical-split-brain.cypher` reproduces #2651 finding from entry point to divergent resolver | Expected output contains `compound_stop` param + two divergent paths |
 | v0.2-3 | `canonical-bypass.cypher` reproduces #3525 (LedgerService bypass) when parameterized on `append_idempotent` | Expected output ≥ the 2 bypass sites from the commit message |
-| v0.2-4 | `CALLS` edge recall ≥80% against manually-curated ground truth on 3 representative crates | Ground truth crates: `domain-strategy`, `ports-trading`, `qbot-mcp`. **Instrumentation caveat (council W1):** the 80% target assumes hir resolves the dispatch cases syn cannot. v0.2 ships a pre-hir syn baseline measurement first to validate whether the 80% target is achievable and whether hir is actually required for the queries we care about, or whether a narrower resolution layer would suffice. |
-| **v0.2-5a** (compile time) | `cfdb-hir-extractor` clean build (cold cache) ≤ **180s** | `cargo clean && time cargo build -p cfdb-hir-extractor`. Revised from 120s per rust-systems B1 evidence (cold build is +90–150s, not +30–60s). |
+| v0.2-4 | `CALLS` edge recall ≥80% against manually-curated ground truth on 3 representative crates | Ground truth crates: `domain-strategy`, `ports-trading`, `qbot-mcp`. **Instrumentation caveat:** the 80% target assumes hir resolves the dispatch cases syn cannot. v0.2 ships a pre-hir syn baseline measurement first to validate whether the 80% target is achievable and whether hir is actually required for the queries we care about, or whether a narrower resolution layer would suffice. |
+| **v0.2-5a** (compile time) | `cfdb-hir-extractor` clean build (cold cache) ≤ **180s** | `cargo clean && time cargo build -p cfdb-hir-extractor`. Revised from 120s (cold build is +90–150s, not +30–60s). |
 | **v0.2-5b** (runtime) | `cfdb extract --workspace .` on the target workspace completes in ≤ **N min**, peak RSS ≤ **M GB** | Measured during acceptance run with `/usr/bin/time -v`. Initial targets N=5 min, M=4 GB — calibrated after first measurement, not guessed. |
 | v0.2-5c (maintenance) | `chore/ra-ap-upgrade-<version>` protocol documented and dry-run once before v0.2 ships | Exists as `.concept-graph/cfdb/docs/ra-ap-upgrade-protocol.md` + one proof upgrade recorded |
-| v0.2-6 | Architecture test: no `ra_ap_*` type appears in any `cfdb-core` public signature | Extends RFC §14 Q2 test. **UDF scope clarification (second-pass clean-arch OBS-1):** if Cypher UDFs are used by the classifier (e.g., `signature_divergent`, `canonical_bypass_detected`, `confidence_score`), they MUST be registered inside `cfdb-store-lbug`, not in `cfdb-core`. The architecture test asserts UDF registration points do not cross the core boundary. |
+| v0.2-6 | Architecture test: no `ra_ap_*` type appears in any `cfdb-core` public signature | Extends RFC §14 Q2 test. **UDF scope clarification:** if Cypher UDFs are used by the classifier (e.g., `signature_divergent`, `canonical_bypass_detected`, `confidence_score`), they MUST be registered inside `cfdb-store-lbug`, not in `cfdb-core`. The architecture test asserts UDF registration points do not cross the core boundary. |
 | v0.2-7 | `cfdb` workspace pins `rust-version = "1.85"` | `grep rust-version cfdb/Cargo.toml` |
-| **v0.2-8** (second-pass convergent follow-up) | `signature_divergent` UDF algorithm documented + ground-truth test | Document the field-set comparison algorithm (equal name + equal field names + field semantics discriminator) in `.concept-graph/cfdb/docs/udf-signature-divergent.md`. Add a unit test against `OrderStatus` (`domain-trading` vs `domain-portfolio`) and `PositionValuation` (`domain-trading` vs `domain-portfolio`, #3618 evidence) as known ground truth for the Shared-Kernel-vs-Homonym discriminator. This UDF is load-bearing for class 2 (Context Homonym) correctness — without a documented algorithm it could misclassify Shared Kernel candidates as homonyms or vice versa. Raised by ddd-specialist second pass. |
-| **v0.2-9** (second-pass convergent follow-up) | `enrich_bounded_context` accuracy spot-check on ground-truth crates | During v0.2 acceptance run, manually verify the `bounded_context` label for every `:Item` in `domain-strategy`, `ports-trading`, `qbot-mcp` (the 3 ground-truth crates used in gate v0.2-4). Produce a one-page report showing: crate → context assignment per the heuristic, any overrides from `.cfdb/concepts/*.toml`, any items where the module-level context diverges from the crate-level context (v0.3 concern, but track at v0.2). Gate passes if ≥95% of items receive the human-expected context label. Raised by clean-arch OBS-1 second pass. |
+| **v0.2-8** (second-pass convergent follow-up) | `signature_divergent` UDF algorithm documented + ground-truth test | Document the field-set comparison algorithm (equal name + equal field names + field semantics discriminator) in `.concept-graph/cfdb/docs/udf-signature-divergent.md`. Add a unit test against `OrderStatus` (`domain-trading` vs `domain-portfolio`) and `PositionValuation` (`domain-trading` vs `domain-portfolio`, #3618 evidence) as known ground truth for the Shared-Kernel-vs-Homonym discriminator. This UDF is load-bearing for class 2 (Context Homonym) correctness — without a documented algorithm it could misclassify Shared Kernel candidates as homonyms or vice versa. |
+| **v0.2-9** (second-pass convergent follow-up) | `enrich_bounded_context` accuracy spot-check on ground-truth crates | During v0.2 acceptance run, manually verify the `bounded_context` label for every `:Item` in `domain-strategy`, `ports-trading`, `qbot-mcp` (the 3 ground-truth crates used in gate v0.2-4). Produce a one-page report showing: crate → context assignment per the heuristic, any overrides from `.cfdb/concepts/*.toml`, any items where the module-level context diverges from the crate-level context (v0.3 concern, but track at v0.2). Gate passes if ≥95% of items receive the human-expected context label. |
 
-**Instrumentation gate (pre-hir validation, council W1):** before committing to `ra-ap-hir` as a hard v0.2 dependency, v0.2 ships a preliminary `syn`-only extractor that emits `CALLS` edges with `resolved=false` tagging for unresolved dispatch sites. Measurement: what fraction of Pattern B/C findings actually depend on resolved dispatch edges? If the answer is <20%, the 80% gate (v0.2-4) may be reachable with `syn` + a targeted resolution layer, and `ra-ap-hir` adoption can defer to v0.3 without blocking the triple objective. The instrumentation gate is non-blocking — v0.2 proceeds to `cfdb-hir-extractor` regardless — but it informs whether the hir pipeline ships as the primary CI gate or remains a complementary instrument.
+**Instrumentation gate (pre-hir validation):** before committing to `ra-ap-hir` as a hard v0.2 dependency, v0.2 ships a preliminary `syn`-only extractor that emits `CALLS` edges with `resolved=false` tagging for unresolved dispatch sites. Measurement: what fraction of Pattern B/C findings actually depend on resolved dispatch edges? If the answer is <20%, the 80% gate (v0.2-4) may be reachable with `syn` + a targeted resolution layer, and `ra-ap-hir` adoption can defer to v0.3 without blocking the triple objective. The instrumentation gate is non-blocking — v0.2 proceeds to `cfdb-hir-extractor` regardless — but it informs whether the hir pipeline ships as the primary CI gate or remains a complementary instrument.
 
 **Still deferred to v0.3+:** entry-point annotations, LLM enrichment, cross-project queries, embedding clustering, density-based thresholds (LoC instrumentation ships in v0.2 as §A3.2 telemetry).
 
@@ -1152,7 +1056,7 @@ In addition to v0.1 items 1–6 (§13), v0.2 gates on:
 
 **Invariants.**
 
-- **No `SchemaVersion` bump.** `published_language: bool` is additive on an already-declared `:Crate` node shape; `PropValue::Bool` is already in the wire format. No lockstep `graph-specs-rust` fixture bump required (RFC-033 §4 I2: adding an optional prop does not break the schema contract).
+- **No `SchemaVersion` bump.** `published_language: bool` is additive on an already-declared `:Crate` node shape; `PropValue::Bool` is already in the wire format. No lockstep `graph-specs-rust` fixture bump required (cfdb-033-cross-dogfood#4 I2: adding an optional prop does not break the schema contract).
 - **Single resolution point.** `load_published_language_crates` is canonical at `crates/cfdb-concepts/src/published_language.rs`; `:Crate.published_language` is written at exactly one site (`emit_crate_and_walk_targets`). A second writer would split-brain the prop.
 - **`LoadError` reused.** No parallel `PublishedLanguageLoadError` — the canonical enum covers every failure mode.
 
@@ -1179,7 +1083,7 @@ In addition to v0.1 items 1–6 (§13), v0.2 gates on:
 
 The existing RFC §3.1–§3.9 taxonomizes by **pattern shape** (HSB, VSB, canonical bypass, …). That answers *"what does the query look like?"*. It does not answer *"what caused this debt, and therefore what fix strategy applies?"*. The six classes below answer the second question.
 
-**Sixth class added per council BLOCK (ddd-specialist):** "Context Homonym" — same name in different bounded contexts. Without this class, `/sweep-epic` would fire on legitimately distinct concepts that share a name across contexts, deleting bounded-context isolation. The fix strategy for a homonym is a **Context Mapping decision** (ACL / Shared Kernel / Conformist / Published Language), not a mechanical sweep — therefore a separate class is load-bearing.
+**Sixth class added:** "Context Homonym" — same name in different bounded contexts. Without this class, `/sweep-epic` would fire on legitimately distinct concepts that share a name across contexts, deleting bounded-context isolation. The fix strategy for a homonym is a **Context Mapping decision** (ACL / Shared Kernel / Conformist / Published Language), not a mechanical sweep — therefore a separate class is load-bearing.
 
 Every cfdb finding (from Pattern A, B, or C rules) is labeled with exactly one class by the classifier:
 
@@ -1192,13 +1096,13 @@ Every cfdb finding (from Pattern A, B, or C rules) is labeled with exactly one c
 | 5 | **Canonical bypass** | A canonical resolver exists and is correct, but some call sites go around it. This is a *wiring* bug, not a duplication bug. | `canonical-bypass.cypher` verdict = `BYPASS_REACHABLE`; canonical impl has `#[doc = "canonical …"]` marker or is the ports-layer trait impl | **Rewire** — replace direct calls with canonical calls. Delete bypass if dead. |
 | 6 | **Unwired logic** | Code exists and compiles but has zero paths from any `:EntryPoint`. Either dead code (delete) or orphan code awaiting wiring (wire or delete). | BFS reachability from `:EntryPoint` set = empty; `cargo-udeps` / `cargo-machete` cross-validation | If `TODO(#issue)` attached → **wire**. Otherwise **delete**. |
 
-**Note on the fix strategy column:** the values above are abstract action names (consolidate, complete migration, extract helper, rewire, context-mapping decision, wire/delete), NOT concrete Claude skill names. The mapping from abstract action → concrete skill (`/sweep-epic`, `/port-epic`, `/boy-scout`, `/operate-module`) is defined in the `SkillRoutingTable` (§A2.3), not in the classifier. This is the DIP-clean form (council BLOCK-1, solid-architect).
+**Note on the fix strategy column:** the values above are abstract action names (consolidate, complete migration, extract helper, rewire, context-mapping decision, wire/delete), NOT concrete Claude skill names. The mapping from abstract action → concrete skill (`/sweep-epic`, `/port-epic`, `/boy-scout`, `/operate-module`) is defined in the `SkillRoutingTable` (§A2.3), not in the classifier. This is the DIP-clean form.
 
 #### A2.2 Classifier — enrichment passes + query, not a single `.cypher` rule
 
-**Architectural correction (council BLOCK-1, clean-arch).** The classifier cannot be a standalone `.cypher` rule. The signals it joins on require filesystem and subprocess I/O (git log, file reads of `.concept-graph/*.md`, deprecation attribute extraction) that Cypher traversal cannot perform atomically. The classifier is a **two-stage pipeline**: enrichment passes materialize signals into the graph as new edges/attributes, THEN a Cypher query joins on the enriched graph.
+**Architectural correction.** The classifier cannot be a standalone `.cypher` rule. The signals it joins on require filesystem and subprocess I/O (git log, file reads of `.concept-graph/*.md`, deprecation attribute extraction) that Cypher traversal cannot perform atomically. The classifier is a **two-stage pipeline**: enrichment passes materialize signals into the graph as new edges/attributes, THEN a Cypher query joins on the enriched graph.
 
-**Stage 1 — enrichment passes** (each is an extractor-layer operation that mutates the graph). The table below was revised by the #43 council round 1 synthesis (2026-04-20): six passes (not five) per DDD Q4 finding; `:Concept` node materialization is a distinct sixth pass that #101 and #102 block on. `enrich_metrics` is explicitly deferred out of this pipeline:
+**Stage 1 — enrichment passes** (each is an extractor-layer operation that mutates the graph). The table below: six passes (not five); `:Concept` node materialization is a distinct sixth pass that #101 and #102 block on. `enrich_metrics` is explicitly deferred out of this pipeline:
 
 | # | Pass | Slice | Input | Output edges / attributes | Layer |
 |---|---|---|---|---|---|
@@ -1209,7 +1113,7 @@ Every cfdb finding (from Pattern A, B, or C rules) is labeled with exactly one c
 | 5 | `enrich_concepts` | 43-F (#109) | `.cfdb/concepts/<name>.toml` declarations | `:Concept {name, assigned_by}` nodes + `(:Item)-[:LABELED_AS]->(:Concept)` + `(:Item)-[:CANONICAL_FOR]->(:Concept)` — **DDD Q4 sixth pass; unblocks #101 + #102** | petgraph impl (reads TOML via `cfdb-concepts::ConceptOverrides`) |
 | 6 | `enrich_reachability` | 43-G (#110) | BFS from `:EntryPoint` over `CALLS*` | `:Item.reachable_from_entry = bool`, `:Item.reachable_entry_count` | petgraph impl (runs after HIR extraction; degraded path with `ran: false` + warning when no `:EntryPoint` nodes present) |
 
-**G1 determinism note — timestamps, not ages.** `enrich_git_history` stores `git_last_commit_unix_ts` (i64 epoch seconds), not `git_age_days`. Days-since-now computed at enrichment time violates G1 byte-stability across calendar days (clean-arch verdict B2, council/43/clean-arch.md). The Stage-2 classifier Cypher below computes `age_delta = abs(a.git_last_commit_unix_ts - b.git_last_commit_unix_ts) / 86400` at query time instead of reading a pre-baked `git_age_days` value.
+**G1 determinism note — timestamps, not ages.** `enrich_git_history` stores `git_last_commit_unix_ts` (i64 epoch seconds), not `git_age_days`. Days-since-now computed at enrichment time violates G1 byte-stability across calendar days. The Stage-2 classifier Cypher below computes `age_delta = abs(a.git_last_commit_unix_ts - b.git_last_commit_unix_ts) / 86400` at query time instead of reading a pre-baked `git_age_days` value.
 
 **`enrich_metrics` — deferred out of #43 scope.** The quality-metrics pass (`unwrap_count`, `cyclomatic`, `dup_cluster_id`, `test_coverage`) is orthogonal to the debt-cause classifier pipeline: the six classes in §A2.1 do not consume these signals. The Phase A stub is retained on `EnrichBackend` and in `Provenance::EnrichMetrics` so the surface is stable; a future RFC can resuscitate the pass without a breaking rename.
 
@@ -1217,7 +1121,7 @@ Every cfdb finding (from Pattern A, B, or C rules) is labeled with exactly one c
 
 **Deprecation provenance — `Provenance::Extractor`, not an enrichment tag.** The RFC's original wording ("reuses existing AST walk") is now explicit: `#[deprecated]` is extracted at extraction time and tagged `Provenance::Extractor`. The `EnrichBackend::enrich_deprecation` method exists for surface symmetry but its `PetgraphStore` impl is a `ran: true, attrs_written: 0` no-op naming the extractor as the real source. This prevents the provenance split-brain DDD Q4 flagged.
 
-**Invariant I6 (v0.2-9 load-bearing gate).** The Stage-2 classifier (issue #48) MUST NOT be deployed until `enrich_bounded_context` (slice 43-E) hits the v0.2-9 ≥95% accuracy gate on the ground-truth crates (`domain-strategy`, `ports-trading`, `qbot-mcp`). Below 95% accuracy the `cross_context` boolean produces enough false positives to misroute mechanical dedup into expensive council deliberations and (worse) false negatives that misroute homonyms into `/sweep-epic --consolidate` — which deletes bounded-context distinctions (DDD Q3 analysis, council/43/ddd.md).
+**Invariant I6 (v0.2-9 load-bearing gate).** The Stage-2 classifier (issue #48) MUST NOT be deployed until `enrich_bounded_context` (slice 43-E) hits the v0.2-9 ≥95% accuracy gate on the ground-truth crates (`domain-strategy`, `ports-trading`, `qbot-mcp`). Below 95% accuracy the `cross_context` boolean produces enough false positives to misroute mechanical dedup into expensive council deliberations and (worse) false negatives that misroute homonyms into `/sweep-epic --consolidate` — which deletes bounded-context distinctions.
 
 **SchemaVersion bump policy.** Per-slice patch bumps — **not** a batched single bump. Each slice that writes new attributes or labels into the graph bumps the version (V0_2_1, V0_2_2, …) with its own lockstep `graph-specs-rust` cross-fixture PR per cfdb CLAUDE.md §3. Slice 43-A ships schema reservations (`:RfcDoc` label, `REFERENCED_BY` edge, new `Provenance` variants) without bumping the version — stubs write nothing, so no wire-format consumer sees a change. The first real bump lands with whichever of 43-B/43-D/43-G reaches ship first.
 
@@ -1249,7 +1153,7 @@ RETURN a, b,
        confidence_score(a, b) AS confidence
 ```
 
-**Classifier output schema** (new `:Finding` node type — `fix_skill` removed per council BLOCK-1):
+**Classifier output schema** (new `:Finding` node type — `fix_skill` removed):
 
 ```
 :Finding {
@@ -1263,11 +1167,11 @@ RETURN a, b,
 
 where `class ∈ {duplicated_feature, context_homonym, unfinished_refactor, random_scattering, canonical_bypass, unwired}` (6 classes — see §A2.1). **No `fix_skill` field.** Skill routing is a separate concern — see §A2.3.
 
-**Why `fix_skill` is NOT in the schema (council BLOCK-1, solid-architect).** Embedding the skill name in the graph couples the classifier (data layer) to the orchestration policy (skill layer). A skill rename or a `/port-epic`-vs-`/sweep-epic --mode=port` decision would force a graph schema migration. The classifier emits abstract `DebtClass`; a separate `SkillRoutingTable` (see §A2.3) maps class → skill at invocation time. This preserves OCP under skill naming churn and keeps the fact base free of workflow knowledge (parent RFC §4 invariant).
+**Why `fix_skill` is NOT in the schema.** Embedding the skill name in the graph couples the classifier (data layer) to the orchestration policy (skill layer). A skill rename or a `/port-epic`-vs-`/sweep-epic --mode=port` decision would force a graph schema migration. The classifier emits abstract `DebtClass`; a separate `SkillRoutingTable` (see §A2.3) maps class → skill at invocation time. This preserves OCP under skill naming churn and keeps the fact base free of workflow knowledge (parent RFC §4 invariant).
 
 #### A2.3 Skill routing — SkillRoutingTable (external to the graph)
 
-**Architectural correction (council BLOCK-1).** The routing table lives **outside the graph schema**, in a separate `SkillRoutingTable` config (either `.cfdb/skill-routing.toml` or a const in the consumer skill). The classifier emits the abstract `class`; the orchestrator consults the routing table to pick a concrete skill. This preserves OCP under skill naming changes and keeps the fact base free of workflow policy (parent RFC §4 invariant).
+**Architectural correction.** The routing table lives **outside the graph schema**, in a separate `SkillRoutingTable` config (either `.cfdb/skill-routing.toml` or a const in the consumer skill). The classifier emits the abstract `class`; the orchestrator consults the routing table to pick a concrete skill. This preserves OCP under skill naming changes and keeps the fact base free of workflow policy (parent RFC §4 invariant).
 
 **Routing table** (initial mapping; lives in `.cfdb/skill-routing.toml`):
 
@@ -1277,11 +1181,11 @@ where `class ∈ {duplicated_feature, context_homonym, unfinished_refactor, rand
 | `context_homonym` | Context Mapping decision | `/operate-module` with `council_required=true` | Remedy is architectural, not mechanical. Routes to operate-module to trigger raid plan + council. |
 | `unfinished_refactor` | Complete migration | `/sweep-epic --mode=port --raid-plan=<path>` | Q14: variant flag on sweep-epic, not a new skill |
 | `random_scattering` | Extract helper | `/boy-scout` | Inline fix during adjacent work |
-| `canonical_bypass` | Rewire | `/sweep-epic` | Special case of consolidation — acknowledged seam per council WARN-1 |
+| `canonical_bypass` | Rewire | `/sweep-epic` | Special case of consolidation — acknowledged seam |
 | `unwired` (with `TODO(#issue)`) | Wire | `/boy-scout` or the issue owner's session | Wire to existing tracked work |
 | `unwired` (no tracker) | Delete | `/boy-scout` delete | Clean removal |
 
-**Note on `/port-epic`:** NOT a new skill. Council Q14 vote (clean-arch + solid-architect) = variant flag on `/sweep-epic`, invoked as `/sweep-epic --mode=port --raid-plan=<path>`. The distinguishing factor (approved architecture target + portage list) is an input protocol difference, not a code path difference. Promote to standalone skill only if the variant accumulates ≥3 unique responsibilities (deferred to v0.3 evaluation).
+**Note on `/port-epic`:** NOT a new skill. Variant flag on `/sweep-epic`, invoked as `/sweep-epic --mode=port --raid-plan=<path>`. The distinguishing factor (approved architecture target + portage list) is an input protocol difference, not a code path difference. Promote to standalone skill only if the variant accumulates ≥3 unique responsibilities (deferred to v0.3 evaluation).
 
 **Why a table, not hardcoded edges:** if `/sweep-epic` is later renamed or `/operate-module` is split into multiple skills, only the routing table changes — the graph schema and the classifier are untouched. This is the DIP-correct form: high-level policy (skill names) lives above the data, not inside it.
 
@@ -1294,14 +1198,14 @@ where `class ∈ {duplicated_feature, context_homonym, unfinished_refactor, rand
 Historical pattern (see scar log):
 
 - **#3244 Venue 4-way split-brain** — one concept had 4 incompatible meanings across domain-ledger, executor, capital-adapter, reconciliation. Fix required a coordinated sweep with a rename + two new types + a legacy-string handler. This is NOT a `/boy-scout` job — it's a surgery.
-- **#2651 compound-stop** — two parallel resolution paths for trailing activation, with a hardcoded constant preempting the param-driven path. Fix required Council deliberation, 3 canary rules (M1/M2/M3 in CLAUDE.md §7), and a re-architecture of the layer-dominance model. Surgery.
+- **#2651 compound-stop** — two parallel resolution paths for trailing activation, with a hardcoded constant preempting the param-driven path. Fix required 3 canary rules (M1/M2/M3 in CLAUDE.md §7), and a re-architecture of the layer-dominance model. Surgery.
 - **#3519 post-forgery curation** — 46 actionable violations across 19 fix clusters. Individual clusters are mechanical, but the *meta* decision (which concept is canonical, which is the head to keep) requires architectural judgment — surgery.
 
 A single finding is a `/boy-scout` job. A **cluster of findings inside one module** is a surgery. We need a protocol for the second case.
 
 #### A3.2 Infection threshold — scoped to bounded contexts, not crates
 
-**Architectural correction (council BLOCK, ddd-specialist).** Thresholds operate on **bounded contexts** (groups of crates), not single crates. Crate-scoped thresholds produce the exact #3244 Venue 4-way failure mode: a raid plan reorganizes crates but does not align the bounded-context boundary, and three months later the split-brain is back.
+**Architectural correction.** Thresholds operate on **bounded contexts** (groups of crates), not single crates. Crate-scoped thresholds produce the exact #3244 Venue 4-way failure mode: a raid plan reorganizes crates but does not align the bounded-context boundary, and three months later the split-brain is back.
 
 **Bounded context identification (v0.2 initial rules, extensible):**
 
@@ -1318,13 +1222,13 @@ A single finding is a `/boy-scout` job. A **cluster of findings inside one modul
 - **≥20% of items classified as `unfinished_refactor`** across the context
 - **≥1 Pattern B fork** where divergent paths traverse resolvers in this context
 
-**Telemetry alongside thresholds:** v0.2 ships LoC per crate per context (council WARN-6 from solid-architect) so v0.3 can flip to density-based thresholds (per-kloc) without a second extraction pass. Initial absolute counts, calibration in v0.3.
+**Telemetry alongside thresholds:** v0.2 ships LoC per crate per context so v0.3 can flip to density-based thresholds (per-kloc) without a second extraction pass. Initial absolute counts, calibration in v0.3.
 
 These thresholds are **initial values**, subject to calibration from v0.2 telemetry.
 
 #### A3.3 Raid plan doc — emitted by `/operate-module`, not by cfdb
 
-**Architectural correction (council BLOCK-2, clean-arch + solid-architect).** cfdb does NOT emit the raid plan markdown. cfdb's responsibility ends at returning a **structured infection inventory** — JSON or Cypher result rows containing the findings by class, the canonical candidates, and the reachability data. The `/operate-module` consumer skill (§A3.4) reads that structured inventory and formats it into the raid plan document.
+**Architectural correction.** cfdb does NOT emit the raid plan markdown. cfdb's responsibility ends at returning a **structured infection inventory** — JSON or Cypher result rows containing the findings by class, the canonical candidates, and the reachability data. The `/operate-module` consumer skill (§A3.4) reads that structured inventory and formats it into the raid plan document.
 
 This aligns with parent RFC §4 invariant: *"Not opinionated about workflows. Knows nothing about 'raids', '/prescribe', 'RFCs'. Those are consumer-side compositions."*
 
@@ -1385,15 +1289,15 @@ This aligns with parent RFC §4 invariant: *"Not opinionated about workflows. Kn
 - <git tag before surgery, listing of untouched crates>
 ```
 
-**Language correction (council WARN-3, ddd-specialist):** the template uses **"Dead list"** (no reachable entry points, delete) + **"Misplaced list"** (belongs to a different context, return) instead of the imprecise "Cancer list". These are two different dispositions requiring two different actions.
+**Language correction:** the template uses **"Dead list"** (no reachable entry points, delete) + **"Misplaced list"** (belongs to a different context, return) instead of the imprecise "Cancer list". These are two different dispositions requiring two different actions.
 
-**Pattern I integration (council WARN-2, ddd-specialist):** the "Canonical candidates" and "Portage list" sections are populated by the 5 Pattern I Cypher queries defined in parent RFC §3.9 (completeness, dangling-drop, hidden-callers, missing-canonical, clean/dirty-mismatch), not by a separate scan. Tying §A3.3 to Pattern I avoids divergent implementations.
+**Pattern I integration:** the "Canonical candidates" and "Portage list" sections are populated by the 5 Pattern I Cypher queries defined in parent RFC §3.9 (completeness, dangling-drop, hidden-callers, missing-canonical, clean/dirty-mismatch), not by a separate scan. Tying §A3.3 to Pattern I avoids divergent implementations.
 
 **The raid plan is a draft, not an executable spec.** Council turns it into a concrete RFC before any code moves.
 
 #### A3.4 Skill wiring — SRP-compliant decomposition
 
-**Architectural correction (council BLOCK-2, solid-architect).** The original spec bundled four responsibilities into `/operate-module` (extract / threshold-check / raid-plan-emit / boy-scout-fallback). Council SRP audit requires splitting these into distinct skills with independent change vectors.
+**Architectural correction.** The original spec bundled four responsibilities into `/operate-module` (extract / threshold-check / raid-plan-emit / boy-scout-fallback). SRP requires splitting these into distinct skills with independent change vectors.
 
 **Decomposition:**
 
@@ -1419,9 +1323,9 @@ It does NOT run cfdb (that's a separate skill call that precedes it). It does NO
     → else → /boy-scout applies class-appropriate actions inline
 ```
 
-**Why two skills, not four (council Q13 + SOLID SRP):** the minimum viable split keeps cfdb extraction and boy-scout as their own skills (already existing, independent change reasons) and consolidates the "go/no-go + document" decision into a single `/operate-module` responsibility. Further splitting (`/operate-threshold` + `/operate-plan`) is premature — one reason to change, no empirical evidence yet for further decomposition.
+**Why two skills, not four:** the minimum viable split keeps cfdb extraction and boy-scout as their own skills (already existing, independent change reasons) and consolidates the "go/no-go + document" decision into a single `/operate-module` responsibility. Further splitting (`/operate-threshold` + `/operate-plan`) is premature — one reason to change, no empirical evidence yet for further decomposition.
 
-**`/port-epic` is NOT a new skill (council Q14 unanimous):** the portage workflow becomes a variant flag `--mode=port --raid-plan=<path>` on the existing `/sweep-epic` skill. The distinguishing factor (approved architecture target + portage list) is an input protocol difference, not a code path difference. Re-evaluate in v0.3 after empirical evidence.
+**`/port-epic` is NOT a new skill:** the portage workflow becomes a variant flag `--mode=port --raid-plan=<path>` on the existing `/sweep-epic` skill. The distinguishing factor (approved architecture target + portage list) is an input protocol difference, not a code path difference. Re-evaluate in v0.3 after empirical evidence.
 
 #### A3.5 Council trigger
 
@@ -1497,104 +1401,42 @@ A new file `.concept-graph/RESCUE-STATUS.md` holds a refresh-able inventory:
 
 ### A5. Decisions for council — FIRST PASS RESOLVED
 
-All Q9–Q14 were voted by the first council pass (2026-04-14). Section retained as historical record. Original rationale below, annotated with vote outcomes.
+| Q | Topic | Outcome |
+|---|---|---|
+| Q9 | `ra-ap-hir` schedule | **RESOLVED:** v0.2 ships new parallel `cfdb-hir-extractor` crate; v0.3 switches CI gate |
+| Q10 | Taxonomy classes | **RESOLVED:** 6 classes, §A2.1 updated |
+| Q11 | Threshold metric | **RESOLVED:** absolute for v0.2, density instrumentation in v0.2 for v0.3 flip |
+| Q13 | `/operate-module` new vs extend | **RESOLVED:** new skill after SRP decomposition (§A3.4) |
+| Q14 | `/port-epic` new skill vs variant | **RESOLVED:** `--mode=port --raid-plan=<path>` on existing `/sweep-epic` |
 
-**First-pass vote summary:**
-
-| Q | Topic | Vote | Outcome |
-|---|---|---|---|
-| Q9 | `ra-ap-hir` schedule | (b) split — UNANIMOUS (clean-arch + rust-systems) + rust-systems architectural reframing | **RESOLVED:** v0.2 ships new parallel `cfdb-hir-extractor` crate; v0.3 switches CI gate |
-| Q10 | Taxonomy classes | 6-class (5 + Context Homonym) — ddd-specialist | **RESOLVED:** 6 classes, §A2.1 updated |
-| Q11 | Threshold metric | Absolute + LoC telemetry — solid-architect | **RESOLVED:** absolute for v0.2, density instrumentation in v0.2 for v0.3 flip |
-| Q13 | `/operate-module` new vs extend | (a) new, conditional on SRP split — solid-architect | **RESOLVED:** new skill after SRP decomposition (§A3.4) |
-| Q14 | `/port-epic` new skill vs variant | Variant flag — UNANIMOUS (clean-arch + solid-architect) | **RESOLVED:** `--mode=port --raid-plan=<path>` on existing `/sweep-epic` |
-
-**Residual question from first pass (not voted, deferred to second pass or v0.2 telemetry):**
-
-- **Q12 (RESCUE-STATUS.md live file vs generated)** — companion deliverable scope, not blocking the RFC. Defer to session-bootstrap review in second pass.
+- **Q12 (RESCUE-STATUS.md live file vs generated)** — companion deliverable scope, not blocking the RFC.
 
 ---
 
-*Original council question rationale below (for historical traceability).*
-
-
-
 #### Q9. `ra-ap-hir` adoption — v0.2 or split into v0.2 prepare / v0.3 ship?
-
-*(Rust systems lens, clean-architect lens)*
-
-Cost per A1.2: +30–60s clean build, +2–4 GB memory. Benefit: unlocks Patterns B, C, G, H, I. Risk: compile cost on every CI run of the extractor.
-
-Options:
-- (a) **v0.2 ships `ra-ap-hir` + all call-graph patterns in one release** — biggest jump, largest risk
-- (b) **v0.2 ships `ra-ap-hir` extractor only (+ `:EntryPoint` catalog); v0.3 ships Pattern B/C cypher rules** — de-risks by splitting the load-bearing dependency from the rule library
-- (c) **v0.2 skips `ra-ap-hir`, delivers `:EntryPoint` via heuristic + syn, v0.3 upgrades to ra-ap-hir** — lowest risk, but delivers Pattern B with the ~40–60% recall ceiling, which is below the v0.2-4 gate item's 80% target
-
-**Recommendation to council:** (b). Rationale: the call-graph extractor is where the real risk lives (memory, compile time, hir stability). Ship the extractor first, prove it stable for a release, then layer rules on top.
 
 #### Q10. Five classes — right cut or different taxonomy?
 
-*(Clean-arch lens, DDD lens, product/CPO lens)*
-
-The five classes in A2.1 map 1:1 to fix strategies. Alternatives:
-
-- **3-class version** (duplicated / refactor / other) — simpler, but loses the canonical-bypass and unwired distinctions that map to different skills
-- **7-class version** (add "test-only double that leaked into prod" and "ADR reversal not propagated") — more precise, but two of the classes cover <5% of historical findings
-- **DDD-lens version** (aggregate boundary violation / ubiquitous-language drift / context-mapping inconsistency) — more conceptually clean, but harder to detect mechanically
-
-**Recommendation to council:** 5-class as proposed. Simplicity + empirical distribution coverage + 1:1 skill mapping.
-
 #### Q11. Infection threshold — absolute counts or per-kloc density?
-
-*(Solid-architect lens, rust-systems lens)*
-
-A3.2 uses absolute counts. Alternative: per-kloc density (5 bypasses per 1k LoC). Absolute counts are simpler to reason about and interpret. Per-kloc density adjusts for crate size, so a small crate with 3 bypasses is flagged while a large crate with 20 bypasses (but proportionally fewer) is not.
-
-**Recommendation to council:** start with absolute counts (A3.2), instrument density telemetry in v0.2, flip to density in v0.3 if the absolute-count version produces false alarms on small crates.
 
 #### Q12. RESCUE-STATUS.md — live file committed to repo, or generated artifact in CI output?
 
-*(QA lens, product lens)*
-
-Committing generated content to the repo is usually an anti-pattern — it creates diff noise on every refresh. BUT: session agents need to *read* this file at session start without running the tool, which means it must exist in the working copy.
-
-- (a) **Committed to repo, refreshed by a CI job that commits back** — always available, generates diff noise
-- (b) **Not committed, refreshed at session start via hook** — no noise, but adds tool dependency to every session and breaks offline work
-- (c) **Committed once as scaffold, refreshed by CI into a sibling `.generated` copy, scaffold pointer updated occasionally** — compromise
-
-**Recommendation to council:** (a). The diff noise is acceptable because the refresh is low-frequency (weekly + merge-triggered) and the content is load-bearing for session bootstrapping.
-
 #### Q13. `/operate-module` — new skill, or extend an existing skill?
 
-*(Solid-architect lens — SRP)*
-
-Options:
-- (a) **New skill `/operate-module`** — clean SRP, clear trigger, clear output
-- (b) **Extend `/audit-split-brain`** with a threshold mode — reuses existing skill, but `/audit-split-brain` is currently read-only while `/operate-module` produces a planning artifact
-- (c) **Extend `/quality-architecture`** — same concern as (b)
-
-**Recommendation to council:** (a). The "produce a planning artifact that triggers council" workflow is novel enough to deserve its own skill. Reusing audit skills for planning violates SRP.
-
 #### Q14. Should `/port-epic` be a new skill or a variant of `/sweep-epic`?
-
-*(Clean-arch lens)*
-
-`/sweep-epic` handles mechanical refactors in parallel. `/port-epic` would handle "move code carefully from cancer site to clean new home per an RFC". Overlap: both parallelize mechanical changes. Difference: `/port-epic` has an approved architecture target and a portage list from a raid plan; `/sweep-epic` has a pattern to apply and a list of sites.
-
-**Recommendation to council:** start as a variant flag on `/sweep-epic` (`--mode=port --raid-plan=...`), promote to standalone skill if the variant accumulates ≥3 unique responsibilities.
 
 ---
 
 ### A6. Risks & known unknowns
 
-- **`ra-ap-hir` weekly maintenance tax** (council B2, upgraded from risk to acknowledged category concern) — weekly releases (9 in 9 weeks verified) require 10+ exact-pinned Cargo.toml version updates per upgrade. Mitigation: dedicated `chore/ra-ap-upgrade-<version>` branch protocol, ~4 breaking changes per year expected, runbook at `.concept-graph/cfdb/docs/ra-ap-upgrade-protocol.md`. This is a budgeted cost, not a risk we hope to avoid.
+- **`ra-ap-hir` weekly maintenance tax** — weekly releases (9 in 9 weeks verified) require 10+ exact-pinned Cargo.toml version updates per upgrade. Mitigation: dedicated `chore/ra-ap-upgrade-<version>` branch protocol, ~4 breaking changes per year expected, runbook at `.concept-graph/cfdb/docs/ra-ap-upgrade-protocol.md`. This is a budgeted cost, not a risk we hope to avoid.
 - **`ra-ap-hir` API stability** — ~4 breaking changes per year historically. Mitigation: `cfdb-hir-extractor` isolated in its own crate; the `syn`-based `cfdb-extractor` continues to function during hir outages. Pin to last-known-good, upgrade deliberately.
-- **`HirDatabase` object-safety constraint** (council risk 2, rust-systems) — not trait-object-safe, must be used as a monomorphic concrete type. cfdb-hir-extractor honors this; no `dyn HirDatabase` abstraction.
-- **Classifier false positives** (council WARN-5, ddd) — the age-delta + keyword-match signals for "unfinished refactoring" could mislabel a recent bug fix as a refactor. Compounded risk: keyword-match not scoped to owning bounded context will fire "unfinished refactoring" on homonym cases. Mitigation: (a) ship confidence scores, (b) require human review above threshold, (c) scope RFC keyword match to owning bounded context via `.cfdb/concepts/*.toml`, (d) instrument misclassification telemetry.
+- **`HirDatabase` object-safety constraint** — not trait-object-safe, must be used as a monomorphic concrete type. cfdb-hir-extractor honors this; no `dyn HirDatabase` abstraction.
+- **Classifier false positives** — the age-delta + keyword-match signals for "unfinished refactoring" could mislabel a recent bug fix as a refactor. Compounded risk: keyword-match not scoped to owning bounded context will fire "unfinished refactoring" on homonym cases. Mitigation: (a) ship confidence scores, (b) require human review above threshold, (c) scope RFC keyword match to owning bounded context via `.cfdb/concepts/*.toml`, (d) instrument misclassification telemetry.
 - **Bounded context identification heuristic fails** — the crate-prefix convention works for `trading`, `portfolio`, `strategy`, `collection`, but fails for cross-cutting concerns like `messenger`, `sizer`, `executor`. Mitigation: explicit override in `.cfdb/concepts/*.toml` is load-bearing for these cases; v0.2 must ship the override mechanism, not only the heuristic.
 - **Threshold calibration** — the §A3.2 numbers are initial guesses. Mitigation: v0.2 ships LoC telemetry alongside thresholds so v0.3 can flip to density-based without re-extraction.
 - **Raid plan staleness** — a raid plan emitted on date D may not match repo state on date D+14 if other work lands. Mitigation: raid plans expire after N days, `/operate-module` must be re-run to refresh.
-- **Skill seam between `duplicated_feature` and `canonical_bypass`** (council WARN-1, solid) — both route to `/sweep-epic` in the initial routing table but have different fix procedures (canonical-selection vs pure rewire). Known seam, acknowledged, promote to separate skill when canonical-selection workflow is enriched.
+- **Skill seam between `duplicated_feature` and `canonical_bypass`** — both route to `/sweep-epic` in the initial routing table but have different fix procedures (canonical-selection vs pure rewire). Known seam, acknowledged, promote to separate skill when canonical-selection workflow is enriched.
 - **CI memory budget** — `cfdb extract` on the target workspace with HirDatabase loaded consumes 2–4 GB peak RSS (plausible, unverified). If the CI runner cannot accommodate, the extract either streams or extracts per-context. Mitigation: v0.2-5b measures this before committing.
 
 ---
@@ -1626,4 +1468,4 @@ All companion deliverables are DRAFT pending council approval of this addendum.
 ---
 
 
-**End of RFC.** Council convenes per §1; decisions are §14; convergence target is a vote on §14 plus a "must-fix before v0.1" list. On council acceptance, work begins with the cfdb workspace scaffold + the chosen Q1 use case integration.
+**End of RFC.** work begins with the cfdb workspace scaffold + the chosen Q1 use case integration.

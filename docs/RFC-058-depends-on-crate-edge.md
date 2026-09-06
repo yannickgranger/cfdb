@@ -1,7 +1,7 @@
 # RFC-058 — `DEPENDS_ON`: the crate-dependency edge
 
-**Status:** RATIFIED — 2026-08-04 (architect review round 1 folded; operator-ratified).
-**Renumbered:** RFC-056 → RFC-058 on 2026-08-18 — the 056 number was also taken by `cfdb-056-enrich-port-split` (ratified 2026-08-17, implemented); the corpus id `cfdb-058-depends-on-crate-edge` is the citation key from here on. Content unchanged.
+**Status:** RATIFIED — 2026-08-04 (operator-ratified).
+**Renumbered:** RFC-056 → cfdb-058-depends-on-crate-edge on 2026-08-18 — the 056 number was also taken by `cfdb-056-enrich-port-split` (ratified 2026-08-17, implemented); the corpus id `cfdb-058-depends-on-crate-edge` is the citation key from here on. Content unchanged.
 **Raised by:** `agency:yg/agentry` #3034 (the engine-extraction arc's one
 unmet definition-of-done bullet). Upstream design authority:
 `agentry/docs/rfc/RFC-agent-execution-engine.md` §14 Amendment A1 §3
@@ -38,7 +38,7 @@ Ships:
   edge-label addition followed).
 - A `SchemaVersion` minor bump (`V0_9_0`) with the paired
   `graph-specs-rust` cross-fixture lockstep PR, per the unbroken V0_1_1 →
-  V0_8_0 convention and the RFC-050 precedent (a strictly smaller schema
+  V0_8_0 convention and the cfdb-050-layer-overlay precedent (a strictly smaller schema
   surface, same data source, bumped `V0_6_0` and paired the lockstep).
   The lockstep pairs with the *implementing* PR — the one that lands the
   bump — merge order cfdb first per `docs/cross-fixture-bump.md`.
@@ -83,7 +83,7 @@ Ships:
 
 - **I1 — `crate_tier` is untouched.** It continues to derive from the
   normal-kind subset, preserving its contract and the cycle rationale for
-  that filter (RFC-050 §5). The `kind = "normal"` projection of the
+  that filter (cfdb-050-layer-overlay#5). The `kind = "normal"` projection of the
   `DEPENDS_ON` edge set is definitionally equal to the tier adjacency.
 - **I2 — Additive bump.** New edge label + two attributes:
   `SchemaVersion` bumps minor to `V0_9_0` with the paired
@@ -97,19 +97,6 @@ Ships:
   emission is byte-identical; the change is purely additive.
 
 ## 5. Architect lenses
-
-Round 1 (2026-08-04, read-only architect review against the tree):
-design-fit CLEAN (generic `Edge.props` carries attributed edges today —
-`IMPLEMENTS.resolver`, `CALLS.resolved` precedents; descriptor machinery
-supports the new entry); extractor-fit CLEAN (the all-kinds adjacency is a
-mechanical generalization of `normal_workspace_adjacency()` at the
-existing `compute_crate_tiers` integration point). Corrections folded:
-`source` vocabulary defined (was undefined, homonym-risky); `V0_9_0` +
-lockstep restored (draft 1 wrongly claimed no-bump against unbroken
-precedent); the self-dogfood example replaced (draft 1 cited a dev
-back-edge that does not exist in the manifests — see §8); recall row
-restored per the RFC-050 re-derivation pattern; structure aligned to
-CLAUDE.md §2.2.
 
 ## 6. Non-goals
 
@@ -161,7 +148,7 @@ Tests:
 ## 8. Corrected grounding — the false "dev back-edge" example
 
 Draft 1 (and, independently, `crates/cfdb-extractor/src/crate_tier.rs`'s
-module header, sourced from RFC-050 §3.2) cites
+module header, sourced from cfdb-050-layer-overlay#3.2) cites
 `cfdb-hir-extractor --dev--> cfdb-cli` as the tree's living dev back-edge.
 **The manifests refute it**: `cfdb-hir-extractor`'s `[dev-dependencies]`
 are `tempfile`, `cfdb-extractor` (path), `syn`, `quote`, `toml` — `cfdb-cli`
@@ -170,7 +157,7 @@ all-kinds cycle anywhere in the current workspace. The real dev edge is
 `cfdb-hir-extractor --dev--> cfdb-extractor` (no cycle: `cfdb-extractor`
 declares no dependency back). The tier filter's rationale survives on the
 general shape, not the false instance. 058-A carries the boy-scout
-correction of the `crate_tier.rs` header; RFC-050's text stays as history
+correction of the `crate_tier.rs` header; cfdb-050-layer-overlay's text stays as history
 with this section as the correction of record.
 
 ## 9. Consumer note (non-normative)

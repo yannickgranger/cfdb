@@ -1,18 +1,14 @@
----
-title: "RFC-031: Audit cleanup — absorb orphan issues #22-#29"
-status: Accepted
-date: 2026-04-19
-authors: [solid-architect, clean-arch, rust-systems]
-supersedes: issues #22, #23, #25, #26, #27, #28, #29 (orphan filings)
----
-
 # RFC-031: Audit cleanup — absorb orphan issues #22–#29
 
-Three-lens audit (SOLID/component-principles, Clean Architecture, Rust-systems) ran across the cfdb workspace on 2026-04-19 and produced eight orphan issues filed without a backing RFC. Per user directive "ALL issues are in a RFC", this document is the canonical home. Every section maps to one issue; existing issue bodies should add the line `RFC: RFC-031 §N`.
+**Status:** Accepted
+**Date:** 2026-04-19
+**Supersedes:** issues #22, #23, #25, #26, #27, #28, #29 (orphan filings)
+
+Per user directive "ALL issues are in a RFC", this document is the canonical home. Every section maps to one issue; existing issue bodies should add the line `RFC: cfdb-031-audit-cleanup §N`.
 
 ---
 
-## Audit synthesis
+## §0 — Audit synthesis
 
 The audit applied six lenses simultaneously:
 
@@ -212,13 +208,13 @@ Both functions maintain the same two-boolean state machine to skip string litera
 
 **SRP violation (error ownership):** Multiple crates own the construction of errors that end up in the same `Box<dyn Error>` bag. There is no single canonical cfdb-cli error vocabulary.
 
-**Prescription:** PR #38 introduces `CfdbCliError` as a `thiserror`-derived enum with variants for each distinct failure mode (`KeyspaceNotFound`, `ParseError`, `StoreError`, `IoError`, `SerdeError`). All handler signatures become `Result<_, CfdbCliError>`. This is the correct fix. RFC-031 retroactively cites this issue and the in-flight PR.
+**Prescription:** PR #38 introduces `CfdbCliError` as a `thiserror`-derived enum with variants for each distinct failure mode (`KeyspaceNotFound`, `ParseError`, `StoreError`, `IoError`, `SerdeError`). All handler signatures become `Result<_, CfdbCliError>`. This is the correct fix. cfdb-031-audit-cleanup retroactively cites this issue and the in-flight PR.
 
 **Ordering note:** PR #38 is already in flight. This section is included for completeness and to provide the RFC citation. If the PR merges before this RFC is adopted, the issue is automatically resolved; no separate action required.
 
 ---
 
-## Dependency graph
+## §8 — Dependency graph
 
 ```
 §1 (#29-verify) — no dependencies. Verify first.
@@ -240,5 +236,5 @@ Both functions maintain the same two-boolean state machine to skip string litera
 
 ---
 
-*RFC-031 — drafted by solid-architect (SOLID/component-principles lens), 2026-04-19.*
+*cfdb-031-audit-cleanup — drafted by solid-architect (SOLID/component-principles lens), 2026-04-19.*
 *Verified: all file:line citations from main branch HEAD (`crates/` tree).*

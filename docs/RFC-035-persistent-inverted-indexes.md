@@ -1,7 +1,6 @@
 # RFC-035 — Persistent inverted indexes on `:Item` props and computed keys
 
 Status: **Released in v0.4.0 (2026-04-25)**
-Ratification: R2 (post-R1 council), 4/4 RATIFY (clean-arch, ddd, rust-systems, solid).
 Parent trace: #167 → #168 (PR #177, merged) → #178 (closed, subsumed) → **this RFC**
 Companion: #167 trial evidence — 148k-node keyspace, 428 MB RSS (fixed), 16+ min scope wall time (unfixed).
 
@@ -11,7 +10,7 @@ Companion: #167 trial evidence — 148k-node keyspace, 428 MB RSS (fixed), 16+ m
 
 Empirical trial on the #167 reproducer (qbot-core-trial-4055, 148 875 nodes / 149 361 edges) after #168 merged:
 
-| Axis | Pre-#168 | Post-#168 | After RFC-035 (target) |
+| Axis | Pre-#168 | Post-#168 | After cfdb-035-persistent-inverted-indexes (target) |
 |---|---|---|---|
 | Peak RSS | 13.13 GB (OOM-killed) | 428 MB | < 500 MB |
 | `cfdb scope --context X` wall time | N/A (OOM) | > 16 min (killed) | < 60 s |
@@ -24,22 +23,22 @@ cfdb keyspaces are **write-once / read-many**: extract once, query dozens of tim
 
 ## 2. Scope
 
-### Deliverables
+### 2.1 Deliverables
 
-1. **Per-`(Label, prop)` inverted indexes** — `by_prop[(label, prop_name)][prop_value] → BTreeSet<NodeIndex>` built during `ingest_nodes`, stored on `KeyspaceState`. **Always rebuilt on load** — not serialised to disk (see §3.7 and R1 B2 resolution).
+1. **Per-`(Label, prop)` inverted indexes** — `by_prop[(label, prop_name)][prop_value] → BTreeSet<NodeIndex>` built during `ingest_nodes`, stored on `KeyspaceState`. **Always rebuilt on load** — not serialised to disk (see §3.7).
 2. **Computed-key registry** — a short allowlist of pure functions (`last_segment(qname)`, TBD others) sourced from `cfdb-core::qname` that the index build pass evaluates once per node and stores as virtual props. Indexes treat them like any other prop (§3.3).
 3. **Evaluator integration** — `candidate_nodes` consults `by_prop` when the MATCH pattern binds a prop literal; cross-MATCH Eq predicates intersect posting lists (§3.6).
-4. **Index-spec TOML** — `.cfdb/indexes.toml` naming which (label, prop) pairs are indexed. Adding an index is reviewed (per §6.8 no-ratchet rule). Loader lives in `cfdb-petgraph`, not `cfdb-core` (R1 B1 resolution).
+4. **Index-spec TOML** — `.cfdb/indexes.toml` naming which (label, prop) pairs are indexed. Adding an index is reviewed (per §6.8 no-ratchet rule). Loader lives in `cfdb-petgraph`, not `cfdb-core`.
 5. **Composition-root wiring** — `cfdb-cli::compose::load_store` reads `.cfdb/indexes.toml` and hands `IndexSpec` to `PetgraphStore` via a builder method (§3.8).
 
-### Non-deliverables
+### 2.2 Non-deliverables
 
 - **Cost-based query planner** — deferred. Simple "index first" rule only.
 - **LSH / fuzzy matching** — separate concern.
 - **Partition-refinement** (Paige-Tarjan) — orthogonal RFC for structural-similarity verbs.
 - **Predicate pushdown into single-variable node emission** — subsumed where the Eq predicate is indexable.
 - **Full-text / regex indexes** — Cypher's `=~` operator stays a post-filter.
-- **Wire-format change / `SchemaVersion` bump** — R1 B2 resolution eliminates this. Indexes rebuild on load; the on-disk keyspace is bit-identical to pre-RFC-035. No RFC-033 §4 lockstep PR on graph-specs-rust required.
+- **Wire-format change / `SchemaVersion` bump** — eliminates this. Indexes rebuild on load; the on-disk keyspace is bit-identical to pre-cfdb-035-persistent-inverted-indexes. No cfdb-033-cross-dogfood#4 lockstep PR on graph-specs-rust required.
 
 ---
 
@@ -65,7 +64,7 @@ pub(crate) struct KeyspaceState {
 }
 ```
 
-`PropKey`, `IndexSpec`, and `ComputedKey` are **defined in `cfdb-petgraph`** — not in `cfdb-core`. These are backend-optimisation artefacts with no stable abstract meaning; placing them in `cfdb-core` would violate the Stable Abstractions Principle and the crate's documented zero-I/O / zero-external-dep invariant (`crates/cfdb-core/src/lib.rs:6-7`). (R1 B1 resolution — clean-arch + solid-architect convergent concern.)
+`PropKey`, `IndexSpec`, and `ComputedKey` are **defined in `cfdb-petgraph`** — not in `cfdb-core`. These are backend-optimisation artefacts with no stable abstract meaning; placing them in `cfdb-core` would violate the Stable Abstractions Principle and the crate's documented zero-I/O / zero-external-dep invariant (`crates/cfdb-core/src/lib.rs:6-7`).
 
 Concretely, they live in a new `crates/cfdb-petgraph/src/index/mod.rs` module:
 - `index/spec.rs` — `IndexSpec`, `ComputedKey`, TOML loader
@@ -93,7 +92,7 @@ computed = "last_segment(qname)"
 notes = "Homonym-pair join key for context_homonym classifier rule (#48 class 2)."
 ```
 
-The required `notes` string on each entry documents the rationale — who uses it, why it's indexed. Pattern-match on `.cfdb/skill-routing.toml` where every routing decision carries the same kind of rationale. (R1 R2 resolution — DDD lens.)
+The required `notes` string on each entry documents the rationale — who uses it, why it's indexed. Pattern-match on `.cfdb/skill-routing.toml` where every routing decision carries the same kind of rationale.
 
 **Computed-function allowlist.** `last_segment(qname)` in v0.1. Extending the allowlist is an RFC-gated change (§6.8 no-ratchet). Each allowlisted function is a pure wrapper around a function in `cfdb-core::qname` — see §3.3.
 
@@ -107,7 +106,7 @@ Computed keys are **wrappers around canonical qname-formula functions in `cfdb-c
 
 **Amendment (2026-07-15, reviewed PR — allowlist entry 2).** `conversion_prefix(name)` joins the registry: the vetted extractor `regexp_extract(name, '^(\\w+)_(?:from|to|for|as)_')` used by the RandomScattering classifier's fork equi-join, whose un-indexed form measured O(n²) (38 ms @ n=1 000 → 1.70 s @ n=10 000). Invariant 2's anchor requirement generalizes with this entry: a computed key anchors to **one canonical definition owned in code** — a `cfdb-core::qname` helper for qname-formula keys, or a single vetted pattern const co-located with the `ComputedKey` registry (`CONVERSION_PREFIX_PATTERN`) for prop-pattern keys. The lockstep discipline is unchanged: the recogniser accepts a `.cypher` literal only byte-for-byte equal to the const, a tripwire test pins the const to the decoded AST form, and drift invalidates the index + updates the registry entry in the same PR. Invariants 1 and 3 apply verbatim. Cardinality after this entry: 2 of the §3.4 anticipated 3–5 ceiling.
 
-For v0.1, `last_segment(qname)` splits at the last `::` in the qname string — semantically consistent with qname-path grammar established by `cfdb-core::qname` (syn extractor and HIR extractor both use this module; cross-extractor edge landing depends on it). A corresponding `pub fn last_segment(qname: &str) -> &str` helper lands in `cfdb-core::qname` as part of slice 3 (§7) to make the invariant explicit. (R1 B3 resolution — DDD lens.)
+For v0.1, `last_segment(qname)` splits at the last `::` in the qname string — semantically consistent with qname-path grammar established by `cfdb-core::qname` (syn extractor and HIR extractor both use this module; cross-extractor edge landing depends on it). A corresponding `pub fn last_segment(qname: &str) -> &str` helper lands in `cfdb-core::qname` as part of slice 3 (§7) to make the invariant explicit.
 
 ### 3.4 Registry closure: const allowlist, not open trait
 
@@ -118,13 +117,11 @@ The computed-key registry is a `const`-sized enum with compile-time dispatch, no
 - **Determinism.** A `match` on a `ComputedKey` enum compiles to a predictable LLVM jump-table; determinism across compiler versions is easier to reason about than dynamic dispatch through a `Box<dyn Fn>`.
 - **If cardinality exceeds 5**, re-open this decision in a follow-up RFC. The `const` approach is not one-way: migrating from `match` to a trait registry is a mechanical refactor gated by its own RFC discussion.
 
-(R1 B4 resolution — solid-architect lens.)
-
 ### 3.5 Build pass
 
 `ingest_nodes` iterates the spec and populates `by_prop` in one O(n × |indexes|) pass. Computed keys are evaluated eagerly. Post-ingest, subsequent mutations (re-`ingest_nodes`, property updates) maintain the indexes incrementally — same pattern as the existing `by_label` index.
 
-**Stale-entry removal on re-ingest** is explicit: if a re-ingested node changes a prop value that is indexed, the old value's posting-list entry for that NodeIndex is removed before the new one is inserted. (R1 R4 resolution — rust-systems lens.) Test prescription covers this in slice 2.
+**Stale-entry removal on re-ingest** is explicit: if a re-ingested node changes a prop value that is indexed, the old value's posting-list entry for that NodeIndex is removed before the new one is inserted. Test prescription covers this in slice 2.
 
 ### 3.6 Evaluator integration
 
@@ -137,11 +134,11 @@ Cross-MATCH Eq — the #178 case — becomes **posting-list intersection**: if `
 
 ### 3.7 Wire format (no change)
 
-Per R1 B2 resolution (rust-systems): the wire format is **unchanged**. Indexes are NOT serialised to disk. Every `persist::load` rebuilds `by_prop` from the in-memory fact content and the current `.cfdb/indexes.toml`.
+The wire format is **unchanged**. Indexes are NOT serialised to disk. Every `persist::load` rebuilds `by_prop` from the in-memory fact content and the current `.cfdb/indexes.toml`.
 
 Rationale: `petgraph::StableDiGraph::NodeIndex` values are ephemeral. `persist::load` re-ingests nodes in `(label, id)`-sorted order, not extract order, so serialised `NodeIndex` integers would misdirect after round-trip — a soundness bug. Rebuilding on load trades a one-time O(n × |indexes|) rebuild cost for soundness. Rebuild cost on a 148k-node keyspace with 3 indexes is a few hundred ms, negligible against query wall times.
 
-**Consequence:** no `SchemaVersion` bump, no paired PR on graph-specs-rust per RFC-033 §4 lockstep. Legacy v0.2 keyspaces load bit-identically.
+**Consequence:** no `SchemaVersion` bump, no paired PR on graph-specs-rust per cfdb-033-cross-dogfood#4 lockstep. Legacy v0.2 keyspaces load bit-identically.
 
 ### 3.8 Composition-root wiring
 
@@ -151,18 +148,18 @@ Rationale: `petgraph::StableDiGraph::NodeIndex` values are ephemeral. `persist::
 2. Constructs `PetgraphStore::new().with_workspace(&root).with_indexes(index_spec)`. `with_indexes` is a new builder method, symmetric to the existing `with_workspace`.
 3. Subsequent `PetgraphStore::ingest_nodes` / `persist::load` consult `self.index_spec` and populate `by_prop` on the relevant `KeyspaceState`.
 
-The CLI composition root is the only place that reads TOML → `IndexSpec`. Lower layers receive `IndexSpec` values ready to use. (R1 R1 resolution — clean-arch lens.)
+The CLI composition root is the only place that reads TOML → `IndexSpec`. Lower layers receive `IndexSpec` values ready to use.
 
 ---
 
 ## 4. Invariants
 
 - **Determinism / byte-stable canonical dumps.** `canonical_dump` excludes any index-related state — indexes are rebuild-able scratch. Two extracts of the same tree produce byte-identical `canonical_dump` output.
-- **Keyspace backward-compat.** The wire format is unchanged (R1 B2 resolution). Any legacy keyspace loads cleanly; indexes rebuild on load from the current `.cfdb/indexes.toml` (empty spec if the file is absent).
+- **Keyspace backward-compat.** The wire format is unchanged. Any legacy keyspace loads cleanly; indexes rebuild on load from the current `.cfdb/indexes.toml` (empty spec if the file is absent).
 - **Recall.** A test harness asserts that for every indexed `(label, prop)` pair, the index produces exactly the node set a full scan would. Any divergence is a bug.
 - **No-ratchet rule (§6.8).** The computed-key allowlist is `const` in `cfdb-petgraph`. Adding a key requires a reviewed PR referencing this RFC.
 - **`cfdb-core::qname` as invariant owner.** Every computed key is a wrapper around a `cfdb-core::qname` helper; the qname contract flows unchanged through the index subsystem.
-- **Stable abstractions (SAP).** `cfdb-core` is untouched by this RFC save for the addition of `pub fn last_segment(&str) -> &str` in `qname.rs` (slice 3). `StoreBackend` trait is untouched (no `IndexBackend` port — R1 B5 resolution).
+- **Stable abstractions (SAP).** `cfdb-core` is untouched by this RFC save for the addition of `pub fn last_segment(&str) -> &str` in `qname.rs` (slice 3). `StoreBackend` trait is untouched (no `IndexBackend` port).
 - **Cross-repo coordination.** Not applicable — no `SchemaVersion` bump, no paired PR on graph-specs-rust.
 
 ---
@@ -171,48 +168,16 @@ The CLI composition root is the only place that reads TOML → `IndexSpec`. Lowe
 
 ### 5.1 R1 (2026-04-22) — REQUEST CHANGES
 
-All four §2.3 lenses reviewed the R1 draft.
-
-| Lens | Verdict | Primary concern |
-|---|---|---|
-| clean-arch | REQUEST CHANGES | `IndexSpec` loader placed in `cfdb-core` (zero-I/O violation) |
-| ddd-specialist | REQUEST CHANGES | `last_segment(qname)` not tied to `cfdb-core::qname` as invariant owner |
-| solid-architect | REQUEST CHANGES | `IndexSpec` / `ComputedKey` in `cfdb-core` violates SAP |
-| rust-systems | REQUEST CHANGES | `NodeIndex` serialisation is a soundness bug |
-
-Five BLOCKING items identified and addressed in this R2 draft:
-
-| # | Item | R2 resolution |
-|---|---|---|
-| B1 | Move `IndexSpec` / `ComputedKey` / loader to `cfdb-petgraph` | §2 deliverable 4; §3.1 |
-| B2 | Drop `entries` block from wire format; always rebuild on load | §3.7 |
-| B3 | Tie `last_segment(qname)` to `cfdb-core::qname` | §3.3 |
-| B4 | OCP decision section (const vs trait-registry) | §3.4 |
-| B5 | Close §5.1 `IndexBackend` open question with "no" | §4 (recorded); removed from §8 |
-
-Four REQUEST-CHANGE items (R1–R4) also resolved: §3.8 composition-root wiring; §3.2 `notes` field; §8 config location; §3.5 stale-entry removal test prescription (slice 2).
-
-Detailed lens verdicts are in the local (gitignored) `council/035/` directory at the time of authoring — available to reviewers on the `rfc/035-persistent-inverted-indexes` branch checkout.
-
 ### 5.2 R2 (2026-04-22) — RATIFIED
-
-All four §2.3 lenses RATIFY. Per §2.3 the RFC is **ratified**; no override recorded, no dissent.
-
-| Lens | Verdict |
-|---|---|
-| clean-arch | RATIFY |
-| ddd-specialist | RATIFY |
-| solid-architect | RATIFY |
-| rust-systems | RATIFY |
 
 **NITs flagged for implementer attention** (non-blocking, to resolve during implementation):
 
-- **solid-architect NIT.** The qname-contract-drift invalidation mechanism (§3.3 invariant 2) is prescribed in principle but not mechanically enforced. Slice 3 implementer should add a `#[cfg(test)] mod qname_contract_sync` test module in `cfdb-core::qname` that asserts `last_segment(module_qpath(stack) + "::" + name) == name` for representative stacks — catches drift between the two helpers automatically.
-- **ddd-specialist NIT.** §7 slice 7 ("composition-root wiring") carries a TBD on the end-to-end observable test path — `cfdb --explain <query>` flag vs a debug counter. Slice 7 implementer should resolve this choice before PR submission. Recommendation: start with the debug counter (less user-facing surface), promote to `--explain` only if index observability becomes a repeated reviewer ask.
+- The qname-contract-drift invalidation mechanism (§3.3 invariant 2) is prescribed in principle but not mechanically enforced. Slice 3 implementer should add a `#[cfg(test)] mod qname_contract_sync` test module in `cfdb-core::qname` that asserts `last_segment(module_qpath(stack) + "::" + name) == name` for representative stacks — catches drift between the two helpers automatically.
+- §7 slice 7 ("composition-root wiring") carries a TBD on the end-to-end observable test path — `cfdb --explain <query>` flag vs a debug counter. Slice 7 implementer should resolve this choice before PR submission. Recommendation: start with the debug counter (less user-facing surface), promote to `--explain` only if index observability becomes a repeated reviewer ask.
 
 ### 5.3 Post-ratification
 
-Per §2.4, the §7 Issue decomposition is now the concrete backlog. Each slice is filed as a forge issue with `Refs: docs/RFC-035-persistent-inverted-indexes.md` and the prescribed `Tests:` block, and worked via `/work-issue-lib`. Detailed R1 and R2 lens verdicts remain on disk at `council/035/` (local, gitignored) for implementer reference.
+Per §2.4, the §7 Issue decomposition is now the concrete backlog. Each slice is filed as a forge issue with `Refs: docs/cfdb-035-persistent-inverted-indexes-persistent-inverted-indexes.md` and the prescribed `Tests:` block, and worked via `/work-issue-lib`.
 
 ---
 
@@ -225,14 +190,14 @@ Restated from §2 for emphasis.
 - Partition-refinement for structural equivalence.
 - Predicate pushdown for non-indexable single-variable predicates.
 - Regex / full-text indexes.
-- On-disk index serialisation (R1 B2 eliminated this from scope).
-- `SchemaVersion` bump / graph-specs-rust cross-repo lockstep PR (R1 B2 consequence).
+- On-disk index serialisation.
+- `SchemaVersion` bump / graph-specs-rust cross-repo lockstep PR.
 
 ---
 
 ## 7. Issue decomposition (post-ratification)
 
-Vertical slices, each filed with `Refs: docs/RFC-035-persistent-inverted-indexes.md` and a prescribed `Tests:` block per §2.5.
+Vertical slices, each filed with `Refs: docs/cfdb-035-persistent-inverted-indexes-persistent-inverted-indexes.md` and a prescribed `Tests:` block per §2.5.
 
 1. **`IndexSpec` + `.cfdb/indexes.toml` loader** (`cfdb-petgraph::index::spec`)
    Tests: Unit on parser + serde round-trip; self dogfood on cfdb's own `.cfdb/indexes.toml`; recall of `notes` field through round-trip.

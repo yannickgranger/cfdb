@@ -1,11 +1,9 @@
 # RFC-042 — test/bench :EntryPoint kinds + scope --production-only flag
 
-Status: **RATIFIED** 2026-05-17 by 4/4 agent-teams council (R1 REQUEST CHANGES →
-8 EDITs applied → R2 unanimous RATIFY). See `council/RFC-042/RATIFIED.md`,
-`council/RFC-042/SYNTHESIS-R1.md`, `council/RFC-042/SYNTHESIS-R2.md`.
+Status: **RATIFIED** 2026-05-17.
 Author: captain (a0 session 2026-05-17)
-Supersedes/relates: RFC-029 (v0.2 :EntryPoint vocabulary), RFC-032 (v0.2 extractor),
-RFC-037 (schema-producer alignment); originating issue `yg/cfdb#378`.
+Supersedes/relates: cfdb-029-code-facts-database (v0.2 :EntryPoint vocabulary), cfdb-032-v02-extractor (v0.2 extractor),
+cfdb-037-schema-producer-alignment (schema-producer alignment); originating issue `yg/cfdb#378`.
 
 ## 1. Problem
 
@@ -45,9 +43,9 @@ Operational impact:
   ARE unwired by production code but heavily test-exercised get
   systematically starved of investment.
 
-RFC-029 v0.2 §A2 predicts (line "unwired 4%") that the unwired class
+cfdb-029-code-facts-database v0.2 §A2 predicts (line "unwired 4%") that the unwired class
 should sit around 4% of items in a healthy production codebase. qbot-core
-reports it at 24%. The under-counting prediction from RFC-029 — that the
+reports it at 24%. The under-counting prediction from cfdb-029-code-facts-database — that the
 v0.2 `:EntryPoint` vocabulary is **incomplete** with respect to the test
 graph and would inflate the apparent unwired set — is the on-ramp this
 RFC fixes.
@@ -101,13 +99,13 @@ for ratification before slice issues are filed (§7).
 - New synthetic-workspace fixture under `crates/cfdb-hir-extractor/tests/
   fixtures/entry_points/` covering test/bench attribute + file-location
   recognition with an `EXPECTED.md` ground truth (§3.4).
-- **Feature-flag scope (council R1 §3 EDIT 5, rust-systems RS-5).** All
+- **Feature-flag scope.** All
   new emission (`kind=test`, `kind=bench` via either attribute or
   file-location detection) requires `--features hir` on extraction,
   exactly as `kind=mcp_tool` does today. `cfdb-hir-extractor` is the
   sole producer; there is no syn-only partial path. Operators on the
   default-feature build see no new `:EntryPoint` kinds; the §2 Does NOT
-  ship "backfill of pre-RFC-042 keyspaces" guidance applies.
+  ship "backfill of pre-cfdb-042-test-bench-entry-points keyspaces" guidance applies.
 
 **Does NOT ship (see §6):**
 
@@ -133,7 +131,7 @@ for ratification before slice issues are filed (§7).
   no `match ep.kind { … }` exhaustive arm). Adding `"test"` and
   `"bench"` to the documented enum is therefore additive-doc, not a
   wire-contract break.
-- Backfill of pre-RFC-042 keyspaces. Operators re-extract; old keyspaces
+- Backfill of pre-cfdb-042-test-bench-entry-points keyspaces. Operators re-extract; old keyspaces
   see the new `--production-only` flag as a no-op (no `kind ∈ {test,
   bench}` nodes exist, so the production-only filter excludes nothing).
 
@@ -179,8 +177,7 @@ SyntaxKind::FN => {
 
 **Probe semantics.** Both probes live in a NEW sibling file
 `crates/cfdb-hir-extractor/src/entry_point_emitter/test_bench.rs`
-(NOT in `registers_param.rs` — council R1 §3 EDIT 3, solid-architect
-CR1). The probes have NO REGISTERS_PARAM counterpart (test/bench entry
+(NOT in `registers_param.rs`). The probes have NO REGISTERS_PARAM counterpart (test/bench entry
 points do not emit `REGISTERS_PARAM` edges per §3.1 item 2-3 below),
 so placing them in `registers_param.rs` would be a CCP violation — they
 change for a different reason (vocabulary evolution) than the existing
@@ -214,15 +211,14 @@ The probes mirror the discipline of `has_tool_attr` at
   last path segment is `bench`. This covers `#[bench]` (libtest /
   criterion-as-attribute).
 
-The probes match the textual-attribute discipline RFC-037 §3.1 and
-RFC-029 §A1.1 establish: no trait resolution, no macro expansion, no
+The probes match the textual-attribute discipline cfdb-037-schema-producer-alignment#3.1 and
+cfdb-029-code-facts-database §A1.1 establish: no trait resolution, no macro expansion, no
 crate-presence check. A fn under `#[cfg(any())] #[test]` is detected;
 this is consistent with the existing `has_tool_attr` policy (the
 detection is structural — what the source says — not "what code would
 ultimately run").
 
-**`#[cfg(test)]` safely does not fire (council R1 §3 EDIT 4,
-rust-systems RS-3).** The probe reads `attr.meta().path()`, which for
+**`#[cfg(test)]` safely does not fire.** The probe reads `attr.meta().path()`, which for
 `#[cfg(test)]` yields path segment `cfg` (not `test`). The `test`
 inside `cfg(...)` is a token-tree argument to `cfg`, not a path
 segment, so the textual probe correctly does not fire on `#[cfg(test)]`
@@ -247,7 +243,7 @@ crate-relative file paths via the existing `file_path: &Path` parameter
 threaded into `scan_file`; the implementer derives the
 `tests/`-or-`benches/` predicate from that path via a string-prefix
 check on the workspace-relative form (same normalization
-`:Item.file` uses, see RFC-041 §3.1 for the precedent).
+`:Item.file` uses, see cfdb-041-literal-extraction#3.1 for the precedent).
 
 **Mutual exclusion / precedence (load-bearing for the no-duplicate
 invariant, §4):**
@@ -276,8 +272,8 @@ addition is NOT a new fact type, it extends an existing one. The
 recall gate (rustdoc-json ground truth) does not enumerate
 `:EntryPoint` membership today (entry points are heuristic, not a
 rustdoc fact); this RFC does not change that. The §3.4 synthetic-
-workspace fixture is the correctness gate, exactly mirroring RFC-041
-§3.3 / RFC-040 `:ConstTable` precedent.
+workspace fixture is the correctness gate, exactly mirroring cfdb-041-literal-extraction
+§3.3 / cfdb-040-const-table-overlap `:ConstTable` precedent.
 
 ### 3.2 Schema documentation
 
@@ -406,9 +402,9 @@ signature (one filter, one pass, one report); the third option can be
 introduced as a perf optimization later without changing the public
 attribute schema.
 
-**Trait surface impact (council R1 §2 synthesis: Position B).**
+**Trait surface impact.**
 
-RFC-042 does **NOT** change the `EnrichBackend` trait in
+cfdb-042-test-bench-entry-points does **NOT** change the `EnrichBackend` trait in
 `cfdb-core/src/enrich.rs:177`. The trait method signature
 `enrich_reachability(&mut self, keyspace: &Keyspace) -> Result<EnrichReport, StoreError>`
 is preserved verbatim. No downstream `impl EnrichBackend` is affected.
@@ -502,7 +498,7 @@ emits `kind=mcp_tool` (precedence rule §3.1 item 3).
   "this fn is an entry point" — entry-point classification is
   heuristic, not rustdoc-extractable. The §3.4 synthetic-workspace
   fixture with `EXPECTED.md` exact-match assertions IS the correctness
-  gate, mirroring the RFC-040 `:ConstTable` and RFC-041 `:Literal`
+  gate, mirroring the cfdb-040-const-table-overlap `:ConstTable` and cfdb-041-literal-extraction `:Literal`
   precedents (both rustdoc-invisible, both gated on synthetic fixture).
 
 - **No duplicate emission.** The §3.1 precedence rules guarantee
@@ -518,7 +514,7 @@ emits `kind=mcp_tool` (precedence rule §3.1 item 3).
   introduced — the fix is structural (entry-point coverage), not
   metric-shifted.
 
-- **Keyspace backward-compat.** Pre-RFC-042 keyspaces have no `:Entry
+- **Keyspace backward-compat.** Pre-cfdb-042-test-bench-entry-points keyspaces have no `:Entry
   Point{kind ∈ {test, bench}}` nodes; `cfdb scope --production-only`
   on such a keyspace is a no-op (the production-only kind filter
   excludes no nodes that weren't already absent), and the default
@@ -531,36 +527,23 @@ emits `kind=mcp_tool` (precedence rule §3.1 item 3).
 - **SchemaVersion stability.** No bump. The schema-doc enum text
   changes (§3.2) are descriptor-only; no `cfdb_core::SchemaVersion`
   constant changes; the lockstep `yg/graph-specs-rust` `.cfdb/cross-
-  fixture.toml` bump (RFC-033 §4) is NOT required for this RFC.
+  fixture.toml` bump (cfdb-033-cross-dogfood#4) is NOT required for this RFC.
 
 ## 5. Architect lenses
 
-Council convened 2026-05-17 via `TeamCreate` per cfdb CLAUDE.md §2.3 (team
-`cfdb-rfc042-council`, four lens teammates). Round 1: 4/4 REQUEST CHANGES
-(see `council/RFC-042/SYNTHESIS-R1.md` for the 8 consolidated EDITs).
-Round 2 after EDITs applied: 4/4 RATIFY (see
-`council/RFC-042/SYNTHESIS-R2.md` and `council/RFC-042/RATIFIED.md`).
-Verdict files: `council/RFC-042/verdicts/<lens>.md`.
-
 ### 5.1 Clean architecture (`clean-arch`)
 
-**clean-arch verdict: RATIFY** (R2, 2026-05-17). R1 raised port-purity
-concern (`BTreeSet<&str>` leaking CLI vocab into `cfdb-core` port) and
-composition-root ambiguity. R1 synthesis adopted Position B
-(PetgraphStore-internal dual-BFS, trait surface unchanged). R2
-verification: `mod enrich` at `crates/cfdb-petgraph/src/lib.rs:17` has
+**clean-arch verdict: RATIFY.** `mod enrich` at
+`crates/cfdb-petgraph/src/lib.rs:17` has
 no `pub` modifier; the entire enrich module is crate-private;
 `ReachabilityFilter` cannot be named by `cfdb-cli` or `cfdb-core`. Port
 boundary is structurally enforced, not by convention. Composition root
 unambiguously `PetgraphStore::enrich_reachability` (at
-`crates/cfdb-petgraph/src/enrich_backend.rs:151-163`). No objection to
-the merged D4 `arch-test-only-reachable-production-items.cypher`.
+`crates/cfdb-petgraph/src/enrich_backend.rs:151-163`).
 
 ### 5.2 Domain-driven design (`ddd-specialist`)
 
-**ddd-specialist verdict: RATIFY** (R2, 2026-05-17). R1 raised homonym
-gap (`:EntryPoint.kind="test"` vs `:Item.is_test`) and undescribed new
-`:Item` reachability attributes. R2 verification: the §3.2 Edit 1
+**ddd-specialist verdict: RATIFY.** The §3.2 Edit 1
 disambiguation sentence correctly names both concepts and their axes
 ("entry surface" vs "compile scope") and redirects future query
 authors to `:Item.reachable_from_production_entry` rather than
@@ -579,38 +562,30 @@ extract is non-zero).
 
 ### 5.3 SOLID + component principles (`solid-architect`)
 
-**solid-architect verdict: RATIFY** (R2, 2026-05-17). R1 raised SRP/CCP
-(probes belong in `test_bench.rs` not `registers_param.rs`) and
-LSP/ISP (trait-surface impact ambiguous). R2 verification: §3.1 names
+**solid-architect verdict: RATIFY.** §3.1 names
 `entry_point_emitter/test_bench.rs` as the probe destination with
 module-doc CCP rationale (vocabulary evolution vs param-edge wiring
 evolution); no REGISTERS_PARAM counterpart. §3.3 "Trait surface impact"
 subsection preserves `EnrichBackend::enrich_reachability` signature
-verbatim; `ReachabilityFilter` is `pub(crate)`. EDIT 8 sibling .cypher
+verbatim; `ReachabilityFilter` is `pub(crate)`. Sibling .cypher
 header-comment requirement is binding ("MUST" language). EnrichReport
-sum requirement is binding. No objection to merged D4 rule (covers ISP
-narrowing via documented lens-specific filter). Two non-blocking
+sum requirement is binding. Two non-blocking
 implementation notes for 042-B: verify `ReachabilityFilter` is not in
 any pub re-export; co-locate unit tests in
 `test_bench.rs #[cfg(test)] mod tests`.
 
 ### 5.4 Rust systems (`rust-systems`)
 
-**rust-systems verdict: RATIFY** (R2, 2026-05-17). R1 raised one
-blocking finding (RS-1: trait-surface ambiguity) and three non-blocking
-documentation gaps (RS-3: cfg(test) handling, RS-5: feature-flag scope,
-RS-6: third BFS option). R2 verification: RS-1 fully resolved by §3.3
+**rust-systems verdict: RATIFY.** §3.3
 "Trait surface impact" subsection — signature preserved verbatim,
 `ReachabilityFilter { All, ProductionOnly }` as `pub(crate)` enum
 inside `cfdb-petgraph/src/enrich/reachability.rs`, `PetgraphStore::
 enrich_reachability` calls `run` twice internally, `EnrichReport.
-attrs_written` sums both passes. RS-3 resolved (§3.1 explains
+attrs_written` sums both passes. §3.1 explains
 `#[cfg(test)]` yields path segment `cfg` not `test`, plus dual-attribute
-case). RS-5 resolved (§2 Ships explicit feature-flag scope bullet). RS-6
-resolved (§3.3 acknowledges third option with deferral rationale).
-Other R1 findings (RS-2 segmentation strategy, RS-4 lint qualification,
-RS-7 sort determinism, RS-8 graph-specs cross-dogfood safety) accepted
-from R1 with no R2 action needed. One implementation-time note for
+case. §2 Ships explicit feature-flag scope bullet. §3.3
+acknowledges third option with deferral rationale.
+One implementation-time note for
 042-B implementer (PropValue::Str extraction shape).
 
 ## 6. Non-goals
@@ -669,21 +644,19 @@ from R1 with no R2 action needed. One implementation-time note for
 ## 7. Issue decomposition
 
 Filed only after ratification (§2.4). Vertical slices, one issue each,
-each carrying the verbatim §2.5 `Tests:` 4-row block (architects fill
-during council).
+each carrying the verbatim §2.5 `Tests:` 4-row block.
 
 - **Slice 042-A — extractor `:EntryPoint{kind=test|bench}` emission +
   fixture (cfdb-hir-extractor).** New probes `has_test_attr` /
   `has_bench_attr` in NEW file
-  `entry_point_emitter/test_bench.rs` (NOT `registers_param.rs` —
-  council R1 §3 EDIT 3 / solid-architect CR1). FN-branch dispatch
+  `entry_point_emitter/test_bench.rs` (NOT `registers_param.rs`). FN-branch dispatch
   extension in `scan_file`; file-location detection (`tests/` →
   kind=test, `benches/` → kind=bench); precedence rules per §3.1. New
   synthetic fixture under `crates/cfdb-hir-extractor/tests/fixtures/
   entry_points/test_bench/` per §3.4 with `EXPECTED.md`. Plus the §3.2
   descriptor edits to `crates/cfdb-core/src/schema/describe/nodes.rs`
   (the `:EntryPoint.kind` row extension + homonym disambiguation).
-  `Tests:` (council R1 §4 synthesized prescription)
+  `Tests:`
   - Unit: pure `has_test_attr(&ast::Fn) -> bool` /
     `has_bench_attr(&ast::Fn) -> bool` assertions on synthetic
     `ast::Fn` inputs constructed via
@@ -715,8 +688,7 @@ during council).
     `arch-context-no-cross-layer-unwrap`,
     `arch-context-no-syn-in-domain`). All four match on
     `cs.callee_path` / `caller.crate` patterns — none reads
-    `:EntryPoint.kind` or `reachable_from_*` attrs. Verified by all
-    four R1 lenses; the cross-dogfood is a no-op regression per RFC §4
+    `:EntryPoint.kind` or `reachable_from_*` attrs. The cross-dogfood is a no-op regression per RFC §4
     SchemaVersion-stability invariant.
   - Target dogfood (qbot-core @ pinned SHA): report in PR body —
     `MATCH (e:EntryPoint) WHERE e.kind IN ["test","bench"] RETURN
@@ -728,7 +700,7 @@ during council).
 - **Slice 042-B — scope `--production-only` flag + `enrich_
   reachability` dual-BFS + classifier rule (cfdb-cli + cfdb-petgraph +
   embedded query).** Option (A) from §3.3 with trait-surface
-  resolution per council R1 §3 EDIT 1: `PetgraphStore::enrich_
+  resolution: `PetgraphStore::enrich_
   reachability` (in `cfdb-petgraph/src/enrich_backend.rs:151-163`)
   internally calls `crate::enrich::reachability::run` twice with a
   module-private `ReachabilityFilter::{All, ProductionOnly}` enum;
@@ -739,7 +711,7 @@ during council).
   production.cypher` with sibling-naming header comment. `cfdb scope`
   accepts `--production-only`. Plus the §3.2 descriptor edits to the
   `:Item` node for the two new reachability attributes.
-  `Tests:` (council R1 §4 synthesized prescription)
+  `Tests:`
   - Unit: test `reachability::run` with a synthetic `KeyspaceState`
     containing two `:EntryPoint` nodes (one `kind=mcp_tool`, one
     `kind=test`), each EXPOSES-targeting a distinct `:Item`. With
@@ -763,7 +735,7 @@ during council).
     exit code; zero row change on existing four queries
     (`--production-only` is opt-in, no existing query reads the new
     attribute). Default-mode `unwired` count on graph-specs-rust
-    unchanged from pre-RFC-042 baseline (determinism of all-kinds
+    unchanged from pre-cfdb-042-test-bench-entry-points baseline (determinism of all-kinds
     BFS).
   - Target dogfood (qbot-core @ pinned SHA): report in PR body —
     `cfdb scope --context trading` `unwired` count (default mode,
@@ -784,7 +756,7 @@ during council).
 - **Companion follow-up (after 042-A + 042-B land on cfdb develop).**
   File a PR against `yg/graph-specs-rust` that adds
   `.cfdb/queries/arch-test-only-reachable-production-items.cypher` —
-  the synthesized council R1 §5 D4 deliverable (a single Cypher rule
+  the D4 deliverable (a single Cypher rule
   consuming the new `reachable_from_production_entry` attribute,
   expressing the cross-lens consensus on test-only-reachable
   production code as a layer-purity / vocabulary / ISP / vtable-cost
@@ -794,16 +766,16 @@ during council).
   set with operator-confirmed disposition per finding). Wire into
   `ci/cross-dogfood.sh` so future cfdb PRs continue to pass on the
   companion.
-  `Tests: see council/RFC-042/SYNTHESIS-R1.md §5 — the PR IS the
+  `Tests: the PR IS the
   council's real-code dogfood; the rule's zero-finding outcome on
   graph-specs-rust IS the test.`
 
-## Refs
+## 8. Refs
 
 - `yg/cfdb#378` (originating issue — premature impl, gated by this RFC)
-- RFC-029 (v0.2 :EntryPoint vocabulary, the under-counting prediction)
-- RFC-032 (v0.2 extractor, the `scan_file` dispatch shape this extends)
-- RFC-037 (schema-producer alignment; the textual-attribute heuristic
+- cfdb-029-code-facts-database (v0.2 :EntryPoint vocabulary, the under-counting prediction)
+- cfdb-032-v02-extractor (v0.2 extractor, the `scan_file` dispatch shape this extends)
+- cfdb-037-schema-producer-alignment (schema-producer alignment; the textual-attribute heuristic
   contract)
 - `crates/cfdb-hir-extractor/src/entry_point_emitter.rs` (touch site)
 - `crates/cfdb-hir-extractor/src/entry_point_emitter/registers_param.rs`
