@@ -66,7 +66,8 @@ git -C "$DOXA_DIR" checkout -q "$DOXA_REV" || { echo "FATAL: doxa rev $DOXA_REV 
 [ -f "$DOXA_DIR/index.json" ] || { echo "FATAL: doxa checkout carries no index.json — unreadable at its pin, unavailable (keel-harness §3.1)" >&2; exit 1; }
 
 echo "==> mirror: docs/RFC-*.md is a byte-identical mirror of the doxa corpus at $DOXA_REV — read-only, the corpus is the one source"
-python3 scripts/doxa-mirror-check.py --doxa "$DOXA_DIR" --repo yg/cfdb --mirror 'docs/RFC-*.md' || exit 1
+python3 scripts/doxa-mirror-check.py --self-test || { echo "FATAL: the mirror check's own positive control does not fire — the check proves nothing, never a pass" >&2; exit 1; }
+python3 scripts/doxa-mirror-check.py --doxa "$DOXA_DIR" --prefix cfdb --path-template 'docs/RFC-{tail}.md' --mirror 'docs/RFC-*.md' || exit 1
 
 echo "==> instruments resolved from this tree's pins into $CACHE, handed to keel as --bin-dir; PATH is not consulted (keel-harness §6.5)"
 echo "    cascade @ $(tr -d '[:space:]' < cascade.rev | cut -c1-12) <- $CASCADE_BIN"
