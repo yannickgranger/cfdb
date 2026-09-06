@@ -2,17 +2,17 @@
 
 Cypher-subset parser (chumsky 0.10) plus a Rust builder API. Both produce the same `cfdb_core::Query` AST. Also hosts the verb-level query composers (`impact`, `list_items_matching`, `diff`) and the backend-agnostic `shape_lint`. The debt-class taxonomy and the scope/classify envelopes live in `cfdb-classify` (RFC-059).
 
-### ChangedFact
-
-<!-- parent:spec:DiffEnvelope -->
-
-One row of the `DiffEnvelope::changed` list — carries both the `a` (before) and `b` (after) canonical-dump envelopes for a fact whose key exists on both sides but whose envelope JSON differs (typically `props` drift). Consumers diff at whatever granularity they need. Emitted by `cfdb diff` (#212).
-
 ## DiffEnvelope
 
 <!-- parent:rfc:cfdb-059-classify-split#6.3 anchor:"a snapshot delta over L1 facts" -->
 
 The JSON wire envelope emitted by `cfdb diff` (#212) — `{a, b, schema_version, added, removed, changed, warnings}`. Carries a two-keyspace delta over the canonical sorted-JSONL dump (RFC-cfdb.md §12.1). `schema_version` is `ENVELOPE_SCHEMA_VERSION` (`"v1"`) — bumped independently of `cfdb_core::SchemaVersion` (envelope wire contract ≠ on-disk keyspace contract). Consumed by qbot-core #3736's per-PR drift gate and by `cfdb classify` (#213).
+
+### ChangedFact
+
+<!-- parent:spec:DiffEnvelope -->
+
+One row of the `DiffEnvelope::changed` list — carries both the `a` (before) and `b` (after) canonical-dump envelopes for a fact whose key exists on both sides but whose envelope JSON differs (typically `props` drift). Consumers diff at whatever granularity they need. Emitted by `cfdb diff` (#212).
 
 ### DiffError
 
@@ -43,4 +43,3 @@ A fluent Rust API that constructs a `cfdb_core::Query` programmatically, as an a
 ## ShapeLint
 
 A shape-lint finding emitted during parse — flags queries whose shape is likely a mistake (e.g. cartesian function-equality — the main v0.1 example). Non-fatal; surfaced to the caller as warnings rather than errors.
-
