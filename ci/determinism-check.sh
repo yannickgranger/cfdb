@@ -53,6 +53,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CFDB_WS="$(cd "$SCRIPT_DIR/.." && pwd)"
 DEFAULT_FIXTURE="$CFDB_WS/spikes/qa5-utc-now"
 WORKSPACE="${1:-$DEFAULT_FIXTURE}"
+SCRATCH_ROOT="${CFDB_BUILD_ROOT:-$HOME/.local/share/cfdb/build}/determinism"
+mkdir -p "$SCRATCH_ROOT"
 
 if [ ! -d "$WORKSPACE" ] || [ ! -f "$WORKSPACE/Cargo.toml" ]; then
   echo "determinism-check: workspace not found or missing Cargo.toml: $WORKSPACE" >&2
@@ -60,8 +62,8 @@ if [ ! -d "$WORKSPACE" ] || [ ! -f "$WORKSPACE/Cargo.toml" ]; then
 fi
 
 # ── Two-run harness ─────────────────────────────────────────────────
-DB_A="$(mktemp -d)"
-DB_B="$(mktemp -d)"
+DB_A="$(mktemp -d "$SCRATCH_ROOT/db.XXXXXX")"
+DB_B="$(mktemp -d "$SCRATCH_ROOT/db.XXXXXX")"
 trap 'rm -rf "$DB_A" "$DB_B"' EXIT
 
 KS="determinism-fixture"
@@ -125,8 +127,8 @@ fi
 # with an advisory message — the unconditional syn-only gate above is
 # still enforced.
 if [ -f "$CFDB_WS/Cargo.toml" ]; then
-  DB_HIR_A="$(mktemp -d)"
-  DB_HIR_B="$(mktemp -d)"
+  DB_HIR_A="$(mktemp -d "$SCRATCH_ROOT/db.XXXXXX")"
+  DB_HIR_B="$(mktemp -d "$SCRATCH_ROOT/db.XXXXXX")"
   trap 'rm -rf "$DB_A" "$DB_B" "$DB_HIR_A" "$DB_HIR_B"' EXIT
   HIR_KS="determinism-hir-fixture"
 
