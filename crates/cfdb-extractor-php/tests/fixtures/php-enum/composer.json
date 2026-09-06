@@ -1,0 +1,14 @@
+{
+    "name": "cfdb/php-enum-fixture",
+    "description": "Synthetic Composer project with a backed enum carrying a method, an interface it implements, and an external interface it does not — fixture for cfdb-extractor-php enum_declaration emission (cfdb-045 §3.2 amendment 2026-09-07).",
+    "type": "library",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Enrolment\\": "src/"
+        }
+    },
+    "require": {
+        "php": ">=8.1"
+    }
+}
