@@ -1,12 +1,8 @@
----
-title: RFC-030 — Anti-drift gate: adopt graph-specs + cfdb self-dogfood
-status: Released in v0.4.0 (2026-04-25)
-date: 2026-04-19
-authors: cfdb-architects council (clean-arch lens)
-parent: docs/RFC-cfdb.md (RFC-029 v0.1), docs/RFC-cfdb.md (RFC-029 addendum)
----
-
 # RFC-030 — Anti-drift gate: adopt graph-specs + cfdb self-dogfood
+
+**Status:** Released in v0.4.0 (2026-04-25)
+**Date:** 2026-04-19
+**Parent:** cfdb-029-code-facts-database (cfdb-029-code-facts-database v0.1), cfdb-029-code-facts-database (cfdb-029-code-facts-database addendum)
 
 ---
 
@@ -30,7 +26,7 @@ As of 2026-04-19, cfdb's own workspace lacks:
 
 2. **Self-audit** — cfdb can run its own violation rules against any
    workspace. It does not run them against itself. The 9 patterns
-   documented in RFC-029 §3 apply to cfdb's own codebase just as they
+   documented in cfdb-029-code-facts-database#3 apply to cfdb's own codebase just as they
    apply to any consuming workspace.
 
 3. **Anti-drift CI gate** — no PR gate currently blocks a contribution
@@ -94,12 +90,12 @@ boundaries if those boundaries are not documented first.
 This RFC does **not** propose:
 
 1. **A new cfdb query pattern.** graph-specs integration is not a new
-   Pattern J or K in RFC-029 §3. It is a CI workflow decision, not a
+   Pattern J or K in cfdb-029-code-facts-database#3. It is a CI workflow decision, not a
    schema extension.
 
 2. **Changes to the cfdb API or schema.** The 16 verbs ratified in
    council/RATIFIED.md (including `list_items_matching` as the 16th)
-   are unchanged by this RFC. RFC-030 adds no new verb and no new
+   are unchanged by this RFC. cfdb-030-anti-drift-gate adds no new verb and no new
    node/edge type.
 
 3. **Specs for consuming workspaces (the target workspace or others).** This RFC
@@ -112,7 +108,7 @@ This RFC does **not** propose:
    deferred to when graph-specs ships them.
 
 5. **Automatic remediation.** The CI gate blocks; it does not fix.
-   cfdb's invariant "never modifies Rust files" (RFC-029 §4) applies
+   cfdb's invariant "never modifies Rust files" (cfdb-029-code-facts-database#4) applies
    here without exception.
 
 6. **A metric ratchet or allowlist.** Per CLAUDE.md §6 rule 8 and
@@ -121,7 +117,7 @@ This RFC does **not** propose:
    editing the spec or fixing the code in the same PR.
 
 7. **Retroactive spec compliance for issues #22–#29.** Those are
-   absorbed by RFC-031. This RFC defines the gate; RFC-031 schedules the
+   absorbed by cfdb-031-audit-cleanup. This RFC defines the gate; cfdb-031-audit-cleanup schedules the
    work to pass it.
 
 ---
@@ -199,7 +195,7 @@ done
   of classification.
 - Per-class routing (e.g. `canonical_bypass` blocks vs
   `duplicated_feature` warns) is **not yet implemented**. It requires
-  the `:Finding` classifier prescribed by RFC-032 §4 / Group D (issue
+  the `:Finding` classifier prescribed by cfdb-032-v02-extractor#4 / Group D (issue
   #48). The classifier emits a `DebtClass` per finding; until then the
   gate cannot distinguish a block-worthy match from a warn-worthy
   match. Current CI treats every match as blocking.
@@ -383,10 +379,10 @@ specs/concepts/cfdb-cli.md
 
 `cfdb-cli` is a binary crate with no public Rust API surface. Its spec
 covers the types that the CLI module system exports (e.g. `EnrichVerb`)
-and will grow to cover the composition root type prescribed by RFC-031.
+and will grow to cover the composition root type prescribed by cfdb-031-audit-cleanup.
 
 When a new crate is added to the workspace (e.g. `cfdb-hir-extractor`
-per RFC-029 §A1.2), the RFC introducing it must include a corresponding
+per cfdb-029-code-facts-database §A1.2), the RFC introducing it must include a corresponding
 spec file as a required deliverable. The gate fails on any crate whose
 public types are not covered by a spec.
 
@@ -507,9 +503,9 @@ for human readability only.
 ### §7.3 Who authors specs
 
 Architects write specs when ratifying RFCs. The council that approved
-RFC-029 (and this RFC-030) is the authoring body for the initial six
+cfdb-029-code-facts-database (and this cfdb-030-anti-drift-gate) is the authoring body for the initial six
 specs. For subsequent crates (e.g., `cfdb-hir-extractor` introduced by
-RFC-029 §A1.2), the RFC that introduces the crate must include a
+cfdb-029-code-facts-database §A1.2), the RFC that introduces the crate must include a
 corresponding spec as a required deliverable.
 
 ### §7.4 What happens when graph-specs develop introduces a breaking dialect change
@@ -543,13 +539,13 @@ Gate G5 is a continuous invariant, not a one-time check.
 
 ## §9 References
 
-### Internal
+### §9.1 Internal
 
-- `docs/RFC-cfdb.md` — RFC-029 v0.1 ratified 2026-04-13. Defines the
+- `cfdb-029-code-facts-database` — cfdb-029-code-facts-database v0.1 ratified 2026-04-13. Defines the
   9 problem patterns, the 16 API verbs (including `list_items_matching`
   as the 16th per council/RATIFIED.md §A.14), the fact schema, and the
   determinism invariants that the self-audit CI gate must not violate.
-- `docs/RFC-cfdb.md` — RFC-029 addendum, council
+- `cfdb-029-code-facts-database` — cfdb-029-code-facts-database addendum, council
   second-pass GREEN 2026-04-14. Defines the six debt-cause classes
   (§A2.1), the CI BLOCK/WARN routing table (§A.8 in council/RATIFIED.md),
   and the no-allowlist rule (§A.9 in council/RATIFIED.md).
@@ -560,12 +556,12 @@ Gate G5 is a continuous invariant, not a one-time check.
   (defined as `DEFAULT_THRESHOLD` const in `cfdb-recall/src/lib.rs`)
   is the model for the no-ratchet rule applied to spec compliance in
   this RFC.
-- Issues #22–#29 — orphan audit issues absorbed by RFC-031. These
+- Issues #22–#29 — orphan audit issues absorbed by cfdb-031-audit-cleanup. These
   represent known architectural debt discovered in the cfdb workspace
   audit; the anti-drift gate (this RFC) is the mechanism that prevents
   new debt of the same kind from accumulating after the cleanup lands.
 
-### External
+### §9.2 External
 
 - `graph-specs-rust` repository (`yg/graph-specs-rust`, `develop`
   branch) — the vaccine tool.
@@ -586,7 +582,7 @@ Gate G5 is a continuous invariant, not a one-time check.
 
 ## §10 Landing trail
 
-All three adoptions landed on `develop`. The cleanup prerequisites (RFC-031
+All three adoptions landed on `develop`. The cleanup prerequisites (cfdb-031-audit-cleanup
 §§2/5 — issues #22–#29) and the v0.2 extractor cohort (issues #35–#51) are
 all CLOSED. CI enforces the five gates declared in `CLAUDE.md §3` on every PR:
 

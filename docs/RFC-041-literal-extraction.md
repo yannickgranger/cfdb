@@ -1,11 +1,8 @@
 # RFC-041 — string-literal extraction (`:Literal` fact type)
 
-Status: **RATIFIED** 2026-05-15 — 4/4 lens RATIFY (clean-arch,
-ddd-specialist, solid-architect, rust-systems) per CLAUDE.md §2.3.
-Two rework rounds (ddd: 2 editorial; rust-systems: 5 precision).
-Verdicts inline §5; recorded in `council/RATIFIED.md`.
+Status: **RATIFIED** 2026-05-15. Verdicts inline §5; recorded in `council/RATIFIED.md`.
 Author: captain (a0 session 2026-05-15)
-Supersedes/relates: RFC-032 (v0.2 extractor), RFC-037 (schema-producer alignment), RFC-033 (cross-dogfood lockstep)
+Supersedes/relates: cfdb-032-v02-extractor (v0.2 extractor), cfdb-037-schema-producer-alignment (schema-producer alignment), cfdb-033-cross-dogfood (cross-dogfood lockstep)
 
 ## 1. Problem
 
@@ -51,7 +48,7 @@ impossible in the Cypher subset.
   with `file`/`crate`/`is_test` filters (no new Cypher construct —
   `:Literal` is just another node label the existing matcher handles).
 - The lockstep `graph-specs-rust` `.cfdb/cross-fixture.toml` bump PR
-  (RFC-033 §4 / Invariant I5) since `SchemaVersion` changes.
+  (cfdb-033-cross-dogfood#4 / Invariant I5) since `SchemaVersion` changes.
 
 **Does not ship (see §6 Non-goals).**
 
@@ -73,14 +70,12 @@ attributes ride the existing map:
 | `crate` | String | owning crate |
 | `is_test` | bool | true if inside `#[cfg(test)]`/`#[test]` — reuses the exact `:Item.is_test` predicate, not a reimplementation |
 
-**Node ID:** `literal:<workspace-relative-file>:<line>:<col>`
-(rust-systems lens, council 2026-05-15). `:Literal` has no owning
+**Node ID:** `literal:<workspace-relative-file>:<line>:<col>`. `:Literal` has no owning
 `:Item` in v0 (no `IN_ITEM` edge, §6), so the ID is derived purely
 from position. Collision-free by Rust grammar: a `(file,line,col)`
 admits exactly one literal start. Deterministic for a fixed input.
 
-**Value normalization** (rust-systems lens — owning call, council
-2026-05-15). `value` stores the **source bytes between the delimiting
+**Value normalization**. `value` stores the **source bytes between the delimiting
 quotes/pounds, WITHOUT Rust escape decoding** — NOT
 `syn::LitStr::value()`. Rationale: the RFC's invariant is "a Cypher
 `=~` matches what a developer would `grep` for in source."
@@ -101,10 +96,9 @@ deterministic for a fixed parsed file); the exact syn/proc-macro2
 mechanism is the implementer's, the *contract* is "raw source bytes
 between delimiters, no decode."
 
-**No `kind` discriminator in v0** (ddd lens, council 2026-05-15).
-v0 ships only string literals, so a `kind:"string"` attribute is
+**No `kind` discriminator in v0**. v0 ships only string literals, so a `kind:"string"` attribute is
 vacuous and, worse, a three-way homonym against `:Item.kind`
-(declaration kind) and `:ConstTable.element_type` (RFC-040
+(declaration kind) and `:ConstTable.element_type` (cfdb-040-const-table-overlap
 deliberately avoided `kind` there). When non-string literals enter
 scope (§6) the discriminator is introduced as `lit_syntax`
 (`∈ {"str","bytes","numeric","char","bool"}`) — a name that does not
@@ -116,7 +110,7 @@ filters; an `IN_ITEM` edge is a Non-goal, §6).
 ### 3.2 Extraction
 
 In the existing `cfdb-extractor` `syn` visitor (the same pass that
-already emits `:CallSite` per RFC-032's "out of scope unless needed"
+already emits `:CallSite` per cfdb-032-v02-extractor's "out of scope unless needed"
 carve-out): visit `syn::Lit::Str` (and `LitStr` inside `ExprLit`).
 Skip literals inside `#[cfg(test)]` modules / `#[test]` fns via the
 already-threaded test-context flag. Emit one `:Literal` Node with the
@@ -132,8 +126,7 @@ scope's `is_test` context exactly as `:CallSite` inherits it** — the
 `attrs_contain_hash_test` at `cfdb-extractor/src/attrs.rs:71,106` plus
 the `is_in_test_mod` depth counter at `item_visitor/emit.rs:156`); it
 is **not** re-evaluated at the literal AST node. There is exactly one
-test-context resolver in the extractor (ddd lens verified, council
-2026-05-15) and the literal visitor consumes it via the same
+test-context resolver in the extractor and the literal visitor consumes it via the same
 parameter-threading chain `:CallSite` uses, never a parallel path.
 
 ### 3.3 SchemaVersion + lockstep
@@ -141,7 +134,7 @@ parameter-threading chain `:CallSite` uses, never a parallel path.
 `:Literal` is purely **additive** — no existing keyspace consumer
 breaks (old queries never `MATCH (l:Literal)`; old keyspaces simply
 lack the nodes). Per G4, bump the graph `SchemaVersion` minor. Per
-CLAUDE.md §3 + RFC-033 §4 I5: the cfdb PR that bumps
+CLAUDE.md §3 + cfdb-033-cross-dogfood#4 I5: the cfdb PR that bumps
 `cfdb_core::SchemaVersion` MUST be accompanied by a draft
 `yg/graph-specs-rust` PR bumping `.cfdb/cross-fixture.toml` to the
 cfdb PR HEAD SHA; merge cfdb first, fixture bump within minutes;
@@ -178,27 +171,22 @@ consumer; cfdb ships no rule itself.
   for expression-leaf literals, so there is nothing to extend the
   recall corpus *with*. Slice 041-C's synthetic-workspace fixture is
   the ratified substitute and a future implementer MUST NOT treat the
-  recall gate as a merge blocker for `:Literal` (clean-arch lens,
-  council 2026-05-15; precedent: RFC-040 `:ConstTable`, likewise
+  recall gate as a merge blocker for `:Literal` (precedent: cfdb-040-const-table-overlap `:ConstTable`, likewise
   rustdoc-invisible). **The slice-041-C synthetic-workspace fixture
   is THE correctness gate for `:Literal` extraction** (exact
   `(value,file,line,col,is_test)` tuple assertions). The slice-041-B
   self-dogfood `count ≥ N` assertion is a **smoke test only** — it
   cannot catch an extraction bug that yields the right count via
-  wrong literals; it must not be conflated with the correctness gate
-  (rust-systems lens, council 2026-05-15).
+  wrong literals; it must not be conflated with the correctness gate.
 - **No-ratchet.** No baseline/ceiling/allowlist file. The downstream
   ban rule lands zero-violation-or-fix-in-same-PR (agentry side).
 - **Keyspace backward-compat.** Additive; old keyspaces/queries
   unaffected. `SchemaVersion` monotonic within major (G4).
 - **is_test fidelity.** Reuses the existing `:Item.is_test`
   predicate; a divergent reimplementation is forbidden (homonym /
-  split-brain risk — ddd lens).
+  split-brain risk).
 
 ## 5. Architect lenses
-
-4-lens architect team (`rfc-041-literal-extraction-council`,
-TeamCreate, 2026-05-15). Final: **4/4 RATIFY**.
 
 ### 5.1 Clean architecture (`clean-arch`) — **RATIFY**
 
@@ -209,7 +197,7 @@ unchanged; `Label::LITERAL` is a `pub const &'static str` (precedent
 generic `Node` bag like `:CallSite`/`:ConstTable`. Composition root
 (`cfdb-cli commands/extract.rs`) unchanged: `:Literal` arrives in the
 existing `Vec<Node>`. Recall carve-out is a legitimate bounded
-exception with RFC-040 `:ConstTable` precedent (also rustdoc-
+exception with cfdb-040-const-table-overlap `:ConstTable` precedent (also rustdoc-
 invisible). Required clarification (recall-corpus extension
 inapplicable by construction; 041-C is the substitute) — applied to
 §4. Prescribed 041-A..E Tests rows.
@@ -217,8 +205,7 @@ inapplicable by construction; 041-C is the substitute) — applied to
 ### 5.2 Domain-driven design (`ddd-specialist`) — **RATIFY** (after 2 editorial rework)
 
 `:Literal` is a coherent expression-occurrence node at the
-`:CallSite` abstraction level. REQUEST CHANGES (both applied,
-re-review confirmed): (1) `kind:"string"` was a three-way homonym vs
+`:CallSite` abstraction level. (1) `kind:"string"` was a three-way homonym vs
 `:Item.kind` / `:ConstTable.element_type` → dropped; `lit_syntax`
 reserved for future non-string kinds. (2) `is_test` single-resolver
 verified in code — `attrs_contain_cfg_test`/`attrs_contain_hash_test`
@@ -245,8 +232,7 @@ G4-compliant (precedent: every prior label add). Prescribed
 
 Fundamental design sound (additive Label, existing `syn::Visit`
 pass, `is_test` parameter-threading reuse, Vec+BTreeMap emission /
-no HashMap, final-sort determinism). REQUEST CHANGES (all 5 applied,
-re-review confirmed): (1) §6 exclude `cfg(feature=)` /
+no HashMap, final-sort determinism). (1) §6 exclude `cfg(feature=)` /
 `#[serde(default=)]` strings (split-brain with `:Item.cfg_gate` /
 `:CallSite`) + `macro_rules!` bodies (syn-opaque hard boundary);
 keep `vec!`/`format!` expr-position literals (`call_visitor.rs:
@@ -267,8 +253,7 @@ is smoke-only. (5) §7 041-B/041-C carry the prescribed verbatim
   literal; substituted runtime values are not source. Acceptable for
   the phase-name-strings use case.
 - Attribute-embedded strings (`#[doc=...]`) — default OUT in v0.
-- **`cfg(feature="...")` strings — EXCLUDED** (rust-systems lens
-  ruling, council 2026-05-15). They are already extracted by
+- **`cfg(feature="...")` strings — EXCLUDED**. They are already extracted by
   `attrs.rs::extract_cfg_feature_gate` (`meta_to_feature_gate`,
   `cfdb-extractor/src/attrs.rs:230-238`) into the `:Item.cfg_gate`
   fact. Dual-emitting the same value as a `:Literal` is the exact
@@ -276,12 +261,11 @@ is smoke-only. (5) §7 041-B/041-C carry the prescribed verbatim
   downstream `arch-ban-phase-name-strings` rule targets production
   fn-body literals in `crates/orchestrator-*`, not cfg attributes, so
   exclusion does not weaken it.
-- **`#[serde(default = "...")]` strings — EXCLUDED** (rust-systems).
-  Already modelled as `:CallSite` (the string is a fn path, not a
+- **`#[serde(default = "...")]` strings — EXCLUDED**. Already modelled as `:CallSite` (the string is a fn path, not a
   value) via `attrs.rs::extract_serde_default_attr`. Dual-emission is
   a split-brain.
 - **Literals inside `macro_rules!` declarative-macro bodies —
-  UNREACHABLE, OUT** (rust-systems). `ItemMacro` token trees are
+  UNREACHABLE, OUT**. `ItemMacro` token trees are
   opaque to `syn::visit::Visit`; this is a hard boundary, not a
   choice. (Expression-position literals inside *macro invocations*
   like `vec![..]` / `format!(..)` remain reachable via the existing
@@ -308,11 +292,11 @@ fill during council).
   bump is slice 041-D, not here; Target dogfood: none — rationale:
   schema-only.
 - **041-B — extractor emits `:Literal` (cfdb-extractor).** New
-  `literal_visitor.rs` submodule (solid lens — mirrors
+  `literal_visitor.rs` submodule (mirrors
   `call_visitor.rs`, NOT a new crate); raw-token-bytes `value`;
   `is_test` inherited via the existing threading; node ID
   `literal:<file>:<line>:<col>`; deterministic final sort.
-  `Tests:` (rust-systems-prescribed, council 2026-05-15) —
+  `Tests:` —
   - Unit: pure `build_literal_node(lit, file, is_test) -> Node` —
     asserts Label="Literal", `value`=raw inter-delimiter bytes (NOT
     `LitStr::value()`), no `kind` attr, `is_test` propagated, id
@@ -328,7 +312,7 @@ fill during council).
   - Target dogfood (qbot-core @ pinned SHA): report `:Literal` count
     + top-10 values in PR body; informational, no gate.
 - **041-C — synthetic-workspace integration fixture (THE correctness
-  gate, §4).** `Tests:` (rust-systems-prescribed) —
+  gate, §4).** `Tests:` —
   - Integration: synthetic Cargo workspace asserting the exact set of
     `(value,file,line,col,is_test)` tuples for: (a) plain
     `"verifying"` prod fn → is_test=false; (b) raw `r#"shipping"#` →
@@ -343,7 +327,7 @@ fill during council).
   - Unit / Self / Cross / Target dogfood: none — rationale: this
     slice IS the integration fixture; self/cross/target are 041-B/D.
 - **041-D — graph-specs-rust lockstep `.cfdb/cross-fixture.toml`
-  bump.** Draft PR on the companion per RFC-033 §4 / docs/
+  bump.** Draft PR on the companion per cfdb-033-cross-dogfood#4 / docs/
   cross-fixture-bump.md; merge-order discipline. `Tests:` — Cross
   dogfood: the lockstep IS the test.
 - **041-E — downstream enablement note.** Comment on `agentry#542`
@@ -351,9 +335,9 @@ fill during council).
   `.cfdb/cfdb.rev` bump procedure for agentry. `Tests:` none —
   rationale: cross-repo coordination comment, not code.
 
-## Refs
+## 8. Refs
 
 - `cfdb#367` (premature impl issue — superseded by this RFC)
 - `agentry#542`, `agentry#496`, `agentry#497`, `agentry#397`
 - `agentry:council/v2-finale-fsm-collapse/synthesis.md`
-- RFC-033 §4 (cross-dogfood lockstep), RFC-037 (schema-producer alignment)
+- cfdb-033-cross-dogfood#4 (cross-dogfood lockstep), cfdb-037-schema-producer-alignment (schema-producer alignment)

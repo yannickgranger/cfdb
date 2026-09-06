@@ -1,9 +1,9 @@
 # RFC-043 — enable the proc-macro server in `cfdb-hir-extractor` for receiver-type-resolution recall
 
-Status: **RATIFIED** 2026-05-18 by 4/4 agent-teams council. R1 REQUEST CHANGES on v1 RFC drove a YAGNI/reuse pre-trim → v2 RFC; R2 council on v2 returned 4/4 RATIFY with minor implementation notes (all applied). See `council/RFC-043/RATIFIED.md`, `council/RFC-043/SYNTHESIS-R1.md`, `council/RFC-043/verdicts/`, `council/RFC-043/v1-pre-trim-verdicts/`.
+Status: **RATIFIED** 2026-05-18.
 Author: a0 (session 2026-05-18, worktree `rfc/043-hir-proc-macro-server`).
 Originating issue: [`yg/cfdb#398`](https://agency.lab:3000/yg/cfdb/issues/398).
-Relates: RFC-029 (v0.2 :EntryPoint vocabulary), RFC-042 (test/bench :EntryPoint kinds — established the receiver-type-resolution gap as the next bottleneck).
+Relates: cfdb-029-code-facts-database (v0.2 :EntryPoint vocabulary), cfdb-042-test-bench-entry-points (test/bench :EntryPoint kinds — established the receiver-type-resolution gap as the next bottleneck).
 
 ## 1. Problem
 
@@ -23,7 +23,7 @@ With proc-macros off, `ra_ap_hir::Semantics::resolve_method_call` returns `None`
 
 ### 1.1 Empirical evidence
 
-RFC-042 shipped 042-A (`:EntryPoint{kind=test|bench}` emission) and 042-B (`--production-only` flag + dual-BFS reachability). Issue #378's 042-C close-out (comment 2026-05-18) measures the realized reduction in `unwired` false positives:
+cfdb-042-test-bench-entry-points shipped 042-A (`:EntryPoint{kind=test|bench}` emission) and 042-B (`--production-only` flag + dual-BFS reachability). Issue #378's 042-C close-out (comment 2026-05-18) measures the realized reduction in `unwired` false positives:
 
 | Workspace · context | Default unwired | Production-only unwired | Reduction |
 |---|---:|---:|---:|
@@ -123,7 +123,7 @@ No new wrapper enums. `proc_macros: bool` is the upstream-faithful shape; `ProcM
 
 Three failure shapes are distinguished:
 
-1. **Sysroot binary missing** (`proc_macro_server_available()` returns false): silently fall back to `ProcMacroServerChoice::None` + stderr warning naming the missing binary path and noting "proc-macro recall unavailable on this run; receiver-type-resolution recall is the pre-RFC-043 baseline." This is the CI-on-stock-rustc path. No `Err` is returned; the extract proceeds in degraded mode.
+1. **Sysroot binary missing** (`proc_macro_server_available()` returns false): silently fall back to `ProcMacroServerChoice::None` + stderr warning naming the missing binary path and noting "proc-macro recall unavailable on this run; receiver-type-resolution recall is the pre-cfdb-043-hir-proc-macro-server baseline." This is the CI-on-stock-rustc path. No `Err` is returned; the extract proceeds in degraded mode.
 2. **`load_workspace_at` returns `Err` even after the availability probe passed** (e.g., a proc-macro panics on expansion during `load_workspace_at`'s eager phase): hard fail. The error propagates through the existing `HirError::LoadWorkspace` mapping — no new error variant. The operator sees the underlying message on stderr and re-runs with `--no-proc-macro` if needed.
 3. **Lazy expansion failure during VFS walk** (e.g., the subprocess crashes after `load_workspace_at` returns): individual call sites where expansion failed are emitted with `callee_resolved=false` — same as the syn-only path. The walk does NOT abort; the operator sees the new `callee_resolved=false` ratio at end-of-extract and decides if a re-run is warranted.
 
@@ -173,30 +173,26 @@ The extractor already canonicalizes file paths to workspace-relative via `vfs_pa
 | ID | Invariant | Verification |
 |---|---|---|
 | I1 | **G1 byte-stability** — `cfdb extract --hir` twice on cfdb-self produces sha256-identical keyspace JSON. | `ci/determinism-check.sh` extension (§3.5). Hard fail on diff. |
-| I2 | **Recall non-regression** — every `:CallSite` resolved pre-RFC-043 remains resolved post-RFC-043. | `cfdb-recall` baseline refresh in the same PR. New baseline numbers MUST NOT regress vs old (only added resolutions). |
+| I2 | **Recall non-regression** — every `:CallSite` resolved pre-cfdb-043-hir-proc-macro-server remains resolved post-cfdb-043-hir-proc-macro-server. | `cfdb-recall` baseline refresh in the same PR. New baseline numbers MUST NOT regress vs old (only added resolutions). |
 | I3 | **Wall-clock budget** — `cfdb extract --hir` against cfdb-self post-RFC takes ≤ 4× pre-RFC (reject) with a 2× warning threshold (pass-with-note, document offending crate cluster in PR body). | Measured in PR body; CI gate (a `time` wrapper in determinism-check.sh) fails over the 4× budget; the 2× threshold is an operator-visible note. |
 | I4 | **Schema unchanged** — no SchemaVersion bump, no new node/edge/attribute. | `cfdb schema-describe` diff between pre and post keyspaces is empty. |
-| I5 | **Cross-fixture pin not bumped** — I4 implies no `yg/graph-specs-rust` lockstep (RFC-033 §4 I5 only triggers on SchemaVersion bumps). | `ci/cross-dogfood.sh` exits 0 with the post-RFC binary against the current pinned graph-specs SHA. |
-| I6 | **`:CallSite.callee_resolved` descriptor updated** — the schema descriptor at `crates/cfdb-core/src/schema/describe/nodes.rs` (the `:CallSite.callee_resolved` attribute paragraph) gains a sentence noting that, post-RFC-043, the predicate's epistemic precision improved. The descriptor must ALSO note that the silent probe fallback (§3.3 case 1) produces a keyspace indistinguishable from `--no-proc-macro` — operators reading `cfdb schema-describe` should understand why two keyspaces with identical `callee_resolved` distributions can have different recall. Consumers wishing to disambiguate pre/post-RFC-043 keyspaces must re-extract — there is no per-keyspace status flag, by design (§3.3 / §6 YAGNI cuts). | Descriptor diff in slice 043-A; verified by `cfdb schema-describe` output containing both sentences. |
+| I5 | **Cross-fixture pin not bumped** — I4 implies no `yg/graph-specs-rust` lockstep (cfdb-033-cross-dogfood#4 I5 only triggers on SchemaVersion bumps). | `ci/cross-dogfood.sh` exits 0 with the post-RFC binary against the current pinned graph-specs SHA. |
+| I6 | **`:CallSite.callee_resolved` descriptor updated** — the schema descriptor at `crates/cfdb-core/src/schema/describe/nodes.rs` (the `:CallSite.callee_resolved` attribute paragraph) gains a sentence noting that, post-cfdb-043-hir-proc-macro-server, the predicate's epistemic precision improved. The descriptor must ALSO note that the silent probe fallback (§3.3 case 1) produces a keyspace indistinguishable from `--no-proc-macro` — operators reading `cfdb schema-describe` should understand why two keyspaces with identical `callee_resolved` distributions can have different recall. Consumers wishing to disambiguate pre/post-cfdb-043-hir-proc-macro-server keyspaces must re-extract — there is no per-keyspace status flag, by design (§3.3 / §6 YAGNI cuts). | Descriptor diff in slice 043-A; verified by `cfdb schema-describe` output containing both sentences. |
 | I7 | **`ProcMacroClient` lifetime bounded by extraction scope** — `build_hir_database` returns `(RootDatabase, Vfs, ProcMacroClient)`; the third element MUST outlive the database's last use (the VFS walk). Dropping the client while salsa holds live expanders kills the subprocess and breaks lazy macro expansion. The CLI sub-command's stack frame owns all three. | Code review on slice 043-A; the function signature and call sites are inspected. |
 
 ## 5. Architect lenses (council fills in)
 
-Per cfdb CLAUDE.md §2.3, each lens renders a verdict (RATIFY / REQUEST CHANGES / REJECT) with evidence, plus prescribes the `Tests:` 4-row block for the slice (`Unit`, `Self dogfood`, `Cross dogfood`, `Target dogfood`). Verdicts captured inline below; current state is **PENDING** for all four.
+Per cfdb CLAUDE.md §2.3, each lens renders a verdict (RATIFY / REQUEST CHANGES / REJECT) with evidence, plus prescribes the `Tests:` 4-row block for the slice (`Unit`, `Self dogfood`, `Cross dogfood`, `Target dogfood`).
 
 ### 5.1 Clean architecture
 
 Question: Does adding a single `bool` parameter to `build_hir_database` + one CLI flag in `cfdb-cli` change the composition-root contract? The dependency direction is unchanged (`cfdb-cli` → `cfdb-hir-extractor` → `ra-ap-load-cargo`). No new modules, no hoisted orchestrator.
 
-**Pending lens verdict.**
-
 ### 5.2 Domain-driven design
 
 Question: Does macro-resolved `:CallSite{callee_resolved=true}` introduce a vocabulary homonym? Pre-043 the predicate meant "syn-or-HIR-can-name-the-callee-with-high-precision." Post-043 the predicate domain expands to include macro-touched receivers, but the SEMANTICS — "the extractor can statically name the callee" — is unchanged. The bar shifts; the meaning does not.
 
-Edge case for council: when `#[async_trait]` desugars `async fn foo()` to `fn foo() -> Pin<Box<...>>`, the `:CallSite.callee_path` for a caller's `.foo().await` expression — does it textually match `foo` (the syn-visible name)? Or `poll` (the desugared method)? The expectation in this RFC is "matches what `syn` would show" — i.e., the textual `foo` path. Council validates.
-
-**Pending lens verdict.**
+Edge case: when `#[async_trait]` desugars `async fn foo()` to `fn foo() -> Pin<Box<...>>`, the `:CallSite.callee_path` for a caller's `.foo().await` expression — does it textually match `foo` (the syn-visible name)? Or `poll` (the desugared method)? The expectation in this RFC is "matches what `syn` would show" — i.e., the textual `foo` path.
 
 ### 5.3 SOLID + component principles
 
@@ -204,11 +200,9 @@ Question: `build_hir_database` post-RFC does ONE more thing than before — bran
 
 Stable abstractions: `cfdb-hir-extractor`'s public surface gains one function parameter. Minor signature change; downstream callers (`cfdb-cli`) updated in the same PR. No SDP violation.
 
-**Pending lens verdict.**
-
 ### 5.4 Rust systems
 
-Three concerns acknowledged from rust-systems v1 verdict (`council/RFC-043/v1-pre-trim-verdicts/rust-systems.md`):
+Three concerns:
 
 **RS-1 — Lifetime (BLOCKING in v1; addressed in v2 §3.1 / §4 I7).** `load_workspace_at` returns `(RootDatabase, Vfs, ProcMacroClient)`; the third element owns the subprocess handle. Salsa keeps live references to expanders inside the DB. Dropping the client at `build_hir_database`'s end of scope kills the subprocess and breaks lazy expansion during the caller's VFS walk. v1 of this RFC inherited the pre-RFC pattern of discarding the third element via `_proc_macro_client`; v2 changes the return type to `(RootDatabase, Vfs, ProcMacroClient)` and bounds the client's lifetime to the CLI sub-command's stack frame.
 
@@ -216,7 +210,7 @@ Three concerns acknowledged from rust-systems v1 verdict (`council/RFC-043/v1-pr
 
 **RS-3 — `proc_macro_cwd` determinism (NON-BLOCKING; documented in v2 §3.6).** `ra_ap_load_cargo` injects the workspace's absolute path into every macro expansion. Macros that capture this verbatim leak path-specific bytes into the keyspace. The §3.5 same-workspace determinism check covers regression in fixed-position runs; cross-position (e.g., CI tempdir vs local clone) drift is a future-RFC concern. No mitigation policy in 043-A.
 
-Pending council R2 verdict on the v2 mitigations + remaining lens questions (feature-flag-vs-runtime-flag if any survives, wall-clock budget calibration, deny-list candidacy for known non-deterministic macros).
+remaining lens questions (feature-flag-vs-runtime-flag if any survives, wall-clock budget calibration, deny-list candidacy for known non-deterministic macros).
 
 ## 6. Non-goals
 
@@ -231,7 +225,7 @@ Pending council R2 verdict on the v2 mitigations + remaining lens questions (fea
 
 ## 7. Issue decomposition
 
-**Architect prescription convention.** Each slice carries a 4-row `Tests:` block per CLAUDE.md §2.5. Architects on the council fill the row content; the convener synthesizes into the final issue body.
+**Architect prescription convention.** Each slice carries a 4-row `Tests:` block per CLAUDE.md §2.5.
 
 ### 7.1 Slice 043-A — flip the flag + CLI escape + determinism extension + empirical close-out
 
@@ -257,10 +251,10 @@ Single vertical slice. The PR body carries the qbot-core empirical measurement a
 ## 8. References
 
 - Issue [#398](https://agency.lab:3000/yg/cfdb/issues/398) — RFC-stub origin.
-- Issue [#378](https://agency.lab:3000/yg/cfdb/issues/378) — RFC-042 042-C close-out; the 12.5% ceiling motivating this RFC.
-- RFC-042 — test/bench `:EntryPoint` kinds (the layer below this RFC).
-- RFC-029 v0.2 §A2 — `:EntryPoint` vocabulary distribution prediction.
-- RFC-033 §4 I5 — SchemaVersion-lockstep invariant (not triggered by this RFC per I4).
+- Issue [#378](https://agency.lab:3000/yg/cfdb/issues/378) — cfdb-042-test-bench-entry-points 042-C close-out; the 12.5% ceiling motivating this RFC.
+- cfdb-042-test-bench-entry-points — test/bench `:EntryPoint` kinds (the layer below this RFC).
+- cfdb-029-code-facts-database v0.2 §A2 — `:EntryPoint` vocabulary distribution prediction.
+- cfdb-033-cross-dogfood#4 I5 — SchemaVersion-lockstep invariant (not triggered by this RFC per I4).
 - CLAUDE.md §1 (RFC-first), §2.3 (council), §2.5 (Tests template), §3 (dogfood enforcement).
 - `crates/cfdb-hir-extractor/src/hir_db.rs:40-48` — current `LoadCargoConfig` declaration site.
 - `ra_ap_load_cargo::ProcMacroServerChoice` — the upstream enum the `bool` parameter selects.

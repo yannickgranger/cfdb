@@ -1,16 +1,15 @@
 # RFC-044 — broaden graph-specs coverage of cfdb's critical contracts
 
-**Status:** RATIFIED 4/4 (2026-05-19) — see `council/RFC-044/RATIFIED.md`
+**Status:** RATIFIED (2026-05-19)
 **RFC SHA base:** `ecdee14` on `origin/develop` at convene time
-**Council:** `rfc-044-graph-specs-coverage-council` (TeamCreate per global CLAUDE.md §2b)
-**Lineage:** `RFC-cfdb.md` §6 G1–G6 · `RFC-035` §4 · `RFC-037` §4 · `RFC-042` §4 · `RFC-043` §4
+**Lineage:** `cfdb-029-code-facts-database` §6 G1–G6 · `cfdb-035-persistent-inverted-indexes` §4 · `cfdb-037-schema-producer-alignment` §4 · `cfdb-042-test-bench-entry-points` §4 · `cfdb-043-hir-proc-macro-server` §4
 **Amendment (author-documented, 2026-08-18, cfdb #430):** §3.7 Tests · Unit (c) — the 044-G implementation (cfdb #421) satisfied "non-silent on the `_ =>` arm" with a visible sentinel row value instead of a `Result<RowValue, StoreError>` cascade, because `eval_aggregation` sits in a non-fallible call chain (`apply_with → group_and_aggregate → materialise_group_row`) and threading `Result` through it was judged not worth the churn for a lint-time guard. The sentinel is the ratified behaviour; the `Result` cascade is re-evaluated when the first new `cfdb_core::query::Aggregation` variant is added (that PR adds the explicit arm and decides). The sentinel now lives in `crates/cfdb-eval/src/eval/with_clause.rs` (cfdb-057).
 
 ## 1. Problem
 
-cfdb has 6 ratified RFCs (`RFC-cfdb`, `RFC-029`, `RFC-032`, `RFC-035`, `RFC-037`, `RFC-042`, `RFC-043`). Of the ~30 named §4 invariants across those documents, **~40% are reviewer-only** — documented in markdown, partially enforced for G1 determinism / dep-direction, but with no corresponding test, `.cfdb/predicates/` file, or `.cfdb/queries/arch-ban-*.cypher` rule. The dominant pattern is "RFC asserts invariant in §4, the RFC's PR satisfies it once, post-merge drift goes uncaught."
+cfdb has 6 ratified RFCs (`cfdb-029-code-facts-database`, `cfdb-029-code-facts-database`, `cfdb-032-v02-extractor`, `cfdb-035-persistent-inverted-indexes`, `cfdb-037-schema-producer-alignment`, `cfdb-042-test-bench-entry-points`, `cfdb-043-hir-proc-macro-server`). Of the ~30 named §4 invariants across those documents, **~40% are reviewer-only** — documented in markdown, partially enforced for G1 determinism / dep-direction, but with no corresponding test, `.cfdb/predicates/` file, or `.cfdb/queries/arch-ban-*.cypher` rule. The dominant pattern is "RFC asserts invariant in §4, the RFC's PR satisfies it once, post-merge drift goes uncaught."
 
-Recent example: RFC-043 §4 declares 7 invariants (I1–I7); I4 (Schema unchanged), I6 (descriptor caveat), I7 (`ProcMacroClient` lifetime) are reviewer-only. Without a doctrine for converting RFC invariants to mechanical checks, every new RFC repeats the pattern.
+Recent example: cfdb-043-hir-proc-macro-server#4 declares 7 invariants (I1–I7); I4 (Schema unchanged), I6 (descriptor caveat), I7 (`ProcMacroClient` lifetime) are reviewer-only. Without a doctrine for converting RFC invariants to mechanical checks, every new RFC repeats the pattern.
 
 Beyond RFC §4 catalogs, the 2026-05-19 archaeology surfaced 7 cross-cutting gaps in cfdb's critical contracts:
 
@@ -24,7 +23,7 @@ Beyond RFC §4 catalogs, the 2026-05-19 archaeology surfaced 7 cross-cutting gap
 | CLI exit-code contract | Documented in `main.rs:43-60`; three inline `process::exit(30)` in `main_dispatch.rs:48/62/142` — no centralized mapping, no integration test. |
 | `#[non_exhaustive]` on schema enums | Zero `#[non_exhaustive]` in `cfdb-core/src/`; 14 closed enums (`PropValue`, `Visibility`, `CfgGate`, `ContextSource`, `Provenance`, `StoreError`, `RowValue`, `WarningKind`, `Aggregation`, plus `query::ast` enums) consumed by ~106 downstream files. Adding a variant is a SemVer landmine for every `match` site. |
 
-These are not abstract concerns. Each gap maps to a concrete drift incident in cfdb's recent history (signature drift in `build_hir_database` between RFC-043 ratification and impl PR; `:CallSite.callee_resolved` descriptor caveat added in RFC-043 with no test to catch silent removal; 6 `format!("item:{...}")` sites bypassing `cfdb_core::qname`).
+These are not abstract concerns. Each gap maps to a concrete drift incident in cfdb's recent history (signature drift in `build_hir_database` between cfdb-043-hir-proc-macro-server ratification and impl PR; `:CallSite.callee_resolved` descriptor caveat added in cfdb-043-hir-proc-macro-server with no test to catch silent removal; 6 `format!("item:{...}")` sites bypassing `cfdb_core::qname`).
 
 ## 2. Scope
 
@@ -44,17 +43,17 @@ The RFC is the *organizing principle* for converting reviewer-only invariants in
 
 2. **SchemaVersion::CURRENT lockstep unit test.** New test in `crates/cfdb-core/src/schema/labels/tests.rs` that walks the `SchemaVersion::*` const enumeration (V0_1, V0_2, …) and asserts `SchemaVersion::CURRENT` equals the most recent variant. Catches "forgot to bump CURRENT" silent drift.
 
-3. **Descriptor narrative string-equality tests.** New tests in `crates/cfdb-core/src/schema/describe/tests.rs` that for each `attr(..., "narrative")` literal in `describe/nodes.rs` and `describe/edges.rs` (notably the RFC-043 `callee_resolved` caveat at `nodes.rs:280` and `resolver` enum-as-string at `:286`) assert the narrative string matches a frozen literal in the test. Updating a narrative requires updating the test in the same PR — explicit review surface for RFC §4 I6-shaped concerns.
+3. **Descriptor narrative string-equality tests.** New tests in `crates/cfdb-core/src/schema/describe/tests.rs` that for each `attr(..., "narrative")` literal in `describe/nodes.rs` and `describe/edges.rs` (notably the cfdb-043-hir-proc-macro-server `callee_resolved` caveat at `nodes.rs:280` and `resolver` enum-as-string at `:286`) assert the narrative string matches a frozen literal in the test. Updating a narrative requires updating the test in the same PR — explicit review surface for RFC §4 I6-shaped concerns.
 
 **Reuse audit:** `specs/concepts/` exists; `.../labels/tests.rs` exists; `.../describe/tests.rs` exists (extending existing test files, no new modules).
 
 ### 3.2 — Slice 044-B — integration-seam signature pinning (Q1.c)
 
-**Council Q1 verdict (4/4 unanimous): Q1.c — frozen `tests/signatures.toml` per crate.**
+**Council Q1 verdict: Q1.c — frozen `tests/signatures.toml` per crate.**
 
 Rejected alternatives:
-- **Q1.a (extend `specs/concepts/<crate>.md` with `## Public functions`).** Rejected by solid-architect — extending the graph-specs-check parser to consume signature blocks would couple buckets 1, 2, and 8 through shared parser infrastructure. No-monolith violation.
-- **Q1.b (emit `:Function` nodes with `signature_hash` attribute).** Rejected by all 4 lenses — (i) ddd-specialist: `:Function` homonyms with existing `:Item{kind="fn"}` (two node labels for the same real-world referent forces query authors to choose; populations overlap but don't coincide); (ii) solid-architect: cfdb-core moves toward the Zone of Pain (inner-layer schema shaped by outer-layer enforcement tooling concerns — Dependency Rule inversion); (iii) rust-systems: no `:Function` label exists in `cfdb-core/src/schema/labels.rs` today; introducing one is a `SchemaVersion` bump requiring graph-specs-rust lockstep (RFC-cfdb §3 / `docs/cross-fixture-bump.md`); (iv) clean-arch: inner-layer type shaped by outer-layer needs.
+- **Q1.a (extend `specs/concepts/<crate>.md` with `## Public functions`).** Rejected — extending the graph-specs-check parser to consume signature blocks would couple buckets 1, 2, and 8 through shared parser infrastructure. No-monolith violation.
+- **Q1.b (emit `:Function` nodes with `signature_hash` attribute).** Rejected — (i) `:Function` homonyms with existing `:Item{kind="fn"}` (two node labels for the same real-world referent forces query authors to choose; populations overlap but don't coincide); (ii) cfdb-core moves toward the Zone of Pain (inner-layer schema shaped by outer-layer enforcement tooling concerns — Dependency Rule inversion); (iii) no `:Function` label exists in `cfdb-core/src/schema/labels.rs` today; introducing one is a `SchemaVersion` bump requiring graph-specs-rust lockstep (cfdb-029-code-facts-database#3 / `docs/cross-fixture-bump.md`); (iv) inner-layer type shaped by outer-layer needs.
 
 **Mechanism:**
 
@@ -65,7 +64,7 @@ Each crate with a pinned public surface ships a `tests/signatures.toml` file alo
 
 Pinned signatures (initial set):
 - `cfdb_extractor::extract_workspace`
-- `cfdb_hir_extractor::build_hir_database` (post-RFC-043 3-tuple shape when 043-A merges; current 2-tuple shape until then)
+- `cfdb_hir_extractor::build_hir_database` (post-cfdb-043-hir-proc-macro-server 3-tuple shape when 043-A merges; current 2-tuple shape until then)
 - `cfdb_hir_extractor::extract_call_sites`
 - `cfdb_hir_extractor::extract_entry_points`
 - `cfdb_hir_petgraph_adapter::PetgraphAdapter::ingest_resolved_call_sites`
@@ -162,9 +161,9 @@ Per rust-systems R1:
 
 ### 3.8 — Slice 044-H — frozen RFC §4 invariant catalog (Q2.b)
 
-**Council Q2 verdict (4/4 unanimous): Q2.b — `.cfdb/queries/arch-ban-rfc-<n>-<topic>.cypher`.**
+**Council Q2 verdict: Q2.b — `.cfdb/queries/arch-ban-rfc-<n>-<topic>.cypher`.**
 
-Rejected alternative: Q2.a (`.cfdb/predicates/rfc-<n>-*.cypher`) — rejected by all 4 lenses on the basis that `.cfdb/predicates/` is linguistically scoped to *parameterized on-demand queries* (per `.cfdb/predicates/README.md`); RFC §4 invariants are non-parameterized zero-tolerance always-enforced checks — semantically they ARE ban rules. Q2.b reuses the existing `cfdb violations --rule` CI wiring already cited in cfdb CLAUDE.md §3.
+Rejected alternative: Q2.a (`.cfdb/predicates/rfc-<n>-*.cypher`) — rejected on the basis that `.cfdb/predicates/` is linguistically scoped to *parameterized on-demand queries* (per `.cfdb/predicates/README.md`); RFC §4 invariants are non-parameterized zero-tolerance always-enforced checks — semantically they ARE ban rules. Q2.b reuses the existing `cfdb violations --rule` CI wiring already cited in cfdb CLAUDE.md §3.
 
 **Mechanism:**
 
@@ -172,14 +171,14 @@ For each ratified RFC's §4 invariants, write one `.cfdb/queries/arch-ban-rfc-<n
 
 | Source | Invariant | Cypher predicate shape |
 |---|---|---|
-| RFC-cfdb §6 G2 | `query()` is read-only | match patterns that write through `:execute()` paths that should be read-only |
-| RFC-cfdb §6 G3 | `enrich_*()` is additive (no fact deletions) | (catalogued; predicate written in this slice) |
-| RFC-cfdb §6 G5 | snapshots immutable (only `drop_keyspace` deletes) | (catalogued; predicate written in this slice) |
-| RFC-037 §4 G6 | no breaking queries in `.cfdb/queries/` or `examples/queries/` | continuous re-check (currently RFC-time only) |
-| RFC-042 §4 | no duplicate `:EntryPoint` emission | (catalogued; predicate written in this slice) |
-| RFC-042 §4 | SchemaVersion stability under flag toggle | (catalogued; predicate written in this slice) |
-| RFC-043 §4 I4 | Schema unchanged with `--hir` | (catalogued; predicate written in this slice) |
-| RFC-043 §4 I7 | `ProcMacroClient` lifetime invariant | (codified as a structural check on `build_hir_database` signature) |
+| cfdb-029-code-facts-database#6 G2 | `query()` is read-only | match patterns that write through `:execute()` paths that should be read-only |
+| cfdb-029-code-facts-database#6 G3 | `enrich_*()` is additive (no fact deletions) | (catalogued; predicate written in this slice) |
+| cfdb-029-code-facts-database#6 G5 | snapshots immutable (only `drop_keyspace` deletes) | (catalogued; predicate written in this slice) |
+| cfdb-037-schema-producer-alignment#4 G6 | no breaking queries in `.cfdb/queries/` or `examples/queries/` | continuous re-check (currently RFC-time only) |
+| cfdb-042-test-bench-entry-points#4 | no duplicate `:EntryPoint` emission | (catalogued; predicate written in this slice) |
+| cfdb-042-test-bench-entry-points#4 | SchemaVersion stability under flag toggle | (catalogued; predicate written in this slice) |
+| cfdb-043-hir-proc-macro-server#4 I4 | Schema unchanged with `--hir` | (catalogued; predicate written in this slice) |
+| cfdb-043-hir-proc-macro-server#4 I7 | `ProcMacroClient` lifetime invariant | (codified as a structural check on `build_hir_database` signature) |
 
 **Continuous catalog policy:** every future RFC's §4 invariants ship a corresponding `arch-ban-rfc-<n>-*.cypher` rule **in the same PR as the RFC's implementation**, not as a follow-up issue. The convener of every future RFC's council MUST verify this at ratification time.
 
@@ -187,47 +186,32 @@ For each ratified RFC's §4 invariants, write one `.cfdb/queries/arch-ban-rfc-<n
 
 ## 4. Invariants
 
-### I1 — No-monolith
+### 4.1 — I1 — No-monolith
 No slice in this RFC introduces a shared abstraction, registry, framework, or unified format consumed by another slice. Each slice uses an existing pattern (per-crate test, spec section, `.cypher` rule, plain unit test, attribute annotation). The convener verifies this at every PR review.
 
-### I2 — Determinism
+### 4.2 — I2 — Determinism
 Every test introduced by this RFC must produce identical results across two consecutive runs on an unchanged tree. The static determinism gate (slice 044-E) catches `HashMap`/`Instant::now`/`par_iter` introductions; tests themselves must be deterministic by construction.
 
-### I3 — Recall
+### 4.3 — I3 — Recall
 This RFC adds enforcement; it does NOT change the recall surface of any extractor. `cfdb-recall` baseline does not move. The cross-extractor parity test (slice 044-D) is a NEW recall-adjacent test (rustdoc-ground-truth vs both extractors), but it asserts qname equality between extractors, not extractor-vs-rustdoc.
 
-### I4 — Schema unchanged
+### 4.4 — I4 — Schema unchanged
 No `cfdb_core::SchemaVersion` bump. No new `Label::*`, no new `EdgeLabel::*`, no new `PropValue` variant. Slice 044-G annotates existing enums with `#[non_exhaustive]` — this is a SemVer-minor change at the Rust level but does NOT touch the wire schema, so no `SchemaVersion::CURRENT` change is required.
 
-### I5 — Graph-specs-rust lockstep
+### 4.5 — I5 — Graph-specs-rust lockstep
 This RFC ships no `SchemaVersion::CURRENT` bump (per I4), so `.cfdb/cross-fixture.toml` on `agency:yg/graph-specs-rust` does not need an SHA bump. **Exception:** slice 044-G's downstream `_` arm additions in graph-specs-rust (per §3.7 sub-band 4) require a paired companion PR — author discipline, not a SchemaVersion lockstep.
 
-### I6 — No metric ratchets
+### 4.6 — I6 — No metric ratchets
 This RFC introduces zero baseline/ceiling/allowlist files. Every check is zero-tolerance against a hard threshold. To raise a threshold (e.g., to add a new `#[non_exhaustive]` carve-out), edit the source in a reviewed PR — per global CLAUDE.md §6 rule 8.
 
-### I7 — Independence of slices
+### 4.7 — I7 — Independence of slices
 Each of the 8 slices ships as an independent PR with its own AC. Slice ordering (G → C → E → A → D → F → H → B) is a *recommendation* based on R1 council consensus (see §5). Any slice may ship in a different position if circumstances warrant; the ordering does NOT establish hard merge dependencies. Each slice's `Tests:` block (see §7) is the AC, not the position in the ordering.
 
 ## 5. Architect lenses
 
-R1 (and final) verdicts captured at `council/RFC-044/verdicts/`. Headline outcomes:
-
-| Lens | Verdict | Primary findings |
-|---|---|---|
-| `clean-arch` | RATIFY w/ RC on #3 | BRIEF correction: `hir.rs` is NOT a second composition root (verified `hir.rs:24-25`); workspace dep-direction DRY MUST be inert TOML, NOT a new shared Rust crate; Q1.c + Q2.b prescribed. |
-| `ddd-specialist` | RATIFY w/ RC on #1, #8 | Per-variant spec sections MUST declare describe/{nodes,edges}.rs authoritative; Q1.b REJECTED on `:Function` vs `:Item{kind="fn"}` homonym; Q1.c + Q2.b prescribed. |
-| `solid-architect` | RATIFY w/ RC on #2, #6, #7 | `ItemKind` + `CompareOp` carve-out from `#[non_exhaustive]`; `exit_code_for` placement → `main_dispatch.rs` or `main_exit.rs` sibling, NOT `error.rs` (SRP); Q1.a REJECTED (couples buckets 1, 2, 8); Q1.c + Q2.b prescribed. |
-| `rust-systems` | RATIFY w/ RC on #4, #5 | 6 production `"item:"` violations to fix in 044-D PR (attr_call_resolution.rs:164/171/180/197 + bounded_context.rs:217/368); 2 incidental cfdb-petgraph fix-in-same-PR sites for 044-E (ast_signals.rs:69, clustering.rs:65); cfdb-hir-extractor needs no Salsa-specific bans; clippy 0.1.93 supports `non_exhaustive_omitted_patterns`; pre-ship graph-specs-rust cross-dogfood mandatory; Q1.c + Q2.b prescribed. |
-
-**Q1 (signature pinning) outcome: Q1.c unanimous. Q1.a + Q1.b explicitly rejected with rationale captured in §3.2.**
-
-**Q2 (invariant catalog) outcome: Q2.b unanimous. Q2.a rejected with rationale captured in §3.8.**
-
-**Convener synthesis:** `council/RFC-044/SYNTHESIS-R1.md`. No R2 round — all RC findings are independent text-trim consolidations, not contested mechanisms.
-
 ## 6. Non-goals
 
-- Adding a 9th gap or bucket. The 8 buckets are scoped exhaustively against the 2026-05-19 archaeology; any 9th gap is RFC-045 material.
+- Adding a 9th gap or bucket. The 8 buckets are scoped exhaustively against the 2026-05-19 archaeology; any 9th gap is cfdb-045-polyglot-relationship-edges material.
 - Introducing a shared "graph-specs framework" / "invariant DSL" / "spec registry" crate. **Explicit non-goal** per the no-monolith directive (§4 I1).
 - Building a `cfdb violations --all` mega-runner. The existing `for r in .cfdb/queries/*.cypher; do cfdb violations --rule "$r"; done` shell loop (per cfdb CLAUDE.md §6) is sufficient; this RFC adds rules to that corpus, not a new runner.
 - Migrating existing arch-ban Cypher rules to a new format. The existing 4 rules in `.cfdb/queries/` stay where they are; this RFC adds rules alongside them.
@@ -236,15 +220,15 @@ R1 (and final) verdicts captured at `council/RFC-044/verdicts/`. Headline outcom
 
 ## 7. Issue decomposition
 
-8 vertical slices, one PR each. Convener-prescribed shipping order (council 3/4 consensus on positions 1-5; 044-B last is 3/4 consensus):
+8 vertical slices, one PR each. Convener-prescribed shipping order:
 
 **044-G → 044-C → 044-E → 044-A → 044-D → 044-F → 044-H → 044-B**
 
-Each slice ships independently; the order is a recommendation, not a hard merge dependency (per I7). Tests blocks per slice are below — pending consolidation from the 4 R1 verdict files (`council/RFC-044/verdicts/`). Until consolidation lands, refer to each lens's D2 prescription for the slice's primary lens. The consolidation will be appended below before issues are filed.
+Each slice ships independently; the order is a recommendation, not a hard merge dependency (per I7). Tests blocks per slice are below — pending consolidation from the 4 R1 verdict files (`council/cfdb-044-broaden-graph-specs-coverage/verdicts/`). Until consolidation lands, refer to each lens's D2 prescription for the slice's primary lens. The consolidation will be appended below before issues are filed.
 
 Tests blocks below are consolidated from the 4 R1 verdicts' D2 prescriptions. Each row is concrete (named test file / cargo command / assertion shape) per CLAUDE.md §2.5.
 
-### Slice 044-A — schema vocabulary completeness (+ descriptor narrative freeze)
+### 7.1 — Slice 044-A — schema vocabulary completeness (+ descriptor narrative freeze)
 
 *Primary lens: ddd-specialist.*
 
@@ -254,7 +238,7 @@ Tests:
 - Cross dogfood (cfdb on graph-specs-rust at pinned SHA): no schema-fact change → zero new rule rows. `ci/cross-dogfood.sh` exits 0.
 - Target dogfood (on qbot-core at pinned SHA): none — rationale: 044-A is test/spec infrastructure only; no new facts emitted; qbot-core CLI consumption is unchanged. PR body reports "N new label sections added; M variants now covered (previously P)."
 
-### Slice 044-B — integration-seam signature pinning (Q1.c — frozen `tests/signatures.toml` per crate)
+### 7.2 — Slice 044-B — integration-seam signature pinning (Q1.c — frozen `tests/signatures.toml` per crate)
 
 *Primary lenses: clean-arch + solid-architect.*
 
@@ -264,7 +248,7 @@ Tests:
 - Cross dogfood (cfdb on graph-specs-rust at pinned SHA): no schema or fact change → zero new rule rows. `ci/cross-dogfood.sh` exits 0.
 - Target dogfood (on qbot-core at pinned SHA): none — rationale: signatures.toml is a cfdb-internal compile-time contract; qbot-core consumes cfdb-cli binaries, not Rust APIs. PR body lists "N pinned signatures across M crates" for reviewer sanity-check.
 
-### Slice 044-C — single-site discipline (dep-direction TOML + PetgraphStore::new regression-guard + slim cfdb-cli no-`ra_ap_*`)
+### 7.3 — Slice 044-C — single-site discipline (dep-direction TOML + PetgraphStore::new regression-guard + slim cfdb-cli no-`ra_ap_*`)
 
 *Primary lens: clean-arch.*
 
@@ -274,7 +258,7 @@ Tests:
 - Cross dogfood (cfdb on graph-specs-rust at pinned SHA): no schema change → zero new rule rows; companion consumes cfdb as a binary, not as a library, so dep-direction enforcement is cfdb-internal. `ci/cross-dogfood.sh` exits 0.
 - Target dogfood (on qbot-core at pinned SHA): none — rationale: dep-direction enforcement is cfdb-internal. PR body reports "1 composition root confirmed (compose.rs); 0 hir.rs PetgraphStore::new sites; 0 ra-ap-* entries in slim cfdb-cli dep tree."
 
-### Slice 044-D — qname stability (cross-extractor parity fixture + fix 6 production `"item:"` violations)
+### 7.4 — Slice 044-D — qname stability (cross-extractor parity fixture + fix 6 production `"item:"` violations)
 
 *Primary lens: rust-systems.*
 
@@ -284,7 +268,7 @@ Tests:
 - Cross dogfood (cfdb on graph-specs-rust at pinned SHA): the new arch-ban rule must produce zero rows on graph-specs-rust at pinned SHA. `ci/cross-dogfood.sh` exits 0 (exit 30 on any rule row blocks merge per cfdb CLAUDE.md §3). Implementer verifies before commit and notes companion-side check in PR body.
 - Target dogfood (on qbot-core at pinned SHA): none — rationale: qname format is an internal encoding; qbot-core sees only extracted fact files. PR body reports "0 dangling-dst CALLS edges in cfdb-self keyspace; 6 production qname-literal violations fixed."
 
-### Slice 044-E — determinism propagation (copy `architecture_determinism.rs` to 4 sibling crates + fix 2 incidental cfdb-petgraph sites)
+### 7.5 — Slice 044-E — determinism propagation (copy `architecture_determinism.rs` to 4 sibling crates + fix 2 incidental cfdb-petgraph sites)
 
 *Primary lens: rust-systems.*
 
@@ -294,7 +278,7 @@ Tests:
 - Cross dogfood (cfdb on graph-specs-rust at pinned SHA): no schema or behavior change → zero new rule rows. `ci/cross-dogfood.sh` exits 0.
 - Target dogfood (on qbot-core at pinned SHA): none — rationale: determinism enforcement is cfdb-internal. PR body reports "5 new architecture_determinism.rs files added; 0 production violations remaining at ship time (2 cfdb-petgraph incidentals fixed in-PR)."
 
-### Slice 044-F — CLI exit-code contract (`exit_code_for` in `main_dispatch.rs`/`main_exit.rs` + `assert_cmd` integration test)
+### 7.6 — Slice 044-F — CLI exit-code contract (`exit_code_for` in `main_dispatch.rs`/`main_exit.rs` + `assert_cmd` integration test)
 
 *Primary lens: solid-architect.*
 
@@ -304,7 +288,7 @@ Tests:
 - Cross dogfood (cfdb on graph-specs-rust at pinned SHA): exit-code contract unchanged → `ci/cross-dogfood.sh` continues to exit 30 on any rule row, exit 0 otherwise (per `ci/cross-dogfood.sh:66-67/80/132-136`). Zero regression.
 - Target dogfood (on qbot-core at pinned SHA): none — rationale: exit codes are a cfdb-cli contract consumed by qbot-core CI scripts (documented in CLAUDE.md §3). PR body reports "3 raw `process::exit(30)` call sites consolidated to 1 `exit_code_for(&e)` call" — reduction metric for reviewer.
 
-### Slice 044-G — `#[non_exhaustive]` on cfdb-core schema enums (carve out `ItemKind`, `CompareOp`, `Direction`) + downstream `#![deny(non_exhaustive_omitted_patterns)]`
+### 7.7 — Slice 044-G — `#[non_exhaustive]` on cfdb-core schema enums (carve out `ItemKind`, `CompareOp`, `Direction`) + downstream `#![deny(non_exhaustive_omitted_patterns)]`
 
 *Primary lenses: solid-architect + rust-systems.*
 
@@ -314,7 +298,7 @@ Tests:
 - Cross dogfood (cfdb on graph-specs-rust at pinned SHA): LOAD-BEARING active check. If graph-specs-rust has exhaustive `match` arms on cfdb-core enums (especially `PropValue`, `RowValue`) without wildcards, the PR-time companion build will FAIL with a compile error (not a rule row). Implementer MUST run `cargo check` against the companion before merge and accompany the cfdb PR with a draft graph-specs-rust PR fixing any broken matches; merge graph-specs first (or simultaneously). Expected outcome: `ci/cross-dogfood.sh` exits 0 once companion is fixed; exit 20 briefly during the lockstep window per docs/cross-fixture-bump.md §4.
 - Target dogfood (on qbot-core at pinned SHA): if qbot-core's Cargo.lock imports `cfdb-core` directly, run `cargo check -p <qbot-crate>` to confirm no new match-exhaustiveness errors. PR body reports the 9 annotated enums + 3 carve-outs with per-enum rationale, and the companion compile result.
 
-### Slice 044-H — RFC §4 invariant catalog (frozen arch-ban Cypher via `.cfdb/queries/arch-ban-rfc-<n>-*.cypher`)
+### 7.8 — Slice 044-H — RFC §4 invariant catalog (frozen arch-ban Cypher via `.cfdb/queries/arch-ban-rfc-<n>-*.cypher`)
 
 *Primary lens: ddd-specialist.*
 

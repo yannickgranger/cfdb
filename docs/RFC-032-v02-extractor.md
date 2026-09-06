@@ -1,12 +1,8 @@
----
-title: "RFC-032: v0.2 extractor cohort — issues #35–#51 grouped and sequenced"
-status: Released in v0.4.0 (2026-04-25)
-date: 2026-04-19
-authors: cfdb-architects council (rust-systems lens)
-parent: docs/RFC-cfdb.md (RFC-029 v0.1), docs/RFC-cfdb.md (RFC-029 §A1–§A6), docs/RFC-031-audit-cleanup.md
----
-
 # RFC-032 — v0.2 extractor cohort: issues #35–#51
+
+**Status:** Released in v0.4.0 (2026-04-25)
+**Date:** 2026-04-19
+**Parent:** cfdb-029-code-facts-database (cfdb-029-code-facts-database v0.1), cfdb-029-code-facts-database (cfdb-029-code-facts-database §A1–§A6), docs/cfdb-031-audit-cleanup-audit-cleanup.md
 
 Issues #35–#51 were filed against cfdb before the project adopted the
 RFC → spec → issues → implementation workflow. This document retroactively
@@ -18,12 +14,12 @@ safety surprises, Cargo.toml churn in the wrong order).
 
 **Cross-references (must be read before implementing any group):**
 
-- RFC-029 §A1.2 — `cfdb-hir-extractor` architectural framing, MSRV
+- cfdb-029-code-facts-database §A1.2 — `cfdb-hir-extractor` architectural framing, MSRV
   requirement, object-safety constraint on `HirDatabase`
-- RFC-029 §A1.5 — v0.2 acceptance gate items (v0.2-1 through v0.2-9)
-- RFC-031 §2 — `StoreBackend` / `EnrichBackend` trait split. All issues
-  that touch `StoreBackend` must land after RFC-031 §2 work merges.
-- RFC-031 §3 — query-composer relocation. Issue #49 (cfdb-query-dsl)
+- cfdb-029-code-facts-database §A1.5 — v0.2 acceptance gate items (v0.2-1 through v0.2-9)
+- cfdb-031-audit-cleanup#2 — `StoreBackend` / `EnrichBackend` trait split. All issues
+  that touch `StoreBackend` must land after cfdb-031-audit-cleanup#2 work merges.
+- cfdb-031-audit-cleanup#3 — query-composer relocation. Issue #49 (cfdb-query-dsl)
   must land after this move to avoid importing from a path that is
   about to change.
 - council/RATIFIED.md §A.5 — Phase A (syn-backed) vs Phase B (HIR-backed)
@@ -31,7 +27,7 @@ safety surprises, Cargo.toml churn in the wrong order).
 
 ---
 
-## Trap index (read before sequencing)
+## §0 — Trap index (read before sequencing)
 
 Four sequencing traps exist in this cohort. Each is Rust-specific and
 silent — they compile and appear to work, then produce a bug or a
@@ -57,13 +53,13 @@ breaking change has no protocol to follow. #39 precedes #40.
 `IMPL_TRAIT_FOR_TYPE` edges, which requires new arms in
 `apply_path_pattern` (line 86, cognitive complexity 40). Adding a
 new match arm to a function at complexity 40 will push it higher,
-making RFC-031 §5 (the refactor to complexity <15) harder to execute
-cleanly. RFC-031 §5 (issue #26) must merge before issue #42 to ensure
+making cfdb-031-audit-cleanup#5 (the refactor to complexity <15) harder to execute
+cleanly. cfdb-031-audit-cleanup#5 (issue #26) must merge before issue #42 to ensure
 the new arm lands in refactored code with lower nesting depth.
 
 **Trap 4 — two parser scanners invite drift.** Issue #49 introduces
 the cfdb-query DSL, which may add a third scanner alongside the two
-in `cfdb-query/src/parser/mod.rs` (see RFC-031 §6). If RFC-031 §6
+in `cfdb-query/src/parser/mod.rs` (see cfdb-031-audit-cleanup#6). If cfdb-031-audit-cleanup#6
 (issue #28 — `StringAwareScanner` extraction) does not land first,
 the DSL work either duplicates the string-literal-awareness pattern a
 third time or adds a dependency on an unextracted private function.
@@ -80,7 +76,7 @@ Issue #28 precedes #49.
 attributes and edges that Phase A queries require without waiting for
 HIR. Visibility gating (`#35`) makes `list_items_matching` results
 filterable by `pub` / `pub(crate)` / private — a prerequisite for
-the RFC-030 anti-drift gate (graph-specs visibility assertions). Feature
+the cfdb-030-anti-drift-gate anti-drift gate (graph-specs visibility assertions). Feature
 flag extraction (`#36`) makes `#[cfg(feature = "...")]` gates visible
 in the fact graph, enabling pattern queries that distinguish "this item
 exists behind a feature flag" from "this item always exists". Entry
@@ -100,7 +96,7 @@ be added to the `cfdb-core` schema vocabulary crate, not implemented
 inline in the extractor — the schema is the contract; the extractor
 populates it.
 
-`#42` is gated by **Trap 3**. It must not land before RFC-031 §5
+`#42` is gated by **Trap 3**. It must not land before cfdb-031-audit-cleanup#5
 (issue #26). The dependency is:
 
 ```
@@ -108,7 +104,7 @@ RFC-031 §5 (#26 — pattern.rs refactor) → #42 (IMPL_TRAIT_FOR_TYPE)
 ```
 
 `#35`, `#36`, `#41` have no blockers within this group and can land
-in any order or in parallel once RFC-031 §2 (`EnrichBackend` split,
+in any order or in parallel once cfdb-031-audit-cleanup#2 (`EnrichBackend` split,
 issue #27) has merged — because the trait split affects the
 `StoreBackend` signature that extractor output flows into.
 
@@ -131,7 +127,7 @@ RFC-031 §2 (#27) → #35, #36, #41 (independent)
 **User value.** The `--rev` flag enables extraction against a
 historical revision, materializing a fact snapshot for any `git`
 SHA without requiring a working-tree checkout. This is the
-mechanism that allows `cfdb diff` (RFC-030 §3.2) to compare base
+mechanism that allows `cfdb diff` (cfdb-030-anti-drift-gate#3.2) to compare base
 and head snapshots on PRs. Without `--rev`, the CI diff gate must
 manage two separate working-tree checkouts, which is fragile and
 slow.
@@ -148,17 +144,17 @@ must be verified. Two implementation choices exist:
    faster and is appropriate for distro packages.
 
 For an open-source project where contributors run diverse environments,
-vendored is the safer default. RFC-032 recommends vendored; the
+vendored is the safer default. cfdb-032-v02-extractor recommends vendored; the
 implementer may override with a documented rationale.
 
-`enrich_git_history` (RFC-029 §A2.2 Stage 1 table) is the primary
+`enrich_git_history` (cfdb-029-code-facts-database §A2.2 Stage 1 table) is the primary
 consumer of `--rev` output. It can be implemented without `--rev`
 using subprocess `git log`, but that imposes a fork-per-file cost
 that does not scale on large workspaces. `git2` enables a single
 `Repository::open` + `Commit::tree` traversal. The `git2` path is
 strongly preferred for correctness and performance.
 
-**Blocking dependencies:** RFC-031 §2 (#27), for same reason as
+**Blocking dependencies:** cfdb-031-audit-cleanup#2 (#27), for same reason as
 Group A (StoreBackend signature stabilization).
 
 **Workspace Cargo.toml impact:** one new `[workspace.dependencies]`
@@ -173,7 +169,7 @@ One new `[dependencies]` line in `cfdb-extractor/Cargo.toml`.
 scaffold)
 
 **User value.** Group C creates the new parallel crate `cfdb-hir-extractor`
-documented in RFC-029 §A1.2. Without this crate, all Phase B queries
+documented in cfdb-029-code-facts-database §A1.2. Without this crate, all Phase B queries
 (call graph, entry-point reachability, method dispatch resolution) are
 blocked. Every issue in Groups D and E depends on this group.
 
@@ -207,7 +203,7 @@ surface, and a passing `cargo test -p cfdb-hir-extractor` run. The
 scaffold does not yet populate any `:CallSite` or `CALLS` edges — that
 is Group D.
 
-**Object safety constraint (RFC-029 §A1.2).** `HirDatabase` is a
+**Object safety constraint (cfdb-029-code-facts-database §A1.2).** `HirDatabase` is a
 salsa query database. It is NOT object-safe (uses associated types
 and generic methods that preclude `dyn HirDatabase`). Every function
 in `cfdb-hir-extractor` that accepts the database must take it as
@@ -215,7 +211,7 @@ a monomorphic concrete type (`impl HirDatabase + Sized`, or a concrete
 `salsa::DatabaseImpl<HirData>` struct). No function in this crate's
 public API may have `dyn HirDatabase` in its signature. The architecture
 test that validates "no `ra_ap_*` type in cfdb-core public signatures"
-(RFC-029 §A1.2 boundary test, acceptance gate v0.2-6) must be authored
+(cfdb-029-code-facts-database §A1.2 boundary test, acceptance gate v0.2-6) must be authored
 in this issue.
 
 **Feature flag topology.** `cfdb-hir-extractor` is a new crate;
@@ -250,7 +246,7 @@ No orphan violation: `cfdb-petgraph` owns both the trait source
 - Estimated churn: 13 lines across 2 files.
 
 **Compilation cost (cold vs warm).** Group C adds ~90–150s to a cold
-workspace build (per RFC-029 §A1.2 revised estimate). Incremental
+workspace build (per cfdb-029-code-facts-database §A1.2 revised estimate). Incremental
 builds touching only `cfdb-hir-extractor` cost ~5–10s (sccache-warm).
 Builds that do NOT touch `cfdb-hir-extractor` are unaffected — Cargo's
 unit-graph isolation means the `ra-ap-*` crates are not recompiled
@@ -267,7 +263,7 @@ query), #45 (canonical-bypass query), #46 (enrich_bounded_context),
 **User value.** This group delivers the core detection capability:
 the three-phase CFO loop (extract → enrich → classify → query). Each
 issue in this group depends on the HIR extractor scaffold from Group C
-and the `EnrichBackend` trait from RFC-031 §2. Together they populate
+and the `EnrichBackend` trait from cfdb-031-audit-cleanup#2. Together they populate
 the `:CallSite` / `CALLS` / `INVOKES_AT` / `:EntryPoint` / `:Finding`
 graph nodes and emit Pattern B and Pattern C query results.
 
@@ -288,14 +284,14 @@ Group C (#39, #40 scaffold) →
 `#42` (Group A) must also precede `#45` because `canonical-bypass.cypher`
 uses `IMPL_TRAIT_FOR_TYPE` edges to identify canonical impls.
 
-**`EnrichBackend` trait (RFC-031 §2).** The five enrichment passes in
+**`EnrichBackend` trait (cfdb-031-audit-cleanup#2).** The five enrichment passes in
 `#43` implement the `EnrichBackend` trait on `PetgraphStore`. This
-implementation must not land before RFC-031 §2 (issue #27) splits
+implementation must not land before cfdb-031-audit-cleanup#2 (issue #27) splits
 `EnrichBackend` out of `StoreBackend` — otherwise the enrich methods
 return to being bolted onto the fat trait.
 
 **`signature_divergent` UDF (#47) — algorithm must be documented
-before implementation (RFC-029 §A1.5 gate v0.2-8).** The UDF compares
+before implementation (cfdb-029-code-facts-database §A1.5 gate v0.2-8).** The UDF compares
 two `:Item` nodes using a field-set comparison algorithm. Without a
 documented algorithm, two implementers will write divergent heuristics
 that agree on the ground-truth `OrderStatus` test case but diverge on
@@ -306,14 +302,14 @@ ground-truth pairs (`OrderStatus`, `PositionValuation` across
 implementation within issue #47.
 
 **`Finding` classifier (#48) — no `fix_skill` field.** The `:Finding`
-schema (RFC-029 §A2.2) explicitly forbids a `fix_skill` field.
+schema (cfdb-029-code-facts-database §A2.2) explicitly forbids a `fix_skill` field.
 The classifier emits `class` only; routing lives in
 `SkillRoutingTable` (`.cfdb/skill-routing.toml`). Any implementation
 that adds a `fix_skill` or `routing` attribute to the `:Finding` node
-violates RFC-029 §A2.2 and must be rejected in code review.
+violates cfdb-029-code-facts-database §A2.2 and must be rejected in code review.
 
 **Object safety note for UDF registration (#47).** If cfdb-store-lbug
-is adopted for UDF storage (per RFC-029 §A1.5 gate v0.2-6 UDF scope
+is adopted for UDF storage (per cfdb-029-code-facts-database §A1.5 gate v0.2-6 UDF scope
 clarification), the registration function must not cross the
 `cfdb-core` public boundary — confirmed by the architecture test.
 
@@ -335,7 +331,7 @@ runtime without the maintenance burden of string templates.
 
 **Rust-systems constraints.**
 
-**Trap 4 applies.** Issue #28 (RFC-031 §6, `StringAwareScanner`
+**Trap 4 applies.** Issue #28 (cfdb-031-audit-cleanup#6, `StringAwareScanner`
 extraction) must precede #49. The DSL introduces a new query path
 through `cfdb-query`; if the underlying scanner primitives are not
 yet unified into a shared `StringAwareScanner`, the DSL either
@@ -346,7 +342,7 @@ an undocumented internal coupling. The dependency is:
 RFC-031 §6 (#28 — scanner unification) → #49 (cfdb-query-dsl)
 ```
 
-RFC-031 §3 (move query composers from `cfdb-core` to `cfdb-query`,
+cfdb-031-audit-cleanup#3 (move query composers from `cfdb-core` to `cfdb-query`,
 issue #25) must also precede #49. After the move, the canonical
 import path for query types is `cfdb_query::*`, not `cfdb_core::*`.
 If #49 imports from `cfdb-core` directly, it creates a dependency on
@@ -377,12 +373,12 @@ the existing `cfdb-query` crate.
 
 ## §6 — Group F: skills and documentation
 
-**Issues:** #50 (operate-module skill), #51 (RFC-029 renumbering),
+**Issues:** #50 (operate-module skill), #51 (cfdb-029-code-facts-database renumbering),
 #3 (cfdb-concepts shared crate — design-pending)
 
 **User value.** #50 implements the `/operate-module` skill as
-specified in RFC-029 §A3.4 (two responsibilities: threshold evaluation
-+ raid plan emission). #51 renumbers RFC-029 and its addendum to the
+specified in cfdb-029-code-facts-database §A3.4 (two responsibilities: threshold evaluation
++ raid plan emission). #51 renumbers cfdb-029-code-facts-database and its addendum to the
 final RFC numbers and updates all internal cross-references. #3 is
 design-pending: the question of whether a `cfdb-concepts` shared crate
 is needed for cross-crate concept vocabulary has not been resolved.
@@ -398,9 +394,9 @@ The skill calls `cfdb violations --context <ctx>` and reads the JSON
 output.
 
 `#51` is a mechanical rename. It must land last in the documentation
-chain — after all cross-references in RFC-030, RFC-031, and RFC-032
+chain — after all cross-references in cfdb-030-anti-drift-gate, cfdb-031-audit-cleanup, and cfdb-032-v02-extractor
 are final. If #51 lands first, cross-references in this RFC and
-RFC-031 point to stale section numbers.
+cfdb-031-audit-cleanup point to stale section numbers.
 
 `#3 (cfdb-concepts shared crate)` — **design recommendation from
 Rust-systems lens:** do not create this crate in v0.2. The motivation
@@ -427,11 +423,11 @@ that the `.cfdb/concepts/*.toml` override mechanism is insufficient.
 
 ## §7 — Issue #38 (CfdbCliError / PR in flight)
 
-**Issue:** #38 is tracked by RFC-031 §7 and is in-flight (PR open at
-time of RFC-032 drafting). It is included here for completeness and to
-avoid duplication with RFC-031.
+**Issue:** #38 is tracked by cfdb-031-audit-cleanup#7 and is in-flight (PR open at
+time of cfdb-032-v02-extractor drafting). It is included here for completeness and to
+avoid duplication with cfdb-031-audit-cleanup.
 
-No action required from RFC-032 implementers: if PR #38 merges before
+No action required from cfdb-032-v02-extractor implementers: if PR #38 merges before
 Group A work begins, all handler return types already use
 `CfdbCliError`. If it has not merged, implementers should rebase on
 top of it.
@@ -440,7 +436,7 @@ top of it.
 
 ## §8 — Complete sequencing diagram
 
-All blocking dependencies, including RFC-031 prerequisites:
+All blocking dependencies, including cfdb-031-audit-cleanup prerequisites:
 
 ```
 RFC-031 §1 (verify #29)
@@ -498,7 +494,7 @@ feature delivery.
 
 ## §10 — Acceptance gate mapping
 
-RFC-029 §A1.5 defines acceptance gates v0.2-1 through v0.2-9. This
+cfdb-029-code-facts-database §A1.5 defines acceptance gates v0.2-1 through v0.2-9. This
 table maps each gate to the issue that satisfies it:
 
 | Gate | Issue(s) | Group |
@@ -520,7 +516,7 @@ table maps each gate to the issue that satisfies it:
 ## §11 — Open questions (not blocking v0.2)
 
 1. **`cfdb-hir-extractor` cold build measurement.** The 90–150s
-   estimate (RFC-029 §A1.2) is based on counting `ra-ap-*` transitive
+   estimate (cfdb-029-code-facts-database §A1.2) is based on counting `ra-ap-*` transitive
    crates and the presence of salsa proc-macros. It has not been
    measured against the actual dependency graph of the pinned versions.
    Gate v0.2-5a (`cargo clean && time cargo build -p cfdb-hir-extractor
@@ -538,19 +534,19 @@ table maps each gate to the issue that satisfies it:
 
 3. **`ra-ap-rustc_type_ir` versioning.** This sub-crate versions
    independently from the other 9 `ra-ap-*` crates (2–3 releases per
-   week per RFC-029 §A1.2). The upgrade runbook (#39) must explicitly
+   week per cfdb-029-code-facts-database §A1.2). The upgrade runbook (#39) must explicitly
    cover how to handle a `ra-ap-rustc_type_ir` release that does not
    align with the rest of the `ra-ap-*` pin block.
 
 ---
 
-*RFC-032 — drafted by rust-systems (Rust-systems lens), 2026-04-19.*
+*cfdb-032-v02-extractor — drafted by rust-systems (Rust-systems lens), 2026-04-19.*
 *All file:line citations verified against HEAD on branch*
-*`docs/rfc-030-anti-drift` (commit 250aac4 + RFC-031 merge).*
+*`docs/rfc-030-anti-drift` (commit 250aac4 + cfdb-031-audit-cleanup merge).*
 
 ---
 
-## Landing trail
+## §12 — Landing trail
 
 All v0.2 cohort slices (Groups A–D) are CLOSED on `agency:yg/cfdb`:
 

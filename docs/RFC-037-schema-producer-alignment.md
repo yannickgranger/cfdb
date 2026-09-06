@@ -1,11 +1,10 @@
 # RFC-037 — Schema-Producer Alignment
 
 **Status:** Shipped (phase closed 2026-04-24 — see §9 Phase Shipped). Published in `cfdb-core::SchemaVersion::V0_3_0` via PRs #224 / #225 / #226 / #228 / #229 / #241 / #249.
-**Draft history:** Draft v2 (revised 2026-04-23 per council verdicts in `council/RFC-037-VERDICTS.md`).
+**Draft history:** Draft v2 (revised 2026-04-23).
 **Blocks (resolved):** resumption of #201 (036-1: REGISTERS_PARAM emission) — landed via #226.
-**Sibling to:** RFC-036 (cfdb v2). This RFC closes the schema-vs-producer gaps surfaced during #201's `/discover` + `/prescribe` pass.
+**Sibling to:** cfdb-036-cfdb-v2 (cfdb v2). This RFC closes the schema-vs-producer gaps surfaced during #201's `/discover` + `/prescribe` pass.
 **Seed audit:** `.discovery/gap-audit-schema-vs-code.md`.
-**Council verdicts:** `council/RFC-037-VERDICTS.md` (draft v1 REQUEST CHANGES; draft v2 addressed nine blocking findings B1-B9 and non-blocking N1-N6); closeout review in `council/RFC-037-CLOSEOUT.md`.
 
 ---
 
@@ -13,11 +12,11 @@
 
 During `/prescribe` on #201 (REGISTERS_PARAM producer), three layers disagreed:
 
-- **RFC-036 §3.1 CP1** asks that `REGISTERS_PARAM` "reuse the existing `:Param` nodes emitted by `HAS_PARAM`" for MCP tool fns, clap `#[arg]` struct fields, and clap `Subcommand` variants.
+- **cfdb-036-cfdb-v2#3.1 CP1** asks that `REGISTERS_PARAM` "reuse the existing `:Param` nodes emitted by `HAS_PARAM`" for MCP tool fns, clap `#[arg]` struct fields, and clap `Subcommand` variants.
 - **The schema descriptor** (`crates/cfdb-core/src/schema/describe/edges.rs:134-139`) declares `REGISTERS_PARAM` with `from: [:EntryPoint]`, `to: [:Param]` — one strict target type.
 - **The extractor** emits `:Param` only from fn args (shipped in #209). Clap `#[arg]` struct fields emit `:Field`; `Subcommand` variants emit no variant-level node at all (`visit_item_enum` at `visits.rs:221-230` does not walk `node.variants`).
 
-The disagreement is not unique to REGISTERS_PARAM. A systematic audit (`.discovery/gap-audit-schema-vs-code.md`) found **7 of 20 declared edges have zero producer** and **1 of 12 declared nodes (`:Variant`) is fully dormant**. Four of these dormants are load-bearing for RFC-036's in-flight downstream consumers (#201, #202, #204, #205).
+The disagreement is not unique to REGISTERS_PARAM. A systematic audit (`.discovery/gap-audit-schema-vs-code.md`) found **7 of 20 declared edges have zero producer** and **1 of 12 declared nodes (`:Variant`) is fully dormant**. Four of these dormants are load-bearing for cfdb-036-cfdb-v2's in-flight downstream consumers (#201, #202, #204, #205).
 
 **Why the gaps survived:** descriptor PRs ship on separate cycles from producer PRs; `graph-specs-rust` cross-dogfood ratifies descriptor existence but not producer fidelity; `cfdb-recall` (vs rustdoc-json) is blind to cfdb-specific vocabulary.
 
@@ -244,16 +243,9 @@ pub fn variant_node_id(enum_qname: &str, index: usize) -> String {
 
 ## 5. Architect lenses — ratified via council
 
-The four-lens council (`council/RFC-037-VERDICTS.md`) ratified the design direction and returned REQUEST CHANGES on the implementation prescription with nine blocking findings (B1-B9). This revision (draft v2) addresses every blocking finding with the fix prescribed in the verdict document. Single-lens re-check sufficient if any author-initiated deviation from a prescribed fix.
-
-- **clean-arch** — B7 (Issue D depends on Issue E), B8 (new Issue H), B9 (crate-ownership table). Ratified post-revision.
-- **ddd** — B6 (HAS_FIELD + :Field.parent_qname description), N1 (Subcommand transitional note), N2 (spec amendments). Ratified post-revision.
-- **solid** — B4 (emit_field src_id), B5 (emit_field_list extraction). Ratified post-revision.
-- **rust-systems** — B1 (post-walk pass + known_qnames infrastructure), B2 (generic-stripping limitation), B3 (edge-liveness redesign), N3 (test-file enumeration), N4 (tuple-field ADD not REUSE). Ratified post-revision.
-
 ## 6. Non-goals
 
-- Fixing attribute-contract drift systematically (descriptor↔emitter mechanical check). RFC-037 closes one such drift (`:Field`); systemic fix is a separate RFC round.
+- Fixing attribute-contract drift systematically (descriptor↔emitter mechanical check). cfdb-037-schema-producer-alignment closes one such drift (`:Field`); systemic fix is a separate RFC round.
 - Adding `:Statement`, `:Expression`, or finer-grained structural nodes. cfdb remains item-granular.
 - HIR-based `RETURNS` / `TYPE_OF` for cross-crate resolution.
 - **`render_type_inner` generic unwrapping** — current `type_render.rs:14-21` strips generics; `Vec<T>` → `"Vec"`, `Option<T>` → `"Option"`. TYPE_OF/RETURNS silently do not emit for wrapper-wrapped same-crate types. Follow-up RFC may refine. The HSB Jaccard signal (#204) has a recall loss proportional to wrapper frequency in target workspaces; acceptable for v0.3.0.
@@ -263,9 +255,9 @@ The four-lens council (`council/RFC-037-VERDICTS.md`) ratified the design direct
 
 ## 7. Issue decomposition
 
-Vertical slices. Each `Tests:` block follows CLAUDE.md §2.5 RFC-033 template. Dependency chain: **H → A, E → B (depends on H) → C (depends on B) → D (depends on B and E) → F (depends on A-E) → G (depends on A-F)**.
+Vertical slices. Each `Tests:` block follows CLAUDE.md §2.5 cfdb-033-cross-dogfood template. Dependency chain: **H → A, E → B (depends on H) → C (depends on B) → D (depends on B and E) → F (depends on A-E) → G (depends on A-F)**.
 
-### Issue H — Canonical `field_node_id` + `variant_node_id` in `cfdb-core::qname`
+### 7.1 — Issue H — Canonical `field_node_id` + `variant_node_id` in `cfdb-core::qname`
 
 Scope: §3.8. Adds two `#[must_use]` pub fns; migrates `emit::emit_field` to route through `field_node_id`.
 
@@ -280,7 +272,7 @@ Tests:
   - Target dogfood: none — rationale: mechanical refactor; no observable graph change.
 ```
 
-### Issue A — RETURNS producer (syn-level, post-walk)
+### 7.2 — Issue A — RETURNS producer (syn-level, post-walk)
 
 Scope: §3.2. Adds `emitted_item_qnames: HashSet<String>` and `deferred_returns: Vec<(String, String)>` to `ItemVisitor`. Post-walk pass resolves deferred entries. Generic-stripping limitation documented.
 
@@ -295,7 +287,7 @@ Tests:
   - Target dogfood (on qbot-core at pinned SHA): report RETURNS edge count + top-10 most-common return types in PR body for reviewer sanity-check.
 ```
 
-### Issue B — HAS_VARIANT + `:Variant` producer + `emit_field_list` + descriptor updates
+### 7.3 — Issue B — HAS_VARIANT + `:Variant` producer + `emit_field_list` + descriptor updates
 
 Scope: §3.3. Extends `visit_item_enum`; adds `emit_field_list` helper with explicit `src_id`; migrates `visit_item_struct` to use the helper; handles `Fields::Unnamed` for both structs and variants; widens `HAS_FIELD` descriptor `from:` list and description; updates `:Field.parent_qname` attribute description; routes through `variant_node_id` from Issue H.
 
@@ -310,7 +302,7 @@ Tests:
   - Target dogfood (on qbot-core at pinned SHA): report :Variant count grouped by payload_kind + tuple-struct field count in PR body.
 ```
 
-### Issue C — REGISTERS_PARAM producer (three paths)
+### 7.4 — Issue C — REGISTERS_PARAM producer (three paths)
 
 Scope: §3.1. Widens edge descriptor `to:` list. Implements MCP (syn-side) + clap-struct (HIR-side) + Subcommand (HIR-side) emitters with the crate-ownership table from §3.1. Uses `field_node_id` / `variant_node_id` from Issue H. Adds § REGISTERS_PARAM + § RETURNS + § TYPE_OF + § Variant sections to specs/concepts/cfdb-core.md.
 
@@ -325,7 +317,7 @@ Tests:
   - Target dogfood (on qbot-core at pinned SHA): report :EntryPoint count by kind + total REGISTERS_PARAM edge count in PR body. Expected: non-zero MCP + non-zero CLI.
 ```
 
-### Issue D — TYPE_OF producer (post-walk, shares infrastructure with RETURNS)
+### 7.5 — Issue D — TYPE_OF producer (post-walk, shares infrastructure with RETURNS)
 
 Scope: §3.4. Adds `deferred_type_of` vector + post-walk pass. Emits TYPE_OF for `:Field`/`:Param`/`:Variant` whose type resolves to a walked `:Item`. Reuses `emitted_item_qnames` from Issue A.
 
@@ -340,7 +332,7 @@ Tests:
   - Target dogfood (on qbot-core at pinned SHA): report TYPE_OF edge count + walk-order test result in PR body.
 ```
 
-### Issue E — `:Field` attribute alignment
+### 7.6 — Issue E — `:Field` attribute alignment
 
 Scope: §3.5. Emits `{index, name, parent_qname, type_normalized, type_path}`; removes `type_qname`. `emit_field_list` signature carries `index` through.
 
@@ -355,7 +347,7 @@ Tests:
   - Target dogfood (on qbot-core at pinned SHA): report attribute-presence ratio in PR body. Flag any Cypher in the downstream consumer that reads type_qname.
 ```
 
-### Issue F — Vestigial deletions + SchemaVersion v0.3.0 bump
+### 7.7 — Issue F — Vestigial deletions + SchemaVersion v0.3.0 bump
 
 Scope: §3.6. Delete `SUPERTRAIT` + `RECEIVES_ARG` from `labels.rs`, `edges.rs`, and the two test files `tests.rs:49,53` + `predicate_schema_refs.rs:50,54`. Bump `SchemaVersion::CURRENT` to `V0_3_0`.
 
@@ -370,7 +362,7 @@ Tests:
   - Target dogfood: none — rationale: version bump + deletion; no new runtime facts.
 ```
 
-### Issue G — Edge-liveness informational check
+### 7.8 — Issue G — Edge-liveness informational check
 
 Scope: §3.7. Ships `.cfdb/ci/edge-liveness.sh` (NOT a `.cypher` file). CI invokes it as informational in v0.3.0.
 
@@ -386,13 +378,9 @@ Tests:
 
 ## 8. Ratification gate
 
-This draft v2 integrates all council blocking findings. No re-council run is required if the author ships each fix per its prescribed shape (file:line traceability back to `council/RFC-037-VERDICTS.md` §2 B1-B9). Single-lens re-check sufficient for any deviation.
-
-Issues are filed from §7 once this draft is committed. The edge-liveness shell harness (§3.7) is the mechanical detector that would have caught RFC-037's own motivating gap; informational in v0.3.0, blocking in v0.4.0. From RFC-038 onward the council's pre-check has teeth.
-
 ## 9. Phase Shipped (2026-04-24)
 
-Closes #238. Records the disposition of RFC-037 as published in `cfdb-core::SchemaVersion::V0_3_0` and tagged at `v0.3.0` on `main`.
+Closes #238. Records the disposition of cfdb-037-schema-producer-alignment as published in `cfdb-core::SchemaVersion::V0_3_0` and tagged at `v0.3.0` on `main`.
 
 ### 9.1 — Slices merged
 
@@ -441,7 +429,7 @@ All three dogfood paths exercise the shipped v0.3.0 binary (with `--features hir
 | REGISTERS_PARAM | 79 | Non-zero MCP + non-zero CLI; exact distribution in `.proofs/target-dogfood-238.txt` |
 | HAS_VARIANT / `:Variant` | 2,259 / 2,259 | 102 `:EntryPoint` total |
 
-**Edge-liveness (v0.3.0 informational)** — all four RFC-037 producers emit live edges on both self and target; `ci/edge-liveness.sh` dormant labels on self: `IN_MODULE` (scope-out per §2), `LABELED_AS` / `CANONICAL_FOR` / `EQUIVALENT_TO` / `REFERENCED_BY` (enrichment-path labels — populated by `cfdb classify` / `cfdb enrich`, not by `extract`). No RFC-037 producer is dormant.
+**Edge-liveness (v0.3.0 informational)** — all four cfdb-037-schema-producer-alignment producers emit live edges on both self and target; `ci/edge-liveness.sh` dormant labels on self: `IN_MODULE` (scope-out per §2), `LABELED_AS` / `CANONICAL_FOR` / `EQUIVALENT_TO` / `REFERENCED_BY` (enrichment-path labels — populated by `cfdb classify` / `cfdb enrich`, not by `extract`). No cfdb-037-schema-producer-alignment producer is dormant.
 
 ### 9.3 — §6 non-goals disposition
 
@@ -451,11 +439,11 @@ Each §6 entry is either (a) filed as its own follow-up issue, or (b) retired wi
 |---|---|---|
 | 1 | `render_type_inner` generic unwrapping (`Vec<T>` / `Option<T>` / `Arc<T>` / `Result<T,E>`) | **SHIPPED** — filed as #239, merged via PR #249 at `bae7598`. Closed. |
 | 2 | Systemic attribute-contract drift check (descriptor↔emitter mechanical validator) | **TRACKED** — filed as #250 (placeholder for the next anti-drift RFC round). The edge-liveness harness (G) already catches the zero-producer case; attribute-contract drift (wrong attrs on a live edge) is a distinct failure mode awaiting a systemic detector. |
-| 3 | `:Statement` / `:Expression` / finer-grained structural nodes | **RETIRED** — cfdb's vocabulary stays item-granular by design (RFC-036 §1 / RFC-cfdb.md). Sub-item granularity is out of scope for the producer contract. |
+| 3 | `:Statement` / `:Expression` / finer-grained structural nodes | **RETIRED** — cfdb's vocabulary stays item-granular by design (cfdb-036-cfdb-v2#1 / cfdb-029-code-facts-database). Sub-item granularity is out of scope for the producer contract. |
 | 4 | HIR-based RETURNS / TYPE_OF for cross-crate resolution | **RETIRED (reopen-able)** — v0.3.0 is syn-level only. Cross-crate precision is a follow-up if a downstream consumer measures unresolved-edge drop as load-bearing. No open issue; #204 (HSB cluster) is the most-likely trigger for the reopen. |
 | 5 | Nested `:EntryPoint{kind:cli_subcommand}` model for Subcommand enums | **RETIRED (reopen-able)** — v0.3.0 uses the pragmatic "one REGISTERS_PARAM per variant" compression (§3.1 transitional note). Long-term model is a follow-up RFC once there is concrete query-side evidence the flattened model loses signal. No open issue. |
 | 6 | Reviving `SUPERTRAIT` / `RECEIVES_ARG` | **RETIRED** — deleted, not reserved (I/F at PR #228). A future RFC can reintroduce with a concrete producer; no reservation cost carried. |
-| 7 | `cfdb-recall` corpus extensions for new cfdb vocabulary | **RETIRED** — rustdoc-json has no ground truth for cfdb-specific labels (`:Variant`, `REGISTERS_PARAM`, etc.); `cfdb-recall` stays scoped to the rustdoc-aligned subset. Orthogonal to RFC-037's surface. |
+| 7 | `cfdb-recall` corpus extensions for new cfdb vocabulary | **RETIRED** — rustdoc-json has no ground truth for cfdb-specific labels (`:Variant`, `REGISTERS_PARAM`, etc.); `cfdb-recall` stays scoped to the rustdoc-aligned subset. Orthogonal to cfdb-037-schema-producer-alignment's surface. |
 
 ### 9.4 — Design decisions ratified in flight (not in draft v2)
 
@@ -466,18 +454,8 @@ Two decisions emerged during execution that are captured here for future-RFC tra
 
 ### 9.5 — Closeout review
 
-Light 1-round review per the issue body — scope is "is the phase correctly dispositioned?", not re-litigation of the design (already ratified in `council/RFC-037-VERDICTS.md`). Four-lens verdicts recorded in `council/RFC-037-CLOSEOUT.md`; summary:
-
-- **clean-arch** — RATIFY: shipped ownership matches prescribed layering once the HIR-emission adjustment (§9.4) is recorded.
-- **ddd** — RATIFY: `:Variant` + `HAS_VARIANT` vocabulary holds; no homonym bleed into `:Item`.
-- **solid** — RATIFY: `emit_field_list` extraction + canonical-id helpers closed B4/B5/B8 at ship.
-- **rust-systems** — RATIFY: post-walk resolution + `render_type_inner` closed B1/B2 at ship; edge-liveness harness (G) is the mechanical detector that catches this class of drift going forward.
-
-No deviations from the ratified design unresolved at close. RFC-037 transitions from "in-flight" to "shipped, closed" in the catalog.
+No deviations from the ratified design unresolved at close. cfdb-037-schema-producer-alignment transitions from "in-flight" to "shipped, closed" in the catalog.
 
 ---
 
 **Author:** team-lead @ `a0-session:2026-04-23-201-paused-for-gap-audit`.
-**Seed audit:** `.discovery/gap-audit-schema-vs-code.md`.
-**Council verdicts:** `council/RFC-037-VERDICTS.md` (draft) + `council/RFC-037-CLOSEOUT.md` (closeout).
-**Closeout session:** `a0-session:2026-04-24-rfc-037-closeout` (via #238).

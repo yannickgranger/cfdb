@@ -1,11 +1,10 @@
 # RFC-034 — Query DSL for machine-checkable predicates
 
-**Status:** RATIFIED (2026-04-21) — `council/49/RATIFIED.md` seals all 4 lens verdicts
+**Status:** RATIFIED (2026-04-21)
 **Date:** 2026-04-21
 **Tracking issue:** #49
 **Parent:** #34 (EPIC — cfdb v0.2)
 **Author:** Claude (Opus 4.7)
-**Council team:** `council-49-query-dsl` (to be spawned after this draft review)
 
 ---
 
@@ -47,7 +46,7 @@ This RFC asks and answers: **does the existing `cfdb-query` Cypher subset alread
 
 - **No new DSL grammar.** No chumsky-rewrite. No BNF. The existing Cypher subset (`MATCH` / `OPTIONAL MATCH` / `WHERE` / `WITH` / `UNWIND` / `RETURN` / `IN` / `NOT EXISTS` / `AND` / `OR` / `NOT` / regex) already composes every predicate form enumerated in this RFC's reduced-scope seed set. Issue #49's original "re-exported FROM crate IN context-map[portfolio]" example requires a `RE_EXPORTS` edge not yet emitted (re-export resolution is Phase B / HIR per `crates/cfdb-extractor/src/type_render.rs:4`); that predicate is explicitly deferred to a future RFC (see §6).
 - **No new crate** `crates/cfdb-query-dsl/`. The shippable surface is two touches (R1 C1 relocation):
-  - `cfdb-cli`: new `check-predicate` verb handler + **param-resolver module** (moved here from cfdb-query per solid-architect's CRP verdict)
+  - `cfdb-cli`: new `check-predicate` verb handler + **param-resolver module** (moved here from cfdb-query per CRP verdict)
   - `cfdb-query`: **no changes** — the existing parser, builder, and AST are reused as-is
   - `.cfdb/predicates/`: new directory (sibling of `.cfdb/queries/` and `.cfdb/concepts/`) — seed content only
 - **No new cfdb-core vocabulary.** No new `:Label`, no new edge kind, no `SchemaVersion` bump. This RFC is a CLI + template + predicate-library addition; it does not touch the wire format.
@@ -59,7 +58,7 @@ This RFC asks and answers: **does the existing `cfdb-query` Cypher subset alread
 
 ### 3.1 Types
 
-**New in `cfdb-cli`** (R1 C1 relocation — previously proposed for `cfdb-query`; moved to `cfdb-cli` per solid-architect's CRP verdict: `cfdb-query` has zero runtime consumers of a filesystem-reading module, `cfdb-cli` is the sole consumer):
+**New in `cfdb-cli`** (R1 C1 relocation — previously proposed for `cfdb-query`; moved to `cfdb-cli` per CRP verdict: `cfdb-query` has zero runtime consumers of a filesystem-reading module, `cfdb-cli` is the sole consumer):
 
 ```rust
 // crates/cfdb-cli/src/param_resolver.rs   (NEW FILE)
@@ -216,7 +215,7 @@ ORDER BY qname
 
 **Principle:** `cfdb check-predicate --name X` on the same keyspace produces byte-identical stdout across runs.
 
-**Mechanism:** inherited from the existing Cypher evaluator (RFC-cfdb §12.1 G1). `ORDER BY` in the template + sorted binding iteration in `cfdb-petgraph/src/eval/` guarantee stable row order. Param resolver reads TOML deterministically (sorted crate lists in `.cfdb/concepts/`).
+**Mechanism:** inherited from the existing Cypher evaluator (cfdb-029-code-facts-database#12.1 G1). `ORDER BY` in the template + sorted binding iteration in `cfdb-petgraph/src/eval/` guarantee stable row order. Param resolver reads TOML deterministically (sorted crate lists in `.cfdb/concepts/`).
 
 **Proof:** `ci/determinism-check.sh`-style test — run the three seed predicates twice, assert byte-identical stdout.
 
@@ -250,12 +249,10 @@ ORDER BY qname
 
 ## 5. Architect lenses
 
-### 5.1 Clean architecture (`clean-arch`)
-
-**Question:** Does this RFC keep `StoreBackend` trait purity? Is the dependency direction respected?
+### 5.1 Clean architecture
 
 **Proposed placement (R1 C1 + C3 revision):**
-- **Param-resolver module: `cfdb-cli/src/param_resolver.rs`** (moved from `cfdb-query` per solid-architect CRP verdict — R1 C1). Rationale: `cfdb-query` has zero runtime consumers that use a filesystem-reading module; `cfdb-cli` is the sole consumer. Placing the resolver in `cfdb-query` forces every future `cfdb-query` consumer to accept a `cfdb-concepts` dep they do not need. CRP wins the tie-break; SDP direction is acyclic either way.
+- **Param-resolver module: `cfdb-cli/src/param_resolver.rs`** (moved from `cfdb-query` per CRP verdict — R1 C1). Rationale: `cfdb-query` has zero runtime consumers that use a filesystem-reading module; `cfdb-cli` is the sole consumer. Placing the resolver in `cfdb-query` forces every future `cfdb-query` consumer to accept a `cfdb-concepts` dep they do not need. CRP wins the tie-break; SDP direction is acyclic either way.
 - Verb handler: `cfdb-cli/src/check_predicate.rs` (new sibling of `check.rs`). Mirrors the `check.rs` editorial-drift verb that already composes a Cypher template with a CLI arg.
 - Composition root: `cfdb-cli/src/main_dispatch.rs` adds one dispatch arm. No new crate.
 - **New direct dep:** `crates/cfdb-cli/Cargo.toml` gains `cfdb-concepts = { path = "../cfdb-concepts" }`. Confirmed via `grep cfdb-concepts crates/cfdb-cli/Cargo.toml` (currently absent). The prior RFC draft's claim that `cfdb-concepts` was "already present" as a dep of `cfdb-query` was factually incorrect (R1 C3 retraction).
@@ -265,11 +262,7 @@ ORDER BY qname
 
 **Boundary contract:** the param resolver in cfdb-cli takes `&Path` + `&str`, returns `(String, Param)`; depends on `cfdb-concepts` + `cfdb-core::query` + `toml`. Direction is `cfdb-cli → {cfdb-concepts, cfdb-core, cfdb-query, cfdb-petgraph, ...}` (no cycle — cfdb-cli already sits above all library crates).
 
-**Clean-arch verdict (R1):** RATIFY with editorial corrections; solid-architect's CRP tie-break adopted. See `council/49/verdicts/clean-arch.md`.
-
-### 5.2 Domain-driven design (`ddd-specialist`)
-
-**Question:** Does the RFC introduce bounded-context concepts coherently? Any homonym risk on `predicate`, `query`, `check`?
+### 5.2 Domain-driven design
 
 **Concepts introduced:**
 - **Predicate (file)** — a Cypher template at `.cfdb/predicates/<name>.cypher`. Homonym with `cfdb_core::query::Predicate` (the AST node for `WHERE` expressions). Two bounded contexts: the storage context (file-level predicate template) vs the query-AST context (in-memory predicate node). Homonym-by-design. Documentation MUST surface this in `docs/query-dsl.md` to prevent confusion.
@@ -278,11 +271,9 @@ ORDER BY qname
 
 **Canonical-resolver test:** every context-membership check goes through `cfdb_concepts::load_concept_overrides`. The RFC forbids a sibling inline TOML parser.
 
-**Verdict required from ddd-specialist:** RATIFY / REJECT / REQUEST CHANGES on the (a) predicate/Predicate homonym, (b) check/check-predicate verb split, (c) no-new-context-authority invariant.
+### 5.3 SOLID + component principles
 
-### 5.3 SOLID + component principles (`solid-architect`)
-
-**Question (R1 re-framing):** Since R1 C1 moves the param resolver OUT of `cfdb-query` and into `cfdb-cli`, the original SRP-threshold concern about `cfdb-query` growing a 7th responsibility is RETRACTED. The question becomes: does `cfdb-cli` gaining a param-resolver module violate SRP or CRP?
+Since R1 C1 moves the param resolver OUT of `cfdb-query` and into `cfdb-cli`, the original SRP-threshold concern about `cfdb-query` growing a 7th responsibility is RETRACTED. The question becomes: does `cfdb-cli` gaining a param-resolver module violate SRP or CRP?
 
 **Current `cfdb-cli` responsibilities:**
 - Binary entry + dispatch (`main.rs`, `main_dispatch.rs`, `main_command.rs`, `main_parse.rs` post-#128)
@@ -293,17 +284,13 @@ Adding `param_resolver.rs` is on the same axis — it is one step in the "dispat
 
 **`cfdb-query` responsibilities stay at 6:** parser, builder, inventory, shape_lint, SkillRoutingTable loader, list_items_matching. No R1 change here.
 
-**CRP justification (solid-architect R1):** components reused together stay together. `param_resolver` is reused only by `check-predicate` (this RFC) — which lives in `cfdb-cli`. No other crate today uses it; no other crate projects to use it. Placing it in `cfdb-cli` keeps the reuse group tight.
+**CRP justification (R1):** components reused together stay together. `param_resolver` is reused only by `check-predicate` (this RFC) — which lives in `cfdb-cli`. No other crate today uses it; no other crate projects to use it. Placing it in `cfdb-cli` keeps the reuse group tight.
 
 **Rejected alternatives:**
 - New sub-crate `cfdb-param-resolver/` — overkill for ~200 LOC with one consumer. If future consumers emerge, a follow-up RFC carves out a micro-crate.
-- Extension of `cfdb-query` — rejected by solid-architect CRP analysis (R1 C1); would rise `cfdb-query`'s instability metric from 0.33 to ~0.50 and add a `cfdb-concepts` dep onto every future `cfdb-query` consumer.
+- Extension of `cfdb-query` — rejected by CRP analysis (R1 C1); would rise `cfdb-query`'s instability metric from 0.33 to ~0.50 and add a `cfdb-concepts` dep onto every future `cfdb-query` consumer.
 
-**Solid-architect verdict (R1):** RATIFY pending confirmation of the relocation. See `council/49/SYNTHESIS-R1.md` C1.
-
-### 5.4 Rust systems (`rust-systems`)
-
-**Question:** chumsky parsing reuse, `cfdb_core::Query` AST shape, feature flags, trait object safety, compile cost.
+### 5.4 Rust systems
 
 **Parser reuse:** the existing `cfdb-query::parse(source) -> Result<Query, ParseError>` already handles every predicate form. No new parser. No new chumsky combinator. No new AST variant.
 
@@ -314,8 +301,6 @@ Adding `param_resolver.rs` is on the same axis — it is one step in the "dispat
 **Trait object safety:** N/A — no new traits.
 
 **Orphan rules:** the param-resolver returns `cfdb_core::query::Param` values constructed from `cfdb_core::fact::PropValue`. Both are upstream types in `cfdb-core`; construction is trivial and does not tangle orphan rules.
-
-**Verdict required from rust-systems:** RATIFY / REJECT on (a) parser reuse, (b) no new feature flag, (c) compile-cost pledge.
 
 ## 6. Non-goals (explicit)
 
@@ -339,7 +324,7 @@ Adding `param_resolver.rs` is on the same axis — it is one step in the "dispat
 
 Each slice is a separately-shippable PR. Every slice carries the prescribed `Tests:` block from §2.5 of the project CLAUDE.md verbatim.
 
-### Slice 1 — `cfdb-cli::param_resolver` module (R1 C1 + C4 relocation)
+### 7.1 Slice 1 — `cfdb-cli::param_resolver` module (R1 C1 + C4 relocation)
 
 **Scope (R1-revised):** add `crates/cfdb-cli/src/param_resolver.rs` + `ParamResolveError` + `resolve_param` + `resolve_params` `pub(crate)` fns. Add `cfdb-concepts = { path = "../cfdb-concepts" }` to `crates/cfdb-cli/Cargo.toml` (new direct dep — currently absent per `grep cfdb-concepts crates/cfdb-cli/Cargo.toml`). Delegate `.cfdb/concepts/*.toml` reading to `cfdb_concepts::load_concept_overrides` — no inline TOML parser (invariant §4.6). `cfdb-query` is NOT touched by this slice.
 
@@ -352,7 +337,7 @@ Tests:
   - Target dogfood (on qbot-core at pinned SHA): none — cfdb-internal addition; qbot-core consumes through CLI verb only (slice 3).
 ```
 
-### Slice 2 — `.cfdb/predicates/` directory + seed files + schema-reference static check (R1 C6)
+### 7.2 Slice 2 — `.cfdb/predicates/` directory + seed files + schema-reference static check (R1 C6)
 
 **Scope (R1-revised):** add directory with README.md (runbook) + three seed `.cypher` files using ONLY real schema vocabulary per R1 C2:
 - `context-homonym-crate-in-multiple-contexts.cypher` (revised from original "context-member-reexport-without-adapter" — uses `IN $list` + top-level AND, no RE_EXPORTS edge)
@@ -370,7 +355,7 @@ Tests:
   - Target dogfood: none.
 ```
 
-### Slice 3 — `cfdb check-predicate` verb handler
+### 7.3 Slice 3 — `cfdb check-predicate` verb handler
 
 **Scope:** add `crates/cfdb-cli/src/check_predicate.rs` + `PredicateRunReport` + `PredicateRow` + the verb wiring in `main_command.rs` (new `Command::CheckPredicate { ... }` variant) + `main_dispatch.rs` (new dispatch arm into `dispatch_typed`). Re-export `check_predicate` via `cfdb-cli` lib per the existing `check`/`violations`/`list_callers` pattern.
 
@@ -383,7 +368,7 @@ Tests:
   - Target dogfood (on qbot-core at pinned SHA): runs the three seed predicates against qbot-core, records row counts in the PR body for reviewer sanity. No assertion — qbot-core-side baselines are the next slice's concern.
 ```
 
-### Slice 4 — predicate-library dogfood + determinism check
+### 7.4 Slice 4 — predicate-library dogfood + determinism check
 
 **Scope:** add a crate-level integration test `tests/predicate_library_dogfood.rs` in `cfdb-cli` that runs EVERY `.cfdb/predicates/*.cypher` against cfdb's own keyspace with a fixed param set, asserts fixed seed counts. Add `ci/predicate-determinism.sh` that runs each predicate twice and asserts byte-identical stdout. Wire both into `.gitea/workflows/ci.yml` as new steps (siblings of the existing `cfdb self-audit` step).
 
@@ -396,9 +381,9 @@ Tests:
   - Target dogfood (on qbot-core at pinned SHA): the context-member-reexport-without-adapter predicate runs against qbot-core, reports row count in PR body. No assertion; the bar is "the run succeeds, producing deterministic output" — this is the load-bearing signal for qbot-core's check-prelude-consistency skill to consume.
 ```
 
-### Slice 5 — `docs/query-dsl.md` user guide
+### 7.5 Slice 5 — `docs/query-dsl.md` user guide
 
-**Scope:** author `docs/query-dsl.md` with: canonical-examples gallery, param-resolver syntax table, "add a new predicate" runbook, homonym-note on `Predicate` vs predicate-file (per §5.2 DDD concern). Update `docs/RFC-cfdb.md` §11 CLI verb inventory to include `check-predicate`. Update `.cfdb/predicates/README.md` (from slice 2) to cross-reference `docs/query-dsl.md`.
+**Scope:** author `docs/query-dsl.md` with: canonical-examples gallery, param-resolver syntax table, "add a new predicate" runbook, homonym-note on `Predicate` vs predicate-file (per §5.2 DDD concern). Update `cfdb-029-code-facts-database` §11 CLI verb inventory to include `check-predicate`. Update `.cfdb/predicates/README.md` (from slice 2) to cross-reference `docs/query-dsl.md`.
 
 **Tests:**
 ```
@@ -409,7 +394,7 @@ Tests:
   - Target dogfood: none.
 ```
 
-### Sequencing
+### 7.6 Sequencing
 
 ```
 slice-1 (resolver) ───┐
@@ -432,25 +417,21 @@ Slices 1 and 2 can ship in parallel (no file overlap). Slice 3 blocks on both. S
 
 ## 9. Open questions — all ANSWERED by R1 council verdicts
 
-1. **Q-CA-1 (clean-arch):** ANSWERED. Clean-arch verdict ratified the general direction; solid-architect CRP tie-break (R1 C1) RELOCATES the param resolver to `cfdb-cli`, so the question "is a TOML loader in cfdb-query acceptable?" becomes moot — the TOML loader is in cfdb-cli. `cfdb-cli → cfdb-concepts` is a new direct dep, acyclic.
-2. **Q-DDD-1 (homonym):** ANSWERED. ddd-specialist verdict: acceptable homonym (same bounded context, different layers — AST node vs on-disk storage artefact). Resolution via `docs/query-dsl.md` homonym note in Slice 5.
-3. **Q-SOLID-1 (SRP on cfdb-query):** ANSWERED. MOOT after R1 C1 — param resolver is no longer in cfdb-query. cfdb-cli absorbs the module with no SRP violation (same axis of change as existing verb handlers).
-4. **Q-RS-1 (UDF deferral):** ANSWERED. rust-systems verdict: safe to defer. `eval_call` dispatch table at `crates/cfdb-petgraph/src/eval/predicate.rs:111-121` is the documented extension point. §6 non-goals now explicitly cites this.
-5. **Q-DDD-2 / Q-CA-2 (verb split):** ANSWERED. Both ddd-specialist and clean-arch verdicts endorse keeping `cfdb check-predicate` and `cfdb violations --rule` as separate verbs: different contracts, different consumers, different change vectors. `cfdb check --trigger T1` (editorial-drift) and `cfdb check-predicate` (predicate library) likewise stay separate.
-
-**R1 open items (for R2):**
-- rust-systems R2 confirmation that R1 C2 (rewritten §3.5 example + §3.3 table) and R1 C5 (expanded non-goals) resolve Finding 1-3.
-- solid-architect R2 confirmation that R1 C1 (relocation to cfdb-cli) resolves the CRP concern.
+1. **Q-CA-1 (clean-arch):** CRP tie-break (R1 C1) RELOCATES the param resolver to `cfdb-cli`, so the question "is a TOML loader in cfdb-query acceptable?" becomes moot — the TOML loader is in cfdb-cli. `cfdb-cli → cfdb-concepts` is a new direct dep, acyclic.
+2. **Q-DDD-1 (homonym):** acceptable homonym (same bounded context, different layers — AST node vs on-disk storage artefact). Resolution via `docs/query-dsl.md` homonym note in Slice 5.
+3. **Q-SOLID-1 (SRP on cfdb-query):** MOOT after R1 C1 — param resolver is no longer in cfdb-query. cfdb-cli absorbs the module with no SRP violation (same axis of change as existing verb handlers).
+4. **Q-RS-1 (UDF deferral):** safe to defer. `eval_call` dispatch table at `crates/cfdb-petgraph/src/eval/predicate.rs:111-121` is the documented extension point. §6 non-goals now explicitly cites this.
+5. **Q-DDD-2 / Q-CA-2 (verb split):** keeping `cfdb check-predicate` and `cfdb violations --rule` as separate verbs: different contracts, different consumers, different change vectors. `cfdb check --trigger T1` (editorial-drift) and `cfdb check-predicate` (predicate library) likewise stay separate.
 
 ## 10. References
 
 - Issue #49 (this RFC's tracker).
 - qbot-core RFC Study 003 v2.1 §19 Q8 (promoted blocker) — motivating consumer.
 - `council/RATIFIED.md` §A.14 — `.cfdb/queries/` ownership / scope-verb ratification.
-- `docs/RFC-cfdb.md` §6 (CLI inventory), §11 (wire form), §12.1 (determinism), §14 (error messages).
-- `docs/RFC-cfdb.md` §A1.6 — Study 003 S2 unblock condition.
-- `docs/RFC-030-anti-drift-gate.md` — neighbouring RFC pattern (gate plus predicate; this RFC generalises the template mechanism).
-- `docs/RFC-033-cross-dogfood.md` §3.5 — `Tests:` block convention.
+- `cfdb-029-code-facts-database` §6 (CLI inventory), §11 (wire form), §12.1 (determinism), §14 (error messages).
+- `cfdb-029-code-facts-database` §A1.6 — Study 003 S2 unblock condition.
+- `docs/cfdb-030-anti-drift-gate-anti-drift-gate.md` — neighbouring RFC pattern (gate plus predicate; this RFC generalises the template mechanism).
+- `docs/cfdb-033-cross-dogfood-cross-dogfood.md` §3.5 — `Tests:` block convention.
 - `crates/cfdb-query/src/parser/mod.rs` — parser re-use point.
 - `crates/cfdb-petgraph/src/eval/predicate.rs` — evaluator re-use point.
 - `crates/cfdb-cli/src/check.rs` — prototype `check` verb for naming convention.

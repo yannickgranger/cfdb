@@ -1,24 +1,20 @@
----
-title: RFC-036 — cfdb v2 (closing HSB, VSB, raid validation)
-status: Ratified — 2026-04-23 (cfdb #199, commit 808d6bd); implementation shipped (cfdb #86, #124, #125 closed). Header corrected 2026-08-18 (cfdb #570).
-date: 2026-04-23
-supersedes: none (extends RFC-cfdb v0.1)
-preceded_by: RFC-cfdb, RFC-032, RFC-033, RFC-034, RFC-035
-substrate: docs/PLAN-v2-solving-original-problems.md
-council_team: council-036-cfdb-v2
-tracking_issue: cfdb #199 (ratification, closed); slices cfdb #86, #124, #125 (closed)
----
-
 # RFC-036 — cfdb v2: closing HSB, VSB, and raid validation
+
+**Status:** Ratified — 2026-04-23 (cfdb #199, commit 808d6bd); implementation shipped (cfdb #86, #124, #125 closed). Header corrected 2026-08-18 (cfdb #570).
+**Date:** 2026-04-23
+**Supersedes:** none (extends cfdb-029-code-facts-database v0.1)
+**Preceded by:** cfdb-029-code-facts-database, cfdb-032-v02-extractor, cfdb-033-cross-dogfood, cfdb-034-query-dsl, cfdb-035-persistent-inverted-indexes
+**Substrate:** docs/PLAN-v2-solving-original-problems.md
+**Tracking issue:** cfdb #199 (ratification, closed); slices cfdb #86, #124, #125 (closed)
 
 ## 1. Problem
 
-cfdb v0.1 shipped a deterministic fact base, a library-first API, the ban-rule headline (Pattern D — `arch-ban-utc-now.cypher` replacing a handwritten Rust architecture test), and a cross-dogfood contract with `graph-specs-rust` (RFC-033). It also shipped persistent inverted indexes (RFC-035, slices 1–6/7 merged) that bring the 148k-node keyspace down from a 16+ minute scope wall to sub-second queries.
+cfdb v0.1 shipped a deterministic fact base, a library-first API, the ban-rule headline (Pattern D — `arch-ban-utc-now.cypher` replacing a handwritten Rust architecture test), and a cross-dogfood contract with `graph-specs-rust` (cfdb-033-cross-dogfood). It also shipped persistent inverted indexes (cfdb-035-persistent-inverted-indexes, slices 1–6/7 merged) that bring the 148k-node keyspace down from a 16+ minute scope wall to sub-second queries.
 
 **What v0.1 did not ship** are the three problems PLAN-v1 was written to solve:
 
 - **Horizontal split-brain (HSB) clustering.** Same-name duplicates are expressible in the v0.1 Cypher subset. Multi-signal clustering (structural hash + neighbor Jaccard + normalized name + conversion-target sharing) is not — three of the four signals require attributes or query patterns the schema does not yet carry.
-- **Vertical split-brain (VSB) detection.** The HIR-resolved call graph ships in `cfdb-hir-extractor` (RFC-032, v0.2 feature-gated). `:EntryPoint` + `EXPOSES` emission shipped via issues #86 / #124 / #125. `REGISTERS_PARAM` is declared in the schema (`EdgeLabel::REGISTERS_PARAM`) but has **no producer** — the entry-point catalog lacks its parameter set, so the detector cannot BFS from "an MCP tool's `tf` parameter" to "all reachable resolvers of `Timeframe`."
+- **Vertical split-brain (VSB) detection.** The HIR-resolved call graph ships in `cfdb-hir-extractor` (cfdb-032-v02-extractor, v0.2 feature-gated). `:EntryPoint` + `EXPOSES` emission shipped via issues #86 / #124 / #125. `REGISTERS_PARAM` is declared in the schema (`EdgeLabel::REGISTERS_PARAM`) but has **no producer** — the entry-point catalog lacks its parameter set, so the detector cannot BFS from "an MCP tool's `tf` parameter" to "all reachable resolvers of `Timeframe`."
 - **Bounded-context raid validation.** Quality signals (`unwrap_count`, `cyclomatic`, `test_coverage`, `dup_cluster_id`) live in parallel tools (`clippy`, `cargo-llvm-cov`, `audit-split-brain`). PLAN-v1 §2.3 argued these must live on `:Item` as attributes, or the raid-plan-validation query must join two data stores — defeating the "one fact base" premise.
 
 These three gaps are the scope of v2. The v0.1 pivot to ban-rules-first bought always-on per-PR enforcement and the graph-specs companion; v2 returns to the original motivating problems without backing off any v0.1 guarantee.
@@ -32,7 +28,7 @@ v2 ships **five additive steps** that close the three gaps. Every step is intern
 | 1 | `REGISTERS_PARAM` emission extending `cfdb-hir-extractor::entry_point_emitter` + scar corpus for MCP `#[tool]` + clap `#[arg]` param shapes | VSB prerequisite |
 | 2 | `vertical` query (Cypher composition) using the HIR `CALLS` graph + `:EntryPoint -[:EXPOSES]-> :Item -[:CALLS*]-> :Item{kind:Fn}` reachability + `RETURNS`-type multiplicity check | VSB |
 | 3 | `enrich_metrics` real implementation in `cfdb-petgraph` (behind `quality-metrics` feature): `unwrap_count`, `cyclomatic`, `test_coverage` (sub-feature `llvm-cov`), `dup_cluster_id` attributes on `:Item` | HSB prerequisite + raid prerequisite |
-| 4 | HSB multi-signal cluster query (Cypher composition) using RFC-035 indexes over `signature_hash` + `name` + conversion-target sharing | HSB |
+| 4 | HSB multi-signal cluster query (Cypher composition) using cfdb-035-persistent-inverted-indexes indexes over `signature_hash` + `name` + conversion-target sharing | HSB |
 | 5 | Five raid-plan-validation Cypher templates consumed via `query_with_input()` with plan.yaml bucket names as external sets | Raid validation |
 
 **Zero verb deltas.** The 11-verb API holds. Every step composes over `extract`, `enrich_metrics`, `query`, `query_with_input`.
@@ -116,11 +112,11 @@ llvm-cov = ["quality-metrics"]     # enables test_coverage sub-feature
 
 ### 3.4 Step 4 — HSB multi-signal cluster query
 
-**No schema delta** (step 3 shipped the attributes). Cypher composition over RFC-035 indexes.
+**No schema delta** (step 3 shipped the attributes). Cypher composition over cfdb-035-persistent-inverted-indexes indexes.
 
 **Query shape** (`.cfdb/queries/hsb-cluster.cypher`): four signals joined with ≥2-signal acceptance threshold:
 
-1. Same `signature_hash` (RFC-035-indexed).
+1. Same `signature_hash` (cfdb-035-persistent-inverted-indexes-indexed).
 2. Same normalized name — exact match or edit-distance-1 (the Cypher subset does not currently support ed1; v2.1 extension point).
 3. Neighbor-set Jaccard ≥ 0.6 over `TYPE_OF` neighbours.
 4. Shared conversion target — both items implement `From<T>` / `Into<T>` / `TryFrom<T>` for the same `T`.
@@ -145,7 +141,7 @@ Unit structs and empty types are excluded from structural-hash matching to avoid
 
 ## 4. Invariants
 
-**Existing (unchanged from RFC-cfdb / RFC-029):**
+**Existing (unchanged from cfdb-029-code-facts-database / cfdb-029-code-facts-database):**
 
 - **G1 — byte-stable extraction.** Same `(workspace SHA, schema major.minor)` → byte-identical canonical JSONL dump.
 - **G2 — read-only queries.** `query()` and `query_with_input()` never mutate the graph.
@@ -161,7 +157,7 @@ G6 is additive; no existing guarantee breaks.
 
 **CP5 — `dup_cluster_id` determinism:** the cluster id is `sha256(lex_sorted(member_qnames).join("\n"))`. Deterministic across re-extracts; insensitive to extraction order. Assignment happens in step-3 `clustering.rs` after all `signature_hash` attributes are populated.
 
-**Recall:** no change from RFC-cfdb (≥ 95% per crate against `cargo public-api` / `rustdoc --output-format json` ground truth).
+**Recall:** no change from cfdb-029-code-facts-database (≥ 95% per crate against `cargo public-api` / `rustdoc --output-format json` ground truth).
 
 **No-ratchet:** no change from CLAUDE.md §3. Every threshold in tool source stays a `const`; no baseline / ceiling / allowlist files introduced by v2.
 
@@ -172,8 +168,7 @@ G6 is additive; no existing guarantee breaks.
 ### Clean Architecture lens
 
 **Lens:** Robert C. Martin's Clean Architecture — dependency rule, port purity, composition root.
-**Round:** R1
-**Verdict:** REQUEST CHANGES (two blocking items; resolved in §3.1 and §3.3 of this RFC)
+**Verdict:** (two blocking items; resolved in §3.1 and §3.3 of this RFC)
 
 #### Layer-boundary compliance
 
@@ -204,14 +199,10 @@ All arrows point inward. No cycle exists. v2's five steps do not introduce new c
 
 #### Peer challenges
 
-- **To DDD:** `:EntryPoint` aggregate-vs-decorator. Clean-arch endorses first-class node for `REGISTERS_PARAM` attachment clarity. DDD resolved: value object tied to handler `:Item` lifecycle — compatible with clean-arch's position.
-- **To SOLID:** `enrich_metrics` SRP splitting. Clean-arch position: internal decomposition, not verb split. SOLID resolved with 3-module decomposition — aligned.
-
 ### Domain-Driven Design lens
 
 **Lens:** DDD aggregates / value objects / bounded contexts / ubiquitous language.
-**Round:** R1
-**Verdict:** RATIFY WITH 3 CONDITIONS (all three resolved in §3 and §4 of this RFC)
+**Verdict:** 3 CONDITIONS (all three resolved in §3 and §4 of this RFC)
 
 #### Bounded-context separation
 
@@ -243,12 +234,9 @@ SHA256 of lex-sorted newline-joined member qnames. Deterministic across re-extra
 
 #### Peer challenges
 
-- **To clean-arch:** entry-point detection is a Layer 1 structural fact; separate crate adds fragility without DDD benefit. Clean-arch aligned — extend existing HIR extractor.
-- **To SOLID:** closed `kind` enum on `:EntryPoint` with documented minor-bump extension semantics satisfies OCP. SOLID aligned — string discriminator + additive extension policy.
-
 ### SOLID + component principles lens
 
-**Reviewer:** solid-architect | **Verdict:** RATIFY with two prescriptions (both resolved in §3 / §4 / §6 of this RFC)
+**Reviewer:** solid-architect | **Verdict:** two prescriptions (both resolved in §3 / §4 / §6 of this RFC)
 
 #### ISP — 11-verb API holds under v2 pressure
 
@@ -257,7 +245,7 @@ PLAN-v2 §3.3 claims zero verb deltas. All five steps were examined:
 - **Step 1 (EntryPoint discovery):** schema delta only, extraction happens inside `extract()`. No verb pressure.
 - **Step 2 (VSB detector):** Cypher composition via `query()`. No verb pressure.
 - **Step 3 (quality enrichment):** `enrich_metrics` already exists as a stub in `EnrichBackend`. The single-verb approach is ISP-correct — no consumer wants fewer than all four quality signals (raid signal-mismatch requires all four). Splitting would violate CRP without providing ISP benefit.
-- **Step 4 (HSB clustering):** Cypher composition over RFC-035 indexes via `query()`. No verb pressure.
+- **Step 4 (HSB clustering):** Cypher composition over cfdb-035-persistent-inverted-indexes indexes via `query()`. No verb pressure.
 - **Step 5 (raid plan validation):** five Cypher queries via `query_with_input()` with plan buckets as named sets. No verb pressure.
 
 **Verdict: zero new verbs required. The 11-verb constraint holds across all five steps.**
@@ -272,7 +260,7 @@ The `:EntryPoint { kind: mcp|cli|http|cron }` string discriminator is the OCP ex
 
 #### LSP — `StoreBackend` unchanged
 
-RFC-035 indexes are internal to `cfdb-petgraph::index`. They do not appear in `StoreBackend`. VSB BFS and raid joins are Cypher compositions. `query_with_input()` HTTP wire-up is a CLI/HTTP layer concern. `cfdb-petgraph::PetgraphStore` satisfies both `StoreBackend` and `EnrichBackend` contracts before and after all five v2 steps. No trait strengthening required.
+cfdb-035-persistent-inverted-indexes indexes are internal to `cfdb-petgraph::index`. They do not appear in `StoreBackend`. VSB BFS and raid joins are Cypher compositions. `query_with_input()` HTTP wire-up is a CLI/HTTP layer concern. `cfdb-petgraph::PetgraphStore` satisfies both `StoreBackend` and `EnrichBackend` contracts before and after all five v2 steps. No trait strengthening required.
 
 #### DIP — one risk, one prescription
 
@@ -301,7 +289,7 @@ Zone of Pain for `cfdb-core` and `cfdb-concepts` is accepted as intentional — 
 
 ### Rust Systems lens
 
-**Verdict: RATIFY** (with prescriptions P-RS1 and P-RS2, both resolved in §3.1 / §4 of this RFC)
+**Verdict:** (with prescriptions P-RS1 and P-RS2, both resolved in §3.1 / §4 of this RFC)
 
 #### Entry-point detection — syn patterns
 
@@ -394,7 +382,7 @@ Each step is one vertical-slice issue. Every `Tests:` block follows CLAUDE.md §
 
 ### Issue 036-4 — HSB multi-signal cluster query (step 4)
 
-**Scope:** ship `.cfdb/queries/hsb-cluster.cypher` using step-3 attributes and RFC-035 indexes. Document the unit-struct / empty-type carve-out.
+**Scope:** ship `.cfdb/queries/hsb-cluster.cypher` using step-3 attributes and cfdb-035-persistent-inverted-indexes indexes. Document the unit-struct / empty-type carve-out.
 
 **Tests:**
 - **Unit:** on a synthetic 3-crate fixture with two known duplicates (one same-name, one synonym-renamed), assert the cluster query returns both candidates with `dup_cluster_id` populated.
@@ -423,5 +411,3 @@ Each step is one vertical-slice issue. Every `Tests:` block follows CLAUDE.md §
 - **Target dogfood:** (N/A — spec hygiene is internal to cfdb.)
 
 ---
-
-**End of RFC-036 draft.** R1 council complete; all nine open items collapse to seven convergence points, all resolved above. Pending R2 re-ratification from all four lenses.
