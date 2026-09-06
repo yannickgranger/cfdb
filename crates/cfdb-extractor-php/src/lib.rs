@@ -114,7 +114,10 @@ fn walk_top_level(program: tree_sitter::Node, src: &[u8], file: &str, emitter: &
                 }
                 current_ns = ns_name;
             }
-            "class_declaration" | "interface_declaration" | "trait_declaration" => {
+            "class_declaration"
+            | "interface_declaration"
+            | "trait_declaration"
+            | "enum_declaration" => {
                 emit_class_like(child, src, current_ns.as_deref(), &imports, file, emitter);
             }
             "function_definition" => {
@@ -162,9 +165,14 @@ fn emit_class_like(
     let id = item_id(&qname);
 
     let line = (node.start_position().row + 1) as i64;
+    let kind = if node.kind() == "enum_declaration" {
+        "enum"
+    } else {
+        "trait"
+    };
     emitter.emit_node(
         Node::new(&id, Label::new(Label::ITEM))
-            .with_prop("kind", "trait")
+            .with_prop("kind", kind)
             .with_prop("name", name.as_str())
             .with_prop("qname", qname.as_str())
             .with_prop("line", line)
@@ -192,7 +200,7 @@ fn emit_class_like(
 
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        if child.kind() == "declaration_list" {
+        if matches!(child.kind(), "declaration_list" | "enum_declaration_list") {
             walk_declaration_list(child, src, current_ns, imports, &qname, file, emitter);
         }
     }
