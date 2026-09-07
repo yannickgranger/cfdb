@@ -1,0 +1,14 @@
+{
+    "name": "cfdb/php-same-name-two-files-fixture",
+    "description": "Synthetic Composer project declaring one qualified name in two files — fixture for cfdb-extractor-php integration tests (RFC-054 / issue #669).",
+    "type": "library",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "App\\": "src/"
+        }
+    },
+    "require": {
+        "php": ">=8.1"
+    }
+}

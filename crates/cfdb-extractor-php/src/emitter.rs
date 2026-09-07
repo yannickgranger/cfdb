@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 
 use cfdb_core::fact::{Edge, Node};
 use cfdb_core::schema::{EdgeLabel, Label};
@@ -26,7 +26,8 @@ pub(crate) fn callee_last_segment(callee_path: &str) -> &str {
 }
 
 pub(crate) struct Emitter {
-    nodes: BTreeMap<String, Node>,
+    nodes: Vec<Node>,
+    node_ids: BTreeSet<String>,
     edges: Vec<Edge>,
     pending_implements: Vec<(String, String)>,
     pending_call_sites: Vec<PendingCallSite>,
@@ -35,7 +36,8 @@ pub(crate) struct Emitter {
 impl Emitter {
     pub(crate) fn new() -> Self {
         Self {
-            nodes: BTreeMap::new(),
+            nodes: Vec::new(),
+            node_ids: BTreeSet::new(),
             edges: Vec::new(),
             pending_implements: Vec::new(),
             pending_call_sites: Vec::new(),
@@ -43,11 +45,12 @@ impl Emitter {
     }
 
     pub(crate) fn emit_node(&mut self, node: Node) {
-        self.nodes.entry(node.id.clone()).or_insert(node);
+        self.node_ids.insert(node.id.clone());
+        self.nodes.push(node);
     }
 
     pub(crate) fn has_node(&self, id: &str) -> bool {
-        self.nodes.contains_key(id)
+        self.node_ids.contains(id)
     }
 
     pub(crate) fn emit_edge(&mut self, edge: Edge) {
@@ -63,7 +66,7 @@ impl Emitter {
         let pending = std::mem::take(&mut self.pending_implements);
         for (source_id, target_qname) in pending {
             let target_id = item_id(&target_qname);
-            if self.nodes.contains_key(&target_id) {
+            if self.node_ids.contains(&target_id) {
                 self.edges.push(
                     Edge::new(source_id, target_id, EdgeLabel::new(EdgeLabel::IMPLEMENTS))
                         .with_prop("resolver", "tree-sitter-php"),
@@ -82,7 +85,7 @@ impl Emitter {
             let callee_resolved = cs
                 .resolve_target
                 .as_ref()
-                .is_some_and(|t| self.nodes.contains_key(&item_id(t)));
+                .is_some_and(|t| self.node_ids.contains(&item_id(t)));
 
             let node = Node::new(cs.id.as_str(), Label::new(Label::CALL_SITE))
                 .with_prop("caller_qname", cs.caller_qname.as_str())
@@ -110,11 +113,12 @@ impl Emitter {
                 }
             }
 
-            self.nodes.entry(cs.id).or_insert(node);
+            self.node_ids.insert(cs.id);
+            self.nodes.push(node);
         }
     }
 
     pub(crate) fn finish(self) -> (Vec<Node>, Vec<Edge>) {
-        (self.nodes.into_values().collect(), self.edges)
+        (self.nodes, self.edges)
     }
 }

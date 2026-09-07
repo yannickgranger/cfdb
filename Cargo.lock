@@ -387,6 +387,7 @@ version = "0.8.0"
 dependencies = [
  "cfdb-core",
  "cfdb-lang",
+ "cfdb-petgraph",
  "tempfile",
  "thiserror",
  "tree-sitter",
