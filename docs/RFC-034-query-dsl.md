@@ -383,7 +383,7 @@ Tests:
 
 ### 7.5 Slice 5 — `docs/query-dsl.md` user guide
 
-**Scope:** author `docs/query-dsl.md` with: canonical-examples gallery, param-resolver syntax table, "add a new predicate" runbook, homonym-note on `Predicate` vs predicate-file (per §5.2 DDD concern). Update `cfdb-029-code-facts-database` §11 CLI verb inventory to include `check-predicate`. Update `.cfdb/predicates/README.md` (from slice 2) to cross-reference `docs/query-dsl.md`.
+**Scope:** author `docs/query-dsl.md` with: canonical-examples gallery, param-resolver syntax table, "add a new predicate" runbook, homonym-note on `Predicate` vs predicate-file (per §5.2 DDD concern). Update `cfdb-029-code-facts-database#11` CLI verb inventory to include `check-predicate`. Update `.cfdb/predicates/README.md` (from slice 2) to cross-reference `docs/query-dsl.md`.
 
 **Tests:**
 ```
@@ -428,7 +428,7 @@ Slices 1 and 2 can ship in parallel (no file overlap). Slice 3 blocks on both. S
 - Issue #49 (this RFC's tracker).
 - qbot-core RFC Study 003 v2.1 §19 Q8 (promoted blocker) — motivating consumer.
 - `council/RATIFIED.md` §A.14 — `.cfdb/queries/` ownership / scope-verb ratification.
-- `cfdb-029-code-facts-database` §6 (CLI inventory), §11 (wire form), §12.1 (determinism), §14 (error messages).
+- `cfdb-029-code-facts-database#6` (CLI inventory), §11 (wire form), §12.1 (determinism), §14 (error messages).
 - `cfdb-029-code-facts-database` §A1.6 — Study 003 S2 unblock condition.
 - `docs/cfdb-030-anti-drift-gate-anti-drift-gate.md` — neighbouring RFC pattern (gate plus predicate; this RFC generalises the template mechanism).
 - `docs/cfdb-033-cross-dogfood-cross-dogfood.md` §3.5 — `Tests:` block convention.

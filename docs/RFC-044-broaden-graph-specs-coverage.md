@@ -2,7 +2,7 @@
 
 **Status:** RATIFIED (2026-05-19)
 **RFC SHA base:** `ecdee14` on `origin/develop` at convene time
-**Lineage:** `cfdb-029-code-facts-database` §6 G1–G6 · `cfdb-035-persistent-inverted-indexes` §4 · `cfdb-037-schema-producer-alignment` §4 · `cfdb-042-test-bench-entry-points` §4 · `cfdb-043-hir-proc-macro-server` §4
+**Lineage:** `cfdb-029-code-facts-database#6` G1–G6 · `cfdb-035-persistent-inverted-indexes#4` · `cfdb-037-schema-producer-alignment#4` · `cfdb-042-test-bench-entry-points#4` · `cfdb-043-hir-proc-macro-server#4`
 **Amendment (author-documented, 2026-08-18, cfdb #430):** §3.7 Tests · Unit (c) — the 044-G implementation (cfdb #421) satisfied "non-silent on the `_ =>` arm" with a visible sentinel row value instead of a `Result<RowValue, StoreError>` cascade, because `eval_aggregation` sits in a non-fallible call chain (`apply_with → group_and_aggregate → materialise_group_row`) and threading `Result` through it was judged not worth the churn for a lint-time guard. The sentinel is the ratified behaviour; the `Result` cascade is re-evaluated when the first new `cfdb_core::query::Aggregation` variant is added (that PR adds the explicit arm and decides). The sentinel now lives in `crates/cfdb-eval/src/eval/with_clause.rs` (cfdb-057).
 
 ## 1. Problem
