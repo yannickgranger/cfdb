@@ -11,7 +11,7 @@ fn produce_php(files: &[(&str, &str)]) -> (Vec<Node>, Vec<Edge>) {
     let dir = TempDir::new().expect("tempdir");
     fs::write(
         dir.path().join("composer.json"),
-        r#"{"name":"cfdb/test","type":"library"}"#,
+        r#"{"name":"cfdb/test","type":"library","autoload":{"psr-4":{"App\\":"src/"}}}"#,
     )
     .expect("write composer.json");
     for (rel, src) in files {
