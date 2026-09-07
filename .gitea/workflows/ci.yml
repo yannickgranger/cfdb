@@ -402,6 +402,11 @@ jobs:
               --workspace "$(pwd)"
           done
 
+      - name: Cross-dogfood binary-presence refusals (RFC-039 §7.2)
+        run: |
+          cd repo
+          bash ci/cross-dogfood-binaries-test.sh
+
       - name: Cross-dogfood — cfdb on graph-specs-rust (RFC-033 §3.2)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
