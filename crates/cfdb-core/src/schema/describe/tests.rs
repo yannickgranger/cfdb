@@ -347,9 +347,33 @@ fn schema_describe_only_equivalent_to_is_reserved() {
 }
 
 #[test]
+fn call_site_kind_names_every_member_and_narrows_none() {
+    let d = schema_describe();
+    let kind = d
+        .nodes
+        .iter()
+        .find(|n| n.label.as_str() == "CallSite")
+        .expect("CallSite descriptor is present")
+        .attributes
+        .iter()
+        .find(|a| a.name == "kind")
+        .expect("CallSite declares kind");
+
+    for member in ["call", "fn_ptr", "serde_default", "new"] {
+        assert!(
+            kind.description.contains(member),
+            "`:CallSite.kind` must name `{member}`: the set is extended and never narrowed, and \
+             `serde_default` is read across a crate boundary by cfdb-enrich, so dropping a member \
+             from the descriptor strands a live contract. Got: {:?}",
+            kind.description
+        );
+    }
+}
+
+#[test]
 fn schema_describe_narrative_digest() {
     const FROZEN_NARRATIVE_DIGEST: &str =
-        "a925d8be1c614a80ec0f09bb12c86efe6c397030cc90d3f8ed27d64784e8a99e";
+        "c292fa333fe32b56bdcc888aa3d750ee03fb6adb1992507685b936c52f9d8649";
 
     let d = schema_describe();
 
