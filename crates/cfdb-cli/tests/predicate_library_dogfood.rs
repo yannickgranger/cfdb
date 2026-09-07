@@ -1,3 +1,5 @@
+#![cfg(feature = "lang-rust")]
+
 use std::path::{Path, PathBuf};
 
 use cfdb_cli::check_predicate;

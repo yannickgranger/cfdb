@@ -1,4 +1,4 @@
-#![cfg(feature = "git-enrich")]
+#![cfg(all(feature = "git-enrich", feature = "lang-rust"))]
 
 use std::path::PathBuf;
 

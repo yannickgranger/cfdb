@@ -1,3 +1,5 @@
+#![cfg(feature = "lang-rust")]
+
 use std::path::PathBuf;
 
 use cfdb_core::enrich::EnrichBackend;
