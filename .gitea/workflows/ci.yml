@@ -185,9 +185,10 @@ jobs:
           # Belt-and-suspenders: prove `cfdb-extractor` is genuinely
           # absent from the dep tree. `cargo tree` exits 0 when no
           # match; grep -q exits 1 when no match — invert with `!`.
-          if cargo tree -p cfdb-cli --no-default-features 2>&1 | grep -q '^[│ ]*[├└]── cfdb-extractor '; then
+          tree_out=$(cargo tree -p cfdb-cli --no-default-features)
+          if grep -q '^[│ ]*[├└]── cfdb-extractor ' <<<"$tree_out"; then
             echo "FAIL: cfdb-extractor leaked into the slim cfdb-cli dep tree"
-            cargo tree -p cfdb-cli --no-default-features
+            printf '%s\n' "$tree_out"
             exit 1
           fi
 
@@ -258,9 +259,10 @@ jobs:
               exit 1
             fi
           done
-          if cargo tree -p cfdb-cli --no-default-features --features lang-rust -e normal 2>&1 | grep -q 'cfdb-classify'; then
+          tree_out=$(cargo tree -p cfdb-cli --no-default-features --features lang-rust -e normal)
+          if grep -q 'cfdb-classify' <<<"$tree_out"; then
             echo "FAIL: cfdb-classify leaked into the facts-only cfdb-cli dep tree"
-            cargo tree -p cfdb-cli --no-default-features --features lang-rust -e normal
+            printf '%s\n' "$tree_out"
             exit 1
           fi
           # The verbs the facts-only build keeps must still be there.
@@ -291,9 +293,10 @@ jobs:
           # RFC §3.1 wording, same result. With proc-macro edges cut there
           # must be NO path from `syn` to either producer.
           for crate in cfdb-extractor-php cfdb-extractor-ts; do
-            if cargo tree -p "$crate" --invert syn --edges no-proc-macro 2>/dev/null | grep -q "$crate"; then
+            tree_out=$(cargo tree -p "$crate" --invert syn --edges no-proc-macro)
+            if grep -q "$crate" <<<"$tree_out"; then
               echo "FAIL: syn (non-proc-macro) leaked into $crate — it must parse via tree-sitter only"
-              cargo tree -p "$crate" --invert syn --edges no-proc-macro
+              printf '%s\n' "$tree_out"
               exit 1
             fi
           done
