@@ -65,6 +65,7 @@ jobs:
         run: |
           cd repo
           cargo build --release -p cfdb-cli --bin cfdb
+          cargo build --release -p dogfood-enrich --bin dogfood-enrich
 
       - name: Run cross-loop
         env:

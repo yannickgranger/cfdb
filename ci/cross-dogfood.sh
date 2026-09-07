@@ -11,6 +11,9 @@
 # Differentiated exit codes (rust-systems B2 — for diagnosis without
 # eyeballing logs):
 #   0  — cross-dogfood pass (all ban rules zero rows on companion)
+#   2  — a binary this script measures with is absent, so a pass would
+#        report a question that was never asked (RFC-033 §3.6, RFC-039
+#        §7.2). Both `cfdb` and `dogfood-enrich` are required.
 #   10 — companion clone or checkout failed (infra problem, not a drift)
 #   20 — `cfdb extract` failed on the companion tree — most often a
 #        SchemaVersion mismatch during an I2 lockstep window (see
@@ -44,10 +47,17 @@ COMPANION_REPO="${COMPANION_REPO:-yg/graph-specs-rust}"
 COMPANION_URL_BASE="${COMPANION_URL_BASE:-https://agency.lab:3000}"
 COMPANION_DIR="${COMPANION_DIR:-$(mktemp -d)}"
 CFDB_BIN="${CFDB_BIN:-$REPO_ROOT/target/release/cfdb}"
+DOGFOOD_BIN="${DOGFOOD_BIN:-$REPO_ROOT/target/release/dogfood-enrich}"
 
 if [ ! -x "$CFDB_BIN" ]; then
     echo "cross-dogfood: cfdb binary not found at $CFDB_BIN" >&2
     echo "  hint: cargo build -p cfdb-cli --release --bin cfdb" >&2
+    exit 2
+fi
+
+if [ ! -x "$DOGFOOD_BIN" ]; then
+    echo "cross-dogfood: dogfood-enrich binary not found at $DOGFOOD_BIN, so the self-enrich-deprecation pass would not run and this script would report a pass it never measured" >&2
+    echo "  hint: cargo build -p dogfood-enrich --release --bin dogfood-enrich" >&2
     exit 2
 fi
 
@@ -102,43 +112,34 @@ done
 # on `#[deprecated]` would silently invalidate every downstream
 # graph-specs verdict on companion code; the cross-pass catches it
 # at PR time.
-#
-# The harness is skipped if its binary is absent (older CI configs
-# that haven't shipped the dogfood-enrich step yet) — the script's
-# default exit semantics still gate on arch-ban rule rows.
-DOGFOOD_BIN="${DOGFOOD_BIN:-$REPO_ROOT/target/release/dogfood-enrich}"
-if [ -x "$DOGFOOD_BIN" ]; then
-    echo "cross-dogfood: running self-enrich-deprecation against ${COMPANION_REPO}@${COMPANION_SHA:0:12}"
-    rc=0
-    "$DOGFOOD_BIN" \
-        --pass enrich-deprecation \
-        --db "$DB_DIR" \
-        --keyspace "$KEYSPACE" \
-        --cfdb-bin "$CFDB_BIN" \
-        --workspace "$COMPANION_DIR" \
-        || rc=$?
-    case "$rc" in
-        0)
-            echo "cross-dogfood: self-enrich-deprecation 0 violations on companion"
-            ;;
-        30)
-            # Per RFC-033 §3.4 + RFC-039 §7.2 Cross-dogfood row: any
-            # row blocks merge. Tally into `found` so the final exit
-            # surfaces a unified count.
-            echo "cross-dogfood: self-enrich-deprecation FAIL on ${COMPANION_REPO}@${COMPANION_SHA:0:12}" >&2
-            found=$((found + 1))
-            ;;
-        *)
-            # Runtime error (exit 1) — surfaces as exit 20 to match
-            # the `cfdb extract` semantics: harness configuration
-            # problem, not a verdict.
-            echo "cross-dogfood: self-enrich-deprecation runtime error (exit $rc)" >&2
-            exit 20
-            ;;
-    esac
-else
-    echo "cross-dogfood: dogfood-enrich binary not found at $DOGFOOD_BIN — skipping self-enrich-deprecation pass (build it via 'cargo build -p dogfood-enrich --release' to enable)"
-fi
+echo "cross-dogfood: running self-enrich-deprecation against ${COMPANION_REPO}@${COMPANION_SHA:0:12}"
+rc=0
+"$DOGFOOD_BIN" \
+    --pass enrich-deprecation \
+    --db "$DB_DIR" \
+    --keyspace "$KEYSPACE" \
+    --cfdb-bin "$CFDB_BIN" \
+    --workspace "$COMPANION_DIR" \
+    || rc=$?
+case "$rc" in
+    0)
+        echo "cross-dogfood: self-enrich-deprecation 0 violations on companion"
+        ;;
+    30)
+        # Per RFC-033 §3.4 + RFC-039 §7.2 Cross-dogfood row: any
+        # row blocks merge. Tally into `found` so the final exit
+        # surfaces a unified count.
+        echo "cross-dogfood: self-enrich-deprecation FAIL on ${COMPANION_REPO}@${COMPANION_SHA:0:12}" >&2
+        found=$((found + 1))
+        ;;
+    *)
+        # Runtime error (exit 1) — surfaces as exit 20 to match
+        # the `cfdb extract` semantics: harness configuration
+        # problem, not a verdict.
+        echo "cross-dogfood: self-enrich-deprecation runtime error (exit $rc)" >&2
+        exit 20
+        ;;
+esac
 
 if [ "$found" -eq 0 ]; then
     echo "cross-dogfood: 0 violations on ${COMPANION_REPO}@${COMPANION_SHA:0:12}"
