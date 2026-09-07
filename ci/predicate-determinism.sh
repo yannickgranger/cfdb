@@ -1,33 +1,7 @@
 #!/usr/bin/env bash
-# ci/predicate-determinism.sh
-#
-# RFC-034 §4.1 — byte-identical stdout across two `cfdb check-predicate`
-# runs for every shipped predicate in `.cfdb/predicates/*.cypher`.
-#
-# Invariant: for each seed predicate + its canonical param set, running
-# `cfdb check-predicate --format json` twice on the same keyspace produces
-# identical stdout. Holds whether the predicate returns 0 or N rows.
-#
-# Exit codes:
-#   0 — every predicate produced identical stdout across two runs (§4.1 holds)
-#   1 — any predicate produced divergent stdout (regression)
-#   2 — usage error, tool missing, or keyspace extract failure
-#
-# Usage:
-#   predicate-determinism.sh [WORKSPACE]
-#
-# WORKSPACE defaults to the cfdb repo root. The binary is built from the
-# target workspace before the determinism sweep runs.
-#
-# No baseline file. Determinism is proven by two-run byte-identical stdout;
-# no sha is stored across runs. CLAUDE.md §6.8 — no ratchets.
-#
-# The cfdb binary must be on PATH or located via CFDB_BIN env var. CI builds
-# it with `cargo build --release -p cfdb-cli --bin cfdb` before invocation.
 
 set -euo pipefail
 
-# ── Locate the cfdb binary ──────────────────────────────────────────
 CFDB_BIN="${CFDB_BIN:-cfdb}"
 if ! command -v "$CFDB_BIN" >/dev/null 2>&1; then
   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -45,7 +19,6 @@ if ! command -v "$CFDB_BIN" >/dev/null 2>&1 && [ ! -x "$CFDB_BIN" ]; then
   exit 2
 fi
 
-# ── Resolve the workspace root ──────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEFAULT_WS="$(cd "$SCRIPT_DIR/.." && pwd)"
 WORKSPACE="${1:-$DEFAULT_WS}"
@@ -61,21 +34,11 @@ if [ ! -d "$PREDICATES_DIR" ]; then
   exit 2
 fi
 
-# ── Extract cfdb workspace into a fresh keyspace ────────────────────
 DB_DIR="$(mktemp -d)"
 trap 'rm -rf "$DB_DIR"' EXIT
 
 KS="predicate-determinism"
 "$CFDB_BIN" extract --workspace "$WORKSPACE" --db "$DB_DIR" --keyspace "$KS" >/dev/null
-
-# ── Per-predicate canonical param set ───────────────────────────────
-#
-# Keep these param bindings aligned with
-# `crates/cfdb-cli/tests/predicate_library_dogfood.rs::SEED_CASES`. A new
-# predicate added to the library MUST add both (a) a SeedCase in the Rust
-# integration test AND (b) a case below. The test's
-# `seed_cases_cover_every_shipped_predicate` assertion catches (a); the
-# sweep loop below catches (b) by exiting with code 2 on an unknown seed.
 
 run_predicate_twice() {
   local name="$1"
@@ -108,7 +71,6 @@ run_predicate_twice() {
 
 echo "predicate-determinism: extract ok ($WORKSPACE) → $DB_DIR"
 
-# Known seeds — iterate explicitly so unknown seeds fail loudly.
 declare -a SHIPPED
 while IFS= read -r path; do
   SHIPPED+=("$(basename "$path" .cypher)")
@@ -120,7 +82,6 @@ KNOWN_SEEDS=(
   "fn-returns-type-in-crate-set"
 )
 
-# Sanity: every shipped seed has a known param set below.
 for s in "${SHIPPED[@]}"; do
   if ! printf '%s\n' "${KNOWN_SEEDS[@]}" | grep -qx "$s"; then
     echo "predicate-determinism: unknown seed '$s' shipped without a canonical param set in this script" >&2
@@ -129,7 +90,6 @@ for s in "${SHIPPED[@]}"; do
   fi
 done
 
-# Run each seed twice.
 status=0
 for s in "${KNOWN_SEEDS[@]}"; do
   case "$s" in

@@ -1,10 +1,4 @@
 #!/usr/bin/env bash
-# ci/cross-loop-dry-run-test.sh
-#
-# Unit test for ci/cross-loop.sh per Issue #70 Tests: "workflow YAML
-# lint" / dry-run sanity. Exercises the two behavioural branches
-# (pass → no-op, fail → drift-issue preview) without touching git
-# remote or Gitea API.
 
 set -euo pipefail
 
@@ -33,7 +27,6 @@ mark_fail() { echo "$1" >> "$FAIL_FILE"; }
 )
 COMPANION_HEAD="$(git -C "$TMP/companion.git" rev-parse HEAD)"
 
-# Scenario 1 — stub cross-dogfood exit 0 → silent pass, no issue.
 (
     cd "$TMP"
     cp -a "$REPO_ROOT" "local"
@@ -62,7 +55,6 @@ STUB
     fi
 )
 
-# Scenario 2 — stub cross-dogfood exit 30 → drift issue preview.
 (
     cd "$TMP"
     rm -rf local

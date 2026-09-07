@@ -1,13 +1,4 @@
 #!/usr/bin/env bash
-# ci/cross-bump-dry-run-test.sh
-#
-# Unit test for ci/cross-bump.sh per Issue #67 Tests: "bump-script
-# dry-run against a local fixture directory". Exercises the
-# orchestration without touching git remote or the Gitea API.
-#
-# Strategy: set DRY_RUN=1, point COMPANION_REPO at a local temp git
-# repo that mimics a companion with a known HEAD SHA. Assert that
-# the script exits 0 and the diff it would produce is correct.
 
 set -euo pipefail
 
@@ -17,18 +8,12 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-# Counters are written to files so subshells (each scenario runs in
-# its own `(…)`) aggregate up to the parent.
 PASS_FILE="$TMP/.pass"
 FAIL_FILE="$TMP/.fail"
 : >"$PASS_FILE"; : >"$FAIL_FILE"
 mark_pass() { echo "$1" >> "$PASS_FILE"; }
 mark_fail() { echo "$1" >> "$FAIL_FILE"; }
 
-# Spin up a bare "companion.git" repo at TMP/companion.git so
-# `git ls-remote "${URL_BASE}/companion.git" refs/heads/develop` (which
-# is exactly how cross-bump.sh forms the URL) resolves a deterministic
-# HEAD SHA.
 (
     cd "$TMP"
     git init --initial-branch=develop --bare companion.git >/dev/null
@@ -43,11 +28,9 @@ mark_fail() { echo "$1" >> "$FAIL_FILE"; }
 )
 COMPANION_HEAD="$(git -C "$TMP/companion.git" rev-parse HEAD)"
 
-# Scenario 1 — pin already at HEAD should be a no-op.
 (
     cd "$TMP"
     cp -a "$REPO_ROOT" "local"
-    # Prepare the local fixture to already pin the companion HEAD.
     sed -i -E "s|^(\s*sha\s*=\s*)\".*\"|\1\"${COMPANION_HEAD}\"|" local/.cfdb/cross-fixture.toml
     cd local
     out="$(DRY_RUN=1 \
@@ -65,16 +48,11 @@ COMPANION_HEAD="$(git -C "$TMP/companion.git" rev-parse HEAD)"
     fi
 )
 
-# Scenario 2 — stale pin → DRY_RUN prints the bump diff it would apply.
 (
     cd "$TMP"
     rm -rf local
     cp -a "$REPO_ROOT" "local"
-    # Leave the existing sha alone — it will differ from COMPANION_HEAD,
-    # which is the bump trigger.
     cd local
-    # Stub out the actual cross-dogfood run so this test does not try
-    # to clone a real cfdb-checkable tree for 1870 files.
     mv ci/cross-dogfood.sh ci/cross-dogfood.sh.real
     cat > ci/cross-dogfood.sh <<'STUB'
 #!/usr/bin/env bash
@@ -99,7 +77,6 @@ STUB
     fi
 )
 
-# Scenario 3 — stubbed failure → DRY_RUN prints the cross-drift body.
 (
     cd "$TMP"
     rm -rf local

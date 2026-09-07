@@ -1,15 +1,4 @@
 #!/usr/bin/env bash
-# ci/cross-dogfood-binaries-test.sh
-#
-# Unit tests for the binary-presence refusals in ci/cross-dogfood.sh.
-#
-# RFC-039 §7.2 orders the self-enrich-deprecation pass to run against the
-# companion at the pinned SHA; RFC-033 §3.6 has the closed-loop job assert
-# zero violations. A run that reports a pass with that pass unbuilt reports
-# a question it never asked, so an absent binary refuses (exit 2) instead.
-#
-# Follows the ci/read-cross-fixture-sha-test.sh convention — plain
-# assertions, no framework. Exits non-zero on any failure.
 
 set -euo pipefail
 
