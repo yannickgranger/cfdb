@@ -349,7 +349,7 @@ fn schema_describe_only_equivalent_to_is_reserved() {
 #[test]
 fn schema_describe_narrative_digest() {
     const FROZEN_NARRATIVE_DIGEST: &str =
-        "fb3dbdf556dc666cd58cbccc786aa94b1799097d33084c7041bc9a1654d71d9e";
+        "a925d8be1c614a80ec0f09bb12c86efe6c397030cc90d3f8ed27d64784e8a99e";
 
     let d = schema_describe();
 
