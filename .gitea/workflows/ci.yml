@@ -10,6 +10,10 @@ on:
       - main
       - develop
 
+defaults:
+  run:
+    shell: bash -e {0}
+
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -Dwarnings -Clink-arg=-fuse-ld=mold
