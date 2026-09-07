@@ -187,6 +187,53 @@ jobs:
             exit 1
           fi
 
+      - name: "The test surface builds without lang-rust, and no gate is over-narrowed — issue #698"
+        run: |
+          set -e
+          cd repo
+          # The slim-build step above checks the LIBRARY and BINARY under
+          # `--no-default-features`. It never builds the TESTS, and never with
+          # a `lang-*` feature, so the four producer-free combinations below
+          # were built nowhere and eleven cfdb-cli test targets called
+          # `cfdb_extractor::` with no `lang-rust` gate. A combination nobody
+          # can test is a combination whose defects stay latent. `--no-run`
+          # needs no PHP toolchain and each of these is sub-second warm.
+          cargo test -p cfdb-cli --no-default-features --features lang-php --no-run
+          cargo test -p cfdb-cli --no-default-features --features quality-metrics --no-run
+          cargo test -p cfdb-cli --no-default-features --features git-enrich --no-run
+          cargo test -p cfdb-cli --no-default-features --no-run
+          # The gates above can fail the other way: a target narrowed onto a
+          # default-OFF feature compiles everywhere and silently runs nowhere.
+          # A `--all-features` run cannot see that, because under all features
+          # no cfg hides anything. The count of tests cannot see it either --
+          # it rots on the next test added. What sees it is the SET of test
+          # binaries listing zero tests under DEFAULT features: exactly these
+          # five, each legitimately gated on a default-off feature. A sixth
+          # name here is a gate that switched a test off; a name leaving is a
+          # gate that should have stayed. Either way this line is edited
+          # deliberately, which is the point.
+          cargo nextest list -p cfdb-cli --message-format json 2>/dev/null > /tmp/cfdb-cli-list.json
+          python3 - <<'EOF'
+          import json
+          suites = json.load(open("/tmp/cfdb-cli-list.json"))["rust-suites"]
+          empty = sorted(k for k, v in suites.items() if not v.get("testcases"))
+          expected = [
+              "cfdb-cli::classifier_taxonomy",
+              "cfdb-cli::impact_hir_dogfood",
+              "cfdb-cli::pattern_c_canonical_bypass",
+              "cfdb-cli::self_dogfood_enrich_git_history",
+              "cfdb-cli::self_dogfood_enrich_metrics",
+          ]
+          if empty != expected:
+              print("FATAL: the set of cfdb-cli test binaries listing zero tests under default")
+              print("features changed. A binary that lists nothing runs nothing, and a cfg")
+              print("narrowed onto a default-off feature is invisible to --all-features.")
+              print(f"  expected: {expected}")
+              print(f"  found:    {empty}")
+              raise SystemExit(1)
+          print(f"empty-under-default set holds: {len(empty)} binaries, each default-off by design")
+          EOF
+
       - name: Build facts-only cfdb-cli (no `classify` feature) — RFC-059 Slice 059-C
         run: |
           cd repo

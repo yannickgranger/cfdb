@@ -1,4 +1,4 @@
-#![cfg(feature = "quality-metrics")]
+#![cfg(all(feature = "quality-metrics", feature = "lang-rust"))]
 
 use std::path::PathBuf;
 
