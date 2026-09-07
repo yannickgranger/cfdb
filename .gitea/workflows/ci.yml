@@ -402,10 +402,25 @@ jobs:
               --workspace "$(pwd)"
           done
 
-      - name: Cross-dogfood binary-presence refusals (RFC-039 §7.2)
+      - name: ci/*-test.sh — every shell harness in ci/
         run: |
           cd repo
-          bash ci/cross-dogfood-binaries-test.sh
+          # Glob-driven, same discipline as the .cypher smoke step: a new
+          # ci/<name>-test.sh runs on the next CI run with no edit here.
+          count=0
+          fail=0
+          for h in ci/*-test.sh; do
+            [ -e "$h" ] || continue
+            count=$((count + 1))
+            echo ">> $h"
+            bash "$h" || fail=$((fail + 1))
+          done
+          if [ "$count" -eq 0 ]; then
+            echo "ci-test-harnesses: the ci/*-test.sh glob matched nothing, so this step asserted nothing" >&2
+            exit 2
+          fi
+          echo "ci-test-harnesses: $count harness(es) run, $fail failed"
+          [ "$fail" -eq 0 ]
 
       - name: Cross-dogfood — cfdb on graph-specs-rust (RFC-033 §3.2)
         env:
