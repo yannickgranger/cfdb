@@ -32,9 +32,15 @@ API_BASE="${API_BASE:-${COMPANION_URL_BASE}/api/v1}"
 BASE_BRANCH="${BASE_BRANCH:-develop}"
 DRY_RUN="${DRY_RUN:-}"
 
+BUMP_PAT="${BUMP_PAT:-}"
+
 if [ -z "$DRY_RUN" ]; then
     : "${GITHUB_TOKEN:?GITHUB_TOKEN required}"
     : "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY required}"
+    if [ -z "$BUMP_PAT" ]; then
+        printf 'cross-loop: BUMP_PAT is unset, so the drift issue would be opened with the Actions token and no lane would ever run on what it reports — see cfdb #660. Set the BUMP_PAT secret to a token of a real user with push.\n' >&2
+        exit 1
+    fi
 fi
 
 log() { printf 'cross-loop: %s\n' "$*"; }
@@ -107,7 +113,7 @@ if [ "$existing" -gt 0 ]; then
 fi
 
 payload="$(python3 -c "import json,sys; print(json.dumps({'title':'${ISSUE_TITLE}','body':json.loads(sys.stdin.read())}))" <<< "$body_json")"
-curl -sf -X POST -H "Authorization: token ${GITHUB_TOKEN}" \
+curl -sf -X POST -H "Authorization: token ${BUMP_PAT}" \
     -H "Content-Type: application/json" \
     "${API_BASE}/repos/${GITHUB_REPOSITORY}/issues" \
     -d "$payload" >/dev/null

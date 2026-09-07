@@ -36,9 +36,15 @@ API_BASE="${API_BASE:-${COMPANION_URL_BASE}/api/v1}"
 BASE_BRANCH="${BASE_BRANCH:-develop}"
 DRY_RUN="${DRY_RUN:-}"
 
+BUMP_PAT="${BUMP_PAT:-}"
+
 if [ -z "$DRY_RUN" ]; then
     : "${GITHUB_TOKEN:?GITHUB_TOKEN required (unset DRY_RUN for local testing)}"
     : "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY required}"
+    if [ -z "$BUMP_PAT" ]; then
+        printf 'cross-bump: BUMP_PAT is unset, so the PR would be opened with the Actions token and no lane would ever run on it — see cfdb #660. Set the BUMP_PAT secret to a token of a real user with push.\n' >&2
+        exit 1
+    fi
 fi
 
 log() { printf 'cross-bump: %s\n' "$*"; }
@@ -116,7 +122,7 @@ PY
     fi
 
     payload="$(python3 -c "import json,sys; print(json.dumps({'title':'${ISSUE_TITLE}','body':json.loads(sys.stdin.read())}))" <<< "$body_json")"
-    curl -sf -X POST -H "Authorization: token ${GITHUB_TOKEN}" \
+    curl -sf -X POST -H "Authorization: token ${BUMP_PAT}" \
         -H "Content-Type: application/json" \
         "${API_BASE}/repos/${GITHUB_REPOSITORY}/issues" \
         -d "$payload" >/dev/null
@@ -205,7 +211,7 @@ payload="$(python3 -c "import json,sys; print(json.dumps({'title':'chore: weekly
 # Capture status + body so a failed PR creation is diagnosable in the job
 # log instead of dying as an opaque `curl exit 22` (the failure mode that
 # hid the broken token for ~6 weeks). Do NOT use `curl -f` here.
-pr_resp="$(curl -s -w $'\n%{http_code}' -X POST -H "Authorization: token ${GITHUB_TOKEN}" \
+pr_resp="$(curl -s -w $'\n%{http_code}' -X POST -H "Authorization: token ${BUMP_PAT}" \
     -H "Content-Type: application/json" \
     "${API_BASE}/repos/${GITHUB_REPOSITORY}/pulls" \
     -d "$payload")"
