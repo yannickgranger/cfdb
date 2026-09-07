@@ -8,9 +8,11 @@ mod call_walker;
 mod emitter;
 mod implements;
 mod imports;
+mod test_scope;
 use emitter::{item_id, module_id, Emitter};
+use test_scope::TestScope;
 
-const PRODUCER_NAME: &str = "php";
+pub(crate) const PRODUCER_NAME: &str = "php";
 
 const CRATE_ID: &str = "crate:php-workspace";
 
@@ -34,7 +36,7 @@ fn produce_facts(workspace_root: &Path) -> Result<(Vec<Node>, Vec<Edge>), Langua
     let workspace_root = cfdb_lang::canonical_workspace_root(workspace_root)?;
     let workspace_root = workspace_root.as_path();
 
-    let mut emitter = Emitter::new();
+    let mut emitter = Emitter::new(TestScope::from_composer(workspace_root)?);
 
     emitter.emit_node(
         Node::new(CRATE_ID, Label::new(Label::CRATE))
@@ -370,7 +372,7 @@ mod tests {
 
     #[test]
     fn a_namespace_seen_twice_yields_one_module() {
-        let mut emitter = Emitter::new();
+        let mut emitter = Emitter::new(TestScope::default());
         emit_module(&mut emitter, "App");
         emit_module(&mut emitter, "App");
         let modules = module_nodes(emitter);
@@ -383,7 +385,7 @@ mod tests {
 
     #[test]
     fn a_module_that_differs_from_the_stored_one_is_emitted_too() {
-        let mut emitter = Emitter::new();
+        let mut emitter = Emitter::new(TestScope::default());
         emitter.emit_node(
             Node::new(module_id("App"), Label::new(Label::MODULE))
                 .with_prop("name", "App")

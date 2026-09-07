@@ -3,6 +3,8 @@ use std::collections::BTreeMap;
 use cfdb_core::fact::{Edge, Node};
 use cfdb_core::schema::{EdgeLabel, Label};
 
+use crate::test_scope::TestScope;
+
 pub(crate) fn item_id(qname: &str) -> String {
     format!("item:{qname}")
 }
@@ -31,16 +33,18 @@ pub(crate) struct Emitter {
     edges: Vec<Edge>,
     pending_implements: Vec<(String, String)>,
     pending_call_sites: Vec<PendingCallSite>,
+    test_scope: TestScope,
 }
 
 impl Emitter {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(test_scope: TestScope) -> Self {
         Self {
             nodes: Vec::new(),
             node_ids: BTreeMap::new(),
             edges: Vec::new(),
             pending_implements: Vec::new(),
             pending_call_sites: Vec::new(),
+            test_scope,
         }
     }
 
@@ -96,7 +100,7 @@ impl Emitter {
                 .with_prop("kind", "call")
                 .with_prop("file", cs.file.as_str())
                 .with_prop("line", cs.line)
-                .with_prop("is_test", false)
+                .with_prop("is_test", self.test_scope.covers(&cs.file))
                 .with_prop("resolver", "tree-sitter-php")
                 .with_prop("callee_resolved", callee_resolved);
             self.edges.push(Edge::new(

@@ -388,6 +388,7 @@ dependencies = [
  "cfdb-core",
  "cfdb-lang",
  "cfdb-petgraph",
+ "serde_json",
  "tempfile",
  "thiserror",
  "tree-sitter",

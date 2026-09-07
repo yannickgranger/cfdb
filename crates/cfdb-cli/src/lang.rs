@@ -36,6 +36,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn every_registered_producer_carries_a_distinct_name() {
+        let producers = available_producers();
+        let declared = producers.len();
+        let mut names: Vec<&'static str> = producers.iter().map(|p| p.name()).collect();
+        names.sort_unstable();
+        names.dedup();
+        assert_eq!(
+            names.len(),
+            declared,
+            "two producers answer to one name, so a workspace detected by both is resolved by registration order: {names:?}"
+        );
+    }
+
+    #[test]
     #[cfg(all(
         feature = "lang-rust",
         not(feature = "lang-php"),

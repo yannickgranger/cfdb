@@ -47,6 +47,7 @@ cfdb-lang = { path = "../cfdb-lang" }
 # coordinated chore PR per the existing ra-ap-* upgrade discipline.
 tree-sitter = "0.23"
 tree-sitter-php = "0.23"
+serde_json.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
