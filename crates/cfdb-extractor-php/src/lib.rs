@@ -176,7 +176,8 @@ fn emit_class_like(
             .with_prop("name", name.as_str())
             .with_prop("qname", qname.as_str())
             .with_prop("line", line)
-            .with_prop("php_construct", node.kind()),
+            .with_prop("php_construct", node.kind())
+            .with_prop("file", file),
     );
     emitter.emit_edge(Edge::new(
         &id,
@@ -244,7 +245,8 @@ fn emit_method(
             .with_prop("name", name.as_str())
             .with_prop("qname", qname.as_str())
             .with_prop("line", line)
-            .with_prop("php_construct", "method_declaration"),
+            .with_prop("php_construct", "method_declaration")
+            .with_prop("file", file),
     );
     emitter.emit_edge(Edge::new(
         &id,
@@ -293,7 +295,8 @@ fn emit_function(
             .with_prop("name", name.as_str())
             .with_prop("qname", qname.as_str())
             .with_prop("line", line)
-            .with_prop("php_construct", "function_definition"),
+            .with_prop("php_construct", "function_definition")
+            .with_prop("file", file),
     );
     emitter.emit_edge(Edge::new(
         &id,
