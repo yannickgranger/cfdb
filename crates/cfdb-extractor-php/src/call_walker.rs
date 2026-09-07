@@ -223,17 +223,26 @@ fn collect_arguments(node: tree_sitter::Node, src: &[u8]) -> Vec<PendingArgument
     };
 
     let mut argument_cursor = arguments.walk();
-    for wrapper in arguments
+    for (index, wrapper) in arguments
         .children(&mut argument_cursor)
         .filter(|c| c.kind() == "argument")
+        .enumerate()
     {
         let Some(expr) = argument_expression(wrapper) else {
             continue;
         };
-        out.push(pending_argument(wrapper, expr, src, position));
-        position += 1;
+        out.push(pending_argument(
+            wrapper,
+            expr,
+            src,
+            argument_position(position, index),
+        ));
     }
     out
+}
+
+fn argument_position(base: u32, index: usize) -> u32 {
+    base + u32::try_from(index).unwrap_or(u32::MAX)
 }
 
 fn argument_expression(wrapper: tree_sitter::Node) -> Option<tree_sitter::Node> {
@@ -288,5 +297,47 @@ fn classify_arg_kind(expr: tree_sitter::Node) -> ArgKind {
         }
         "function_call_expression" | "object_creation_expression" => ArgKind::Call,
         _ => ArgKind::Other,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn positions(base: u32, accepted: &[bool]) -> Vec<u32> {
+        accepted
+            .iter()
+            .enumerate()
+            .filter(|(_, accepted)| **accepted)
+            .map(|(index, _)| argument_position(base, index))
+            .collect()
+    }
+
+    #[test]
+    fn a_wrapper_the_expression_finder_rejects_leaves_a_gap_rather_than_shifting_its_successors() {
+        assert_eq!(
+            positions(0, &[false, true]),
+            vec![1],
+            "cfdb-060-php-fact-model#3.3 assigns positions by enumerating the `argument` children, \
+             so a wrapper that yields no expression leaves its position empty and the next argument \
+             keeps the one the source gives it. Numbering by a count of successes would put this \
+             argument at 0 and rename every later one, and `:Argument.position` is what \
+             RECEIVER_POSITION and every positional rule read"
+        );
+        assert_eq!(
+            positions(0, &[true, false, true]),
+            vec![0, 2],
+            "the gap is in the middle as readily as at the front"
+        );
+    }
+
+    #[test]
+    fn the_receiver_offset_shifts_the_whole_enumeration_and_not_its_spacing() {
+        assert_eq!(
+            positions(RECEIVER_POSITION + 1, &[false, true]),
+            vec![2],
+            "on a member call the receiver holds position 0 and the written arguments enumerate \
+             from 1, so the same gap appears one place further along"
+        );
     }
 }
