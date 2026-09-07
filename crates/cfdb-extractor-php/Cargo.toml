@@ -50,4 +50,5 @@ tree-sitter-php = "0.23"
 thiserror.workspace = true
 
 [dev-dependencies]
+cfdb-petgraph = { path = "../cfdb-petgraph" }
 tempfile.workspace = true
