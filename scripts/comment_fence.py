@@ -291,6 +291,8 @@ def sh_self_test():
     fixture = """#!/usr/bin/env bash
 squote='# not a comment'
 dquote="# not a comment either"
+sp_squote='a # not a comment'
+sp_dquote="a # not a comment either"
 trim="${squote#\\# }"
 count=${#PATH}
 nested="$(printf '%s' "${dquote}" | cut -d'#' -f1)"
@@ -304,11 +306,11 @@ echo hi  # a trailing comment
 """
     got = [(ln, t.strip()) for ln, t in lex_sh_comments(fixture)]
     flagged = [g for g in got if not (g[0] == 1 and any(g[1].startswith(d) for d in DECLARED_SH))]
-    want = [(12, "# a real comment"), (13, "# a trailing comment")]
+    want = [(14, "# a real comment"), (15, "# a trailing comment")]
     if [(1, "#!/usr/bin/env bash")] + want != got or flagged != want:
         print("comment_fence shell self-test FAILED — got %r" % (got,), file=sys.stderr)
         return 1
-    print("comment_fence shell self-test ok: 2 comments fired, shebang declared, 7 literals ignored")
+    print("comment_fence shell self-test ok: 2 comments fired, shebang declared, 9 literals ignored")
     return 0
 
 
