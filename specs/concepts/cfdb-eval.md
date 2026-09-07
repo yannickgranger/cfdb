@@ -1,4 +1,4 @@
-# Spec: cfdb-eval
+# cfdb-eval
 
 The Cypher-subset evaluator, split out of `cfdb-petgraph` behind the `GraphReader` port (RFC-057). Depends on `cfdb-core` (the `GraphBackend`/`GraphReader` port pair and the `QueryBackend` trait it implements), `regex` (the `regexp_extract` / `=~` predicate UDFs) and `serde_json` (the set-relationship UDFs parse the `entries_normalized` JSON-array prop) — never on `cfdb-petgraph` or any concrete storage engine, so the evaluator can never reach into a backend's internal graph representation.
 

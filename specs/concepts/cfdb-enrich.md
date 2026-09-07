@@ -1,4 +1,4 @@
-# Spec: cfdb-enrich
+# cfdb-enrich
 
 Implements `cfdb-petgraph`'s enrichment passes behind the `GraphBackend`/`GraphView` port. Depends on `cfdb-core`, `cfdb-concepts` (for passes resolving `.cfdb/concepts/*.toml`), feature-gated `git2` (`git-enrich`), and feature-gated `syn`/`sha2` (`quality-metrics`) — never on `cfdb-petgraph` or any concrete storage engine, so an enrichment pass can never reach into a backend's internal graph representation.
 

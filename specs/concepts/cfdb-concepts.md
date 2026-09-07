@@ -1,4 +1,4 @@
-# Spec: cfdb-concepts
+# cfdb-concepts
 
 The shared bounded-context resolver — a pure-library crate (zero heavy deps) that loads `.cfdb/concepts/<name>.toml` override files and computes a crate→bounded-context mapping using a two-layer strategy (explicit TOML overrides win over crate-prefix heuristic).
 

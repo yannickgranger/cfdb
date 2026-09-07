@@ -1,4 +1,4 @@
-# Spec: cfdb-extractor
+# cfdb-extractor
 
 The Rust-source-to-facts extractor — walks a cargo workspace via `syn` and `cargo_metadata` and emits `Node` / `Edge` values for ingest. Depends on `cfdb-core` for the emit-side types; no other workspace dependency.
 

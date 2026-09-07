@@ -1,4 +1,4 @@
-# Spec: cfdb-hir-petgraph-adapter
+# cfdb-hir-petgraph-adapter
 
 Orphan-rule-safe bridge between `cfdb-hir-extractor`'s `CallSiteEmitter` trait and `cfdb-petgraph`'s `PetgraphStore` type. The impl lives in a dedicated crate (not in `cfdb-petgraph`) because `cfdb-cli → cfdb-petgraph` already exists — placing the impl inside `cfdb-petgraph` would transitively contaminate `cfdb-cli` with the 90–150s `ra-ap-*` cold-compile cost on every default build, violating RFC-032 §3 lines 221–227. This adapter is pulled into `cfdb-cli` only via the `hir` feature flag (Issue #86 / slice 4).
 

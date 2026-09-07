@@ -1,4 +1,4 @@
-# Spec: cfdb-classify
+# cfdb-classify
 
 The judgment layer over cfdb's code facts: the six-class `DebtClass` taxonomy, `Finding` rows, the `ScopeInventory` / `ClassifyEnvelope` wire envelopes, the closed `TriggerId` registry with its `CheckReport`, and the `ClassifyEngine` that runs the classifier rules for `cfdb scope` / `cfdb classify` and the editorial-drift triggers for `cfdb check`. Two bounded contexts share the crate and never import from each other (debt classification; triggers) — `tests/module_wall.rs`. Generic over `cfdb_core::graph::GraphBackend` (through `cfdb_eval::QueryEngine`) — never names a storage engine, never does I/O; the composition root (`cfdb-cli`) loads the store, prints, writes and exits. Skill routing is external to cfdb (RFC-cfdb §A2.3): no routing table or loader lives here (`tests/finding_no_skill_field.rs`, `cfdb-query/tests/skill_routing_deleted.rs`). One section per `pub` type (graph-specs gate).
 

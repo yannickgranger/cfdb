@@ -1,4 +1,4 @@
-# Spec: cfdb-core
+# cfdb-core
 
 The schema vocabulary, fact types, query AST, result types, the `StoreBackend` port, the sibling `EnrichBackend` and `QueryBackend` ports, and the narrower `GraphBackend`/`GraphView`/`GraphReader` port family `cfdb-enrich`'s passes and `cfdb-eval`'s evaluator are coded against. The innermost layer that every other cfdb crate depends on and that depends on nothing in the workspace.
 
