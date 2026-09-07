@@ -5,7 +5,7 @@ pub(in crate::schema::describe) fn crate_node_descriptor() -> NodeLabelDescripto
     use Provenance::Extractor;
     NodeLabelDescriptor {
         label: Label::new(Label::CRATE),
-        description: "A Cargo package in the workspace.".into(),
+        description: "A compilation unit of the walked workspace: a Cargo package from `cfdb-extractor`, or the one synthetic crate each of `cfdb-extractor-php` and `cfdb-extractor-ts` emits for the workspace it walks.".into(),
         attributes: vec![
             attr(
                 "crate_tier",
@@ -13,11 +13,29 @@ pub(in crate::schema::describe) fn crate_node_descriptor() -> NodeLabelDescripto
                 "Topological longest-path depth of this crate in the intra-workspace normal-`[dependencies]` DAG: a crate with no in-workspace normal dependencies is tier 0, otherwise `1 + max(crate_tier of its in-workspace normal deps)`. Computed at extract time from each package's declared `[dependencies]` (`kind == Normal`, workspace-filtered); dev/build deps are excluded. Deterministic, recall-gated, and inside the G1 canonical dump. SchemaVersion V0_6_0+ (RFC-050 50-A).",
                 Extractor,
             ),
-            attr("name", "string", "Cargo package name.", Extractor),
+            attr(
+                "is_workspace_member",
+                "bool",
+                "True when the crate is a member of the walked workspace rather than a dependency of it. Emitted by every producer — `cfdb-extractor/src/workspace_nodes.rs`, `cfdb-extractor-php/src/lib.rs`, `cfdb-extractor-ts/src/lib.rs` — each of which writes `true`, since no producer emits a node for a crate outside the workspace it walked. Emitted since the first schema and declared here from issue #693, which found it load-bearing and undeclared.",
+                Extractor,
+            ),
+            attr(
+                "language",
+                "string?",
+                "The producer's own name, `typescript`. Emitted by `cfdb-extractor-ts` alone; absent on crates from the Rust and PHP producers, which carry no such attribute. Declared from issue #693.",
+                Extractor,
+            ),
+            attr("name", "string", "Cargo package name, or the synthetic crate's name for a producer that has one.", Extractor),
             attr(
                 "path",
                 "string",
-                "Manifest directory relative to workspace root.",
+                "Manifest directory relative to workspace root. Declared but emitted by no producer: the only occurrence under `crates/` is this descriptor (issue #693, the same shape `cfdb-060-php-fact-model#3.1.1` found on `:File.loc`). A query reading it matches nothing.",
+                Extractor,
+            ),
+            attr(
+                "published_language",
+                "bool?",
+                "True when the crate is part of the workspace's published language rather than an internal one, decided at extract time. Emitted by `cfdb-extractor` from the published-language table and by `cfdb-extractor-ts` as a constant `false`; absent on crates from the PHP producer. Declared from issue #693.",
                 Extractor,
             ),
             attr("version", "string", "SemVer from Cargo.toml.", Extractor),
@@ -29,7 +47,7 @@ pub(in crate::schema::describe) fn module_node_descriptor() -> NodeLabelDescript
     use Provenance::Extractor;
     NodeLabelDescriptor {
         label: Label::new(Label::MODULE),
-        description: "A Rust module — either a `mod` block or a file-level module.".into(),
+        description: "A namespacing unit of the walked workspace: a Rust `mod` block or file-level module from `cfdb-extractor`, a PHP `namespace` from `cfdb-extractor-php`, a module from `cfdb-extractor-ts`. The attribute sets are disjoint between producers, as they are on `:File` and `:Item`.".into(),
         attributes: vec![
             attr("crate", "string", "Containing crate name.", Extractor),
             attr(
@@ -42,6 +60,24 @@ pub(in crate::schema::describe) fn module_node_descriptor() -> NodeLabelDescript
                 "is_inline",
                 "bool",
                 "True when declared as `mod foo { ... }` inside another file.",
+                Extractor,
+            ),
+            attr(
+                "is_test",
+                "bool?",
+                "The module is test scope. Emitted by `cfdb-extractor` from the Cargo target the module was reached through; absent on modules from the PHP and TypeScript producers. Declared from issue #693.",
+                Extractor,
+            ),
+            attr(
+                "name",
+                "string?",
+                "The module's own name, unqualified for the Rust producer and the whole namespace for the PHP producer, which has no shorter form. Emitted by `cfdb-extractor` and `cfdb-extractor-php`; absent on modules from the TypeScript producer. Declared from issue #693.",
+                Extractor,
+            ),
+            attr(
+                "path",
+                "string?",
+                "The PHP namespace with its separators rewritten `\\` to `::`, so a reader of a polyglot keyspace sees one path spelling. Emitted by `cfdb-extractor-php` alone; absent on modules from the Rust and TypeScript producers, which carry `qpath`. Declared from issue #693.",
                 Extractor,
             ),
             attr(
@@ -177,6 +213,7 @@ fn item_attrs_extractor_structural() -> Vec<AttributeDescriptor> {
     );
     vec![
         attr("kind", "enum", &kind_description, Extractor),
+        attr("language", "string?", "The producer's own name, `typescript`. Emitted by `cfdb-extractor-ts` alone (`emit.rs`, `methods.rs`); absent on items from the Rust and PHP producers, which discriminate through `php_construct` and `ts_construct` instead. Declared from issue #693.", Extractor),
         attr("line", "int", "1-based line number of the item's first token.", Extractor),
         attr("module_qpath", "string", "Fully-qualified path of the enclosing module.", Extractor),
         attr("name", "string", "Unqualified item name.", Extractor),
