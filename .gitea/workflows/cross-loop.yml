@@ -70,6 +70,7 @@ jobs:
       - name: Run cross-loop
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BUMP_PAT: ${{ secrets.BUMP_PAT }}
         run: |
           cd repo
           ./ci/cross-loop.sh
