@@ -1,4 +1,4 @@
-# Spec: check-prelude-triggers
+# check-prelude-triggers
 
 The Tier-1 mechanical pre-council trigger binary ratified in RFC-034 v3.3 §4.2 — `check-prelude-triggers` evaluates the five deterministic C-triggers (`C1` cross-context, `C3` port-signature, `C7` financial-precision, `C8` pipeline-stage, `C9` workspace-cardinality) against a git diff snapshot and emits a frozen-schema JSON envelope on stdout. Lives under `tools/` (not `crates/`) so the load-independent floor can run in consumer repos that don't vendor cfdb's library surface. Consumed by `/freshness` Step 2g which merges per-trigger envelopes into `.triggers/<issue>.json`.
 

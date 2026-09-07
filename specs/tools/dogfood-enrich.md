@@ -1,4 +1,4 @@
-# Spec: dogfood-enrich
+# dogfood-enrich
 
 The RFC-039 §3.5.1 self-dogfood harness binary — `dogfood-enrich` reads a `.cfdb/queries/self-enrich-<pass>.cypher` template, substitutes the threshold const for ratio passes, invokes `cfdb violations` against the materialized tempfile, and maps the row-count outcome to a 0 / 30 / 1 exit code. Lives under `tools/` (not `crates/`) so the leaf binary's CI-policy thresholds remain `Ca = 0` per the RFC-039 R2 SAP analysis (consts that govern CI gates must not couple to `cfdb-cli`'s efferent stability profile, and must not contaminate `cfdb-core`'s inner-ring zero-dependency invariant). Consumed by `.gitea/workflows/ci.yml` for the four default-feature dogfoods (`enrich-deprecation`, `enrich-rfc-docs`, `enrich-bounded-context`, `enrich-concepts`) and by the future nightly workflow for the three feature-gated passes.
 
