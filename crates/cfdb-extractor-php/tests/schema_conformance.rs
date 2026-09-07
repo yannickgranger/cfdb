@@ -103,7 +103,7 @@ fn every_attribute_the_php_producer_writes_is_declared() {
     let labels: BTreeSet<&str> = nodes.iter().map(|n| n.label.as_str()).collect();
     assert_eq!(
         labels,
-        BTreeSet::from(["CallSite", "Crate", "File", "Import", "Item", "Module"]),
+        BTreeSet::from(["Argument", "CallSite", "Crate", "File", "Import", "Item", "Module"]),
         "the fixture must reach every label this producer emits, or the assertion holds over a subset"
     );
     assert_eq!(

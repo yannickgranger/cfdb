@@ -55,7 +55,12 @@ pub(in crate::schema::describe) fn argument_node_descriptor() -> NodeLabelDescri
             attr(
                 "col",
                 "int",
-                "1-indexed column of the argument expression's first token.",
+                "1-indexed column of the argument's first token. THE UNIT DIFFERS BY PRODUCER \
+                 and the values are not comparable across them: `cfdb-extractor` reports a \
+                 `proc_macro2` CHAR offset within the line, `cfdb-extractor-php` a \
+                 tree-sitter BYTE offset. On any line containing non-ASCII the two disagree \
+                 (cfdb-060-php-fact-model#3.3). A rule comparing `col` across producers, or \
+                 against a column a text tool reported, must fence on `:CallSite.resolver`.",
                 Extractor,
             ),
             attr(
@@ -95,11 +100,17 @@ pub(in crate::schema::describe) fn argument_node_descriptor() -> NodeLabelDescri
             attr(
                 "source_text",
                 "string",
-                "Verbatim source text of the argument expression, produced by \
-                 `proc-macro2` token-stream `to_string()` (deterministic for a \
-                 given syn AST). Cypher rules MAY match on `source_text` with \
-                 `=~`; consumers SHOULD prefer `kind` for coarse classification \
-                 (RFC-043 §3.1).",
+                "Source text of the argument. TWO NORMALISATIONS EXIST and they are not \
+                 comparable: `cfdb-hir-extractor` (rowan source text) and \
+                 `cfdb-extractor-php` (the `argument` wrapper's tree-sitter byte range, so \
+                 it carries a named argument's `name:`, a spread's `...` and a by-reference \
+                 `&`) are BYTE-FAITHFUL, while `cfdb-extractor` re-prints a `proc-macro2` \
+                 token stream with `to_string()` and is the lone outlier — deterministic for \
+                 a given syn AST but not the source bytes \
+                 (cfdb-060-php-fact-model#3.3, its I8). A Cypher rule matching `source_text` \
+                 with `=~` is single-producer by construction and MUST fence on \
+                 `:CallSite.resolver`; consumers SHOULD prefer `kind` for coarse \
+                 classification (RFC-043 §3.1).",
                 Extractor,
             ),
         ],

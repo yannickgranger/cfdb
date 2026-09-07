@@ -8,6 +8,14 @@ The schema vocabulary, fact types, query AST, result types, the `StoreBackend` p
 
 Aggregation functions supported in `RETURN` and `WITH` clauses.
 
+## ArgKind
+
+The closed set of `:Argument.kind` values, one variant per member — `Path`, `MethodCall`, `Call`, `Ref`, `Literal`, `Other` — with `as_str` giving the wire string each producer writes (cfdb-060-php-fact-model#3.4). The `ARG_KIND_*` consts and `ARG_KINDS` are derived from it, so the names a producer cites and the set a test asserts against have one source.
+
+The enum is what makes the set closed in the compiler rather than in a convention: each producer keeps its own match — `cfdb-extractor` over a `syn::Expr`, `cfdb-hir-extractor` over its own AST, `cfdb-extractor-php` over a tree-sitter node — and returns a variant, so a producer-local member is a compile error instead of a string nobody checks. The mapping is per-producer by necessity, since no shared crate can host a signature over three unrelated AST types without making each grammar a dependency of the others.
+
+`Other` signals extractor ignorance rather than a domain category, and a Cypher ban rule must not fence on it (RFC-043 §4 Invariant 10).
+
 ## AttributeDescriptor
 
 Metadata for a single node or edge attribute — name, value kind, provenance, documentation.
@@ -141,7 +149,7 @@ The descriptor at `crates/cfdb-core/src/schema/describe/nodes.rs` is authoritati
 - **RfcDoc** — an RFC document file scanned for concept-name matches. Attributes: path, title
 - **ConstTable** — a literal const slice/array recognized as a table of values (RFC-040). Attributes: crate, element_type, entries_hash, entries_normalized, entries_sample, entry_count, is_test, module_qpath, name, qname
 - **Literal** — a single string literal occurring in production source (RFC-041). Attributes: col, crate, file, is_test, line, value
-- **Argument** — a positional argument at a call site (RFC-043 Slice A). Emitted for every `ExprCall` and `ExprMethodCall`; position 0 is the implicit `self` receiver for method calls. Attributes: col, file, kind, line, position, source_text
+- **Argument** — a positional argument at a call site (RFC-043 Slice A; the PHP producer from cfdb-060-php-fact-model#3.3). Position 0 is the implicit receiver for a method call in every producer — `ExprMethodCall` in Rust, `member_call_expression` and its nullsafe form in PHP. For PHP the unit is the grammar's `argument` wrapper, so `source_text` carries a named argument's `name:`, a spread's `...` and a by-reference `&`, and the `kind` of a by-reference argument comes from the wrapper's `reference_modifier` field. `col` and `source_text` are NOT comparable across producers: `col` is a char offset in Rust and a byte offset in PHP, and `source_text` is byte-faithful from the HIR and PHP producers but a `proc-macro2` re-print from the syn one. `kind` is the closed set `cfdb_core::schema::ARG_KINDS`. Attributes: col, file, kind, line, position, source_text
 - **MatchSite** — a single `match` expression keyed per distinct name-level matched-path prefix (RFC-053; producer lands in slice 53-A via `cfdb-extractor::match_visitor`, a third per-fn-body pass alongside `:CallSite`/`:Literal`). `matched_path` is name-level and UNRESOLVED — the all-but-last-segment prefix of a multi-segment arm-pattern path as written (same doctrine as `:CallSite.callee_path`); an external-type match keeps its `:MatchSite` with no `MATCHES_ON` (that resolved edge is slice 53-B). Node id `matchsite:{fn_qname}:{prefix}:{local_idx}` (extractor-local per RFC-032 §3). SchemaVersion V0_7_0+. Attributes: arm_count, crate, file, is_test, line, matched_path, wildcard
 
 ## Node
