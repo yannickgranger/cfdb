@@ -140,14 +140,13 @@ fn extract_namespace_name(ns_node: tree_sitter::Node, src: &[u8]) -> Option<Stri
 
 fn emit_module(emitter: &mut Emitter, namespace: &str) {
     let id = module_id(namespace);
-    if emitter.has_node(&id) {
+    let node = Node::new(&id, Label::new(Label::MODULE))
+        .with_prop("name", namespace)
+        .with_prop("path", namespace.replace('\\', "::"));
+    if emitter.node(&id) == Some(&node) {
         return;
     }
-    emitter.emit_node(
-        Node::new(&id, Label::new(Label::MODULE))
-            .with_prop("name", namespace)
-            .with_prop("path", namespace.replace('\\', "::")),
-    );
+    emitter.emit_node(node);
 }
 
 fn emit_class_like(
@@ -359,5 +358,44 @@ mod tests {
     fn php_producer_is_object_safe() {
         fn _accept(_: &dyn LanguageProducer) {}
         _accept(&PhpProducer);
+    }
+
+    fn module_nodes(emitter: Emitter) -> Vec<Node> {
+        let (nodes, _) = emitter.finish();
+        nodes
+            .into_iter()
+            .filter(|n| n.label.as_str() == Label::MODULE)
+            .collect()
+    }
+
+    #[test]
+    fn a_namespace_seen_twice_yields_one_module() {
+        let mut emitter = Emitter::new();
+        emit_module(&mut emitter, "App");
+        emit_module(&mut emitter, "App");
+        let modules = module_nodes(emitter);
+        assert_eq!(
+            modules.len(),
+            1,
+            "an unchanged module must not be emitted twice, got {modules:?}"
+        );
+    }
+
+    #[test]
+    fn a_module_that_differs_from_the_stored_one_is_emitted_too() {
+        let mut emitter = Emitter::new();
+        emitter.emit_node(
+            Node::new(module_id("App"), Label::new(Label::MODULE))
+                .with_prop("name", "App")
+                .with_prop("path", "App")
+                .with_prop("file", "src/legacy/Thing.php"),
+        );
+        emit_module(&mut emitter, "App");
+        let modules = module_nodes(emitter);
+        assert_eq!(
+            modules.len(),
+            2,
+            "a module node that differs from the stored one must reach ingest, not be dropped by the guard: {modules:?}"
+        );
     }
 }
