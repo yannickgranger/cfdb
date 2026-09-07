@@ -20,6 +20,7 @@ pub(crate) struct PendingCallSite {
     pub file: String,
     pub line: i64,
     pub resolve_target: Option<String>,
+    pub kind: &'static str,
 }
 
 pub(crate) fn callee_last_segment(callee_path: &str) -> &str {
@@ -97,7 +98,7 @@ impl Emitter {
                 .with_prop("caller_qname", cs.caller_qname.as_str())
                 .with_prop("callee_path", cs.callee_path.as_str())
                 .with_prop("callee_last_segment", callee_last_segment(&cs.callee_path))
-                .with_prop("kind", "call")
+                .with_prop("kind", cs.kind)
                 .with_prop("file", cs.file.as_str())
                 .with_prop("line", cs.line)
                 .with_prop("is_test", self.scope.is_test(&cs.file))

@@ -304,7 +304,7 @@ function run(): void {
 }
 
 #[test]
-fn object_creation_is_not_a_call_site() {
+fn object_creation_is_a_call_site_and_the_argument_call_inside_it_still_is() {
     let (nodes, _edges) = produce_one(
         r#"<?php
 namespace App;
@@ -320,8 +320,10 @@ function run(): void {
         .collect();
     assert_eq!(
         paths,
-        vec!["inner"],
-        "no CallSite for `new ...`; only the `inner()` argument call",
+        vec!["MyClass", "Wrapper", "inner"],
+        "a construction is a call site since cfdb-060-php-fact-model#3.2, and the `inner()` \
+         call passed as its argument is still the call site it always was — this test asserted \
+         the opposite before that clause, which is the behaviour the clause reverses",
     );
 }
 

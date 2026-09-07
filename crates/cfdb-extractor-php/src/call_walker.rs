@@ -4,6 +4,14 @@ use crate::emitter::{Emitter, PendingCallSite};
 use crate::imports::ImportTable;
 use crate::text;
 
+const CONSTRUCTOR: &str = "__construct";
+
+pub(crate) struct ClassifiedCall {
+    pub callee_path: String,
+    pub resolve_target: Option<String>,
+    pub kind: &'static str,
+}
+
 pub(crate) struct CallScope<'a> {
     pub caller_qname: &'a str,
     pub enclosing_class_qname: Option<&'a str>,
@@ -36,13 +44,18 @@ fn visit(
     counts: &mut BTreeMap<String, usize>,
     emitter: &mut Emitter,
 ) {
-    if let Some((callee_path, resolve_target)) = classify_call(
+    if let Some(call) = classify_call(
         node,
         src,
         scope.current_ns,
         scope.imports,
         scope.enclosing_class_qname,
     ) {
+        let ClassifiedCall {
+            callee_path,
+            resolve_target,
+            kind,
+        } = call;
         let idx = {
             let counter = counts.entry(callee_path.clone()).or_insert(0);
             let i = *counter;
@@ -56,6 +69,7 @@ fn visit(
             file: scope.file.to_string(),
             line: (node.start_position().row + 1) as i64,
             resolve_target,
+            kind,
         });
     }
 
@@ -71,31 +85,84 @@ fn classify_call(
     current_ns: Option<&str>,
     imports: &ImportTable,
     enclosing_class_qname: Option<&str>,
-) -> Option<(String, Option<String>)> {
+) -> Option<ClassifiedCall> {
     match node.kind() {
         "function_call_expression" => {
             let raw = text(node.child_by_field_name("function")?, src)?;
-            Some((raw.to_string(), Some(imports.resolve(raw, current_ns))))
+            Some(ClassifiedCall {
+                callee_path: raw.to_string(),
+                resolve_target: Some(imports.resolve(raw, current_ns)),
+                kind: "call",
+            })
         }
         "scoped_call_expression" => {
             let name = text(node.child_by_field_name("name")?, src)?;
             let scope = node.child_by_field_name("scope")?;
             let scope_text = text(scope, src)?;
-            Some(classify_scoped_call(
+            let (callee_path, resolve_target) = classify_scoped_call(
                 scope.kind(),
                 scope_text,
                 name,
                 current_ns,
                 imports,
                 enclosing_class_qname,
-            ))
+            );
+            Some(ClassifiedCall {
+                callee_path,
+                resolve_target,
+                kind: "call",
+            })
         }
         "member_call_expression" | "nullsafe_member_call_expression" => {
             let name = text(node.child_by_field_name("name")?, src)?;
-            Some((name.to_string(), None))
+            Some(ClassifiedCall {
+                callee_path: name.to_string(),
+                resolve_target: None,
+                kind: "call",
+            })
+        }
+        "object_creation_expression" => {
+            classify_construction(node, src, current_ns, imports, enclosing_class_qname)
         }
         _ => None,
     }
+}
+
+fn classify_construction(
+    node: tree_sitter::Node,
+    src: &[u8],
+    current_ns: Option<&str>,
+    imports: &ImportTable,
+    enclosing_class_qname: Option<&str>,
+) -> Option<ClassifiedCall> {
+    let mut cursor = node.walk();
+    let class_node = node.children(&mut cursor).find(|c| c.is_named())?;
+    if !matches!(class_node.kind(), "name" | "qualified_name") {
+        return None;
+    }
+    let written = text(class_node, src)?;
+    let resolve_target = match written {
+        "self" | "static" | "parent" => {
+            let (_, target) = classify_scoped_call(
+                "relative_scope",
+                written,
+                CONSTRUCTOR,
+                current_ns,
+                imports,
+                enclosing_class_qname,
+            );
+            target
+        }
+        _ => Some(format!(
+            "{}::{CONSTRUCTOR}",
+            imports.resolve(written, current_ns)
+        )),
+    };
+    Some(ClassifiedCall {
+        callee_path: written.to_string(),
+        resolve_target,
+        kind: "new",
+    })
 }
 
 fn classify_scoped_call(
