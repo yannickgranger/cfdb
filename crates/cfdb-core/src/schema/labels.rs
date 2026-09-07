@@ -12,6 +12,7 @@ impl Label {
     pub const CRATE: &'static str = "Crate";
     pub const MODULE: &'static str = "Module";
     pub const FILE: &'static str = "File";
+    pub const IMPORT: &'static str = "Import";
     pub const ITEM: &'static str = "Item";
     pub const FIELD: &'static str = "Field";
     pub const VARIANT: &'static str = "Variant";
@@ -55,6 +56,7 @@ impl EdgeLabel {
     pub const IN_CRATE: &'static str = "IN_CRATE";
     pub const IN_MODULE: &'static str = "IN_MODULE";
     pub const HAS_FIELD: &'static str = "HAS_FIELD";
+    pub const HAS_IMPORT: &'static str = "HAS_IMPORT";
     pub const HAS_VARIANT: &'static str = "HAS_VARIANT";
     pub const HAS_PARAM: &'static str = "HAS_PARAM";
     pub const HAS_CONST_TABLE: &'static str = "HAS_CONST_TABLE";

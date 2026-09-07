@@ -14,6 +14,7 @@ fn schema_describe_covers_all_node_labels() {
             "Crate",
             "Module",
             "File",
+            "Import",
             "Item",
             "Field",
             "Variant",
@@ -49,6 +50,7 @@ fn schema_describe_covers_all_edge_labels() {
         "BELONGS_TO",
         "CALLS",
         "INVOKES_AT",
+        "HAS_IMPORT",
         "HAS_ARG",
         "EXPOSES",
         "REGISTERS_PARAM",
@@ -347,7 +349,7 @@ fn schema_describe_only_equivalent_to_is_reserved() {
 #[test]
 fn schema_describe_narrative_digest() {
     const FROZEN_NARRATIVE_DIGEST: &str =
-        "5a459149b167b95891e265fcac69fcbae0c0c41762c4a7c527857d352568c653";
+        "fb3dbdf556dc666cd58cbccc786aa94b1799097d33084c7041bc9a1654d71d9e";
 
     let d = schema_describe();
 

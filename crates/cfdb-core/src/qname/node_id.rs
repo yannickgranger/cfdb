@@ -55,6 +55,16 @@ pub fn matchsite_node_id(caller_identity: &str, matched_path: &str, local_idx: u
 }
 
 #[must_use]
+pub fn file_node_id(crate_name: &str, rel_path: &str) -> String {
+    format!("file:{crate_name}:{rel_path}")
+}
+
+#[must_use]
+pub fn import_node_id(file: &str, fqn: &str, idx: usize) -> String {
+    format!("import:{file}:{fqn}:{idx}")
+}
+
+#[must_use]
 pub fn item_node_id_for_target(qname: &str, target: &TargetDiscriminator) -> String {
     format!("item:{}", target.identity(qname))
 }

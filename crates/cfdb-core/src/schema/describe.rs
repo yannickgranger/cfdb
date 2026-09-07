@@ -20,6 +20,7 @@ fn node_descriptors() -> Vec<NodeLabelDescriptor> {
         nodes::crate_node_descriptor(),
         nodes::module_node_descriptor(),
         nodes::file_node_descriptor(),
+        nodes::import_node_descriptor(),
         nodes::item_node_descriptor(),
         nodes::field_node_descriptor(),
         nodes::variant_node_descriptor(),

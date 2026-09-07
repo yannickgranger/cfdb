@@ -51,6 +51,7 @@ The descriptor at `crates/cfdb-core/src/schema/describe/edges.rs` is authoritati
 - **IN_CRATE** — any node with a crate belongs to that Crate.
 - **IN_MODULE** — an Item or File is contained in a Module.
 - **HAS_FIELD** — a struct Item or enum Variant owns a Field.
+- **HAS_IMPORT** — a File owns an Import it declares (cfdb-060-php-fact-model#3.1.2). No edge attributes. The `HAS_*` shape rather than a verb: `CALLS`, `IMPLEMENTS` and `RETURNS` denote a resolved relation between two real items, which an import declaration is not. SchemaVersion V0_8_0+.
 - **HAS_VARIANT** — an enum Item owns a Variant.
 - **HAS_PARAM** — an fn Item owns a Param.
 - **HAS_CONST_TABLE** — a const Item owns a recognized literal table of values (RFC-040).
@@ -127,7 +128,8 @@ The descriptor at `crates/cfdb-core/src/schema/describe/nodes.rs` is authoritati
 
 - **Crate** — a Cargo package in the workspace. Attributes: crate_tier, name, path, version
 - **Module** — a Rust module (`mod` block or file-level module). Attributes: crate, file, is_inline, qpath
-- **File** — a source file walked by the extractor. Attributes: crate, loc, module_qpath, path
+- **File** — a source file walked by a producer: a `.rs` file from `cfdb-extractor`, a `.php` file under a composer-declared root from `cfdb-extractor-php` (cfdb-060-php-fact-model#3.1.1). The id `file:{crate}:{rel_path}` is built by `cfdb_core::qname::file_node_id`, which both producers call. `loc` and `module_qpath` are declared and emitted by no producer; `is_test` is emitted by the Rust producer alone. The node carries no `IN_CRATE` edge in either producer, and `IN_MODULE` only from the Rust walker. Attributes: crate, is_test, loc, module_qpath, path
+- **Import** — one class-importing `use` clause as declared, emitted by `cfdb-extractor-php` (cfdb-060-php-fact-model#3.1.2). Id `import:{file}:{fqn}:{idx}` via `cfdb_core::qname::import_node_id`, where `idx` counts prior clauses in the same file importing the same FQN — without that ordinal two clauses importing one name collide and last-write-wins ingest drops one in silence. It records a name and never resolves it: no `:Item` is invented for a target outside the walked tree. Distinct from the producer's internal alias table, which is case-folded and lossy. SchemaVersion V0_8_0+. Attributes: alias, file, fqn, line
 - **Item** — a top-level item (struct, enum, trait, impl, fn, const, static, type alias). Attributes: bounded_context, cfg_gate, crate, cyclomatic, deprecation_since, doc_text, dup_cluster_id, file, git_commit_count, git_last_author, git_last_commit_unix_ts, impl_target, impl_trait, is_deprecated, is_test, kind, line, module_qpath, name, php_construct, qname, reachable_entry_count, reachable_from_entry, reachable_from_production_entry, reachable_production_entry_count, signature, signature_hash, test_coverage, ts_construct, unwrap_count, visibility
 - **Field** — a struct field, tuple-struct element, or enum-variant field. Attributes: index, name, parent_qname, type_normalized, type_path
 - **Variant** — an enum variant. Attributes: index, name, parent_qname, payload_kind

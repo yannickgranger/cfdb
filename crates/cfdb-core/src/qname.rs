@@ -1,8 +1,8 @@
 mod node_id;
 pub use node_id::{
-    argument_node_id, callsite_node_id, entrypoint_node_id, field_node_id, item_node_id,
-    item_node_id_for_target, matchsite_node_id, param_node_id, variant_node_id,
-    TargetDiscriminator,
+    argument_node_id, callsite_node_id, entrypoint_node_id, field_node_id, file_node_id,
+    import_node_id, item_node_id, item_node_id_for_target, matchsite_node_id, param_node_id,
+    variant_node_id, TargetDiscriminator,
 };
 
 #[must_use]

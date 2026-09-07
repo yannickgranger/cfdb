@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use cfdb_core::fact::{Edge, Node, PropValue};
-use cfdb_core::qname::module_qpath;
+use cfdb_core::qname::{file_node_id, module_qpath};
 use cfdb_core::schema::{EdgeLabel, Label};
 use syn::visit::Visit;
 
@@ -67,7 +67,7 @@ fn visit_file_inner(
         .to_string_lossy()
         .into_owned();
 
-    let file_id = format!("file:{crate_name}:{rel_path}");
+    let file_id = file_node_id(crate_name, &rel_path);
     emitter.emit_node(Node {
         id: file_id.clone(),
         label: Label::new(Label::FILE),
