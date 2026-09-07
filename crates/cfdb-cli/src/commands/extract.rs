@@ -82,12 +82,11 @@ pub(super) fn extract_at_path(
 
     let (nodes, edges) = match matched.as_slice() {
         [] => {
-            eprintln!(
-                "cfdb: no LanguageProducer detected workspace `{}`; \
-                 compiled-in producers: {compiled_in:?} — extracting an empty graph",
-                workspace.display()
-            );
-            (Vec::new(), Vec::new())
+            return Err(crate::lang::NoProducerDetected {
+                workspace: workspace.display().to_string(),
+                compiled_in,
+            }
+            .into())
         }
         [single] => single.produce(workspace)?,
         [first, rest @ ..] => {
