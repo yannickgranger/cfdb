@@ -1,26 +1,4 @@
 #!/usr/bin/env bash
-# ci/cross-loop.sh
-#
-# Weekly closed-loop housekeeping (RFC-033 §3.6, Issue #70). Runs
-# `ci/cross-dogfood.sh` against the companion at `develop` HEAD —
-# NOT the pinned SHA. Purpose: surface drift in the window between
-# "companion landed a change" and "our next pin bump" (weekly cron
-# at Monday 06:00 or manual PR).
-#
-# Distinct from ci/cross-bump.sh:
-#   - closed-loop tests HEAD regardless of pin state (never no-op on
-#     pin == HEAD, since that's the check it's there to make)
-#   - on pass: log and exit 0 (no bump, no PR)
-#   - on fail: open `cross-drift-YYYY-WW` issue (de-duped)
-#
-# Env required:
-#   GITHUB_TOKEN, GITHUB_REPOSITORY (Gitea Actions provides both)
-#
-# Env optional:
-#   COMPANION_REPO     (default: yg/graph-specs-rust)
-#   COMPANION_URL_BASE (default: https://agency.lab:3000)
-#   BASE_BRANCH        (default: develop)
-#   DRY_RUN            — skip API calls (unit-test mode)
 
 set -euo pipefail
 
@@ -45,7 +23,6 @@ fi
 
 log() { printf 'cross-loop: %s\n' "$*"; }
 
-# ── 1. Resolve companion HEAD ────────────────────────────────────────
 if [ -n "${GITHUB_TOKEN:-}" ]; then
     git config --global url."https://oauth2:${GITHUB_TOKEN}@agency.lab:3000/".insteadOf "https://agency.lab:3000/"
 fi
@@ -57,7 +34,6 @@ if ! printf '%s' "$HEAD_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
 fi
 log "testing ${COMPANION_REPO}@${BASE_BRANCH} HEAD: ${HEAD_SHA}"
 
-# ── 2. Run cross-dogfood against HEAD ────────────────────────────────
 LOGFILE="$(mktemp)"
 set +e
 COMPANION_SHA="$HEAD_SHA" bash "$SCRIPT_DIR/cross-dogfood.sh" 2>&1 | tee "$LOGFILE"
@@ -70,7 +46,6 @@ if [ "$DOGFOOD_EXIT" -eq 0 ]; then
     exit 0
 fi
 
-# ── 3. Open cross-drift-YYYY-WW issue ────────────────────────────────
 WEEK="$(date -u +%Y-%V)"
 ISSUE_TITLE="cross-drift-${WEEK}"
 LOG_TAIL="$(tail -50 "$LOGFILE")"

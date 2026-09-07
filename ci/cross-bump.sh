@@ -1,29 +1,4 @@
 #!/usr/bin/env bash
-# ci/cross-bump.sh
-#
-# Weekly cross-fixture bump orchestrator (RFC-033 §3.3, Issue #67).
-# Invoked by `.gitea/workflows/cross-bump.yml` on Monday 06:00 UTC and
-# by manual `workflow_dispatch` for debugging.
-#
-# Flow:
-#   1. Resolve companion `develop` HEAD SHA.
-#   2. If HEAD == current pin: nothing to do.
-#   3. Otherwise, run `ci/cross-dogfood.sh` with COMPANION_SHA=HEAD.
-#      - exit 0: update `.cfdb/cross-fixture.toml`, push a branch,
-#        open a bump PR targeting `develop`.
-#      - non-zero: open (or update) a `cross-drift-YYYY-WW` issue with
-#        the failing invocation, exit code, and log tail per the
-#        exit-code contract in docs/cross-fixture-bump.md §1.4.
-#
-# Env required:
-#   GITHUB_TOKEN       — Gitea API token (supplied by Actions secret)
-#   GITHUB_REPOSITORY  — this repo's owner/name (supplied by runtime)
-#
-# Env optional:
-#   COMPANION_REPO     (default: yg/graph-specs-rust)
-#   COMPANION_URL_BASE (default: https://agency.lab:3000)
-#   BASE_BRANCH        (default: develop)
-#   DRY_RUN            — if set, skip git push + API calls (unit-test mode)
 
 set -euo pipefail
 
@@ -49,7 +24,6 @@ fi
 
 log() { printf 'cross-bump: %s\n' "$*"; }
 
-# ── 1. Resolve companion HEAD SHA ────────────────────────────────────
 if [ -n "${GITHUB_TOKEN:-}" ]; then
     git config --global url."https://oauth2:${GITHUB_TOKEN}@agency.lab:3000/".insteadOf "https://agency.lab:3000/"
 fi
@@ -69,7 +43,6 @@ if [ "$HEAD_SHA" = "$CURRENT_SHA" ]; then
     exit 0
 fi
 
-# ── 2. Run cross-dogfood against HEAD ────────────────────────────────
 LOGFILE="$(mktemp)"
 set +e
 COMPANION_SHA="$HEAD_SHA" bash "$SCRIPT_DIR/cross-dogfood.sh" 2>&1 | tee "$LOGFILE"
@@ -80,7 +53,6 @@ log "cross-dogfood.sh exit=${DOGFOOD_EXIT}"
 WEEK="$(date -u +%Y-%V)"
 ISSUE_TITLE="cross-drift-${WEEK}"
 
-# ── 3a. Failure path — open (or skip) a cross-drift issue ────────────
 if [ "$DOGFOOD_EXIT" -ne 0 ]; then
     LOG_TAIL="$(tail -50 "$LOGFILE")"
     body_json="$(python3 - <<'PY' "$COMPANION_REPO" "$HEAD_SHA" "$DOGFOOD_EXIT" "$LOG_TAIL"
@@ -111,7 +83,6 @@ PY
         exit 0
     fi
 
-    # De-dup: skip if already open this week.
     existing="$(curl -sf -H "Authorization: token ${GITHUB_TOKEN}" \
         "${API_BASE}/repos/${GITHUB_REPOSITORY}/issues?state=open&type=issues&q=${ISSUE_TITLE}" \
         | python3 -c "import json,sys; data=json.load(sys.stdin); print(sum(1 for i in data if i.get('title')=='${ISSUE_TITLE}'))" \
@@ -130,13 +101,10 @@ PY
     exit 0
 fi
 
-# ── 3b. Success path — open a bump PR ────────────────────────────────
 cd "$REPO_ROOT"
 BRANCH="chore/cross-bump-${HEAD_SHA:0:12}"
 NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-# Update the fixture in-place via sed (anchored on the field names —
-# same discipline as read-cross-fixture-sha.sh).
 sed -i.bak -E \
     -e "s|^(\s*sha\s*=\s*)\".*\"|\1\"${HEAD_SHA}\"|" \
     -e "s|^(\s*bumped_at\s*=\s*)\".*\"|\1\"${NOW}\"|" \
@@ -144,7 +112,6 @@ sed -i.bak -E \
     .cfdb/cross-fixture.toml
 rm -f .cfdb/cross-fixture.toml.bak
 
-# Re-verify the parser is happy with the new file.
 NEW_SHA="$("$SCRIPT_DIR/read-cross-fixture-sha.sh")"
 if [ "$NEW_SHA" != "$HEAD_SHA" ]; then
     log "FATAL: post-bump fixture does not round-trip ($NEW_SHA != $HEAD_SHA)"
@@ -158,13 +125,6 @@ if [ -n "$DRY_RUN" ]; then
     exit 0
 fi
 
-# A prior cron may have pushed this branch but FAILED to open the PR
-# (e.g. before the Actions token carried pull-requests:write). So
-# "branch exists" does NOT imply "PR exists" — check for an open PR and
-# open one if it is missing, rather than silently skipping. The blind
-# skip is exactly how the pin silently rotted ~6 weeks (Issue #67
-# post-mortem): the branch was pushed, PR creation 4xx'd, and every
-# subsequent run took this early-exit.
 branch_exists=0
 if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
     branch_exists=1
@@ -208,9 +168,6 @@ PY
 
 payload="$(python3 -c "import json,sys; print(json.dumps({'title':'chore: weekly cross-fixture bump → ${HEAD_SHA:0:12}','body':json.loads(sys.stdin.read()),'head':'${BRANCH}','base':'${BASE_BRANCH}'}))" <<< "$pr_body")"
 
-# Capture status + body so a failed PR creation is diagnosable in the job
-# log instead of dying as an opaque `curl exit 22` (the failure mode that
-# hid the broken token for ~6 weeks). Do NOT use `curl -f` here.
 pr_resp="$(curl -s -w $'\n%{http_code}' -X POST -H "Authorization: token ${BUMP_PAT}" \
     -H "Content-Type: application/json" \
     "${API_BASE}/repos/${GITHUB_REPOSITORY}/pulls" \

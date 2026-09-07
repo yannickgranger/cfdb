@@ -1,20 +1,4 @@
 #!/usr/bin/env bash
-# ci/dogfood-determinism.sh — RFC-039 §3.4 / §I1
-#
-# Determinism harness for the 7 self-enrich-*.cypher dogfood queries.
-# Single combined extract feeds all 7 queries; each is invoked twice
-# via tools/dogfood-enrich; stdout is diffed.
-#
-# This is a SEPARATE script from ci/predicate-determinism.sh — those
-# two harnesses cover different cfdb subcommands with incompatible
-# param schemas (`cfdb violations` vs `cfdb check-predicate`). Per
-# rust-systems R1 verdict: a shared script would require a conditional
-# code path with two unrelated branches. Cleaner to keep separate.
-#
-# Empty-glob-OK at this stage (Issue #342 ships the harness; the .cypher
-# files land in Issues #343-#349). When zero templates exist the script
-# exits 0 with a log message asserting the harness contract — there are
-# no queries to be deterministic about, but the binary itself runs.
 
 set -euo pipefail
 
@@ -37,16 +21,6 @@ if [ ! -x "$DOGFOOD_BIN" ]; then
     exit 2
 fi
 
-# Single combined extract for all 7 passes. RFC §3.4: "one combined
-# extract feeds all 7 queries — cheaper than the per-predicate pattern
-# in predicate-determinism.sh".
-#
-# The workdir lives under the repo's own target/ (gitignored), NOT the
-# system tmpdir: on the CI runner, /cache/tmp is subject to concurrent
-# housekeeping that has deleted capture files mid-run, which the diff
-# below then misreported as a determinism failure (2026-07-15 run:
-# "diff: enrich-rfc-docs-a.txt: No such file or directory" →
-# "STDOUT DIFFERS"). target/ is never externally cleaned mid-job.
 mkdir -p "$REPO_ROOT/target"
 WORKDIR="$(mktemp -d -p "$REPO_ROOT/target" dogfood-determinism.XXXXXX)"
 trap 'rm -rf "$WORKDIR"' EXIT
@@ -58,10 +32,6 @@ mkdir -p "$DB_DIR"
 echo "dogfood-determinism: extracting cfdb-self into $DB_DIR/$KEYSPACE"
 "$CFDB_BIN" extract --workspace "$REPO_ROOT" --db "$DB_DIR" --keyspace "$KEYSPACE" >/dev/null
 
-# The 7 passes (default-feature subset + nightly subset). Each is
-# invoked unconditionally; the I5.1 feature-presence guard inside
-# dogfood-enrich emits a clear "feature missing" message + exit 1
-# when the binary was built without the matching feature flag.
 PASSES=(
     "enrich-deprecation"
     "enrich-rfc-docs"
@@ -72,10 +42,6 @@ PASSES=(
     "enrich-git-history"
 )
 
-# Glob check: if zero templates exist this is the scaffolding stage
-# (Issue #342). The script still asserts the harness contract — a
-# missing template surfaces as a clear runtime error from
-# dogfood-enrich, not as a determinism violation.
 shopt -s nullglob
 TEMPLATES=("$QUERIES_DIR"/self-enrich-*.cypher)
 shopt -u nullglob
@@ -98,10 +64,6 @@ for pass in "${PASSES[@]}"; do
     out_a="$WORKDIR/${pass}-a.txt"
     out_b="$WORKDIR/${pass}-b.txt"
 
-    # Run twice; capture stdout. exit codes 0 (clean) and 30 (violations)
-    # are both valid for determinism — we care about byte-stability of
-    # output across the two runs, not about whether the invariant holds.
-    # Exit 1 (runtime error including I5.1 feature missing) propagates.
     rc_a=0
     "$DOGFOOD_BIN" --pass "$pass" --db "$DB_DIR" --keyspace "$KEYSPACE" \
         --cfdb-bin "$CFDB_BIN" --workspace "$REPO_ROOT" \
@@ -116,9 +78,6 @@ for pass in "${PASSES[@]}"; do
         continue
     fi
 
-    # A missing capture file is an infrastructure error (something ate
-    # the workdir), NOT nondeterminism — report it distinctly so a
-    # runner flake is never attributed to the enrichment pass.
     if [ ! -f "$out_a" ] || [ ! -f "$out_b" ]; then
         echo "dogfood-determinism: $pass — capture file missing ($out_a / $out_b): infrastructure error, not a determinism verdict (FAIL)" >&2
         failed=$((failed + 1))

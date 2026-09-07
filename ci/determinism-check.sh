@@ -1,38 +1,9 @@
 #!/usr/bin/env bash
-# ci/determinism-check.sh
-#
-# RFC-029 §12.1 G1 — byte-identical sorted-jsonl canonical dump check.
-#
-# Invariant: same (workspace SHA, schema major.minor) → byte-identical
-# canonical dump across two consecutive `cfdb extract` runs into fresh
-# databases.
-#
-# Exit codes:
-#   0 — both runs produced identical sha256 (G1 holds)
-#   1 — the two runs produced different sha256 (G1 violated, regression)
-#   2 — usage error or required tool missing
-#
-# Usage:
-#   determinism-check.sh [WORKSPACE]
-#
-# WORKSPACE defaults to the fixture workspace (spikes/qa5-utc-now).
-# Pass an explicit path to check a different workspace (used by the
-# negative test that mutates a copy of the fixture).
-#
-# No baseline file exists. Determinism is proven by the two consecutive
-# extractions in this script producing byte-identical dumps — it is a
-# consistency check, not a conformance check. No sha is stored across runs.
-# (CLAUDE.md §6 rule 8 — no ratchets, no pin files, no --update-baseline.)
-#
-# The cfdb binary must be on PATH or located via CFDB_BIN env var. CI builds
-# it from the cfdb sub-workspace before invoking this script.
 
 set -euo pipefail
 
-# ── Locate the cfdb binary ──────────────────────────────────────────
 CFDB_BIN="${CFDB_BIN:-cfdb}"
 if ! command -v "$CFDB_BIN" >/dev/null 2>&1; then
-  # Try the sub-workspace target/ as a fallback for local invocations.
   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   CFDB_WS="$(cd "$SCRIPT_DIR/.." && pwd)"
   for build in target/debug/cfdb target/release/cfdb; do
@@ -48,7 +19,6 @@ if ! command -v "$CFDB_BIN" >/dev/null 2>&1 && [ ! -x "$CFDB_BIN" ]; then
   exit 2
 fi
 
-# ── Resolve the fixture workspace ───────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CFDB_WS="$(cd "$SCRIPT_DIR/.." && pwd)"
 DEFAULT_FIXTURE="$CFDB_WS/spikes/qa5-utc-now"
@@ -61,7 +31,6 @@ if [ ! -d "$WORKSPACE" ] || [ ! -f "$WORKSPACE/Cargo.toml" ]; then
   exit 2
 fi
 
-# ── Two-run harness ─────────────────────────────────────────────────
 DB_A="$(mktemp -d "$SCRATCH_ROOT/db.XXXXXX")"
 DB_B="$(mktemp -d "$SCRATCH_ROOT/db.XXXXXX")"
 trap 'rm -rf "$DB_A" "$DB_B"' EXIT
@@ -82,24 +51,6 @@ if [ "$A_SHA" != "$B_SHA" ]; then
   exit 1
 fi
 
-# ── enrich-git-history determinism (issue #105 / slice 43-B) ──────────
-#
-# Loads the extracted keyspace from each db and runs `enrich-git-history`,
-# comparing the JSON report byte-for-byte. The pass is deterministic (sorted
-# BTreeMap, reverse-chronological revwalk, no wall-clock) so two consecutive
-# invocations on the same workspace MUST produce identical reports. Holds
-# whether or not the binary was compiled with `--features git-enrich`:
-#
-#   - feature off → both runs emit the same "feature disabled" stub report
-#   - feature on + git workspace → both runs emit the same real report
-#   - feature on + non-git workspace → both runs emit the same "not a git
-#     repo" degraded report
-#
-# In-memory-dump determinism (two enriched stores produce identical canonical
-# dumps) is proved by the unit test
-# `ac6_two_runs_produce_identical_canonical_dumps` in
-# `cfdb-enrich/src/git_history/tests.rs`. This script proves the CLI path
-# is equally deterministic.
 A_ENRICH="$("$CFDB_BIN" enrich-git-history --db "$DB_A" --keyspace "$KS" --workspace "$WORKSPACE")"
 B_ENRICH="$("$CFDB_BIN" enrich-git-history --db "$DB_B" --keyspace "$KS" --workspace "$WORKSPACE")"
 
@@ -111,21 +62,6 @@ if [ "$A_ENRICH" != "$B_ENRICH" ]; then
   exit 1
 fi
 
-# ── HIR --hir determinism (RFC-043 / issue #418 / §4 I1) ─────────────
-#
-# Post-RFC-043 the proc-macro server is enabled by default (when the
-# sysroot ships `rust-analyzer-proc-macro-srv`). G1 byte-stability MUST
-# hold on the macro path too — two consecutive `cfdb extract --hir`
-# runs on cfdb's own workspace produce identical canonical dumps.
-#
-# cfdb-self is the corpus per RFC-043 §3.5: it carries `#[derive]` and
-# `#[tokio::test]` shapes that exercise the proc-macro arm without
-# needing a synthetic fixture.
-#
-# This block runs ONLY when the cfdb binary was built with the `hir`
-# feature. If `extract --hir` exits non-zero (feature absent), we skip
-# with an advisory message — the unconditional syn-only gate above is
-# still enforced.
 if [ -f "$CFDB_WS/Cargo.toml" ]; then
   DB_HIR_A="$(mktemp -d "$SCRATCH_ROOT/db.XXXXXX")"
   DB_HIR_B="$(mktemp -d "$SCRATCH_ROOT/db.XXXXXX")"
