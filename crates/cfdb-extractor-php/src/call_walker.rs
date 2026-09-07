@@ -2,9 +2,19 @@ use std::collections::BTreeMap;
 
 use crate::emitter::{Emitter, PendingCallSite};
 use crate::imports::ImportTable;
+use cfdb_core::schema::{ArgKind, RECEIVER_POSITION};
+
 use crate::text;
 
 const CONSTRUCTOR: &str = "__construct";
+
+pub(crate) struct PendingArgument {
+    pub position: u32,
+    pub kind: ArgKind,
+    pub source_text: String,
+    pub line: i64,
+    pub col: i64,
+}
 
 pub(crate) struct ClassifiedCall {
     pub callee_path: String,
@@ -70,6 +80,7 @@ fn visit(
             line: (node.start_position().row + 1) as i64,
             resolve_target,
             kind,
+            arguments: collect_arguments(node, src),
         });
     }
 
@@ -189,5 +200,93 @@ fn classify_scoped_call(
             )
         }
         _ => (name.to_string(), None),
+    }
+}
+
+fn collect_arguments(node: tree_sitter::Node, src: &[u8]) -> Vec<PendingArgument> {
+    let mut out = Vec::new();
+    let mut position = 0u32;
+
+    if matches!(
+        node.kind(),
+        "member_call_expression" | "nullsafe_member_call_expression"
+    ) {
+        if let Some(receiver) = node.child_by_field_name("object") {
+            out.push(pending_argument(receiver, receiver, src, RECEIVER_POSITION));
+            position = RECEIVER_POSITION + 1;
+        }
+    }
+
+    let mut cursor = node.walk();
+    let Some(arguments) = node.children(&mut cursor).find(|c| c.kind() == "arguments") else {
+        return out;
+    };
+
+    let mut argument_cursor = arguments.walk();
+    for wrapper in arguments
+        .children(&mut argument_cursor)
+        .filter(|c| c.kind() == "argument")
+    {
+        let Some(expr) = argument_expression(wrapper) else {
+            continue;
+        };
+        out.push(pending_argument(wrapper, expr, src, position));
+        position += 1;
+    }
+    out
+}
+
+fn argument_expression(wrapper: tree_sitter::Node) -> Option<tree_sitter::Node> {
+    let label = wrapper.child_by_field_name("name");
+    let modifier = wrapper.child_by_field_name("reference_modifier");
+    let mut cursor = wrapper.walk();
+    let expr = wrapper
+        .children(&mut cursor)
+        .filter(tree_sitter::Node::is_named)
+        .find(|c| Some(*c) != label && Some(*c) != modifier)?;
+    if expr.kind() == "variadic_unpacking" {
+        let mut inner = expr.walk();
+        return expr.children(&mut inner).find(tree_sitter::Node::is_named);
+    }
+    Some(expr)
+}
+
+fn pending_argument(
+    span: tree_sitter::Node,
+    expr: tree_sitter::Node,
+    src: &[u8],
+    position: u32,
+) -> PendingArgument {
+    let kind =
+        if span.kind() == "argument" && span.child_by_field_name("reference_modifier").is_some() {
+            ArgKind::Ref
+        } else {
+            classify_arg_kind(expr)
+        };
+    PendingArgument {
+        position,
+        kind,
+        source_text: text(span, src).unwrap_or_default().to_string(),
+        line: (span.start_position().row + 1) as i64,
+        col: (span.start_position().column + 1) as i64,
+    }
+}
+
+fn classify_arg_kind(expr: tree_sitter::Node) -> ArgKind {
+    match expr.kind() {
+        "string" | "encapsed_string" | "heredoc" | "nowdoc" | "integer" | "float" | "boolean"
+        | "null" => ArgKind::Literal,
+        "variable_name"
+        | "name"
+        | "qualified_name"
+        | "member_access_expression"
+        | "nullsafe_member_access_expression"
+        | "scoped_property_access_expression"
+        | "class_constant_access_expression" => ArgKind::Path,
+        "member_call_expression" | "nullsafe_member_call_expression" | "scoped_call_expression" => {
+            ArgKind::MethodCall
+        }
+        "function_call_expression" | "object_creation_expression" => ArgKind::Call,
+        _ => ArgKind::Other,
     }
 }

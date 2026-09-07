@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use cfdb_core::fact::{Edge, Node};
+use cfdb_core::qname::argument_node_id;
 use cfdb_core::schema::{EdgeLabel, Label};
 
 use crate::test_scope::ComposerScope;
@@ -21,6 +22,7 @@ pub(crate) struct PendingCallSite {
     pub line: i64,
     pub resolve_target: Option<String>,
     pub kind: &'static str,
+    pub arguments: Vec<crate::call_walker::PendingArgument>,
 }
 
 pub(crate) fn callee_last_segment(callee_path: &str) -> &str {
@@ -118,6 +120,26 @@ impl Emitter {
                         EdgeLabel::new(EdgeLabel::CALLS),
                     ));
                 }
+            }
+
+            for argument in &cs.arguments {
+                let arg_id = argument_node_id(&cs.id, argument.position);
+                self.edges.push(Edge::new(
+                    cs.id.as_str(),
+                    arg_id.as_str(),
+                    EdgeLabel::new(EdgeLabel::HAS_ARG),
+                ));
+                let arg = Node::new(arg_id.as_str(), Label::new(Label::ARGUMENT))
+                    .with_prop("position", i64::from(argument.position))
+                    .with_prop("kind", argument.kind.as_str())
+                    .with_prop("source_text", argument.source_text.as_str())
+                    .with_prop("file", cs.file.as_str())
+                    .with_prop("line", argument.line)
+                    .with_prop("col", argument.col);
+                self.node_ids
+                    .entry(arg_id.clone())
+                    .or_insert(self.nodes.len());
+                self.nodes.push(arg);
             }
 
             self.node_ids.entry(cs.id).or_insert(self.nodes.len());

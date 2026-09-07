@@ -4,6 +4,52 @@ use serde::{Deserialize, Serialize};
 
 pub const RECEIVER_POSITION: u32 = 0;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ArgKind {
+    Path,
+    MethodCall,
+    Call,
+    Ref,
+    Literal,
+    Other,
+}
+
+impl ArgKind {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            ArgKind::Path => "path",
+            ArgKind::MethodCall => "method_call",
+            ArgKind::Call => "call",
+            ArgKind::Ref => "ref",
+            ArgKind::Literal => "literal",
+            ArgKind::Other => "other",
+        }
+    }
+}
+
+impl fmt::Display for ArgKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+pub const ARG_KIND_PATH: &str = ArgKind::Path.as_str();
+pub const ARG_KIND_METHOD_CALL: &str = ArgKind::MethodCall.as_str();
+pub const ARG_KIND_CALL: &str = ArgKind::Call.as_str();
+pub const ARG_KIND_REF: &str = ArgKind::Ref.as_str();
+pub const ARG_KIND_LITERAL: &str = ArgKind::Literal.as_str();
+pub const ARG_KIND_OTHER: &str = ArgKind::Other.as_str();
+
+pub const ARG_KINDS: &[&str] = &[
+    ARG_KIND_PATH,
+    ARG_KIND_METHOD_CALL,
+    ARG_KIND_CALL,
+    ARG_KIND_REF,
+    ARG_KIND_LITERAL,
+    ARG_KIND_OTHER,
+];
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Label(pub String);
