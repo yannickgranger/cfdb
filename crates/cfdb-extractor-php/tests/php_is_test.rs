@@ -12,7 +12,28 @@ const COMPOSER_WITH_DEV_AUTOLOAD: &str = r#"{
   "autoload-dev": { "psr-4": { "App\\Tests\\": "tests/" } }
 }"#;
 
-const COMPOSER_WITHOUT_DEV_AUTOLOAD: &str = r#"{"name":"cfdb/test","type":"library"}"#;
+const COMPOSER_WITHOUT_DEV_AUTOLOAD: &str = r#"{
+  "name": "cfdb/test",
+  "autoload": { "psr-4": { "App\\": "src/" } }
+}"#;
+
+fn produce_result(
+    composer: Option<&str>,
+    files: &[(&str, &str)],
+) -> Result<Vec<Node>, cfdb_lang::LanguageError> {
+    let dir = TempDir::new().expect("tempdir");
+    if let Some(composer) = composer {
+        fs::write(dir.path().join("composer.json"), composer).expect("write composer.json");
+    }
+    for (rel, src) in files {
+        let path = dir.path().join(rel);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("mkdir -p");
+        }
+        fs::write(&path, src).expect("write php source");
+    }
+    PhpProducer.produce(dir.path()).map(|(nodes, _)| nodes)
+}
 
 fn produce(composer: &str, files: &[(&str, &str)]) -> Vec<Node> {
     let dir = TempDir::new().expect("tempdir");
@@ -94,10 +115,36 @@ fn a_dev_autoload_root_covers_every_depth_beneath_it() {
 fn a_workspace_declaring_no_dev_autoload_has_no_test_call_sites() {
     let nodes = produce(
         COMPOSER_WITHOUT_DEV_AUTOLOAD,
-        &[("tests/ServiceTest.php", &caller("        strlen('a');"))],
+        &[
+            ("src/Service.php", &caller("        strlen('a');")),
+            ("tests/ServiceTest.php", &caller("        strlen('a');")),
+        ],
     );
     assert!(
-        !is_test(call_site_in(&nodes, "tests/ServiceTest.php")),
-        "the test scope is the project's own declaration; a directory named tests is not one"
+        !is_test(call_site_in(&nodes, "src/Service.php")),
+        "a workspace declaring no autoload-dev has no test scope at all"
+    );
+    assert!(
+        nodes
+            .iter()
+            .all(|n| n.props.get("file").and_then(PropValue::as_str)
+                != Some("tests/ServiceTest.php")),
+        "a directory named tests is not a declaration; undeclared, it is not walked"
+    );
+}
+
+#[test]
+fn a_workspace_without_a_manifest_is_refused_by_name() {
+    let err = produce_result(
+        None,
+        &[("src/Service.php", &caller("        strlen('a');"))],
+    )
+    .expect_err(
+        "a PHP workspace with no composer.json declares neither its roots nor its test scope",
+    );
+    let rendered = err.to_string();
+    assert!(
+        rendered.contains("php") && rendered.contains("composer.json"),
+        "the refusal names the producer and the file it wanted, got {rendered:?}"
     );
 }

@@ -10,7 +10,7 @@ mod implements;
 mod imports;
 mod test_scope;
 use emitter::{item_id, module_id, Emitter};
-use test_scope::TestScope;
+use test_scope::ComposerScope;
 
 pub(crate) const PRODUCER_NAME: &str = "php";
 
@@ -36,7 +36,9 @@ fn produce_facts(workspace_root: &Path) -> Result<(Vec<Node>, Vec<Edge>), Langua
     let workspace_root = cfdb_lang::canonical_workspace_root(workspace_root)?;
     let workspace_root = workspace_root.as_path();
 
-    let mut emitter = Emitter::new(TestScope::from_composer(workspace_root)?);
+    let scope = ComposerScope::from_composer(workspace_root)?;
+    let php_files = collect_php_files(workspace_root, &scope)?;
+    let mut emitter = Emitter::new(scope);
 
     emitter.emit_node(
         Node::new(CRATE_ID, Label::new(Label::CRATE))
@@ -44,7 +46,6 @@ fn produce_facts(workspace_root: &Path) -> Result<(Vec<Node>, Vec<Edge>), Langua
             .with_prop("is_workspace_member", true),
     );
 
-    let php_files = collect_php_files(workspace_root)?;
     for path in php_files {
         let file = cfdb_lang::workspace_relative(&path, workspace_root, PRODUCER_NAME)?;
         walk_file(&path, &file, &mut emitter)?;
@@ -59,10 +60,21 @@ fn produce_facts(workspace_root: &Path) -> Result<(Vec<Node>, Vec<Edge>), Langua
     Ok((nodes, edges))
 }
 
-fn collect_php_files(workspace_root: &Path) -> Result<Vec<PathBuf>, LanguageError> {
+fn collect_php_files(
+    workspace_root: &Path,
+    scope: &ComposerScope,
+) -> Result<Vec<PathBuf>, LanguageError> {
     let mut out = Vec::new();
-    walk_dir(workspace_root, &mut out)?;
+    for root in scope.declared_roots() {
+        let path = workspace_root.join(root);
+        if path.is_dir() {
+            walk_dir(&path, &mut out)?;
+        } else if path.is_file() && path.extension().is_some_and(|e| e == "php") {
+            out.push(path);
+        }
+    }
     out.sort();
+    out.dedup();
     Ok(out)
 }
 
@@ -372,7 +384,7 @@ mod tests {
 
     #[test]
     fn a_namespace_seen_twice_yields_one_module() {
-        let mut emitter = Emitter::new(TestScope::default());
+        let mut emitter = Emitter::new(ComposerScope::default());
         emit_module(&mut emitter, "App");
         emit_module(&mut emitter, "App");
         let modules = module_nodes(emitter);
@@ -385,7 +397,7 @@ mod tests {
 
     #[test]
     fn a_module_that_differs_from_the_stored_one_is_emitted_too() {
-        let mut emitter = Emitter::new(TestScope::default());
+        let mut emitter = Emitter::new(ComposerScope::default());
         emitter.emit_node(
             Node::new(module_id("App"), Label::new(Label::MODULE))
                 .with_prop("name", "App")
