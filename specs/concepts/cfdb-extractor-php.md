@@ -1,4 +1,4 @@
-# Spec: cfdb-extractor-php
+# cfdb-extractor-php
 
 PHP `LanguageProducer` MVP (RFC-041 Phase 2 / issue #264). Walks a Composer-style PHP project via tree-sitter-php and emits the v0.1 cfdb fact set onto the existing closed-set schema vocabulary in `cfdb-core::schema::labels` — no new `:Item.kind` values are introduced (Published Language invariant per RFC-041 §4). Operationally a cfdb-monolith member crate per `.cfdb/concepts/cfdb.toml`; gated behind `lang-php` in `cfdb-cli` so default builds drop the entire tree-sitter dep tree.
 

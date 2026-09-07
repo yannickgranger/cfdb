@@ -1,4 +1,4 @@
-# Spec: cfdb-petgraph
+# cfdb-petgraph
 
 The `StoreBackend` + `GraphBackend` implementation backed by `petgraph::StableDiGraph`. The only concrete graph store shipped with cfdb v0.1. Depends on `cfdb-core`; no other workspace dependency. Storage only: query evaluation is `cfdb-eval`'s `QueryEngine`, which reads a keyspace through the `GraphReader` port — this crate never links the evaluator (pinned by `tests/architecture_dep_rule.rs`).
 

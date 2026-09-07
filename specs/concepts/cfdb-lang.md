@@ -1,4 +1,4 @@
-# Spec: cfdb-lang
+# cfdb-lang
 
 The producer-side seam for cfdb's multi-language story — defines the `LanguageProducer` trait that every language-specific producer (Rust today via `cfdb-extractor`, PHP and TypeScript follow via #264 / #265) implements, plus the `LanguageError` enum that flows through it.
 

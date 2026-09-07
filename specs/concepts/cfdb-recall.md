@@ -1,4 +1,4 @@
-# Spec: cfdb-recall
+# cfdb-recall
 
 The recall gate for the cfdb extractor. Compares the set of public items `cfdb-extractor` emits for a crate against the set `rustdoc --output-format=json` reports, and verifies the ratio meets the threshold declared in `DEFAULT_THRESHOLD`. Gated behind the `runner` feature when the binary-or-rustdoc-json machinery is needed (PR #33 landed this split).
 

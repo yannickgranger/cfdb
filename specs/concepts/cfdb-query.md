@@ -1,4 +1,4 @@
-# Spec: cfdb-query
+# cfdb-query
 
 Cypher-subset parser (chumsky 0.10) plus a Rust builder API. Both produce the same `cfdb_core::Query` AST. Also hosts the verb-level query composers (`impact`, `list_items_matching`, `diff`) and the backend-agnostic `shape_lint`. The debt-class taxonomy and the scope/classify envelopes live in `cfdb-classify` (RFC-059).
 

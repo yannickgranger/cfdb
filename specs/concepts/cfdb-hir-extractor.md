@@ -1,4 +1,4 @@
-# Spec: cfdb-hir-extractor
+# cfdb-hir-extractor
 
 The HIR-backed companion to the syn-based `cfdb-extractor`. Consumes a monomorphic `ra_ap_hir::db::HirDatabase` and emits resolved `:CallSite`, `CALLS`, `INVOKES_AT`, and (v0.2+ complete) `:EntryPoint` facts into `cfdb-core`'s schema vocabulary. `ra-ap-*` crates are quarantined inside this crate — RFC-032 §3 boundary test enforces zero `ra_ap_*` references in `cfdb-core`.
 
