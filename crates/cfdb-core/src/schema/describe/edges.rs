@@ -125,6 +125,22 @@ pub(super) fn edge_descriptors() -> Vec<EdgeLabelDescriptor> {
             provenance: Provenance::Extractor,
         },
         EdgeLabelDescriptor {
+            label: EdgeLabel::new(EdgeLabel::HAS_IMPORT),
+            description: "A File owns an Import it declares (cfdb-060-php-fact-model#3.1.2). \
+                          The `HAS_*` shape: owner to a constituent of the owner's own \
+                          declaration, the constituent carrying a denormalized `file` back-reference. \
+                          Not a verb: `CALLS`, `IMPLEMENTS` and `RETURNS` denote a resolved relation \
+                          between two real items, which an import declaration is not. \
+                          No attributes. Emitted by `cfdb-extractor-php`. \
+                          SchemaVersion V0_8_0+; keyspaces from a producer without `lang-php` \
+                          carry zero HAS_IMPORT edges."
+                .into(),
+            attributes: vec![],
+            from: vec![Label::new(Label::FILE)],
+            to: vec![Label::new(Label::IMPORT)],
+            provenance: Provenance::Extractor,
+        },
+        EdgeLabelDescriptor {
             label: EdgeLabel::new(EdgeLabel::HAS_ARG),
             description: "A CallSite owns a positional Argument (RFC-043 Slice A). \
                           No attributes — position lives on the :Argument node. \

@@ -58,25 +58,70 @@ pub(in crate::schema::describe) fn file_node_descriptor() -> NodeLabelDescriptor
     use Provenance::Extractor;
     NodeLabelDescriptor {
         label: Label::new(Label::FILE),
-        description: "A `.rs` source file on disk.".into(),
+        description: "A source file on disk: a `.rs` file walked by `cfdb-extractor`, or a `.php` file under a composer-declared root walked by `cfdb-extractor-php` (cfdb-060-php-fact-model#3.1.1).".into(),
         attributes: vec![
-            attr("crate", "string", "Containing crate name.", Extractor),
+            attr(
+                "crate",
+                "string",
+                "Containing crate name. The PHP producer has one synthetic crate and emits `php-workspace`.",
+                Extractor,
+            ),
+            attr(
+                "is_test",
+                "bool",
+                "The file is test scope. Emitted by `cfdb-extractor` from the Cargo target the file was reached through; `cfdb-extractor-php` does not emit it, PHP test scope being carried per call site. Emitted since the first schema and declared here from cfdb-060-php-fact-model#3.1.1, which found it undeclared.",
+                Extractor,
+            ),
             attr(
                 "loc",
                 "int",
-                "Line-of-code count (non-blank, non-comment).",
+                "Line-of-code count (non-blank, non-comment). Declared but emitted by no producer: the only occurrence under `crates/` is this descriptor (cfdb-060-php-fact-model#3.1.1). A query reading it matches nothing.",
                 Extractor,
             ),
             attr(
                 "module_qpath",
                 "string",
-                "Fully-qualified path of the module defined by this file.",
+                "Fully-qualified path of the module defined by this file. Declared but emitted by no producer (cfdb-060-php-fact-model#3.1.1); the Rust walker states file-to-module as its conditional `IN_MODULE` edge, not as this attribute. A query reading it matches nothing.",
                 Extractor,
             ),
             attr(
                 "path",
                 "string",
                 "Source path relative to workspace root.",
+                Extractor,
+            ),
+        ],
+    }
+}
+
+pub(in crate::schema::describe) fn import_node_descriptor() -> NodeLabelDescriptor {
+    use Provenance::Extractor;
+    NodeLabelDescriptor {
+        label: Label::new(Label::IMPORT),
+        description: "A class-importing `use` clause as declared, one node per clause, emitted by `cfdb-extractor-php` (cfdb-060-php-fact-model#3.1.2). It records a name and never resolves it: no `:Item` is invented for a target outside the walked tree, so a framework name from `vendor/` is recorded as written. Distinct from the producer's internal alias table, which is case-folded and last-write-wins; `count(:Import)` is greater than or equal to that table's size. SchemaVersion V0_8_0+; keyspaces from a producer without `lang-php` carry zero.".into(),
+        attributes: vec![
+            attr(
+                "alias",
+                "string?",
+                "The `as` name exactly as written; the attribute is absent when the clause carries none. Not case-folded.",
+                Extractor,
+            ),
+            attr(
+                "file",
+                "string",
+                "Workspace-relative path of the declaring file, denormalized as `:CallSite.file` and `:Item.file` already are, so a rule fences on a path prefix in one MATCH with no hop.",
+                Extractor,
+            ),
+            attr(
+                "fqn",
+                "string",
+                "The fully-qualified imported name, group prefix joined and any leading backslash trimmed. Emitted whether or not a node with that name exists in the graph.",
+                Extractor,
+            ),
+            attr(
+                "line",
+                "int",
+                "1-indexed line of the clause.",
                 Extractor,
             ),
         ],

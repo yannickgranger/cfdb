@@ -1,6 +1,8 @@
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use cfdb_core::fact::{Edge, Node, PropValue};
+use cfdb_core::qname::{file_node_id, import_node_id};
 use cfdb_core::schema::{EdgeLabel, Label};
 use cfdb_lang::{LanguageError, LanguageProducer};
 
@@ -13,6 +15,8 @@ use emitter::{item_id, module_id, Emitter};
 use test_scope::ComposerScope;
 
 pub(crate) const PRODUCER_NAME: &str = "php";
+
+const CRATE_NAME: &str = "php-workspace";
 
 const CRATE_ID: &str = "crate:php-workspace";
 
@@ -42,7 +46,7 @@ fn produce_facts(workspace_root: &Path) -> Result<(Vec<Node>, Vec<Edge>), Langua
 
     emitter.emit_node(
         Node::new(CRATE_ID, Label::new(Label::CRATE))
-            .with_prop("name", "php-workspace")
+            .with_prop("name", CRATE_NAME)
             .with_prop("is_workspace_member", true),
     );
 
@@ -117,6 +121,8 @@ fn walk_file(path: &Path, file: &str, emitter: &mut Emitter) -> Result<(), Langu
 
 fn walk_top_level(program: tree_sitter::Node, src: &[u8], file: &str, emitter: &mut Emitter) {
     let imports = imports::collect(program, src);
+    emit_file_and_imports(file, &imports.declarations, emitter);
+    let imports = imports.table;
     let mut current_ns: Option<String> = None;
     let mut cursor = program.walk();
     for child in program.children(&mut cursor) {
@@ -139,6 +145,36 @@ fn walk_top_level(program: tree_sitter::Node, src: &[u8], file: &str, emitter: &
             }
             _ => {}
         }
+    }
+}
+
+fn emit_file_and_imports(file: &str, declarations: &[imports::Declaration], emitter: &mut Emitter) {
+    let file_id = file_node_id(CRATE_NAME, file);
+    emitter.emit_node(
+        Node::new(&file_id, Label::new(Label::FILE))
+            .with_prop("path", file)
+            .with_prop("crate", CRATE_NAME),
+    );
+
+    let mut ordinals: BTreeMap<&str, usize> = BTreeMap::new();
+    for declaration in declarations {
+        let ordinal = ordinals.entry(declaration.fqn.as_str()).or_insert(0);
+        let id = import_node_id(file, &declaration.fqn, *ordinal);
+        *ordinal += 1;
+
+        let mut node = Node::new(&id, Label::new(Label::IMPORT))
+            .with_prop("fqn", declaration.fqn.as_str())
+            .with_prop("file", file)
+            .with_prop("line", declaration.line);
+        if let Some(alias) = &declaration.alias {
+            node = node.with_prop("alias", alias.as_str());
+        }
+        emitter.emit_node(node);
+        emitter.emit_edge(Edge::new(
+            &file_id,
+            &id,
+            EdgeLabel::new(EdgeLabel::HAS_IMPORT),
+        ));
     }
 }
 
