@@ -28,6 +28,7 @@ fn schema_describe_covers_all_node_labels() {
             "Literal",
             "Argument",
             "MatchSite",
+            "GlobalRead",
         ]
     );
 }
@@ -61,6 +62,7 @@ fn schema_describe_covers_all_edge_labels() {
         "MATCHES_AT",
         "MATCHES_ON",
         "ENCLOSED_BY",
+        "READS_GLOBAL",
     ];
     assert_eq!(edges.len(), expected.len());
     for e in &expected {
@@ -374,7 +376,7 @@ fn call_site_kind_names_every_member_and_narrows_none() {
 #[test]
 fn schema_describe_narrative_digest() {
     const FROZEN_NARRATIVE_DIGEST: &str =
-        "3992fa7aa974545453c74961b73e1f6dfe9a11c0299ef678d9b28fe29ac1c0c9";
+        "e12445d95253a71e807b124e16179670ef7512e1c259ac0f7ec9f7d4fdfabed9";
 
     let d = schema_describe();
 

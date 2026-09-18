@@ -4,7 +4,7 @@ mod structural;
 
 pub(in crate::schema::describe) use call_graph::{
     argument_node_descriptor, call_site_node_descriptor, entry_point_node_descriptor,
-    match_site_node_descriptor,
+    global_read_node_descriptor, match_site_node_descriptor,
 };
 pub(in crate::schema::describe) use overlay::{
     concept_node_descriptor, const_table_node_descriptor, context_node_descriptor,

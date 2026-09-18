@@ -237,5 +237,13 @@ pub(super) fn edge_descriptors() -> Vec<EdgeLabelDescriptor> {
             to: vec![Label::new(Label::RFC_DOC)],
             provenance: Provenance::EnrichRfcDocs,
         },
+        EdgeLabelDescriptor {
+            label: EdgeLabel::new(EdgeLabel::READS_GLOBAL),
+            description: "The containing fn/method Item points at a GlobalRead for a PHP superglobal access inside its body (Item → GlobalRead), mirroring INVOKES_AT for call sites and MATCHES_AT for match sites (cfdb-062-php-declared-shapes#3.7). No edge attributes. Emitted by cfdb-extractor-php only. SchemaVersion V0_8_0+; keyspaces predating this slice carry zero READS_GLOBAL edges.".into(),
+            attributes: vec![],
+            from: vec![Label::new(Label::ITEM)],
+            to: vec![Label::new(Label::GLOBAL_READ)],
+            provenance: Provenance::Extractor,
+        },
     ]
 }

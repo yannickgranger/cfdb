@@ -103,6 +103,17 @@ fn visit(
         visit_arguments(node, base, &id, ctx, counts, emitter, enclosing_argument);
     }
 
+    if node.kind() == "variable_name" {
+        crate::global_reads::visit_variable_name(
+            node,
+            ctx.src,
+            ctx.scope.caller_qname,
+            ctx.scope.file,
+            counts,
+            emitter,
+        );
+    }
+
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         if Some(child) == arguments_child {
