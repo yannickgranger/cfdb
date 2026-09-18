@@ -385,6 +385,10 @@ fn calls_fixture_call_graph_shape() {
                 item_id(r"App\Calculator::compute"),
                 item_id(r"App\Calculator::add")
             ),
+            (
+                item_id(r"App\Calculator::compute"),
+                item_id(r"App\Calculator::add")
+            ),
             (item_id(r"App\Calculator::compute"), item_id(r"App\helper")),
         ],
     );

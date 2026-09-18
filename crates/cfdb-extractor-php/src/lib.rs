@@ -10,6 +10,7 @@ mod call_walker;
 mod emitter;
 mod implements;
 mod imports;
+mod receiver;
 mod supertypes;
 mod test_scope;
 mod types;

@@ -109,7 +109,15 @@ pub(super) fn edge_descriptors() -> Vec<EdgeLabelDescriptor> {
             attributes: vec![attr(
                 "resolved",
                 "bool",
-                "`true` when the dispatch was resolved via HIR type inference (`cfdb-hir-extractor`, v0.2+); `false` for textual / unresolved baseline. SchemaVersion v0.1.4+ only. The HIR-based extractor is the first producer of :CALLS edges — v0.1.3 and earlier graphs have no CALLS edges at all.",
+                "`true` on every :CALLS edge; a producer emits the edge only once dispatch is \
+                 resolved, so there is no `false` row to carry. What `true` certifies differs by \
+                 producer — fence on the edge's :CallSite.resolver to tell them apart. \
+                 `cfdb-hir-extractor` (`resolver = \"hir\"`, SchemaVersion v0.1.4+): resolved \
+                 via HIR type inference. `cfdb-extractor-php` (`resolver = \"tree-sitter-php\"`, \
+                 cfdb-062-php-declared-shapes+): resolved through imports, the enclosing class, or \
+                 a declared property type (cfdb-060-php-fact-model :Field.type_normalized) — never \
+                 through runtime type inference. The HIR-based extractor is the first producer of \
+                 :CALLS edges — v0.1.3 and earlier graphs have no CALLS edges at all.",
                 Extractor,
             )],
             from: vec![Label::new(Label::ITEM)],

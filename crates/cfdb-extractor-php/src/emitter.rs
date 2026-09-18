@@ -23,6 +23,8 @@ pub(crate) struct PendingCallSite {
     pub resolve_target: Option<String>,
     pub kind: &'static str,
     pub arguments: Vec<crate::call_walker::PendingArgument>,
+    pub enclosing_class_qname: Option<String>,
+    pub receiver: Option<crate::receiver::Receiver>,
 }
 
 pub(crate) fn callee_last_segment(callee_path: &str) -> &str {
@@ -155,10 +157,23 @@ impl Emitter {
     }
 
     pub(crate) fn resolve_pending_call_sites(&mut self) {
+        let extends_parents = crate::receiver::build_extends_parents(&self.edges);
         let pending = std::mem::take(&mut self.pending_call_sites);
         for cs in pending {
-            let callee_resolved = cs
-                .resolve_target
+            let effective_target = cs.resolve_target.clone().or_else(|| {
+                let receiver = cs.receiver.as_ref()?;
+                let enclosing_class_qname = cs.enclosing_class_qname.as_deref()?;
+                crate::receiver::resolve_call(
+                    receiver,
+                    enclosing_class_qname,
+                    &cs.callee_path,
+                    &self.node_ids,
+                    &self.nodes,
+                    &extends_parents,
+                )
+            });
+
+            let callee_resolved = effective_target
                 .as_ref()
                 .is_some_and(|t| self.node_ids.contains_key(&item_id(t)));
 
@@ -179,12 +194,15 @@ impl Emitter {
             ));
 
             if callee_resolved {
-                if let Some(target) = &cs.resolve_target {
-                    self.edges.push(Edge::new(
-                        item_id(&cs.caller_qname),
-                        item_id(target),
-                        EdgeLabel::new(EdgeLabel::CALLS),
-                    ));
+                if let Some(target) = &effective_target {
+                    self.edges.push(
+                        Edge::new(
+                            item_id(&cs.caller_qname),
+                            item_id(target),
+                            EdgeLabel::new(EdgeLabel::CALLS),
+                        )
+                        .with_prop("resolved", true),
+                    );
                 }
             }
 

@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::emitter::{Emitter, PendingCallSite};
 use crate::imports::ImportTable;
+use crate::receiver::{self, Receiver};
 use cfdb_core::schema::{ArgKind, RECEIVER_POSITION};
 
 use crate::text;
@@ -20,6 +21,7 @@ pub(crate) struct ClassifiedCall {
     pub callee_path: String,
     pub resolve_target: Option<String>,
     pub kind: &'static str,
+    pub receiver: Option<Receiver>,
 }
 
 pub(crate) struct CallScope<'a> {
@@ -65,6 +67,7 @@ fn visit(
             callee_path,
             resolve_target,
             kind,
+            receiver,
         } = call;
         let idx = {
             let counter = counts.entry(callee_path.clone()).or_insert(0);
@@ -81,6 +84,8 @@ fn visit(
             resolve_target,
             kind,
             arguments: collect_arguments(node, src),
+            enclosing_class_qname: scope.enclosing_class_qname.map(str::to_string),
+            receiver,
         });
     }
 
@@ -104,6 +109,7 @@ fn classify_call(
                 callee_path: raw.to_string(),
                 resolve_target: Some(imports.resolve(raw, current_ns)),
                 kind: "call",
+                receiver: None,
             })
         }
         "scoped_call_expression" => {
@@ -122,14 +128,17 @@ fn classify_call(
                 callee_path,
                 resolve_target,
                 kind: "call",
+                receiver: None,
             })
         }
         "member_call_expression" | "nullsafe_member_call_expression" => {
             let name = text(node.child_by_field_name("name")?, src)?;
+            let object = node.child_by_field_name("object")?;
             Some(ClassifiedCall {
                 callee_path: name.to_string(),
                 resolve_target: None,
                 kind: "call",
+                receiver: receiver::classify_receiver(object, src),
             })
         }
         "object_creation_expression" => {
@@ -173,6 +182,7 @@ fn classify_construction(
         callee_path: written.to_string(),
         resolve_target,
         kind: "new",
+        receiver: None,
     })
 }
 
