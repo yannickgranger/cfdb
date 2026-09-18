@@ -22,7 +22,7 @@ class Widget
 {
     #[Route('/widgets')]
     public function handle(
-        #[Autowire('%app.dsn%')] private readonly string $dsn,
+        #[Autowire('%app.dsn%'), Deprecated] private readonly string $dsn,
     ): void {
     }
 
@@ -121,27 +121,82 @@ fn a_promoted_parameter_attribute_is_two_attribute_nodes_one_per_owner() {
 
     assert_eq!(
         param_owned.len(),
-        1,
-        "the :Param owns its own :Attribute copy: {param_owned:?}"
+        2,
+        "the :Param owns its own :Attribute copy of both grouped attributes: {param_owned:?}"
     );
     assert_eq!(
         field_owned.len(),
-        1,
-        "the :Field owns its own :Attribute copy: {field_owned:?}"
+        2,
+        "the :Field owns its own :Attribute copy of both grouped attributes: {field_owned:?}"
     );
-    assert_ne!(
-        param_owned[0].id, field_owned[0].id,
-        "cfdb-062-php-declared-shapes#3.5: a promoted parameter's attribute is TWO :Attribute \
-         nodes, one owned by the :Param and one by the :Field, each its own id"
-    );
-    for n in [param_owned[0], field_owned[0]] {
-        assert_eq!(prop(n, "written"), Some("Autowire"));
-        assert_eq!(
-            prop(n, "fqn"),
-            Some("Symfony\\Component\\DependencyInjection\\Attribute\\Autowire"),
-            "fqn resolves through the same ImportTable::resolve as :Import.fqn"
+    for (p, f) in param_owned.iter().zip(field_owned.iter()) {
+        assert_ne!(
+            p.id, f.id,
+            "cfdb-062-php-declared-shapes#3.5: a promoted parameter's attribute is TWO \
+             :Attribute nodes, one owned by the :Param and one by the :Field, each its own id"
         );
     }
+    assert_eq!(prop(param_owned[0], "written"), Some("Autowire"));
+    assert_eq!(
+        prop(param_owned[0], "fqn"),
+        Some("Symfony\\Component\\DependencyInjection\\Attribute\\Autowire"),
+        "fqn resolves through the same ImportTable::resolve as :Import.fqn"
+    );
+}
+
+#[test]
+fn a_promoted_parameter_with_two_attributes_has_matching_idx_between_param_and_field_owners() {
+    let (nodes, edges) = produce();
+    let param_owned = attributes_owned_by(&nodes, &edges, "param:App\\Widget::handle#0");
+    let field_owned = attributes_owned_by(&nodes, &edges, "field:App\\Widget.dsn");
+
+    assert_eq!(
+        param_owned.len(),
+        2,
+        "grouped `#[Autowire(...), Deprecated]`: {param_owned:?}"
+    );
+    assert_eq!(
+        field_owned.len(),
+        2,
+        "grouped `#[Autowire(...), Deprecated]`: {field_owned:?}"
+    );
+
+    fn idx_of(id: &str) -> &str {
+        id.rsplit('#').next().expect("attr id has a # suffix")
+    }
+
+    for i in 0..2 {
+        assert_eq!(
+            idx_of(&param_owned[i].id),
+            idx_of(&field_owned[i].id),
+            "position {i}: :Param id {:?} and :Field id {:?} must carry the same idx suffix \
+             since both read idx fresh off the identical property_promotion_parameter node's \
+             own attribute_list, independent of which owner is calling",
+            param_owned[i].id,
+            field_owned[i].id
+        );
+        assert_eq!(
+            prop(param_owned[i], "written"),
+            prop(field_owned[i], "written"),
+            "position {i}: the :Param-owned and :Field-owned :Attribute at the same idx must \
+             name the same attribute, or the two owners' copies have desynced"
+        );
+        assert_eq!(
+            prop(param_owned[i], "fqn"),
+            prop(field_owned[i], "fqn"),
+            "position {i}: fqn must also match — same source attribute, two owners"
+        );
+    }
+    assert_eq!(
+        prop(param_owned[0], "written"),
+        Some("Autowire"),
+        "source order: Autowire first"
+    );
+    assert_eq!(
+        prop(param_owned[1], "written"),
+        Some("Deprecated"),
+        "source order: Deprecated second"
+    );
 }
 
 #[test]
@@ -162,9 +217,9 @@ fn every_attribute_node_carries_file_and_line() {
         .collect();
     assert_eq!(
         attrs.len(),
-        6,
-        "2 (class A, B) + 1 (Route) + 1 (Autowire on :Param) + 1 (Autowire on :Field) + 1 \
-         (Deprecated) = 6 total: {attrs:?}"
+        8,
+        "2 (class A, B) + 1 (Route) + 2 (Autowire+Deprecated on :Param) + 2 \
+         (Autowire+Deprecated on :Field) + 1 (Deprecated on $label) = 8 total: {attrs:?}"
     );
     for n in &attrs {
         assert_eq!(prop(n, "file"), Some("src/Widget.php"));
