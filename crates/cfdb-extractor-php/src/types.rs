@@ -2,6 +2,7 @@ use cfdb_core::fact::{Edge, Node};
 use cfdb_core::qname::{field_node_id, param_node_id};
 use cfdb_core::schema::{EdgeLabel, Label};
 
+use crate::attributes;
 use crate::emitter::Emitter;
 use crate::imports::ImportTable;
 use crate::text;
@@ -197,6 +198,7 @@ pub(crate) fn emit_params(
     fn_qname: &str,
     fn_item_id: &str,
     ctx: &TypeCtx,
+    file: &str,
     emitter: &mut Emitter,
 ) {
     let mut index = 0usize;
@@ -236,27 +238,29 @@ pub(crate) fn emit_params(
             id.as_str(),
             EdgeLabel::new(EdgeLabel::HAS_PARAM),
         ));
+        attributes::emit_attributes(child, src, ctx.current_ns, ctx.imports, &id, file, emitter);
         index += 1;
     }
 }
 
-fn emit_field(
-    name: &str,
-    class: (&str, &str),
+struct FieldEmission<'a> {
+    name: &'a str,
+    class_qname: &'a str,
+    class_item_id: &'a str,
     index: usize,
-    type_field: Option<tree_sitter::Node>,
-    src: &[u8],
-    ctx: &TypeCtx,
-    emitter: &mut Emitter,
-) {
-    let (class_qname, class_item_id) = class;
-    let id = field_node_id(class_qname, name);
-    let mut node = Node::new(id.as_str(), Label::new(Label::FIELD))
-        .with_prop("index", i64::try_from(index).unwrap_or(i64::MAX))
-        .with_prop("name", name)
-        .with_prop("parent_qname", class_qname);
+    type_field: Option<tree_sitter::Node<'a>>,
+    attrs_owner: tree_sitter::Node<'a>,
+    file: &'a str,
+}
 
-    if let Some(type_field) = type_field {
+fn emit_field(spec: FieldEmission, src: &[u8], ctx: &TypeCtx, emitter: &mut Emitter) {
+    let id = field_node_id(spec.class_qname, spec.name);
+    let mut node = Node::new(id.as_str(), Label::new(Label::FIELD))
+        .with_prop("index", i64::try_from(spec.index).unwrap_or(i64::MAX))
+        .with_prop("name", spec.name)
+        .with_prop("parent_qname", spec.class_qname);
+
+    if let Some(type_field) = spec.type_field {
         let resolved = resolve_type(type_field, src, ctx);
         node = node
             .with_prop("type_path", text(type_field, src).unwrap_or_default())
@@ -266,21 +270,31 @@ fn emit_field(
 
     emitter.emit_node(node);
     emitter.emit_edge(Edge::new(
-        class_item_id,
+        spec.class_item_id,
         id.as_str(),
         EdgeLabel::new(EdgeLabel::HAS_FIELD),
     ));
+    attributes::emit_attributes(
+        spec.attrs_owner,
+        src,
+        ctx.current_ns,
+        ctx.imports,
+        &id,
+        spec.file,
+        emitter,
+    );
 }
 
 pub(crate) fn emit_property_fields(
     property_declaration: tree_sitter::Node,
     src: &[u8],
-    class_qname: &str,
-    class_item_id: &str,
+    class: (&str, &str),
     start_index: usize,
     ctx: &TypeCtx,
+    file: &str,
     emitter: &mut Emitter,
 ) -> usize {
+    let (class_qname, class_item_id) = class;
     let type_field = property_declaration.child_by_field_name("type");
     let mut index = start_index;
     for child in named_children(property_declaration) {
@@ -294,10 +308,15 @@ pub(crate) fn emit_property_fields(
             continue;
         };
         emit_field(
-            name,
-            (class_qname, class_item_id),
-            index,
-            type_field,
+            FieldEmission {
+                name,
+                class_qname,
+                class_item_id,
+                index,
+                type_field,
+                attrs_owner: property_declaration,
+                file,
+            },
             src,
             ctx,
             emitter,
@@ -310,12 +329,13 @@ pub(crate) fn emit_property_fields(
 pub(crate) fn emit_promoted_fields(
     method: tree_sitter::Node,
     src: &[u8],
-    class_qname: &str,
-    class_item_id: &str,
+    class: (&str, &str),
     start_index: usize,
     ctx: &TypeCtx,
+    file: &str,
     emitter: &mut Emitter,
 ) -> usize {
+    let (class_qname, class_item_id) = class;
     let Some(params) = method.child_by_field_name("parameters") else {
         return start_index;
     };
@@ -331,10 +351,15 @@ pub(crate) fn emit_promoted_fields(
             continue;
         };
         emit_field(
-            name,
-            (class_qname, class_item_id),
-            index,
-            child.child_by_field_name("type"),
+            FieldEmission {
+                name,
+                class_qname,
+                class_item_id,
+                index,
+                type_field: child.child_by_field_name("type"),
+                attrs_owner: child,
+                file,
+            },
             src,
             ctx,
             emitter,

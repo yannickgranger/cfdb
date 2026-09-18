@@ -28,6 +28,7 @@ fn schema_describe_covers_all_node_labels() {
             "Literal",
             "Argument",
             "MatchSite",
+            "Attribute",
         ]
     );
 }
@@ -60,6 +61,7 @@ fn schema_describe_covers_all_edge_labels() {
         "REFERENCED_BY",
         "MATCHES_AT",
         "MATCHES_ON",
+        "HAS_ATTRIBUTE",
     ];
     assert_eq!(edges.len(), expected.len());
     for e in &expected {
@@ -373,7 +375,7 @@ fn call_site_kind_names_every_member_and_narrows_none() {
 #[test]
 fn schema_describe_narrative_digest() {
     const FROZEN_NARRATIVE_DIGEST: &str =
-        "224977e9d55b26ced7ea6a5452aa5a69bcd7e997762df2ed3adab25a82811133";
+        "4ec5cb2f10d09cc2666abe331b706008f33a6c007dc4455d3511a518aed3b4dc";
 
     let d = schema_describe();
 

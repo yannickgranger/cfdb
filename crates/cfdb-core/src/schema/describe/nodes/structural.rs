@@ -367,3 +367,37 @@ pub(in crate::schema::describe) fn param_node_descriptor() -> NodeLabelDescripto
         ],
     }
 }
+
+pub(in crate::schema::describe) fn attribute_node_descriptor() -> NodeLabelDescriptor {
+    use Provenance::Extractor;
+    NodeLabelDescriptor {
+        label: Label::new(Label::ATTRIBUTE),
+        description: "A PHP attribute (`#[...]`) on a class-like, method, function, parameter or property, including a promoted constructor parameter, which yields two `:Attribute` nodes — one owned by the `:Param`, one by the `:Field` — since §3.1 makes a promoted parameter both. Emitted by `cfdb-extractor-php` alone (cfdb-062-php-declared-shapes §3.5). Closed-world, the `:Import` shape: it records a name and never resolves it, so a vendor attribute like `#[Autowire]` is recorded as written with no node invented for it. The attribute's own arguments are not modelled (§6). SchemaVersion V0_8_0+; keyspaces predating this slice carry zero.".into(),
+        attributes: vec![
+            attr(
+                "file",
+                "string",
+                "Workspace-relative path of the declaring file, denormalized as `:Import.file` already is.",
+                Extractor,
+            ),
+            attr(
+                "fqn",
+                "string",
+                "The fully-qualified attribute name, resolved through the same `ImportTable::resolve` rule as `:Import.fqn` — no leading backslash, emitted whether or not a node with that name exists in the graph.",
+                Extractor,
+            ),
+            attr(
+                "line",
+                "int",
+                "1-indexed line of the attribute.",
+                Extractor,
+            ),
+            attr(
+                "written",
+                "string",
+                "The attribute name exactly as written in source, before resolution.",
+                Extractor,
+            ),
+        ],
+    }
+}

@@ -72,6 +72,7 @@ impl Label {
     pub const LITERAL: &'static str = "Literal";
     pub const ARGUMENT: &'static str = "Argument";
     pub const MATCH_SITE: &'static str = "MatchSite";
+    pub const ATTRIBUTE: &'static str = "Attribute";
 
     pub fn new(s: impl Into<String>) -> Self {
         Self(s.into())
@@ -127,6 +128,7 @@ impl EdgeLabel {
 
     pub const REFERENCED_BY: &'static str = "REFERENCED_BY";
     pub const HAS_ARG: &'static str = "HAS_ARG";
+    pub const HAS_ATTRIBUTE: &'static str = "HAS_ATTRIBUTE";
 
     pub fn new(s: impl Into<String>) -> Self {
         Self(s.into())

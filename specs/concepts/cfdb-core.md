@@ -79,6 +79,7 @@ The descriptor at `crates/cfdb-core/src/schema/describe/edges.rs` is authoritati
 - **CANONICAL_FOR** — an Item is the designated authoritative implementation of a Concept.
 - **EQUIVALENT_TO** — reserved (issue #307) — two Concepts are synonyms.
 - **REFERENCED_BY** — an Item is mentioned (by name or qname) in an RFC document.
+- **HAS_ATTRIBUTE** — a class-like, method, function, Param or Field owns a PHP attribute it declares (cfdb-062-php-declared-shapes §3.5). A promoted constructor parameter's attribute reaches the graph as two HAS_ATTRIBUTE edges, one from the Param and one from the Field. No edge attributes. SchemaVersion V0_8_0+.
 
 ## EdgeLabelDescriptor
 
@@ -151,6 +152,7 @@ The descriptor at `crates/cfdb-core/src/schema/describe/nodes.rs` is authoritati
 - **Literal** — a single string literal occurring in production source (RFC-041). Attributes: col, crate, file, is_test, line, value
 - **Argument** — a positional argument at a call site (RFC-043 Slice A; the PHP producer from cfdb-060-php-fact-model#3.3). Position 0 is the implicit receiver for a method call in every producer — `ExprMethodCall` in Rust, `member_call_expression` and its nullsafe form in PHP. For PHP the unit is the grammar's `argument` wrapper, so `source_text` carries a named argument's `name:`, a spread's `...` and a by-reference `&`, and the `kind` of a by-reference argument comes from the wrapper's `reference_modifier` field. `col` and `source_text` are NOT comparable across producers: `col` is a char offset in Rust and a byte offset in PHP, and `source_text` is byte-faithful from the HIR and PHP producers but a `proc-macro2` re-print from the syn one. `kind` is the closed set `cfdb_core::schema::ARG_KINDS`. Attributes: col, file, kind, line, position, source_text
 - **MatchSite** — a single `match` expression keyed per distinct name-level matched-path prefix (RFC-053; producer lands in slice 53-A via `cfdb-extractor::match_visitor`, a third per-fn-body pass alongside `:CallSite`/`:Literal`). `matched_path` is name-level and UNRESOLVED — the all-but-last-segment prefix of a multi-segment arm-pattern path as written (same doctrine as `:CallSite.callee_path`); an external-type match keeps its `:MatchSite` with no `MATCHES_ON` (that resolved edge is slice 53-B). Node id `matchsite:{fn_qname}:{prefix}:{local_idx}` (extractor-local per RFC-032 §3). SchemaVersion V0_7_0+. Attributes: arm_count, crate, file, is_test, line, matched_path, wildcard
+- **Attribute** — a PHP attribute (`#[...]`) on a class-like, method, function, parameter or property, emitted by `cfdb-extractor-php` alone (cfdb-062-php-declared-shapes §3.5). Closed-world, the `:Import` shape: it records a name and never resolves it, so a vendor attribute like `#[Autowire]` carries no invented node. A promoted constructor parameter's attribute yields two `:Attribute` nodes, one owned by the `:Param` and one by the `:Field`, since it is both. Id `attr:{owner id}#{idx}` via `cfdb_core::qname::attribute_node_id`, idx the zero-based order on that owner. SchemaVersion V0_8_0+. Attributes: file, fqn, line, written
 
 ## Node
 

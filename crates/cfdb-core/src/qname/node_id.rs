@@ -99,6 +99,11 @@ pub fn argument_node_id(callsite_id: &str, position: u32) -> String {
     format!("arg:{callsite_id}#{position}")
 }
 
+#[must_use]
+pub fn attribute_node_id(owner_id: &str, idx: usize) -> String {
+    format!("attr:{owner_id}#{idx}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -170,6 +175,39 @@ mod tests {
         let syn_cs = "callsite:crate::fn:method:0";
         let hir_cs = "callsite:crate::fn:crate2::ConcreteType::method:0";
         assert_ne!(argument_node_id(syn_cs, 0), argument_node_id(hir_cs, 0));
+    }
+
+    #[test]
+    fn attribute_node_id_formula_is_attr_colon_owner_hash_idx() {
+        let param = "param:App\\C::m#0";
+        assert_eq!(attribute_node_id(param, 0), "attr:param:App\\C::m#0#0");
+        assert_eq!(attribute_node_id(param, 1), "attr:param:App\\C::m#0#1");
+    }
+
+    #[test]
+    fn attribute_node_id_disambiguates_by_idx() {
+        let owner = "item:App\\C::m";
+        assert_ne!(attribute_node_id(owner, 0), attribute_node_id(owner, 1));
+    }
+
+    #[test]
+    fn attribute_node_id_disambiguates_by_owner() {
+        assert_ne!(
+            attribute_node_id("param:App\\C::m#0", 0),
+            attribute_node_id("field:App\\C.x", 0)
+        );
+    }
+
+    #[test]
+    fn a_promoted_parameter_yields_two_distinct_attribute_ids_one_per_owner() {
+        let param_owner = "param:App\\C::__construct#0";
+        let field_owner = "field:App\\C.port";
+        assert_ne!(
+            attribute_node_id(param_owner, 0),
+            attribute_node_id(field_owner, 0),
+            "a promoted parameter is both a :Param and a :Field, so its attribute is two \
+             independent :Attribute nodes, one per owner id (cfdb-062-php-declared-shapes#3.5)"
+        );
     }
 
     #[test]

@@ -229,5 +229,17 @@ pub(super) fn edge_descriptors() -> Vec<EdgeLabelDescriptor> {
             to: vec![Label::new(Label::RFC_DOC)],
             provenance: Provenance::EnrichRfcDocs,
         },
+        EdgeLabelDescriptor {
+            label: EdgeLabel::new(EdgeLabel::HAS_ATTRIBUTE),
+            description: "A class-like, method, function, Param or Field owns a PHP attribute (`#[...]`) declared on it. A promoted constructor parameter's attribute reaches the graph as two HAS_ATTRIBUTE edges, one from the :Param and one from the :Field (cfdb-062-php-declared-shapes §3.5). No attributes on the edge — the attribute's own name lives on the :Attribute node. SchemaVersion V0_8_0+; keyspaces predating this slice carry zero HAS_ATTRIBUTE edges.".into(),
+            attributes: vec![],
+            from: vec![
+                Label::new(Label::ITEM),
+                Label::new(Label::PARAM),
+                Label::new(Label::FIELD),
+            ],
+            to: vec![Label::new(Label::ATTRIBUTE)],
+            provenance: Provenance::Extractor,
+        },
     ]
 }
