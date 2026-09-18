@@ -23,6 +23,7 @@ pub(crate) struct PendingCallSite {
     pub resolve_target: Option<String>,
     pub kind: &'static str,
     pub arguments: Vec<crate::call_walker::PendingArgument>,
+    pub enclosed_by: Option<String>,
 }
 
 pub(crate) fn callee_last_segment(callee_path: &str) -> &str {
@@ -120,6 +121,14 @@ impl Emitter {
                         EdgeLabel::new(EdgeLabel::CALLS),
                     ));
                 }
+            }
+
+            if let Some(enclosing_arg_id) = &cs.enclosed_by {
+                self.edges.push(Edge::new(
+                    cs.id.as_str(),
+                    enclosing_arg_id.as_str(),
+                    EdgeLabel::new(EdgeLabel::ENCLOSED_BY),
+                ));
             }
 
             for argument in &cs.arguments {

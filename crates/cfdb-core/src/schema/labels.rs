@@ -114,6 +114,7 @@ impl EdgeLabel {
 
     pub const CALLS: &'static str = "CALLS";
     pub const INVOKES_AT: &'static str = "INVOKES_AT";
+    pub const ENCLOSED_BY: &'static str = "ENCLOSED_BY";
 
     pub const MATCHES_AT: &'static str = "MATCHES_AT";
     pub const MATCHES_ON: &'static str = "MATCHES_ON";

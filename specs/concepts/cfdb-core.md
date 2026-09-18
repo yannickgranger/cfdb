@@ -71,6 +71,7 @@ The descriptor at `crates/cfdb-core/src/schema/describe/edges.rs` is authoritati
 - **CALLS** — static call edge between two fn Items (best-effort cross-crate). Attributes: resolved
 - **INVOKES_AT** — the containing fn/method Item points at a CallSite (Item → CallSite; direction corrected RFC-045 45-C). "Callers of X" walks `(cs:CallSite)<-[:INVOKES_AT]-(caller)`.
 - **HAS_ARG** — a CallSite owns a positional Argument (RFC-043 Slice A). No edge attributes; position lives on the `:Argument` node. SchemaVersion V0_5_0+.
+- **ENCLOSED_BY** — a CallSite points at the Argument whose expression is the nearest enclosing closure or arrow function it lies lexically inside (cfdb-062-php-declared-shapes#3.4). An eagerly-evaluated argument (not itself a closure literal) gets no edge, and a closure reached other than as an argument's own expression (assigned to a variable, returned) resets — a call site inside it has no edge, even nested inside an outer argument closure. No edge attributes. Emitted by cfdb-extractor-php only. SchemaVersion V0_8_0+.
 - **MATCHES_AT** — the containing fn/method Item points at a MatchSite (Item → MatchSite), mirroring INVOKES_AT for call sites (RFC-053). Emitted walk-time; SchemaVersion V0_7_0+.
 - **MATCHES_ON** — a MatchSite whose name-level matched_path resolves to a workspace enum points at that enum's Item (MatchSite → Item{kind:"enum"}). Reserved in slice 53-A per RFC-053 §3.2; first emissions in slice 53-B. SchemaVersion V0_7_0+.
 - **EXPOSES** — an EntryPoint dispatches to a handler fn Item.

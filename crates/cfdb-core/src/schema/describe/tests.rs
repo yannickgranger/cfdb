@@ -60,6 +60,7 @@ fn schema_describe_covers_all_edge_labels() {
         "REFERENCED_BY",
         "MATCHES_AT",
         "MATCHES_ON",
+        "ENCLOSED_BY",
     ];
     assert_eq!(edges.len(), expected.len());
     for e in &expected {
