@@ -35,6 +35,7 @@ pub(crate) struct Emitter {
     node_ids: BTreeMap<String, usize>,
     edges: Vec<Edge>,
     pending_implements: Vec<(String, String)>,
+    pending_extends: Vec<(String, String)>,
     pending_call_sites: Vec<PendingCallSite>,
     scope: ComposerScope,
 }
@@ -46,6 +47,7 @@ impl Emitter {
             node_ids: BTreeMap::new(),
             edges: Vec::new(),
             pending_implements: Vec::new(),
+            pending_extends: Vec::new(),
             pending_call_sites: Vec::new(),
             scope,
         }
@@ -78,6 +80,24 @@ impl Emitter {
             if self.node_ids.contains_key(&target_id) {
                 self.edges.push(
                     Edge::new(source_id, target_id, EdgeLabel::new(EdgeLabel::IMPLEMENTS))
+                        .with_prop("resolver", "tree-sitter-php"),
+                );
+            }
+        }
+    }
+
+    pub(crate) fn buffer_extends(&mut self, source_id: &str, target_qname: &str) {
+        self.pending_extends
+            .push((source_id.to_string(), target_qname.to_string()));
+    }
+
+    pub(crate) fn resolve_pending_extends(&mut self) {
+        let pending = std::mem::take(&mut self.pending_extends);
+        for (source_id, target_qname) in pending {
+            let target_id = item_id(&target_qname);
+            if self.node_ids.contains_key(&target_id) {
+                self.edges.push(
+                    Edge::new(source_id, target_id, EdgeLabel::new(EdgeLabel::EXTENDS))
                         .with_prop("resolver", "tree-sitter-php"),
                 );
             }

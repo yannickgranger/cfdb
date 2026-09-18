@@ -10,6 +10,7 @@ mod call_walker;
 mod emitter;
 mod implements;
 mod imports;
+mod supertypes;
 mod test_scope;
 use emitter::{item_id, module_id, Emitter};
 use test_scope::ComposerScope;
@@ -56,6 +57,7 @@ fn produce_facts(workspace_root: &Path) -> Result<(Vec<Node>, Vec<Edge>), Langua
     }
 
     emitter.resolve_pending_implements();
+    emitter.resolve_pending_extends();
     emitter.resolve_pending_call_sites();
 
     let (mut nodes, mut edges) = emitter.finish();
@@ -247,6 +249,8 @@ fn emit_class_like(
             implements::buffer_implements_targets(child, src, current_ns, imports, &id, emitter);
         }
     }
+
+    supertypes::emit_supertypes(node, src, current_ns, imports, &qname, file, emitter);
 
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {

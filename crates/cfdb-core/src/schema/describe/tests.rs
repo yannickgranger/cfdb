@@ -28,6 +28,7 @@ fn schema_describe_covers_all_node_labels() {
             "Literal",
             "Argument",
             "MatchSite",
+            "Supertype",
         ]
     );
 }
@@ -60,6 +61,8 @@ fn schema_describe_covers_all_edge_labels() {
         "REFERENCED_BY",
         "MATCHES_AT",
         "MATCHES_ON",
+        "EXTENDS",
+        "HAS_SUPERTYPE",
     ];
     assert_eq!(edges.len(), expected.len());
     for e in &expected {
@@ -373,7 +376,7 @@ fn call_site_kind_names_every_member_and_narrows_none() {
 #[test]
 fn schema_describe_narrative_digest() {
     const FROZEN_NARRATIVE_DIGEST: &str =
-        "3992fa7aa974545453c74961b73e1f6dfe9a11c0299ef678d9b28fe29ac1c0c9";
+        "cf20b246c8d7f92d167e78c6f9dd8b271db06cc99167832e913e617c900c192f";
 
     let d = schema_describe();
 
