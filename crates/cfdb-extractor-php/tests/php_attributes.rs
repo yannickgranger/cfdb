@@ -107,7 +107,10 @@ fn an_attribute_on_a_method_is_owned_by_the_method_item() {
 fn a_method_with_no_attributes_owns_none() {
     let (nodes, edges) = produce();
     let owned = attributes_owned_by(&nodes, &edges, "item:App\\Widget::plain");
-    assert!(owned.is_empty(), "`plain()` declares no attribute: {owned:?}");
+    assert!(
+        owned.is_empty(),
+        "`plain()` declares no attribute: {owned:?}"
+    );
 }
 
 #[test]
