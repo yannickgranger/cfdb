@@ -11,8 +11,10 @@ mod emitter;
 mod implements;
 mod imports;
 mod test_scope;
+mod types;
 use emitter::{item_id, module_id, Emitter};
 use test_scope::ComposerScope;
+use types::TypeCtx;
 
 pub(crate) const PRODUCER_NAME: &str = "php";
 
@@ -56,6 +58,7 @@ fn produce_facts(workspace_root: &Path) -> Result<(Vec<Node>, Vec<Edge>), Langua
     }
 
     emitter.resolve_pending_implements();
+    emitter.resolve_pending_type_edges();
     emitter.resolve_pending_call_sites();
 
     let (mut nodes, mut edges) = emitter.finish();
@@ -248,10 +251,18 @@ fn emit_class_like(
         }
     }
 
+    let enclosing_class_parent = types::base_clause_parent(node, src, current_ns, imports);
+    let type_ctx = TypeCtx {
+        current_ns,
+        imports,
+        enclosing_class_qname: Some(qname.as_str()),
+        enclosing_class_parent: enclosing_class_parent.as_deref(),
+    };
+
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         if matches!(child.kind(), "declaration_list" | "enum_declaration_list") {
-            walk_declaration_list(child, src, current_ns, imports, &qname, file, emitter);
+            walk_declaration_list(child, src, &id, &type_ctx, file, emitter);
         }
     }
 }
@@ -259,16 +270,42 @@ fn emit_class_like(
 fn walk_declaration_list(
     list: tree_sitter::Node,
     src: &[u8],
-    current_ns: Option<&str>,
-    imports: &imports::ImportTable,
-    parent_qname: &str,
+    parent_id: &str,
+    type_ctx: &TypeCtx<'_>,
     file: &str,
     emitter: &mut Emitter,
 ) {
+    let parent_qname = type_ctx.enclosing_class_qname.unwrap_or_default();
+
+    let mut field_index = 0usize;
+    let mut cursor = list.walk();
+    for child in list.children(&mut cursor) {
+        if child.kind() == "property_declaration" {
+            field_index = types::emit_property_fields(
+                child,
+                src,
+                parent_qname,
+                parent_id,
+                field_index,
+                type_ctx,
+                emitter,
+            );
+        }
+    }
+
     let mut cursor = list.walk();
     for child in list.children(&mut cursor) {
         if child.kind() == "method_declaration" {
-            emit_method(child, src, current_ns, imports, parent_qname, file, emitter);
+            field_index = types::emit_promoted_fields(
+                child,
+                src,
+                parent_qname,
+                parent_id,
+                field_index,
+                type_ctx,
+                emitter,
+            );
+            emit_method(child, src, type_ctx, file, emitter);
         }
     }
 }
@@ -276,27 +313,33 @@ fn walk_declaration_list(
 fn emit_method(
     node: tree_sitter::Node,
     src: &[u8],
-    current_ns: Option<&str>,
-    imports: &imports::ImportTable,
-    parent_qname: &str,
+    type_ctx: &TypeCtx<'_>,
     file: &str,
     emitter: &mut Emitter,
 ) {
     let Some(name) = find_named_child(node, "name", src) else {
         return;
     };
+    let parent_qname = type_ctx.enclosing_class_qname.unwrap_or_default();
+    let current_ns = type_ctx.current_ns;
+    let imports = type_ctx.imports;
     let qname = format!("{parent_qname}::{name}");
     let id = item_id(&qname);
     let line = (node.start_position().row + 1) as i64;
-    emitter.emit_node(
-        Node::new(&id, Label::new(Label::ITEM))
-            .with_prop("kind", "fn")
-            .with_prop("name", name.as_str())
-            .with_prop("qname", qname.as_str())
-            .with_prop("line", line)
-            .with_prop("php_construct", "method_declaration")
-            .with_prop("file", file),
-    );
+    let return_type = types::resolve_return_type(node, src, type_ctx);
+    let mut item = Node::new(&id, Label::new(Label::ITEM))
+        .with_prop("kind", "fn")
+        .with_prop("name", name.as_str())
+        .with_prop("qname", qname.as_str())
+        .with_prop("line", line)
+        .with_prop("php_construct", "method_declaration")
+        .with_prop("file", file);
+    if let Some((path, resolved)) = &return_type {
+        item = item
+            .with_prop("return_type_path", path.as_str())
+            .with_prop("return_type_normalized", resolved.normalized.as_str());
+    }
+    emitter.emit_node(item);
     emitter.emit_edge(Edge::new(
         &id,
         CRATE_ID,
@@ -308,6 +351,12 @@ fn emit_method(
             module_id(ns),
             EdgeLabel::new(EdgeLabel::IN_MODULE),
         ));
+    }
+    if let Some((_, resolved)) = &return_type {
+        types::buffer_returns_edges(emitter, &id, resolved);
+    }
+    if let Some(params) = node.child_by_field_name("parameters") {
+        types::emit_params(params, src, &qname, &id, type_ctx, emitter);
     }
 
     call_walker::walk_call_sites(
@@ -338,15 +387,26 @@ fn emit_function(
     let qname = qualify(current_ns, &name);
     let id = item_id(&qname);
     let line = (node.start_position().row + 1) as i64;
-    emitter.emit_node(
-        Node::new(&id, Label::new(Label::ITEM))
-            .with_prop("kind", "fn")
-            .with_prop("name", name.as_str())
-            .with_prop("qname", qname.as_str())
-            .with_prop("line", line)
-            .with_prop("php_construct", "function_definition")
-            .with_prop("file", file),
-    );
+    let type_ctx = TypeCtx {
+        current_ns,
+        imports,
+        enclosing_class_qname: None,
+        enclosing_class_parent: None,
+    };
+    let return_type = types::resolve_return_type(node, src, &type_ctx);
+    let mut item = Node::new(&id, Label::new(Label::ITEM))
+        .with_prop("kind", "fn")
+        .with_prop("name", name.as_str())
+        .with_prop("qname", qname.as_str())
+        .with_prop("line", line)
+        .with_prop("php_construct", "function_definition")
+        .with_prop("file", file);
+    if let Some((path, resolved)) = &return_type {
+        item = item
+            .with_prop("return_type_path", path.as_str())
+            .with_prop("return_type_normalized", resolved.normalized.as_str());
+    }
+    emitter.emit_node(item);
     emitter.emit_edge(Edge::new(
         &id,
         CRATE_ID,
@@ -358,6 +418,12 @@ fn emit_function(
             module_id(ns),
             EdgeLabel::new(EdgeLabel::IN_MODULE),
         ));
+    }
+    if let Some((_, resolved)) = &return_type {
+        types::buffer_returns_edges(emitter, &id, resolved);
+    }
+    if let Some(params) = node.child_by_field_name("parameters") {
+        types::emit_params(params, src, &qname, &id, &type_ctx, emitter);
     }
 
     call_walker::walk_call_sites(
