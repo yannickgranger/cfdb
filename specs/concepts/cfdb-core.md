@@ -84,6 +84,7 @@ The descriptor at `crates/cfdb-core/src/schema/describe/edges.rs` is authoritati
 - **HAS_SUPERTYPE** — a class-like Item owns a declared `:Supertype`, one per name in its `base_clause` or `class_interface_clause` (cfdb-062-php-declared-shapes#3.2), the `:Import`/`HAS_IMPORT` shape applied to declared supertypes. No edge attributes. Emitted by `cfdb-extractor-php` alone. SchemaVersion V0_8_0+.
 - **READS_GLOBAL** — the containing fn/method Item points at a GlobalRead for a PHP superglobal access inside its body (Item → GlobalRead), mirroring INVOKES_AT / MATCHES_AT (cfdb-062-php-declared-shapes#3.7). No edge attributes. Emitted by cfdb-extractor-php only. SchemaVersion V0_8_0+.
 - **HAS_ATTRIBUTE** — a class-like, method, function, Param or Field owns a PHP attribute it declares (cfdb-062-php-declared-shapes §3.5). A promoted constructor parameter's attribute reaches the graph as two HAS_ATTRIBUTE edges, one from the Param and one from the Field. No edge attributes. SchemaVersion V0_8_0+.
+- **REFERS_TO** — the Item whose code writes a class name points at the in-workspace class-like Item it resolves to: a construction, an `instanceof`, a caught type, a `X::` scope, a closure's declared type, a trait `use` (cfdb-063-php-class-references#3). Closed-world, one edge per distinct (source, target, how). Emitted by `cfdb-extractor-php` alone. Attributes: how, line, resolver. SchemaVersion V0_8_0+.
 
 ## EdgeLabelDescriptor
 

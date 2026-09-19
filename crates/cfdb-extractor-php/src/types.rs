@@ -192,6 +192,25 @@ pub(crate) fn base_clause_parent(
     Some(imports.resolve(raw, current_ns))
 }
 
+fn walk_default(
+    value: tree_sitter::Node,
+    src: &[u8],
+    ctx: &TypeCtx,
+    source_qname: &str,
+    emitter: &mut Emitter,
+) {
+    crate::references::walk_expression(
+        value,
+        src,
+        &crate::references::NameScope {
+            current_ns: ctx.current_ns,
+            imports: ctx.imports,
+            source_qname,
+        },
+        emitter,
+    );
+}
+
 pub(crate) fn emit_params(
     formal_parameters: tree_sitter::Node,
     src: &[u8],
@@ -233,6 +252,7 @@ pub(crate) fn emit_params(
         }
         if let Some(default_value) = child.child_by_field_name("default_value") {
             node = node.with_prop("default_text", text(default_value, src).unwrap_or_default());
+            walk_default(default_value, src, ctx, fn_qname, emitter);
         }
 
         emitter.emit_node(node);
@@ -273,6 +293,7 @@ fn emit_field(spec: FieldEmission, src: &[u8], ctx: &TypeCtx, emitter: &mut Emit
     }
     if let Some(default_value) = spec.default_value {
         node = node.with_prop("default_text", text(default_value, src).unwrap_or_default());
+        walk_default(default_value, src, ctx, spec.class_qname, emitter);
     }
 
     emitter.emit_node(node);
@@ -403,7 +424,7 @@ pub(crate) fn emit_const_declaration(
         if child.kind() != "const_element" {
             continue;
         }
-        emit_const_element(child, src, scope, resolved_type.as_ref(), emitter);
+        emit_const_element(child, src, scope, ctx, resolved_type.as_ref(), emitter);
     }
 }
 
@@ -411,6 +432,7 @@ fn emit_const_element(
     const_element: tree_sitter::Node,
     src: &[u8],
     scope: &ConstScope,
+    ctx: &TypeCtx,
     resolved_type: Option<&(&str, ResolvedType)>,
     emitter: &mut Emitter,
 ) {
@@ -447,6 +469,7 @@ fn emit_const_element(
             .with_prop("type_normalized", resolved.normalized.as_str());
     }
     emitter.emit_node(node);
+    walk_default(value_node, src, ctx, &qname, emitter);
     emitter.emit_edge(Edge::new(
         id.as_str(),
         CRATE_ID,

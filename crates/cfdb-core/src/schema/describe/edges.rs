@@ -267,6 +267,33 @@ pub(super) fn edge_descriptors() -> Vec<EdgeLabelDescriptor> {
             provenance: Provenance::Extractor,
         },
         EdgeLabelDescriptor {
+            label: EdgeLabel::new(EdgeLabel::REFERS_TO),
+            description: "The Item whose code writes a class name points at the in-workspace class-like Item that name resolves to (cfdb-063-php-class-references#3): a construction, an `instanceof`, a caught type, the scope of `X::CONST`, `X::class`, `X::$prop` or `X::m()`, a closure's declared parameter or return type, a trait `use`. The source is the method or function whose body or parameter default holds the name, the constant whose value holds it, or the class whose property default or trait `use` holds it. Closed-world: a name resolving to no class-like Item yields no edge and no node; `self`, `static`, `parent` and a variable are never a name; a source naming its own class yields no edge. One edge per distinct (source, target, how). Emitted by `cfdb-extractor-php` alone. SchemaVersion V0_8_0+; keyspaces predating this slice carry zero REFERS_TO edges.".into(),
+            attributes: vec![
+                attr(
+                    "how",
+                    "enum",
+                    "The position that names the class, closed set: `new`, `instanceof`, `catch`, `scope`, `closure_type`, `trait_use`.",
+                    Extractor,
+                ),
+                attr(
+                    "line",
+                    "int",
+                    "One-based line of the first site of this (source, target, how) in its file.",
+                    Extractor,
+                ),
+                attr(
+                    "resolver",
+                    "enum",
+                    "Which producer resolved this edge, mirroring `EXTENDS.resolver`: `tree-sitter-php`, the only producer that emits REFERS_TO.",
+                    Extractor,
+                ),
+            ],
+            from: vec![Label::new(Label::ITEM)],
+            to: vec![Label::new(Label::ITEM)],
+            provenance: Provenance::Extractor,
+        },
+        EdgeLabelDescriptor {
             label: EdgeLabel::new(EdgeLabel::READS_GLOBAL),
             description: "The containing fn/method Item points at a GlobalRead for a PHP superglobal access inside its body (Item → GlobalRead), mirroring INVOKES_AT for call sites and MATCHES_AT for match sites (cfdb-062-php-declared-shapes#3.7). No edge attributes. Emitted by cfdb-extractor-php only. SchemaVersion V0_8_0+; keyspaces predating this slice carry zero READS_GLOBAL edges.".into(),
             attributes: vec![],

@@ -136,6 +136,7 @@ impl EdgeLabel {
 
     pub const EXTENDS: &'static str = "EXTENDS";
     pub const HAS_SUPERTYPE: &'static str = "HAS_SUPERTYPE";
+    pub const REFERS_TO: &'static str = "REFERS_TO";
 
     pub fn new(s: impl Into<String>) -> Self {
         Self(s.into())
