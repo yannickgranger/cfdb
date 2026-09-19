@@ -65,6 +65,17 @@ fn visit(
 ) {
     let mut arguments_child: Option<tree_sitter::Node> = None;
 
+    crate::references::classify(
+        node,
+        ctx.src,
+        &crate::references::NameScope {
+            current_ns: ctx.scope.current_ns,
+            imports: ctx.scope.imports,
+            source_qname: ctx.scope.caller_qname,
+        },
+        emitter,
+    );
+
     if let Some(call) = classify_call(
         node,
         ctx.src,

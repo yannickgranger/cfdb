@@ -13,6 +13,7 @@ mod global_reads;
 mod implements;
 mod imports;
 mod receiver;
+mod references;
 mod supertypes;
 mod test_scope;
 mod types;
@@ -64,6 +65,7 @@ fn produce_facts(workspace_root: &Path) -> Result<(Vec<Node>, Vec<Edge>), Langua
     emitter.resolve_pending_implements();
     emitter.resolve_pending_extends();
     emitter.resolve_pending_type_edges();
+    emitter.resolve_pending_references();
     emitter.resolve_pending_call_sites();
 
     let (mut nodes, mut edges) = emitter.finish();
@@ -340,6 +342,18 @@ fn walk_declaration_list(
                 emitter,
             );
             emit_method(child, src, type_ctx, file, emitter);
+        }
+    }
+
+    let scope = references::NameScope {
+        current_ns: type_ctx.current_ns,
+        imports: type_ctx.imports,
+        source_qname: parent_qname,
+    };
+    let mut cursor = list.walk();
+    for child in list.children(&mut cursor) {
+        if child.kind() == "use_declaration" {
+            references::buffer_trait_use(child, src, &scope, emitter);
         }
     }
 }

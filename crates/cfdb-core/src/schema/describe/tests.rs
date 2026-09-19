@@ -68,6 +68,7 @@ fn schema_describe_covers_all_edge_labels() {
         "ENCLOSED_BY",
         "READS_GLOBAL",
         "HAS_ATTRIBUTE",
+        "REFERS_TO",
     ];
     assert_eq!(edges.len(), expected.len());
     for e in &expected {
@@ -381,7 +382,7 @@ fn call_site_kind_names_every_member_and_narrows_none() {
 #[test]
 fn schema_describe_narrative_digest() {
     const FROZEN_NARRATIVE_DIGEST: &str =
-        "28279033154d92a3c56e1eb0a0e6e260553272b6cebf39e6571adee8b6940bf1";
+        "7affd8c37d2d591c7dc53af4713b7728f8dbee2a5cc90f378c30433977adb4e0";
 
     let d = schema_describe();
 

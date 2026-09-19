@@ -39,6 +39,20 @@ struct PendingTypeEdge {
     target_qname: String,
 }
 
+struct PendingReference {
+    source_qname: String,
+    target_qname: String,
+    how: &'static str,
+    line: i64,
+}
+
+const CLASS_LIKE: &[&str] = &[
+    "class_declaration",
+    "interface_declaration",
+    "enum_declaration",
+    "trait_declaration",
+];
+
 pub(crate) struct Emitter {
     nodes: Vec<Node>,
     node_ids: BTreeMap<String, usize>,
@@ -47,6 +61,7 @@ pub(crate) struct Emitter {
     pending_extends: Vec<(String, String)>,
     pending_call_sites: Vec<PendingCallSite>,
     pending_type_edges: Vec<PendingTypeEdge>,
+    pending_references: Vec<PendingReference>,
     scope: ComposerScope,
 }
 
@@ -60,6 +75,7 @@ impl Emitter {
             pending_extends: Vec::new(),
             pending_call_sites: Vec::new(),
             pending_type_edges: Vec::new(),
+            pending_references: Vec::new(),
             scope,
         }
     }
@@ -154,6 +170,69 @@ impl Emitter {
                 target_id,
                 EdgeLabel::new(pending_edge.label),
             ));
+        }
+    }
+
+    pub(crate) fn buffer_reference(
+        &mut self,
+        source_qname: &str,
+        target_qname: &str,
+        how: &'static str,
+        line: i64,
+    ) {
+        self.pending_references.push(PendingReference {
+            source_qname: source_qname.to_string(),
+            target_qname: target_qname.to_string(),
+            how,
+            line,
+        });
+    }
+
+    fn is_class_like(&self, qname: &str) -> bool {
+        self.node(&item_id(qname))
+            .and_then(|n| n.props.get("php_construct"))
+            .and_then(cfdb_core::fact::PropValue::as_str)
+            .is_some_and(|construct| CLASS_LIKE.contains(&construct))
+    }
+
+    pub(crate) fn resolve_pending_references(&mut self) {
+        let pending = std::mem::take(&mut self.pending_references);
+        let mut first_line: BTreeMap<(String, String, &'static str), i64> = BTreeMap::new();
+        for reference in pending {
+            let owner = reference
+                .source_qname
+                .split("::")
+                .next()
+                .unwrap_or(&reference.source_qname);
+            if owner == reference.target_qname || !self.is_class_like(&reference.target_qname) {
+                continue;
+            }
+            if !self
+                .node_ids
+                .contains_key(&item_id(&reference.source_qname))
+            {
+                continue;
+            }
+            let line = first_line
+                .entry((
+                    reference.source_qname,
+                    reference.target_qname,
+                    reference.how,
+                ))
+                .or_insert(reference.line);
+            *line = (*line).min(reference.line);
+        }
+        for ((source_qname, target_qname, how), line) in first_line {
+            self.edges.push(
+                Edge::new(
+                    item_id(&source_qname),
+                    item_id(&target_qname),
+                    EdgeLabel::new(EdgeLabel::REFERS_TO),
+                )
+                .with_prop("how", how)
+                .with_prop("line", line)
+                .with_prop("resolver", "tree-sitter-php"),
+            );
         }
     }
 
