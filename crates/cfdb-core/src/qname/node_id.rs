@@ -99,6 +99,11 @@ pub fn argument_node_id(callsite_id: &str, position: u32) -> String {
     format!("arg:{callsite_id}#{position}")
 }
 
+#[must_use]
+pub fn supertype_node_id(class_qname: &str, idx: usize) -> String {
+    format!("supertype:{class_qname}#{idx}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -230,6 +235,18 @@ mod tests {
             callsite_node_id(&TargetDiscriminator::Lib.identity("m::f"), "g", 1),
             "callsite:m::f:g:1"
         );
+    }
+
+    #[test]
+    fn supertype_node_id_formula_is_supertype_colon_qname_hash_idx() {
+        assert_eq!(supertype_node_id(r"App\C", 0), "supertype:App\\C#0");
+        assert_eq!(supertype_node_id(r"App\C", 1), "supertype:App\\C#1");
+    }
+
+    #[test]
+    fn supertype_node_id_disambiguates_by_index_not_relation() {
+        let qname = r"App\C";
+        assert_ne!(supertype_node_id(qname, 0), supertype_node_id(qname, 1));
     }
 
     #[test]

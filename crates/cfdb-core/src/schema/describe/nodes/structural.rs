@@ -367,3 +367,43 @@ pub(in crate::schema::describe) fn param_node_descriptor() -> NodeLabelDescripto
         ],
     }
 }
+
+pub(in crate::schema::describe) fn supertype_node_descriptor() -> NodeLabelDescriptor {
+    use Provenance::Extractor;
+    NodeLabelDescriptor {
+        label: Label::new(Label::SUPERTYPE),
+        description: "One declared `extends` or `implements` name of a class-like Item, as written, emitted by `cfdb-extractor-php` (cfdb-062-php-declared-shapes#3.2). It records a name and never resolves it away: no `:Item` is invented for a target outside the walked tree, so a vendor supertype (`PDO`, `Psr\\Log\\LoggerInterface`) is recorded as written even though it never gains an `EXTENDS` edge. Id `supertype:{class qname}#{idx}` via `cfdb_core::qname::supertype_node_id`, `idx` the zero-based declaration order with `extends` names first. Distinct from the resolved `EXTENDS` edge the same clause may also produce: the node is the declaration, the edge the in-workspace relation. SchemaVersion V0_8_0+; keyspaces from a producer without `lang-php` carry zero.".into(),
+        attributes: vec![
+            attr(
+                "relation",
+                "string",
+                "`extends` or `implements`, naming which clause declared this name.",
+                Extractor,
+            ),
+            attr(
+                "written",
+                "string",
+                "The name exactly as written in the clause, unresolved.",
+                Extractor,
+            ),
+            attr(
+                "fqn",
+                "string",
+                "The fully-qualified name resolved through `ImportTable::resolve`, no leading backslash, emitted whether or not a node with that name exists in the graph.",
+                Extractor,
+            ),
+            attr(
+                "file",
+                "string",
+                "Workspace-relative path of the declaring file.",
+                Extractor,
+            ),
+            attr(
+                "line",
+                "int",
+                "1-indexed line of the name.",
+                Extractor,
+            ),
+        ],
+    }
+}

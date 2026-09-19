@@ -237,5 +237,26 @@ pub(super) fn edge_descriptors() -> Vec<EdgeLabelDescriptor> {
             to: vec![Label::new(Label::RFC_DOC)],
             provenance: Provenance::EnrichRfcDocs,
         },
+        EdgeLabelDescriptor {
+            label: EdgeLabel::new(EdgeLabel::EXTENDS),
+            description: "The class-like Item on the `extends` side of a `base_clause` points at the `:Item` of each name that resolves in-workspace (cfdb-062-php-declared-shapes#3.2). Closed-world, same resolution pass as `IMPLEMENTS`: a name outside the workspace yields no edge, only its `:Supertype` node. Distinct from `IMPLEMENTS` — the two never overlap on one clause — so a rule walking the declared supertype graph reads `IMPLEMENTS|EXTENDS*`. Emitted by `cfdb-extractor-php` alone. SchemaVersion V0_8_0+; keyspaces from a producer without `lang-php` carry zero EXTENDS edges.".into(),
+            attributes: vec![attr(
+                "resolver",
+                "enum",
+                "Which producer resolved this edge, mirroring `IMPLEMENTS.resolver`: `tree-sitter-php` today, the only producer that emits EXTENDS.",
+                Extractor,
+            )],
+            from: vec![Label::new(Label::ITEM)],
+            to: vec![Label::new(Label::ITEM)],
+            provenance: Provenance::Extractor,
+        },
+        EdgeLabelDescriptor {
+            label: EdgeLabel::new(EdgeLabel::HAS_SUPERTYPE),
+            description: "A class-like Item owns a declared `:Supertype` — one per name in its `base_clause` or `class_interface_clause` (cfdb-062-php-declared-shapes#3.2), the `:Import`/`HAS_IMPORT` shape applied to declared supertypes. No attributes — `relation`, `written` and `fqn` live on the `:Supertype` node. Emitted by `cfdb-extractor-php` alone. SchemaVersion V0_8_0+; keyspaces from a producer without `lang-php` carry zero HAS_SUPERTYPE edges.".into(),
+            attributes: vec![],
+            from: vec![Label::new(Label::ITEM)],
+            to: vec![Label::new(Label::SUPERTYPE)],
+            provenance: Provenance::Extractor,
+        },
     ]
 }
