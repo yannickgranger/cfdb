@@ -151,6 +151,20 @@ fn walk_top_level(program: tree_sitter::Node, src: &[u8], file: &str, emitter: &
             "function_definition" => {
                 emit_function(child, src, current_ns.as_deref(), &imports, file, emitter);
             }
+            "const_declaration" => {
+                let scope = types::ConstScope {
+                    current_ns: current_ns.as_deref(),
+                    owner_qname: None,
+                    file,
+                };
+                let type_ctx = TypeCtx {
+                    current_ns: current_ns.as_deref(),
+                    imports: &imports,
+                    enclosing_class_qname: None,
+                    enclosing_class_parent: None,
+                };
+                types::emit_const_declaration(child, src, &scope, &type_ctx, emitter);
+            }
             _ => {}
         }
     }
@@ -298,6 +312,18 @@ fn walk_declaration_list(
                 file,
                 emitter,
             );
+        }
+    }
+
+    let mut cursor = list.walk();
+    for child in list.children(&mut cursor) {
+        if child.kind() == "const_declaration" {
+            let scope = types::ConstScope {
+                current_ns: type_ctx.current_ns,
+                owner_qname: Some(parent_qname),
+                file,
+            };
+            types::emit_const_declaration(child, src, &scope, type_ctx, emitter);
         }
     }
 

@@ -3,9 +3,9 @@ use cfdb_core::qname::{field_node_id, param_node_id};
 use cfdb_core::schema::{EdgeLabel, Label};
 
 use crate::attributes;
-use crate::emitter::Emitter;
+use crate::emitter::{item_id, module_id, Emitter};
 use crate::imports::ImportTable;
-use crate::text;
+use crate::{qualify, text, CRATE_ID};
 
 pub(crate) struct TypeCtx<'a> {
     pub current_ns: Option<&'a str>,
@@ -231,6 +231,9 @@ pub(crate) fn emit_params(
                 .with_prop("type_normalized", resolved.normalized.as_str());
             buffer_type_of_edges(emitter, id.as_str(), &resolved);
         }
+        if let Some(default_value) = child.child_by_field_name("default_value") {
+            node = node.with_prop("default_text", text(default_value, src).unwrap_or_default());
+        }
 
         emitter.emit_node(node);
         emitter.emit_edge(Edge::new(
@@ -249,6 +252,7 @@ struct FieldEmission<'a> {
     class_item_id: &'a str,
     index: usize,
     type_field: Option<tree_sitter::Node<'a>>,
+    default_value: Option<tree_sitter::Node<'a>>,
     attrs_owner: tree_sitter::Node<'a>,
     file: &'a str,
 }
@@ -266,6 +270,9 @@ fn emit_field(spec: FieldEmission, src: &[u8], ctx: &TypeCtx, emitter: &mut Emit
             .with_prop("type_path", text(type_field, src).unwrap_or_default())
             .with_prop("type_normalized", resolved.normalized.as_str());
         buffer_type_of_edges(emitter, id.as_str(), &resolved);
+    }
+    if let Some(default_value) = spec.default_value {
+        node = node.with_prop("default_text", text(default_value, src).unwrap_or_default());
     }
 
     emitter.emit_node(node);
@@ -307,6 +314,7 @@ pub(crate) fn emit_property_fields(
         else {
             continue;
         };
+        let default_value = child.child_by_field_name("default_value");
         emit_field(
             FieldEmission {
                 name,
@@ -314,6 +322,7 @@ pub(crate) fn emit_property_fields(
                 class_item_id,
                 index,
                 type_field,
+                default_value,
                 attrs_owner: property_declaration,
                 file,
             },
@@ -357,6 +366,7 @@ pub(crate) fn emit_promoted_fields(
                 class_item_id,
                 index,
                 type_field: child.child_by_field_name("type"),
+                default_value: child.child_by_field_name("default_value"),
                 attrs_owner: child,
                 file,
             },
@@ -367,6 +377,88 @@ pub(crate) fn emit_promoted_fields(
         index += 1;
     }
     index
+}
+
+pub(crate) struct ConstScope<'a> {
+    pub current_ns: Option<&'a str>,
+    pub owner_qname: Option<&'a str>,
+    pub file: &'a str,
+}
+
+pub(crate) fn emit_const_declaration(
+    const_declaration: tree_sitter::Node,
+    src: &[u8],
+    scope: &ConstScope,
+    ctx: &TypeCtx,
+    emitter: &mut Emitter,
+) {
+    let type_field = const_declaration.child_by_field_name("type");
+    let resolved_type = type_field.map(|type_field| {
+        (
+            text(type_field, src).unwrap_or_default(),
+            resolve_type(type_field, src, ctx),
+        )
+    });
+    for child in named_children(const_declaration) {
+        if child.kind() != "const_element" {
+            continue;
+        }
+        emit_const_element(child, src, scope, resolved_type.as_ref(), emitter);
+    }
+}
+
+fn emit_const_element(
+    const_element: tree_sitter::Node,
+    src: &[u8],
+    scope: &ConstScope,
+    resolved_type: Option<&(&str, ResolvedType)>,
+    emitter: &mut Emitter,
+) {
+    let mut children = named_children(const_element).into_iter();
+    let Some(name_node) = children.next() else {
+        return;
+    };
+    let Some(name) = text(name_node, src) else {
+        return;
+    };
+    let Some(value_node) = children.next() else {
+        return;
+    };
+    let value_text = text(value_node, src).unwrap_or_default();
+
+    let qname = match scope.owner_qname {
+        Some(owner) => format!("{owner}::{name}"),
+        None => qualify(scope.current_ns, name),
+    };
+    let id = item_id(&qname);
+    let line = (const_element.start_position().row + 1) as i64;
+
+    let mut node = Node::new(id.as_str(), Label::new(Label::ITEM))
+        .with_prop("kind", "const")
+        .with_prop("name", name)
+        .with_prop("qname", qname.as_str())
+        .with_prop("line", line)
+        .with_prop("php_construct", "const_declaration")
+        .with_prop("file", scope.file)
+        .with_prop("value_text", value_text);
+    if let Some((type_path, resolved)) = resolved_type {
+        node = node
+            .with_prop("type_path", *type_path)
+            .with_prop("type_normalized", resolved.normalized.as_str());
+    }
+    emitter.emit_node(node);
+    emitter.emit_edge(Edge::new(
+        id.as_str(),
+        CRATE_ID,
+        EdgeLabel::new(EdgeLabel::IN_CRATE),
+    ));
+    if let Some(ns) = scope.current_ns {
+        emitter.emit_edge(Edge::new(
+            id.as_str(),
+            module_id(ns),
+            EdgeLabel::new(EdgeLabel::IN_MODULE),
+        ));
+    }
 }
 
 #[cfg(test)]
