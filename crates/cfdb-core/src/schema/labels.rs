@@ -74,6 +74,7 @@ impl Label {
     pub const MATCH_SITE: &'static str = "MatchSite";
     pub const SUPERTYPE: &'static str = "Supertype";
     pub const GLOBAL_READ: &'static str = "GlobalRead";
+    pub const ATTRIBUTE: &'static str = "Attribute";
 
     pub fn new(s: impl Into<String>) -> Self {
         Self(s.into())
@@ -131,6 +132,7 @@ impl EdgeLabel {
 
     pub const REFERENCED_BY: &'static str = "REFERENCED_BY";
     pub const HAS_ARG: &'static str = "HAS_ARG";
+    pub const HAS_ATTRIBUTE: &'static str = "HAS_ATTRIBUTE";
 
     pub const EXTENDS: &'static str = "EXTENDS";
     pub const HAS_SUPERTYPE: &'static str = "HAS_SUPERTYPE";

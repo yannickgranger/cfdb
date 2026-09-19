@@ -11,7 +11,7 @@ pub(in crate::schema::describe) use overlay::{
     literal_node_descriptor, rfc_doc_node_descriptor,
 };
 pub(in crate::schema::describe) use structural::{
-    crate_node_descriptor, field_node_descriptor, file_node_descriptor, import_node_descriptor,
-    item_node_descriptor, module_node_descriptor, param_node_descriptor, supertype_node_descriptor,
-    variant_node_descriptor,
+    attribute_node_descriptor, crate_node_descriptor, field_node_descriptor, file_node_descriptor,
+    import_node_descriptor, item_node_descriptor, module_node_descriptor, param_node_descriptor,
+    supertype_node_descriptor, variant_node_descriptor,
 };

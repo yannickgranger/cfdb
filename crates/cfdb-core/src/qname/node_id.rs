@@ -109,6 +109,11 @@ pub fn global_read_node_id(caller_qname: &str, name: &str, idx: usize) -> String
     format!("globalread:{caller_qname}:{name}:{idx}")
 }
 
+#[must_use]
+pub fn attribute_node_id(owner_id: &str, idx: usize) -> String {
+    format!("attr:{owner_id}#{idx}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -324,5 +329,18 @@ mod tests {
             variant_node_id(&identity, 1),
             "variant:twobins::make#bin:alpha#1"
         );
+    }
+
+    #[test]
+    fn attribute_node_id_formula_is_attr_colon_owner_hash_idx() {
+        let param = "param:App\\C::m#0";
+        assert_eq!(attribute_node_id(param, 0), "attr:param:App\\C::m#0#0");
+        assert_eq!(attribute_node_id(param, 1), "attr:param:App\\C::m#0#1");
+    }
+
+    #[test]
+    fn attribute_node_id_disambiguates_by_idx() {
+        let owner = "item:App\\C::m";
+        assert_ne!(attribute_node_id(owner, 0), attribute_node_id(owner, 1));
     }
 }

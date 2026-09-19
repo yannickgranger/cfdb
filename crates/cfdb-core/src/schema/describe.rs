@@ -36,5 +36,6 @@ fn node_descriptors() -> Vec<NodeLabelDescriptor> {
         nodes::match_site_node_descriptor(),
         nodes::supertype_node_descriptor(),
         nodes::global_read_node_descriptor(),
+        nodes::attribute_node_descriptor(),
     ]
 }

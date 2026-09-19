@@ -6,6 +6,7 @@ use cfdb_core::qname::{file_node_id, import_node_id};
 use cfdb_core::schema::{EdgeLabel, Label};
 use cfdb_lang::{LanguageError, LanguageProducer};
 
+mod attributes;
 mod call_walker;
 mod emitter;
 mod global_reads;
@@ -247,6 +248,7 @@ fn emit_class_like(
             EdgeLabel::new(EdgeLabel::IN_MODULE),
         ));
     }
+    attributes::emit_attributes(node, src, current_ns, imports, &id, file, emitter);
 
     let mut clause_cursor = node.walk();
     for child in node.children(&mut clause_cursor) {
@@ -290,10 +292,10 @@ fn walk_declaration_list(
             field_index = types::emit_property_fields(
                 child,
                 src,
-                parent_qname,
-                parent_id,
+                (parent_qname, parent_id),
                 field_index,
                 type_ctx,
+                file,
                 emitter,
             );
         }
@@ -305,10 +307,10 @@ fn walk_declaration_list(
             field_index = types::emit_promoted_fields(
                 child,
                 src,
-                parent_qname,
-                parent_id,
+                (parent_qname, parent_id),
                 field_index,
                 type_ctx,
+                file,
                 emitter,
             );
             emit_method(child, src, type_ctx, file, emitter);
@@ -358,11 +360,12 @@ fn emit_method(
             EdgeLabel::new(EdgeLabel::IN_MODULE),
         ));
     }
+    attributes::emit_attributes(node, src, current_ns, imports, &id, file, emitter);
     if let Some((_, resolved)) = &return_type {
         types::buffer_returns_edges(emitter, &id, resolved);
     }
     if let Some(params) = node.child_by_field_name("parameters") {
-        types::emit_params(params, src, &qname, &id, type_ctx, emitter);
+        types::emit_params(params, src, &qname, &id, type_ctx, file, emitter);
     }
 
     call_walker::walk_call_sites(
@@ -425,11 +428,12 @@ fn emit_function(
             EdgeLabel::new(EdgeLabel::IN_MODULE),
         ));
     }
+    attributes::emit_attributes(node, src, current_ns, imports, &id, file, emitter);
     if let Some((_, resolved)) = &return_type {
         types::buffer_returns_edges(emitter, &id, resolved);
     }
     if let Some(params) = node.child_by_field_name("parameters") {
-        types::emit_params(params, src, &qname, &id, &type_ctx, emitter);
+        types::emit_params(params, src, &qname, &id, &type_ctx, file, emitter);
     }
 
     call_walker::walk_call_sites(
