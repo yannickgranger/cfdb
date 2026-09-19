@@ -524,6 +524,8 @@ jobs:
   own-gate:
     name: Own gate (keel level, corpus-wide)
     runs-on: rust
+    env:
+      RUSTFLAGS: ""
     container:
       image: docker.io/library/rust:1.93
     steps:
