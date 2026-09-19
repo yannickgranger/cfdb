@@ -10,6 +10,7 @@ mod call_walker;
 mod emitter;
 mod implements;
 mod imports;
+mod supertypes;
 mod test_scope;
 mod types;
 use emitter::{item_id, module_id, Emitter};
@@ -58,6 +59,7 @@ fn produce_facts(workspace_root: &Path) -> Result<(Vec<Node>, Vec<Edge>), Langua
     }
 
     emitter.resolve_pending_implements();
+    emitter.resolve_pending_extends();
     emitter.resolve_pending_type_edges();
     emitter.resolve_pending_call_sites();
 
@@ -272,6 +274,7 @@ fn emit_class_like(
         enclosing_class_qname: Some(qname.as_str()),
         enclosing_class_parent: enclosing_class_parent.as_deref(),
     };
+    supertypes::emit_supertypes(node, src, current_ns, imports, &qname, file, emitter);
 
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {

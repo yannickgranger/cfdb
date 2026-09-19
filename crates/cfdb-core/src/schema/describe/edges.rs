@@ -152,6 +152,14 @@ pub(super) fn edge_descriptors() -> Vec<EdgeLabelDescriptor> {
             provenance: Provenance::Extractor,
         },
         EdgeLabelDescriptor {
+            label: EdgeLabel::new(EdgeLabel::ENCLOSED_BY),
+            description: "A CallSite lies lexically inside the anonymous_function or arrow_function that is the expression of the target Argument — the nearest enclosing closure-as-argument (cfdb-062-php-declared-shapes#3.4). An eagerly-evaluated argument (the call is not itself a closure literal) yields no edge, and a closure that is not directly an argument's own expression (assigned to a variable, returned) resets: a call site inside it carries no edge either, even when that closure sits inside an outer argument closure. No edge attributes. Emitted by cfdb-extractor-php only. SchemaVersion V0_8_0+; keyspaces predating this slice carry zero ENCLOSED_BY edges.".into(),
+            attributes: vec![],
+            from: vec![Label::new(Label::CALL_SITE)],
+            to: vec![Label::new(Label::ARGUMENT)],
+            provenance: Provenance::Extractor,
+        },
+        EdgeLabelDescriptor {
             label: EdgeLabel::new(EdgeLabel::MATCHES_AT),
             description: "The fn/method Item that contains a `match` expression points at each :MatchSite emitted for it (Item → MatchSite), mirroring INVOKES_AT for call sites (one `match` verb root across the family). Emitted walk-time by `cfdb-extractor`'s `match_visitor`. SchemaVersion V0_7_0+; pre-V0_7_0 keyspaces carry zero MATCHES_AT edges.".into(),
             attributes: vec![],
@@ -228,6 +236,27 @@ pub(super) fn edge_descriptors() -> Vec<EdgeLabelDescriptor> {
             from: vec![Label::new(Label::ITEM)],
             to: vec![Label::new(Label::RFC_DOC)],
             provenance: Provenance::EnrichRfcDocs,
+        },
+        EdgeLabelDescriptor {
+            label: EdgeLabel::new(EdgeLabel::EXTENDS),
+            description: "The class-like Item on the `extends` side of a `base_clause` points at the `:Item` of each name that resolves in-workspace (cfdb-062-php-declared-shapes#3.2). Closed-world, same resolution pass as `IMPLEMENTS`: a name outside the workspace yields no edge, only its `:Supertype` node. Distinct from `IMPLEMENTS` — the two never overlap on one clause — so a rule walking the declared supertype graph reads `IMPLEMENTS|EXTENDS*`. Emitted by `cfdb-extractor-php` alone. SchemaVersion V0_8_0+; keyspaces from a producer without `lang-php` carry zero EXTENDS edges.".into(),
+            attributes: vec![attr(
+                "resolver",
+                "enum",
+                "Which producer resolved this edge, mirroring `IMPLEMENTS.resolver`: `tree-sitter-php` today, the only producer that emits EXTENDS.",
+                Extractor,
+            )],
+            from: vec![Label::new(Label::ITEM)],
+            to: vec![Label::new(Label::ITEM)],
+            provenance: Provenance::Extractor,
+        },
+        EdgeLabelDescriptor {
+            label: EdgeLabel::new(EdgeLabel::HAS_SUPERTYPE),
+            description: "A class-like Item owns a declared `:Supertype` — one per name in its `base_clause` or `class_interface_clause` (cfdb-062-php-declared-shapes#3.2), the `:Import`/`HAS_IMPORT` shape applied to declared supertypes. No attributes — `relation`, `written` and `fqn` live on the `:Supertype` node. Emitted by `cfdb-extractor-php` alone. SchemaVersion V0_8_0+; keyspaces from a producer without `lang-php` carry zero HAS_SUPERTYPE edges.".into(),
+            attributes: vec![],
+            from: vec![Label::new(Label::ITEM)],
+            to: vec![Label::new(Label::SUPERTYPE)],
+            provenance: Provenance::Extractor,
         },
     ]
 }
