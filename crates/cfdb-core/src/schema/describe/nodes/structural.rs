@@ -224,6 +224,8 @@ fn item_attrs_extractor_structural() -> Vec<AttributeDescriptor> {
         attr("signature_hash", "string", "Stable hash of the item's normalized signature.", Extractor),
         attr("target", "string?", "Which cargo build target the item was walked from (RFC-054 §3.2): `lib` or `bin:<target-name>`. Cargo's own term — unrelated to the edge-endpoint sense of \"target\" and to `impl_target`. Absent ⇒ pre-RFC-054 extract OR a non-Rust producer (PHP/TS items never carry it).", Extractor),
         attr("visibility", "enum", "Rust visibility: `pub`, `pub(crate)`, `pub(super)`, `private`, or `pub(in <path>)`. SchemaVersion v0.1.1+ only — legacy V0_1_0 graphs do not carry this attribute.", Extractor),
+        attr("return_type_normalized", "string?", "The declared return type's arms, flattened in source order and joined by `|`, resolved the way `:Param.type_normalized` and `:Field.type_normalized` are (cfdb-062-php-declared-shapes §3.1). Emitted by `cfdb-extractor-php` on `fn` items only, absent when the declaration carries no return type. Rust and TypeScript items never carry it — their return type stays in `signature`.", Extractor),
+        attr("return_type_path", "string?", "The declared return type's bytes exactly as written. Emitted by `cfdb-extractor-php` on `fn` items only, absent when the declaration carries no return type.", Extractor),
     ]
 }
 
@@ -260,36 +262,36 @@ pub(in crate::schema::describe) fn field_node_descriptor() -> NodeLabelDescripto
     use Provenance::Extractor;
     NodeLabelDescriptor {
         label: Label::new(Label::FIELD),
-        description: "A struct field, tuple-struct element, or enum variant field.".into(),
+        description: "A struct field, tuple-struct element, or enum variant field from `cfdb-extractor`; a class property (including a promoted constructor parameter, which is both a `:Field` and a `:Param`) from `cfdb-extractor-php` (cfdb-062-php-declared-shapes §3.1).".into(),
         attributes: vec![
             attr(
                 "index",
                 "int",
-                "Declaration index inside the parent (0-based).",
+                "Declaration index inside the parent (0-based). For the PHP producer, a promoted constructor parameter is numbered after every property declared in the class body.",
                 Extractor,
             ),
             attr(
                 "name",
                 "string",
-                "Field identifier (`_0`, `_1`, ... for tuple structs and tuple variants).",
+                "Field identifier (`_0`, `_1`, ... for tuple structs and tuple variants); the PHP property or promoted-parameter name without its leading `$`.",
                 Extractor,
             ),
             attr(
                 "parent_qname",
                 "string",
-                "Qualified name of the owning struct or enum variant.",
+                "Qualified name of the owning struct or enum variant, or (PHP) the owning class — a promoted parameter's `:Field` is owned by the class, not by the constructor method.",
                 Extractor,
             ),
             attr(
                 "type_normalized",
-                "string",
-                "Type after RFC §6.4 normalization rules.",
+                "string?",
+                "Type after RFC §6.4 normalization rules (Rust); for PHP, the declared type's arms flattened in source order and joined by `|` — `optional_type` `?T` contributing `T` and `null`, an `intersection_type` its members joined by `&` and parenthesised (cfdb-062-php-declared-shapes §3.1). Absent when the declaration carries no type — every Rust field always has one, so the attribute is `string` in practice for that producer and optional only for PHP's untyped properties.",
                 Extractor,
             ),
             attr(
                 "type_path",
-                "string",
-                "Raw type path as written in source.",
+                "string?",
+                "Raw type as written in source. Absent when the declaration carries no type.",
                 Extractor,
             ),
         ],
@@ -329,37 +331,37 @@ pub(in crate::schema::describe) fn param_node_descriptor() -> NodeLabelDescripto
     use Provenance::Extractor;
     NodeLabelDescriptor {
         label: Label::new(Label::PARAM),
-        description: "A function or method parameter.".into(),
+        description: "A function or method parameter (Rust); a PHP method or function parameter, including a promoted constructor parameter, which is also a `:Field` (cfdb-062-php-declared-shapes §3.1).".into(),
         attributes: vec![
-            attr("index", "int", "Parameter position (0-based).", Extractor),
+            attr("index", "int", "Parameter position (0-based) among the formal parameters, per producer.", Extractor),
             attr(
                 "is_self",
                 "bool",
-                "True when this parameter is `self` / `&self` / `&mut self`.",
+                "True when this parameter is `self` / `&self` / `&mut self`. Always `false` from `cfdb-extractor-php` — PHP has no receiver parameter.",
                 Extractor,
             ),
             attr(
                 "name",
                 "string",
-                "Parameter identifier; empty for wildcard patterns.",
+                "Parameter identifier; empty for wildcard patterns. The PHP producer strips the leading `$`.",
                 Extractor,
             ),
             attr(
                 "parent_qname",
                 "string",
-                "Qualified name of the enclosing fn.",
+                "Qualified name of the enclosing fn or method.",
                 Extractor,
             ),
             attr(
                 "type_normalized",
-                "string",
-                "Type after RFC §6.4 normalization.",
+                "string?",
+                "Type after RFC §6.4 normalization (Rust); for PHP, the declared type's arms flattened in source order and joined by `|`, the same rule `:Field.type_normalized` follows (cfdb-062-php-declared-shapes §3.1). Absent when the declaration carries no type.",
                 Extractor,
             ),
             attr(
                 "type_path",
-                "string",
-                "Raw type path as written in source.",
+                "string?",
+                "Raw type as written in source. Absent when the declaration carries no type.",
                 Extractor,
             ),
         ],

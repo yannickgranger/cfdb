@@ -30,6 +30,12 @@ pub(crate) fn callee_last_segment(callee_path: &str) -> &str {
     after_colons.rsplit('\\').next().unwrap_or(after_colons)
 }
 
+struct PendingTypeEdge {
+    source_id: String,
+    label: &'static str,
+    target_qname: String,
+}
+
 pub(crate) struct Emitter {
     nodes: Vec<Node>,
     node_ids: BTreeMap<String, usize>,
@@ -37,6 +43,7 @@ pub(crate) struct Emitter {
     pending_implements: Vec<(String, String)>,
     pending_extends: Vec<(String, String)>,
     pending_call_sites: Vec<PendingCallSite>,
+    pending_type_edges: Vec<PendingTypeEdge>,
     scope: ComposerScope,
 }
 
@@ -49,6 +56,7 @@ impl Emitter {
             pending_implements: Vec::new(),
             pending_extends: Vec::new(),
             pending_call_sites: Vec::new(),
+            pending_type_edges: Vec::new(),
             scope,
         }
     }
@@ -106,6 +114,44 @@ impl Emitter {
 
     pub(crate) fn buffer_call_site(&mut self, cs: PendingCallSite) {
         self.pending_call_sites.push(cs);
+    }
+
+    pub(crate) fn buffer_type_edge(
+        &mut self,
+        source_id: &str,
+        label: &'static str,
+        target_qname: &str,
+    ) {
+        self.pending_type_edges.push(PendingTypeEdge {
+            source_id: source_id.to_string(),
+            label,
+            target_qname: target_qname.to_string(),
+        });
+    }
+
+    pub(crate) fn resolve_pending_type_edges(&mut self) {
+        let pending = std::mem::take(&mut self.pending_type_edges);
+        let mut seen: std::collections::BTreeSet<(String, &'static str, String)> =
+            std::collections::BTreeSet::new();
+        for pending_edge in pending {
+            let target_id = item_id(&pending_edge.target_qname);
+            if !self.node_ids.contains_key(&target_id) {
+                continue;
+            }
+            let key = (
+                pending_edge.source_id.clone(),
+                pending_edge.label,
+                pending_edge.target_qname.clone(),
+            );
+            if !seen.insert(key) {
+                continue;
+            }
+            self.edges.push(Edge::new(
+                pending_edge.source_id,
+                target_id,
+                EdgeLabel::new(pending_edge.label),
+            ));
+        }
     }
 
     pub(crate) fn resolve_pending_call_sites(&mut self) {

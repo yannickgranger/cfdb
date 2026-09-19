@@ -54,7 +54,7 @@ pub(super) fn edge_descriptors() -> Vec<EdgeLabelDescriptor> {
         },
         EdgeLabelDescriptor {
             label: EdgeLabel::new(EdgeLabel::TYPE_OF),
-            description: "A Field, Param, or Variant payload references an Item used as its type."
+            description: "A Field, Param, or Variant payload references an Item used as its type. Rust (`cfdb-extractor`): an unresolved target is synthesized — `synthesize_referenced_items` mints a stub `:Item` for a `TYPE_OF` target with no matching node, so every Rust `TYPE_OF` edge lands on a real node. PHP (`cfdb-extractor-php`, cfdb-062-php-declared-shapes §3.1): closed-world — an arm naming a vendor or builtin type yields no edge and no node at all; the string alone (`:Param.type_normalized` / `:Field.type_normalized`) carries it. A rule reading `TYPE_OF` across producers fences on the source node's producer (PHP `:Param`/`:Field` never carry a stub-target edge)."
                 .into(),
             attributes: vec![],
             from: vec![
@@ -88,7 +88,7 @@ pub(super) fn edge_descriptors() -> Vec<EdgeLabelDescriptor> {
         },
         EdgeLabelDescriptor {
             label: EdgeLabel::new(EdgeLabel::RETURNS),
-            description: "An fn Item returns a type Item.".into(),
+            description: "An fn Item returns a type Item. Same producer asymmetry as `TYPE_OF`: Rust (`cfdb-extractor`) synthesizes a stub `:Item` for an unresolved target via `synthesize_referenced_items`; PHP (`cfdb-extractor-php`, cfdb-062-php-declared-shapes §3.1) is closed-world — a return-type arm outside the workspace yields no edge and no node, carried only in `:Item.return_type_normalized`.".into(),
             attributes: vec![],
             from: vec![Label::new(Label::ITEM)],
             to: vec![Label::new(Label::ITEM)],
