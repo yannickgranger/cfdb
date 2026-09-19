@@ -374,7 +374,7 @@ fn call_site_kind_names_every_member_and_narrows_none() {
 #[test]
 fn schema_describe_narrative_digest() {
     const FROZEN_NARRATIVE_DIGEST: &str =
-        "3992fa7aa974545453c74961b73e1f6dfe9a11c0299ef678d9b28fe29ac1c0c9";
+        "224977e9d55b26ced7ea6a5452aa5a69bcd7e997762df2ed3adab25a82811133";
 
     let d = schema_describe();
 
