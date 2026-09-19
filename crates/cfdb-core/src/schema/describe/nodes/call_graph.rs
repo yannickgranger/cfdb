@@ -196,3 +196,45 @@ pub(in crate::schema::describe) fn match_site_node_descriptor() -> NodeLabelDesc
         ],
     }
 }
+
+pub(in crate::schema::describe) fn global_read_node_descriptor() -> NodeLabelDescriptor {
+    use Provenance::Extractor;
+    NodeLabelDescriptor {
+        label: Label::new(Label::GLOBAL_READ),
+        description: "A read (or write) of a PHP superglobal — `$GLOBALS`, `$_SERVER`, \
+            `$_GET`, `$_POST`, `$_FILES`, `$_COOKIE`, `$_SESSION`, `$_REQUEST`, `$_ENV` — \
+            inside a walked fn or method body (cfdb-062-php-declared-shapes#3.7). A read \
+            and a write both count: a superglobal written outside the wiring is \
+            configuration held by a class all the same, and the producer does not \
+            distinguish lvalue from rvalue position. Not a `:CallSite`: a superglobal \
+            access has no callee, and `callee_path` would gain a second meaning. Node id \
+            `globalread:{caller_qname}:{name}:{idx}` (`cfdb_core::qname::global_read_node_id`), \
+            `idx` the zero-based ordinal among reads of that same name inside that same \
+            caller. Emitted by `cfdb-extractor-php` only; no other producer emits this \
+            label. Additive; no SchemaVersion bump."
+            .into(),
+        attributes: vec![
+            attr(
+                "caller_qname",
+                "string",
+                "Qualified name of the fn or method whose body contains this read.",
+                Extractor,
+            ),
+            attr(
+                "file",
+                "string",
+                "Source file relative to workspace root.",
+                Extractor,
+            ),
+            attr("line", "int", "1-based line number.", Extractor),
+            attr(
+                "name",
+                "string",
+                "The superglobal's name WITHOUT the leading `$` — `_ENV`, `_SERVER`, etc. \
+                 One of the nine PHP superglobal names; the closed set is a syntactic \
+                 constant of the producer, not a schema-level enum.",
+                Extractor,
+            ),
+        ],
+    }
+}

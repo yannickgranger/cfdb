@@ -73,6 +73,7 @@ impl Label {
     pub const ARGUMENT: &'static str = "Argument";
     pub const MATCH_SITE: &'static str = "MatchSite";
     pub const SUPERTYPE: &'static str = "Supertype";
+    pub const GLOBAL_READ: &'static str = "GlobalRead";
 
     pub fn new(s: impl Into<String>) -> Self {
         Self(s.into())
@@ -115,6 +116,8 @@ impl EdgeLabel {
 
     pub const CALLS: &'static str = "CALLS";
     pub const INVOKES_AT: &'static str = "INVOKES_AT";
+    pub const ENCLOSED_BY: &'static str = "ENCLOSED_BY";
+    pub const READS_GLOBAL: &'static str = "READS_GLOBAL";
 
     pub const MATCHES_AT: &'static str = "MATCHES_AT";
     pub const MATCHES_ON: &'static str = "MATCHES_ON";

@@ -104,6 +104,11 @@ pub fn supertype_node_id(class_qname: &str, idx: usize) -> String {
     format!("supertype:{class_qname}#{idx}")
 }
 
+#[must_use]
+pub fn global_read_node_id(caller_qname: &str, name: &str, idx: usize) -> String {
+    format!("globalread:{caller_qname}:{name}:{idx}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -175,6 +180,40 @@ mod tests {
         let syn_cs = "callsite:crate::fn:method:0";
         let hir_cs = "callsite:crate::fn:crate2::ConcreteType::method:0";
         assert_ne!(argument_node_id(syn_cs, 0), argument_node_id(hir_cs, 0));
+    }
+
+    #[test]
+    fn global_read_node_id_formula_is_globalread_colon_caller_colon_name_colon_idx() {
+        assert_eq!(
+            global_read_node_id("App\\Fixture::run", "_ENV", 0),
+            "globalread:App\\Fixture::run:_ENV:0"
+        );
+    }
+
+    #[test]
+    fn global_read_node_id_disambiguates_by_idx_not_name() {
+        let caller = "App\\Fixture::run";
+        assert_ne!(
+            global_read_node_id(caller, "_ENV", 0),
+            global_read_node_id(caller, "_ENV", 1)
+        );
+    }
+
+    #[test]
+    fn global_read_node_id_disambiguates_by_name_not_only_idx() {
+        let caller = "App\\Fixture::run";
+        assert_ne!(
+            global_read_node_id(caller, "_ENV", 0),
+            global_read_node_id(caller, "_SERVER", 0)
+        );
+    }
+
+    #[test]
+    fn global_read_node_id_disambiguates_by_caller() {
+        assert_ne!(
+            global_read_node_id("App\\A::run", "_ENV", 0),
+            global_read_node_id("App\\B::run", "_ENV", 0)
+        );
     }
 
     #[test]

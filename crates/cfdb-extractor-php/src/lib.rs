@@ -8,6 +8,7 @@ use cfdb_lang::{LanguageError, LanguageProducer};
 
 mod call_walker;
 mod emitter;
+mod global_reads;
 mod implements;
 mod imports;
 mod receiver;
