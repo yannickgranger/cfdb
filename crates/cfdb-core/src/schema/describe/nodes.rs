@@ -4,13 +4,14 @@ mod structural;
 
 pub(in crate::schema::describe) use call_graph::{
     argument_node_descriptor, call_site_node_descriptor, entry_point_node_descriptor,
-    match_site_node_descriptor,
+    global_read_node_descriptor, match_site_node_descriptor,
 };
 pub(in crate::schema::describe) use overlay::{
     concept_node_descriptor, const_table_node_descriptor, context_node_descriptor,
     literal_node_descriptor, rfc_doc_node_descriptor,
 };
 pub(in crate::schema::describe) use structural::{
-    crate_node_descriptor, field_node_descriptor, file_node_descriptor, import_node_descriptor,
-    item_node_descriptor, module_node_descriptor, param_node_descriptor, variant_node_descriptor,
+    attribute_node_descriptor, crate_node_descriptor, field_node_descriptor, file_node_descriptor,
+    import_node_descriptor, item_node_descriptor, module_node_descriptor, param_node_descriptor,
+    supertype_node_descriptor, variant_node_descriptor,
 };

@@ -22,7 +22,7 @@ class Calculator
         $r = Calculator::add($r, 3);
         // free function → App\helper (resolved, in-workspace).
         $r = helper($r);
-        // instance dispatch → unresolved (no receiver-type inference).
+        // $this->method → App\Calculator::add (resolved via receiver resolution, cfdb-062-C).
         $this->add($r, 4);
         // external/unknown free function → no CALLS (closed-world).
         $r = missing($r);

@@ -2,6 +2,8 @@ use std::collections::BTreeMap;
 
 use crate::emitter::{Emitter, PendingCallSite};
 use crate::imports::ImportTable;
+use crate::receiver::{self, Receiver};
+use cfdb_core::qname::argument_node_id;
 use cfdb_core::schema::{ArgKind, RECEIVER_POSITION};
 
 use crate::text;
@@ -20,6 +22,7 @@ pub(crate) struct ClassifiedCall {
     pub callee_path: String,
     pub resolve_target: Option<String>,
     pub kind: &'static str,
+    pub receiver: Option<Receiver>,
 }
 
 pub(crate) struct CallScope<'a> {
@@ -28,6 +31,11 @@ pub(crate) struct CallScope<'a> {
     pub current_ns: Option<&'a str>,
     pub imports: &'a ImportTable,
     pub file: &'a str,
+}
+
+struct WalkCtx<'a> {
+    src: &'a [u8],
+    scope: &'a CallScope<'a>,
 }
 
 pub(crate) fn walk_call_sites(
@@ -44,27 +52,31 @@ pub(crate) fn walk_call_sites(
         return;
     };
     let mut counts: BTreeMap<String, usize> = BTreeMap::new();
-    visit(body, src, scope, &mut counts, emitter);
+    let ctx = WalkCtx { src, scope };
+    visit(body, &ctx, &mut counts, emitter, None);
 }
 
 fn visit(
     node: tree_sitter::Node,
-    src: &[u8],
-    scope: &CallScope<'_>,
+    ctx: &WalkCtx<'_>,
     counts: &mut BTreeMap<String, usize>,
     emitter: &mut Emitter,
+    enclosing_argument: Option<&str>,
 ) {
+    let mut arguments_child: Option<tree_sitter::Node> = None;
+
     if let Some(call) = classify_call(
         node,
-        src,
-        scope.current_ns,
-        scope.imports,
-        scope.enclosing_class_qname,
+        ctx.src,
+        ctx.scope.current_ns,
+        ctx.scope.imports,
+        ctx.scope.enclosing_class_qname,
     ) {
         let ClassifiedCall {
             callee_path,
             resolve_target,
             kind,
+            receiver,
         } = call;
         let idx = {
             let counter = counts.entry(callee_path.clone()).or_insert(0);
@@ -72,22 +84,76 @@ fn visit(
             *counter += 1;
             i
         };
+        let id = format!("callsite:{}:{callee_path}:{idx}", ctx.scope.caller_qname);
+        let arguments = collect_arguments(node, ctx.src);
+
+        let mut cursor = node.walk();
+        arguments_child = node.children(&mut cursor).find(|c| c.kind() == "arguments");
+
         emitter.buffer_call_site(PendingCallSite {
-            id: format!("callsite:{}:{callee_path}:{idx}", scope.caller_qname),
-            caller_qname: scope.caller_qname.to_string(),
+            id: id.clone(),
+            caller_qname: ctx.scope.caller_qname.to_string(),
             callee_path,
-            file: scope.file.to_string(),
+            file: ctx.scope.file.to_string(),
             line: (node.start_position().row + 1) as i64,
             resolve_target,
             kind,
-            arguments: collect_arguments(node, src),
+            arguments,
+            enclosed_by: enclosing_argument.map(str::to_string),
+            enclosing_class_qname: ctx.scope.enclosing_class_qname.map(str::to_string),
+            receiver,
         });
+
+        let (_, base) = call_shape(node);
+        visit_arguments(node, base, &id, ctx, counts, emitter, enclosing_argument);
+    }
+
+    if node.kind() == "variable_name" {
+        crate::global_reads::visit_variable_name(
+            node,
+            ctx.src,
+            ctx.scope.caller_qname,
+            ctx.scope.file,
+            counts,
+            emitter,
+        );
     }
 
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        visit(child, src, scope, counts, emitter);
+        if Some(child) == arguments_child {
+            continue;
+        }
+        let next_enclosing = if is_closure(child) {
+            None
+        } else {
+            enclosing_argument
+        };
+        visit(child, ctx, counts, emitter, next_enclosing);
     }
+}
+
+fn visit_arguments(
+    node: tree_sitter::Node,
+    base: u32,
+    callsite_id: &str,
+    ctx: &WalkCtx<'_>,
+    counts: &mut BTreeMap<String, usize>,
+    emitter: &mut Emitter,
+    enclosing_argument: Option<&str>,
+) {
+    for (wrapper, expr, position) in call_arguments(node, base) {
+        if is_closure(expr) {
+            let arg_id = argument_node_id(callsite_id, position);
+            visit(expr, ctx, counts, emitter, Some(&arg_id));
+        } else {
+            visit(wrapper, ctx, counts, emitter, enclosing_argument);
+        }
+    }
+}
+
+fn is_closure(node: tree_sitter::Node) -> bool {
+    matches!(node.kind(), "anonymous_function" | "arrow_function")
 }
 
 fn classify_call(
@@ -104,6 +170,7 @@ fn classify_call(
                 callee_path: raw.to_string(),
                 resolve_target: Some(imports.resolve(raw, current_ns)),
                 kind: "call",
+                receiver: None,
             })
         }
         "scoped_call_expression" => {
@@ -122,14 +189,17 @@ fn classify_call(
                 callee_path,
                 resolve_target,
                 kind: "call",
+                receiver: None,
             })
         }
         "member_call_expression" | "nullsafe_member_call_expression" => {
             let name = text(node.child_by_field_name("name")?, src)?;
+            let object = node.child_by_field_name("object")?;
             Some(ClassifiedCall {
                 callee_path: name.to_string(),
                 resolve_target: None,
                 kind: "call",
+                receiver: receiver::classify_receiver(object, src),
             })
         }
         "object_creation_expression" => {
@@ -173,6 +243,7 @@ fn classify_construction(
         callee_path: written.to_string(),
         resolve_target,
         kind: "new",
+        receiver: None,
     })
 }
 
@@ -203,20 +274,23 @@ fn classify_scoped_call(
     }
 }
 
-fn collect_arguments(node: tree_sitter::Node, src: &[u8]) -> Vec<PendingArgument> {
-    let mut out = Vec::new();
-    let mut position = 0u32;
-
+fn call_shape(node: tree_sitter::Node) -> (Option<tree_sitter::Node>, u32) {
     if matches!(
         node.kind(),
         "member_call_expression" | "nullsafe_member_call_expression"
     ) {
         if let Some(receiver) = node.child_by_field_name("object") {
-            out.push(pending_argument(receiver, receiver, src, RECEIVER_POSITION));
-            position = RECEIVER_POSITION + 1;
+            return (Some(receiver), RECEIVER_POSITION + 1);
         }
     }
+    (None, 0)
+}
 
+fn call_arguments(
+    node: tree_sitter::Node,
+    base: u32,
+) -> Vec<(tree_sitter::Node, tree_sitter::Node, u32)> {
+    let mut out = Vec::new();
     let mut cursor = node.walk();
     let Some(arguments) = node.children(&mut cursor).find(|c| c.kind() == "arguments") else {
         return out;
@@ -231,12 +305,19 @@ fn collect_arguments(node: tree_sitter::Node, src: &[u8]) -> Vec<PendingArgument
         let Some(expr) = argument_expression(wrapper) else {
             continue;
         };
-        out.push(pending_argument(
-            wrapper,
-            expr,
-            src,
-            argument_position(position, index),
-        ));
+        out.push((wrapper, expr, argument_position(base, index)));
+    }
+    out
+}
+
+fn collect_arguments(node: tree_sitter::Node, src: &[u8]) -> Vec<PendingArgument> {
+    let mut out = Vec::new();
+    let (receiver, base) = call_shape(node);
+    if let Some(receiver) = receiver {
+        out.push(pending_argument(receiver, receiver, src, RECEIVER_POSITION));
+    }
+    for (wrapper, expr, position) in call_arguments(node, base) {
+        out.push(pending_argument(wrapper, expr, src, position));
     }
     out
 }

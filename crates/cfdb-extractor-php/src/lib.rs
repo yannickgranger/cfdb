@@ -6,10 +6,14 @@ use cfdb_core::qname::{file_node_id, import_node_id};
 use cfdb_core::schema::{EdgeLabel, Label};
 use cfdb_lang::{LanguageError, LanguageProducer};
 
+mod attributes;
 mod call_walker;
 mod emitter;
+mod global_reads;
 mod implements;
 mod imports;
+mod receiver;
+mod supertypes;
 mod test_scope;
 mod types;
 use emitter::{item_id, module_id, Emitter};
@@ -58,6 +62,7 @@ fn produce_facts(workspace_root: &Path) -> Result<(Vec<Node>, Vec<Edge>), Langua
     }
 
     emitter.resolve_pending_implements();
+    emitter.resolve_pending_extends();
     emitter.resolve_pending_type_edges();
     emitter.resolve_pending_call_sites();
 
@@ -145,6 +150,20 @@ fn walk_top_level(program: tree_sitter::Node, src: &[u8], file: &str, emitter: &
             }
             "function_definition" => {
                 emit_function(child, src, current_ns.as_deref(), &imports, file, emitter);
+            }
+            "const_declaration" => {
+                let scope = types::ConstScope {
+                    current_ns: current_ns.as_deref(),
+                    owner_qname: None,
+                    file,
+                };
+                let type_ctx = TypeCtx {
+                    current_ns: current_ns.as_deref(),
+                    imports: &imports,
+                    enclosing_class_qname: None,
+                    enclosing_class_parent: None,
+                };
+                types::emit_const_declaration(child, src, &scope, &type_ctx, emitter);
             }
             _ => {}
         }
@@ -243,6 +262,7 @@ fn emit_class_like(
             EdgeLabel::new(EdgeLabel::IN_MODULE),
         ));
     }
+    attributes::emit_attributes(node, src, current_ns, imports, &id, file, emitter);
 
     let mut clause_cursor = node.walk();
     for child in node.children(&mut clause_cursor) {
@@ -258,6 +278,8 @@ fn emit_class_like(
         enclosing_class_qname: Some(qname.as_str()),
         enclosing_class_parent: enclosing_class_parent.as_deref(),
     };
+
+    supertypes::emit_supertypes(node, src, current_ns, imports, &qname, file, emitter);
 
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
@@ -284,12 +306,24 @@ fn walk_declaration_list(
             field_index = types::emit_property_fields(
                 child,
                 src,
-                parent_qname,
-                parent_id,
+                (parent_qname, parent_id),
                 field_index,
                 type_ctx,
+                file,
                 emitter,
             );
+        }
+    }
+
+    let mut cursor = list.walk();
+    for child in list.children(&mut cursor) {
+        if child.kind() == "const_declaration" {
+            let scope = types::ConstScope {
+                current_ns: type_ctx.current_ns,
+                owner_qname: Some(parent_qname),
+                file,
+            };
+            types::emit_const_declaration(child, src, &scope, type_ctx, emitter);
         }
     }
 
@@ -299,10 +333,10 @@ fn walk_declaration_list(
             field_index = types::emit_promoted_fields(
                 child,
                 src,
-                parent_qname,
-                parent_id,
+                (parent_qname, parent_id),
                 field_index,
                 type_ctx,
+                file,
                 emitter,
             );
             emit_method(child, src, type_ctx, file, emitter);
@@ -352,11 +386,12 @@ fn emit_method(
             EdgeLabel::new(EdgeLabel::IN_MODULE),
         ));
     }
+    attributes::emit_attributes(node, src, current_ns, imports, &id, file, emitter);
     if let Some((_, resolved)) = &return_type {
         types::buffer_returns_edges(emitter, &id, resolved);
     }
     if let Some(params) = node.child_by_field_name("parameters") {
-        types::emit_params(params, src, &qname, &id, type_ctx, emitter);
+        types::emit_params(params, src, &qname, &id, type_ctx, file, emitter);
     }
 
     call_walker::walk_call_sites(
@@ -419,11 +454,12 @@ fn emit_function(
             EdgeLabel::new(EdgeLabel::IN_MODULE),
         ));
     }
+    attributes::emit_attributes(node, src, current_ns, imports, &id, file, emitter);
     if let Some((_, resolved)) = &return_type {
         types::buffer_returns_edges(emitter, &id, resolved);
     }
     if let Some(params) = node.child_by_field_name("parameters") {
-        types::emit_params(params, src, &qname, &id, &type_ctx, emitter);
+        types::emit_params(params, src, &qname, &id, &type_ctx, file, emitter);
     }
 
     call_walker::walk_call_sites(

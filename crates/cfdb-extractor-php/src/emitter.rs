@@ -23,6 +23,9 @@ pub(crate) struct PendingCallSite {
     pub resolve_target: Option<String>,
     pub kind: &'static str,
     pub arguments: Vec<crate::call_walker::PendingArgument>,
+    pub enclosing_class_qname: Option<String>,
+    pub receiver: Option<crate::receiver::Receiver>,
+    pub enclosed_by: Option<String>,
 }
 
 pub(crate) fn callee_last_segment(callee_path: &str) -> &str {
@@ -41,6 +44,7 @@ pub(crate) struct Emitter {
     node_ids: BTreeMap<String, usize>,
     edges: Vec<Edge>,
     pending_implements: Vec<(String, String)>,
+    pending_extends: Vec<(String, String)>,
     pending_call_sites: Vec<PendingCallSite>,
     pending_type_edges: Vec<PendingTypeEdge>,
     scope: ComposerScope,
@@ -53,6 +57,7 @@ impl Emitter {
             node_ids: BTreeMap::new(),
             edges: Vec::new(),
             pending_implements: Vec::new(),
+            pending_extends: Vec::new(),
             pending_call_sites: Vec::new(),
             pending_type_edges: Vec::new(),
             scope,
@@ -86,6 +91,24 @@ impl Emitter {
             if self.node_ids.contains_key(&target_id) {
                 self.edges.push(
                     Edge::new(source_id, target_id, EdgeLabel::new(EdgeLabel::IMPLEMENTS))
+                        .with_prop("resolver", "tree-sitter-php"),
+                );
+            }
+        }
+    }
+
+    pub(crate) fn buffer_extends(&mut self, source_id: &str, target_qname: &str) {
+        self.pending_extends
+            .push((source_id.to_string(), target_qname.to_string()));
+    }
+
+    pub(crate) fn resolve_pending_extends(&mut self) {
+        let pending = std::mem::take(&mut self.pending_extends);
+        for (source_id, target_qname) in pending {
+            let target_id = item_id(&target_qname);
+            if self.node_ids.contains_key(&target_id) {
+                self.edges.push(
+                    Edge::new(source_id, target_id, EdgeLabel::new(EdgeLabel::EXTENDS))
                         .with_prop("resolver", "tree-sitter-php"),
                 );
             }
@@ -135,10 +158,23 @@ impl Emitter {
     }
 
     pub(crate) fn resolve_pending_call_sites(&mut self) {
+        let extends_parents = crate::receiver::build_extends_parents(&self.edges);
         let pending = std::mem::take(&mut self.pending_call_sites);
         for cs in pending {
-            let callee_resolved = cs
-                .resolve_target
+            let effective_target = cs.resolve_target.clone().or_else(|| {
+                let receiver = cs.receiver.as_ref()?;
+                let enclosing_class_qname = cs.enclosing_class_qname.as_deref()?;
+                crate::receiver::resolve_call(
+                    receiver,
+                    enclosing_class_qname,
+                    &cs.callee_path,
+                    &self.node_ids,
+                    &self.nodes,
+                    &extends_parents,
+                )
+            });
+
+            let callee_resolved = effective_target
                 .as_ref()
                 .is_some_and(|t| self.node_ids.contains_key(&item_id(t)));
 
@@ -159,13 +195,24 @@ impl Emitter {
             ));
 
             if callee_resolved {
-                if let Some(target) = &cs.resolve_target {
-                    self.edges.push(Edge::new(
-                        item_id(&cs.caller_qname),
-                        item_id(target),
-                        EdgeLabel::new(EdgeLabel::CALLS),
-                    ));
+                if let Some(target) = &effective_target {
+                    self.edges.push(
+                        Edge::new(
+                            item_id(&cs.caller_qname),
+                            item_id(target),
+                            EdgeLabel::new(EdgeLabel::CALLS),
+                        )
+                        .with_prop("resolved", true),
+                    );
                 }
+            }
+
+            if let Some(enclosing_arg_id) = &cs.enclosed_by {
+                self.edges.push(Edge::new(
+                    cs.id.as_str(),
+                    enclosing_arg_id.as_str(),
+                    EdgeLabel::new(EdgeLabel::ENCLOSED_BY),
+                ));
             }
 
             for argument in &cs.arguments {

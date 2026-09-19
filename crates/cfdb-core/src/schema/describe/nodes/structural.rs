@@ -223,6 +223,9 @@ fn item_attrs_extractor_structural() -> Vec<AttributeDescriptor> {
         attr("signature", "string?", "Canonical fn / method signature string of shape `[const ][async ][unsafe ]fn(<param-types>) -> <return-type>` — parameter NAMES omitted, only types contribute. Emitted on fn / method kinds only (absent on struct / enum / trait / const / impl_block / type_alias / static). Produced by `cfdb-extractor::type_render::render_fn_signature`. Load-bearing input for the `signature_divergent(a, b)` UDF (issue #47, RFC-029 §A1.5 gate v0.2-8) that discriminates Shared Kernel (same signature across bounded contexts) from Context Homonym (divergent signatures). Additive and non-breaking — V0_2_3 readers loading a keyspace that emits the prop ignore the extra attribute.", Extractor),
         attr("signature_hash", "string", "Stable hash of the item's normalized signature.", Extractor),
         attr("target", "string?", "Which cargo build target the item was walked from (RFC-054 §3.2): `lib` or `bin:<target-name>`. Cargo's own term — unrelated to the edge-endpoint sense of \"target\" and to `impl_target`. Absent ⇒ pre-RFC-054 extract OR a non-Rust producer (PHP/TS items never carry it).", Extractor),
+        attr("type_normalized", "string?", "For a `kind:\"const\"` `:Item` from `cfdb-extractor-php` (cfdb-062-php-declared-shapes §3.6): a typed class constant's declared type, resolved the way `:Field.type_normalized` and `:Param.type_normalized` are. Absent on an untyped const and on every non-PHP or non-const item.", Extractor),
+        attr("type_path", "string?", "For a `kind:\"const\"` `:Item` from `cfdb-extractor-php`: the typed class constant's declared type as written. Absent on an untyped const and on every non-PHP or non-const item.", Extractor),
+        attr("value_text", "string?", "For a `kind:\"const\"` `:Item` from `cfdb-extractor-php` (cfdb-062-php-declared-shapes §3.6): the verbatim bytes of the const's value expression, byte-faithful (not evaluated or folded). Absent on every non-PHP or non-const item.", Extractor),
         attr("visibility", "enum", "Rust visibility: `pub`, `pub(crate)`, `pub(super)`, `private`, or `pub(in <path>)`. SchemaVersion v0.1.1+ only — legacy V0_1_0 graphs do not carry this attribute.", Extractor),
         attr("return_type_normalized", "string?", "The declared return type's arms, flattened in source order and joined by `|`, resolved the way `:Param.type_normalized` and `:Field.type_normalized` are (cfdb-062-php-declared-shapes §3.1). Emitted by `cfdb-extractor-php` on `fn` items only, absent when the declaration carries no return type. Rust and TypeScript items never carry it — their return type stays in `signature`.", Extractor),
         attr("return_type_path", "string?", "The declared return type's bytes exactly as written. Emitted by `cfdb-extractor-php` on `fn` items only, absent when the declaration carries no return type.", Extractor),
@@ -264,6 +267,12 @@ pub(in crate::schema::describe) fn field_node_descriptor() -> NodeLabelDescripto
         label: Label::new(Label::FIELD),
         description: "A struct field, tuple-struct element, or enum variant field from `cfdb-extractor`; a class property (including a promoted constructor parameter, which is both a `:Field` and a `:Param`) from `cfdb-extractor-php` (cfdb-062-php-declared-shapes §3.1).".into(),
         attributes: vec![
+            attr(
+                "default_text",
+                "string?",
+                "PHP only (cfdb-062-php-declared-shapes §3.6): the verbatim bytes of the property's or promoted parameter's `default_value` field, byte-faithful. Absent when the declaration carries no default. Rust fields never carry it.",
+                Extractor,
+            ),
             attr(
                 "index",
                 "int",
@@ -333,6 +342,12 @@ pub(in crate::schema::describe) fn param_node_descriptor() -> NodeLabelDescripto
         label: Label::new(Label::PARAM),
         description: "A function or method parameter (Rust); a PHP method or function parameter, including a promoted constructor parameter, which is also a `:Field` (cfdb-062-php-declared-shapes §3.1).".into(),
         attributes: vec![
+            attr(
+                "default_text",
+                "string?",
+                "PHP only (cfdb-062-php-declared-shapes §3.6): the verbatim bytes of the parameter's `default_value` field, byte-faithful. Absent when the parameter carries no default. Rust parameters never carry it.",
+                Extractor,
+            ),
             attr("index", "int", "Parameter position (0-based) among the formal parameters, per producer.", Extractor),
             attr(
                 "is_self",
@@ -362,6 +377,80 @@ pub(in crate::schema::describe) fn param_node_descriptor() -> NodeLabelDescripto
                 "type_path",
                 "string?",
                 "Raw type as written in source. Absent when the declaration carries no type.",
+                Extractor,
+            ),
+        ],
+    }
+}
+
+pub(in crate::schema::describe) fn supertype_node_descriptor() -> NodeLabelDescriptor {
+    use Provenance::Extractor;
+    NodeLabelDescriptor {
+        label: Label::new(Label::SUPERTYPE),
+        description: "One declared `extends` or `implements` name of a class-like Item, as written, emitted by `cfdb-extractor-php` (cfdb-062-php-declared-shapes#3.2). It records a name and never resolves it away: no `:Item` is invented for a target outside the walked tree, so a vendor supertype (`PDO`, `Psr\\Log\\LoggerInterface`) is recorded as written even though it never gains an `EXTENDS` edge. Id `supertype:{class qname}#{idx}` via `cfdb_core::qname::supertype_node_id`, `idx` the zero-based declaration order with `extends` names first. Distinct from the resolved `EXTENDS` edge the same clause may also produce: the node is the declaration, the edge the in-workspace relation. SchemaVersion V0_8_0+; keyspaces from a producer without `lang-php` carry zero.".into(),
+        attributes: vec![
+            attr(
+                "relation",
+                "string",
+                "`extends` or `implements`, naming which clause declared this name.",
+                Extractor,
+            ),
+            attr(
+                "written",
+                "string",
+                "The name exactly as written in the clause, unresolved.",
+                Extractor,
+            ),
+            attr(
+                "fqn",
+                "string",
+                "The fully-qualified name resolved through `ImportTable::resolve`, no leading backslash, emitted whether or not a node with that name exists in the graph.",
+                Extractor,
+            ),
+            attr(
+                "file",
+                "string",
+                "Workspace-relative path of the declaring file.",
+                Extractor,
+            ),
+            attr(
+                "line",
+                "int",
+                "1-indexed line of the name.",
+                Extractor,
+            ),
+        ],
+    }
+}
+
+pub(in crate::schema::describe) fn attribute_node_descriptor() -> NodeLabelDescriptor {
+    use Provenance::Extractor;
+    NodeLabelDescriptor {
+        label: Label::new(Label::ATTRIBUTE),
+        description: "A PHP attribute (`#[...]`) on a class-like, method, function, parameter or property, including a promoted constructor parameter, which yields two `:Attribute` nodes — one owned by the `:Param`, one by the `:Field` — since §3.1 makes a promoted parameter both. Emitted by `cfdb-extractor-php` alone (cfdb-062-php-declared-shapes §3.5). Closed-world, the `:Import` shape: it records a name and never resolves it, so a vendor attribute like `#[Autowire]` is recorded as written with no node invented for it. The attribute's own arguments are not modelled (§6). SchemaVersion V0_8_0+; keyspaces predating this slice carry zero.".into(),
+        attributes: vec![
+            attr(
+                "file",
+                "string",
+                "Workspace-relative path of the declaring file, denormalized as `:Import.file` already is.",
+                Extractor,
+            ),
+            attr(
+                "fqn",
+                "string",
+                "The fully-qualified attribute name, resolved through the same `ImportTable::resolve` rule as `:Import.fqn` — no leading backslash, emitted whether or not a node with that name exists in the graph.",
+                Extractor,
+            ),
+            attr(
+                "line",
+                "int",
+                "1-indexed line of the attribute.",
+                Extractor,
+            ),
+            attr(
+                "written",
+                "string",
+                "The attribute name exactly as written in source, before resolution.",
                 Extractor,
             ),
         ],

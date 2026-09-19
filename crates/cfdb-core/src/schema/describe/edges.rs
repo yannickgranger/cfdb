@@ -109,7 +109,15 @@ pub(super) fn edge_descriptors() -> Vec<EdgeLabelDescriptor> {
             attributes: vec![attr(
                 "resolved",
                 "bool",
-                "`true` when the dispatch was resolved via HIR type inference (`cfdb-hir-extractor`, v0.2+); `false` for textual / unresolved baseline. SchemaVersion v0.1.4+ only. The HIR-based extractor is the first producer of :CALLS edges — v0.1.3 and earlier graphs have no CALLS edges at all.",
+                "`true` on every :CALLS edge; a producer emits the edge only once dispatch is \
+                 resolved, so there is no `false` row to carry. What `true` certifies differs by \
+                 producer — fence on the edge's :CallSite.resolver to tell them apart. \
+                 `cfdb-hir-extractor` (`resolver = \"hir\"`, SchemaVersion v0.1.4+): resolved \
+                 via HIR type inference. `cfdb-extractor-php` (`resolver = \"tree-sitter-php\"`, \
+                 cfdb-062-php-declared-shapes+): resolved through imports, the enclosing class, or \
+                 a declared property type (cfdb-060-php-fact-model :Field.type_normalized) — never \
+                 through runtime type inference. The HIR-based extractor is the first producer of \
+                 :CALLS edges — v0.1.3 and earlier graphs have no CALLS edges at all.",
                 Extractor,
             )],
             from: vec![Label::new(Label::ITEM)],
@@ -146,6 +154,14 @@ pub(super) fn edge_descriptors() -> Vec<EdgeLabelDescriptor> {
                           No attributes — position lives on the :Argument node. \
                           SchemaVersion V0_5_0+; pre-V0_5_0 keyspaces carry zero HAS_ARG edges."
                 .into(),
+            attributes: vec![],
+            from: vec![Label::new(Label::CALL_SITE)],
+            to: vec![Label::new(Label::ARGUMENT)],
+            provenance: Provenance::Extractor,
+        },
+        EdgeLabelDescriptor {
+            label: EdgeLabel::new(EdgeLabel::ENCLOSED_BY),
+            description: "A CallSite lies lexically inside the anonymous_function or arrow_function that is the expression of the target Argument — the nearest enclosing closure-as-argument (cfdb-062-php-declared-shapes#3.4). An eagerly-evaluated argument (the call is not itself a closure literal) yields no edge, and a closure that is not directly an argument's own expression (assigned to a variable, returned) resets: a call site inside it carries no edge either, even when that closure sits inside an outer argument closure. No edge attributes. Emitted by cfdb-extractor-php only. SchemaVersion V0_8_0+; keyspaces predating this slice carry zero ENCLOSED_BY edges.".into(),
             attributes: vec![],
             from: vec![Label::new(Label::CALL_SITE)],
             to: vec![Label::new(Label::ARGUMENT)],
@@ -228,6 +244,47 @@ pub(super) fn edge_descriptors() -> Vec<EdgeLabelDescriptor> {
             from: vec![Label::new(Label::ITEM)],
             to: vec![Label::new(Label::RFC_DOC)],
             provenance: Provenance::EnrichRfcDocs,
+        },
+        EdgeLabelDescriptor {
+            label: EdgeLabel::new(EdgeLabel::EXTENDS),
+            description: "The class-like Item on the `extends` side of a `base_clause` points at the `:Item` of each name that resolves in-workspace (cfdb-062-php-declared-shapes#3.2). Closed-world, same resolution pass as `IMPLEMENTS`: a name outside the workspace yields no edge, only its `:Supertype` node. Distinct from `IMPLEMENTS` — the two never overlap on one clause — so a rule walking the declared supertype graph reads `IMPLEMENTS|EXTENDS*`. Emitted by `cfdb-extractor-php` alone. SchemaVersion V0_8_0+; keyspaces from a producer without `lang-php` carry zero EXTENDS edges.".into(),
+            attributes: vec![attr(
+                "resolver",
+                "enum",
+                "Which producer resolved this edge, mirroring `IMPLEMENTS.resolver`: `tree-sitter-php` today, the only producer that emits EXTENDS.",
+                Extractor,
+            )],
+            from: vec![Label::new(Label::ITEM)],
+            to: vec![Label::new(Label::ITEM)],
+            provenance: Provenance::Extractor,
+        },
+        EdgeLabelDescriptor {
+            label: EdgeLabel::new(EdgeLabel::HAS_SUPERTYPE),
+            description: "A class-like Item owns a declared `:Supertype` — one per name in its `base_clause` or `class_interface_clause` (cfdb-062-php-declared-shapes#3.2), the `:Import`/`HAS_IMPORT` shape applied to declared supertypes. No attributes — `relation`, `written` and `fqn` live on the `:Supertype` node. Emitted by `cfdb-extractor-php` alone. SchemaVersion V0_8_0+; keyspaces from a producer without `lang-php` carry zero HAS_SUPERTYPE edges.".into(),
+            attributes: vec![],
+            from: vec![Label::new(Label::ITEM)],
+            to: vec![Label::new(Label::SUPERTYPE)],
+            provenance: Provenance::Extractor,
+        },
+        EdgeLabelDescriptor {
+            label: EdgeLabel::new(EdgeLabel::READS_GLOBAL),
+            description: "The containing fn/method Item points at a GlobalRead for a PHP superglobal access inside its body (Item → GlobalRead), mirroring INVOKES_AT for call sites and MATCHES_AT for match sites (cfdb-062-php-declared-shapes#3.7). No edge attributes. Emitted by cfdb-extractor-php only. SchemaVersion V0_8_0+; keyspaces predating this slice carry zero READS_GLOBAL edges.".into(),
+            attributes: vec![],
+            from: vec![Label::new(Label::ITEM)],
+            to: vec![Label::new(Label::GLOBAL_READ)],
+            provenance: Provenance::Extractor,
+        },
+        EdgeLabelDescriptor {
+            label: EdgeLabel::new(EdgeLabel::HAS_ATTRIBUTE),
+            description: "A class-like, method, function, Param or Field owns a PHP attribute (`#[...]`) declared on it. A promoted constructor parameter's attribute reaches the graph as two HAS_ATTRIBUTE edges, one from the :Param and one from the :Field (cfdb-062-php-declared-shapes §3.5). No attributes on the edge — the attribute's own name lives on the :Attribute node. SchemaVersion V0_8_0+; keyspaces predating this slice carry zero HAS_ATTRIBUTE edges.".into(),
+            attributes: vec![],
+            from: vec![
+                Label::new(Label::ITEM),
+                Label::new(Label::PARAM),
+                Label::new(Label::FIELD),
+            ],
+            to: vec![Label::new(Label::ATTRIBUTE)],
+            provenance: Provenance::Extractor,
         },
     ]
 }

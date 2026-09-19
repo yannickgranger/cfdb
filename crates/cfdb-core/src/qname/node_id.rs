@@ -99,6 +99,21 @@ pub fn argument_node_id(callsite_id: &str, position: u32) -> String {
     format!("arg:{callsite_id}#{position}")
 }
 
+#[must_use]
+pub fn supertype_node_id(class_qname: &str, idx: usize) -> String {
+    format!("supertype:{class_qname}#{idx}")
+}
+
+#[must_use]
+pub fn global_read_node_id(caller_qname: &str, name: &str, idx: usize) -> String {
+    format!("globalread:{caller_qname}:{name}:{idx}")
+}
+
+#[must_use]
+pub fn attribute_node_id(owner_id: &str, idx: usize) -> String {
+    format!("attr:{owner_id}#{idx}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -173,6 +188,40 @@ mod tests {
     }
 
     #[test]
+    fn global_read_node_id_formula_is_globalread_colon_caller_colon_name_colon_idx() {
+        assert_eq!(
+            global_read_node_id("App\\Fixture::run", "_ENV", 0),
+            "globalread:App\\Fixture::run:_ENV:0"
+        );
+    }
+
+    #[test]
+    fn global_read_node_id_disambiguates_by_idx_not_name() {
+        let caller = "App\\Fixture::run";
+        assert_ne!(
+            global_read_node_id(caller, "_ENV", 0),
+            global_read_node_id(caller, "_ENV", 1)
+        );
+    }
+
+    #[test]
+    fn global_read_node_id_disambiguates_by_name_not_only_idx() {
+        let caller = "App\\Fixture::run";
+        assert_ne!(
+            global_read_node_id(caller, "_ENV", 0),
+            global_read_node_id(caller, "_SERVER", 0)
+        );
+    }
+
+    #[test]
+    fn global_read_node_id_disambiguates_by_caller() {
+        assert_ne!(
+            global_read_node_id("App\\A::run", "_ENV", 0),
+            global_read_node_id("App\\B::run", "_ENV", 0)
+        );
+    }
+
+    #[test]
     fn lib_target_id_is_byte_identical_to_item_node_id() {
         let lib = TargetDiscriminator::Lib;
         assert_eq!(
@@ -233,6 +282,18 @@ mod tests {
     }
 
     #[test]
+    fn supertype_node_id_formula_is_supertype_colon_qname_hash_idx() {
+        assert_eq!(supertype_node_id(r"App\C", 0), "supertype:App\\C#0");
+        assert_eq!(supertype_node_id(r"App\C", 1), "supertype:App\\C#1");
+    }
+
+    #[test]
+    fn supertype_node_id_disambiguates_by_index_not_relation() {
+        let qname = r"App\C";
+        assert_ne!(supertype_node_id(qname, 0), supertype_node_id(qname, 1));
+    }
+
+    #[test]
     fn entrypoint_node_id_formula_embeds_the_handler_identity() {
         assert_eq!(
             entrypoint_node_id(
@@ -268,5 +329,18 @@ mod tests {
             variant_node_id(&identity, 1),
             "variant:twobins::make#bin:alpha#1"
         );
+    }
+
+    #[test]
+    fn attribute_node_id_formula_is_attr_colon_owner_hash_idx() {
+        let param = "param:App\\C::m#0";
+        assert_eq!(attribute_node_id(param, 0), "attr:param:App\\C::m#0#0");
+        assert_eq!(attribute_node_id(param, 1), "attr:param:App\\C::m#0#1");
+    }
+
+    #[test]
+    fn attribute_node_id_disambiguates_by_idx() {
+        let owner = "item:App\\C::m";
+        assert_ne!(attribute_node_id(owner, 0), attribute_node_id(owner, 1));
     }
 }
