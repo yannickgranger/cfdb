@@ -484,3 +484,71 @@ jobs:
           # 30 on any finding blocks merge. Fix at source (companion repo)
           # or scope the rule narrower — no allowlist.
           ./ci/cross-dogfood.sh
+
+  fence:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone
+        run: |
+          BRANCH=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}
+          git clone --depth=1 --branch="$BRANCH" "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" repo
+      - name: deliberation scaffolding is ephemeral (no tracked council/ tree)
+        run: |
+          set -e
+          cd repo
+          tracked=$(git ls-files | grep -E '(^|/)council/' || true)
+          if [ -n "$tracked" ]; then
+            echo "FATAL: council deliberation is ephemeral — the synthesis is the RFC (CLAUDE.md §2.3); tracked council/ paths:" >&2
+            printf '  %s\n' $tracked >&2
+            exit 1
+          fi
+          echo "ok: no tracked council/ path"
+
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone
+        run: |
+          BRANCH=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}
+          git clone --branch="$BRANCH" "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" repo
+      - name: docs/RFC-*.md is a byte-identical mirror of the doxa corpus at doxa.rev
+        run: |
+          set -e
+          cd repo
+          DOXA_REV=$(tr -d '[:space:]' < doxa.rev)
+          git clone -q https://agency.lab:3000/yg/doxa.git .doxa
+          git -C .doxa checkout -q "$DOXA_REV"
+          python3 scripts/doxa-mirror-check.py --self-test
+          python3 scripts/doxa-mirror-check.py --doxa .doxa --prefix cfdb --path-template 'docs/RFC-{tail}.md' --mirror 'docs/RFC-*.md'
+
+  own-gate:
+    name: Own gate (keel level, corpus-wide)
+    runs-on: rust
+    env:
+      RUSTFLAGS: ""
+    container:
+      image: docker.io/library/rust:1.93
+    steps:
+      - name: Setup
+        run: |
+          set -e
+          apt-get clean && apt-get update && apt-get install -y --no-install-recommends git build-essential ca-certificates python3
+          mkdir -p /cache/cargo/registry /cache/cargo/git ~/.cargo
+          ln -sf /cache/cargo/registry ~/.cargo/registry
+          ln -sf /cache/cargo/git ~/.cargo/git
+      - name: Clone
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}
+          git config --global url."https://oauth2:${GITHUB_TOKEN}@agency.lab:3000/".insteadOf "https://agency.lab:3000/"
+          git clone --depth=1 --branch="$BRANCH" "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" repo
+      - name: Provision cascade, vocab and keel at the pinned revs
+        run: |
+          set -e
+          cd repo
+          bash scripts/provision-instruments.sh
+      - name: Own gate — keel level, corpus-wide, zero silence
+        run: |
+          cd repo
+          bash scripts/own-gate.sh
