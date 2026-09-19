@@ -43,6 +43,17 @@ class Fixture
     private function a(): void
     {
     }
+
+    public function chained(): void
+    {
+        new self()->m(function () {
+            $this->a();
+        });
+    }
+
+    public function m($cb): void
+    {
+    }
 }
 "#;
 
@@ -191,6 +202,48 @@ fn a_closure_assigned_to_a_variable_inside_an_argument_closure_resets_enclosure(
         "`$f = function () {{ $this->a(); }};` is not itself an argument's own expression, so a call \
          site inside it carries no ENCLOSED_BY even though the assignment sits inside an outer \
          argument closure — it may run anywhere"
+    );
+}
+
+#[test]
+fn a_construction_used_as_a_chained_receiver_carries_no_enclosed_by_and_its_chained_argument_still_does(
+) {
+    let (nodes, edges) = produce();
+    let construction = call_site_at(&nodes, "self", 36);
+    let chained_call = call_site_at(&nodes, "m", 36);
+    let inner = call_site_at(&nodes, "a", 37);
+
+    assert_eq!(
+        prop(construction, "kind"),
+        Some("new"),
+        "`new self()` is a construction call site, not a member call"
+    );
+    assert!(
+        enclosed_by(&edges, &nodes, construction).is_none(),
+        "the construction is the receiver of the chained `->m(...)` call, not the contents of an \
+         argument closure — PHP 8.4's parenless `new self()->m(...)` visits the receiver through \
+         the same general per-child loop as any other member-call receiver, unaffected by the \
+         argument-dispatch that only fires inside `->m(...)`'s own `arguments`"
+    );
+    assert!(
+        enclosed_by(&edges, &nodes, chained_call).is_none(),
+        "`m(...)` itself sits at the top of `chained()`'s body, inside no argument closure"
+    );
+
+    let arg = enclosed_by(&edges, &nodes, inner).expect(
+        "`$this->a()` inside the closure argument of the chained `->m(...)` call carries \
+         ENCLOSED_BY exactly as it would if the receiver were a plain variable",
+    );
+    assert_eq!(
+        owning_call_site_id(&edges, arg),
+        chained_call.id,
+        "the enclosing argument belongs to `m`'s call site, not to the `new self()` construction \
+         beside it"
+    );
+    assert_eq!(
+        prop(inner, "caller_qname"),
+        Some(r"App\Fixture::chained"),
+        "caller_qname still names the enclosing method, same as every other case in this file"
     );
 }
 
